@@ -83,4 +83,85 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertEqual(record.selectedForumIDs, [])
         XCTAssertEqual(record.selectedForumIDsRaw, "")
     }
+
+    func testUnreadMessagePolicyEstablishesFirstBaselineWithoutNotifying() {
+        let inbox = MessagePage(
+            folder: .inbox,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 10),
+                    kind: .privateMessage,
+                    sender: "甲",
+                    subject: "私信",
+                    preview: "",
+                    isUnread: true
+                )
+            ],
+            page: 1,
+            hasMore: false
+        )
+
+        let update = UnreadMessagePolicy.update(
+            pages: [inbox],
+            previouslySeenKeys: nil
+        )
+
+        XCTAssertTrue(update.newMessages.isEmpty)
+        XCTAssertEqual(update.seenKeys, ["inbox:10"])
+        XCTAssertEqual(update.unreadCount, 1)
+    }
+
+    func testUnreadMessagePolicyDetectsReplacementWhenCountDoesNotChange() {
+        let inbox = MessagePage(
+            folder: .inbox,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 11),
+                    kind: .privateMessage,
+                    sender: "乙",
+                    subject: "新私信",
+                    preview: "",
+                    isUnread: true
+                )
+            ],
+            page: 1,
+            hasMore: false
+        )
+
+        let update = UnreadMessagePolicy.update(
+            pages: [inbox],
+            previouslySeenKeys: ["inbox:10"]
+        )
+
+        XCTAssertEqual(update.newMessages.map(\.message.id), [MessageID(rawValue: 11)])
+        XCTAssertEqual(update.newMessages.map(\.folder), [.inbox])
+        XCTAssertEqual(update.unreadCount, 1)
+        XCTAssertEqual(update.seenKeys, ["inbox:11", "inbox:10"])
+    }
+
+    func testUnreadMessagePolicyKeepsFoldersDistinct() {
+        let reminders = MessagePage(
+            folder: .reminders,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 10),
+                    kind: .mention,
+                    sender: "丙",
+                    subject: "提醒",
+                    preview: "",
+                    isUnread: true
+                )
+            ],
+            page: 1,
+            hasMore: false
+        )
+
+        let update = UnreadMessagePolicy.update(
+            pages: [reminders],
+            previouslySeenKeys: ["inbox:10"]
+        )
+
+        XCTAssertEqual(update.newMessages.map(\.folder), [.reminders])
+        XCTAssertEqual(update.seenKeys.first, "reminders:10")
+    }
 }

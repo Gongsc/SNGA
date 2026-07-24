@@ -13,6 +13,7 @@ final class AccountRecord {
     var lastCheckInDay: String?
     var lastCheckInMessage: String?
     var unreadBaseline: Int?
+    var seenUnreadMessageKeysRaw: String?
 
     init(
         id: UUID = UUID(),
@@ -32,6 +33,15 @@ final class AccountRecord {
     }
 
     var accountID: AccountID { AccountID(rawValue: id) }
+    var seenUnreadMessageKeys: [String]? {
+        get {
+            seenUnreadMessageKeysRaw?.split(separator: "\n").map(String.init)
+        }
+        set {
+            seenUnreadMessageKeysRaw = newValue?.joined(separator: "\n")
+        }
+    }
+
     var sessionState: SessionState {
         get { SessionState(rawValue: sessionStateRaw) ?? .temporaryFailure }
         set { sessionStateRaw = newValue.rawValue }

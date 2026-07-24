@@ -8,7 +8,12 @@ struct MessageListView: View {
         VStack(spacing: 0) {
             Picker("消息分类", selection: Binding(
                 get: { model.messageFolder },
-                set: { newValue in Task { await model.loadMessages(folder: newValue) } }
+                set: { newValue in
+                    model.messageFolder = newValue
+                    model.sidebarSelection = .messages(newValue)
+                    model.selectedMessageID = nil
+                    model.currentMessage = nil
+                }
             )) {
                 ForEach(MessageFolder.allCases) { folder in
                     Text(folder.title).tag(folder)

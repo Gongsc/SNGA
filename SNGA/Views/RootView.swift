@@ -87,7 +87,14 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .sngaOpenMessage)) { notification in
             let accountID = notification.userInfo?["accountID"] as? String ?? ""
             let messageID = notification.userInfo?["messageID"] as? String ?? ""
-            Task { await model.handleNotification(accountIDString: accountID, messageIDString: messageID) }
+            let messageFolder = notification.userInfo?["messageFolder"] as? String ?? ""
+            Task {
+                await model.handleNotification(
+                    accountIDString: accountID,
+                    messageIDString: messageID,
+                    messageFolderString: messageFolder
+                )
+            }
         }
         .overlay {
             if let imageURL = model.previewImageURL {

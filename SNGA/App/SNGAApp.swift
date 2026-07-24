@@ -220,11 +220,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let accountID = response.notification.request.content.userInfo["accountID"] as? String
         let messageID = response.notification.request.content.userInfo["messageID"] as? String
+        let messageFolder = response.notification.request.content.userInfo["messageFolder"] as? String
         Task { @MainActor in
             NotificationCenter.default.post(
                 name: .sngaOpenMessage,
                 object: nil,
-                userInfo: ["accountID": accountID ?? "", "messageID": messageID ?? ""]
+                userInfo: [
+                    "accountID": accountID ?? "",
+                    "messageID": messageID ?? "",
+                    "messageFolder": messageFolder ?? ""
+                ]
             )
         }
         completionHandler()
