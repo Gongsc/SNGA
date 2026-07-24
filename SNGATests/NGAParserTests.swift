@@ -940,7 +940,7 @@ final class NGAParserTests: XCTestCase {
           }
         }
         """)
-        let inbox = try parser.messages(from: privateMessages, folder: .inbox, page: 1)
+        let inbox = try parser.messages(from: privateMessages, folder: .privateMessages, page: 1)
         XCTAssertEqual(inbox.messages.first?.id, MessageID(rawValue: 42))
         XCTAssertEqual(inbox.messages.first?.sender, "Alice")
         XCTAssertEqual(inbox.messages.first?.preview, "共 3 条消息")
@@ -951,16 +951,25 @@ final class NGAParserTests: XCTestCase {
           "data": {
             "0": {
               "0": [
+                {"0":"1","1":"90","2":"Carol","5":"有人回复了你","6":"100","7":"190","8":"191","9":"1700000100","10":"1"},
                 {"0":"7","1":"100","2":"Bob","5":"有人提到了你","6":"101","7":"200","8":"201","9":"1700000200","10":"1"}
-              ]
+              ],
+              "1": [
+                {"0":"10","1":"100","2":"Alice","5":"新短消息","9":"1700000300","10":"1"}
+              ],
+              "unread": "1"
             }
           }
         }
         """)
-        let reminders = try parser.messages(from: notifications, folder: .reminders, page: 1)
+        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(reminders.messages.count, 2)
         XCTAssertEqual(reminders.messages.first?.kind, .mention)
         XCTAssertEqual(reminders.messages.first?.sender, "Bob")
         XCTAssertEqual(reminders.messages.first?.topicID, TopicID(rawValue: 101))
+        XCTAssertEqual(reminders.messages.first?.isUnread, true)
+        XCTAssertEqual(reminders.messages.last?.kind, .reply)
+        XCTAssertEqual(reminders.messages.last?.isUnread, false)
     }
 
     func testVisitorPermissionErrorDoesNotMeanWholeSessionExpired() {
@@ -969,7 +978,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertThrowsError(
             try parser.messages(
                 from: response(payload),
-                folder: .inbox,
+                folder: .privateMessages,
                 page: 1
             )
         ) { error in
@@ -981,12 +990,12 @@ final class NGAParserTests: XCTestCase {
     }
 
     func testMessageEndpointsUseCurrentRoutes() {
-        let inbox = NGAEndpoint.messages(folder: .inbox, page: 1)
+        let inbox = NGAEndpoint.messages(folder: .privateMessages, page: 1)
         XCTAssertEqual(inbox.method, .post)
         XCTAssertEqual(inbox.queryItems.first(where: { $0.name == "__lib" })?.value, "message")
         XCTAssertEqual(inbox.queryItems.first(where: { $0.name == "act" })?.value, "list")
 
-        let reminders = NGAEndpoint.messages(folder: .reminders, page: 1)
+        let reminders = NGAEndpoint.messages(folder: .notifications, page: 1)
         XCTAssertEqual(reminders.queryItems.first(where: { $0.name == "__act" })?.value, "get_all")
 
         let detail = NGAEndpoint.message(id: MessageID(rawValue: 42))

@@ -30,7 +30,7 @@ final class AppModel {
     var hotReplies: [Post] = []
     var messages: [ForumMessage] = []
     var currentMessage: ForumMessage?
-    var messageFolder: MessageFolder = .inbox
+    var messageFolder: MessageFolder = .privateMessages
 
     var topicPage = 1
     var topicHasMore = false
@@ -71,6 +71,7 @@ final class AppModel {
     @ObservationIgnored private var messageListRequestID: UUID?
     @ObservationIgnored private var messageDetailRequestID: UUID?
     @ObservationIgnored private var favoriteRequestID: UUID?
+    @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
 
     init(
         container: ModelContainer,
@@ -709,22 +710,35 @@ final class AppModel {
         sidebarSelection = .messages(folder)
         let page = reset ? 1 : messagePage + 1
         await withLoading(isCurrent: { self.messageListRequestID == requestID }) {
-            let result = try await service.messages(folder: folder, page: page)
+            var result = try await service.messages(folder: folder, page: page)
             guard activeAccountID == requestAccountID,
                   messageListRequestID == requestID,
                   sidebarSelection == .messages(folder),
                   messageFolder == folder else {
                 return
             }
+            result.messages = applyingPersistedReadState(
+                to: result.messages,
+                folder: folder,
+                accountID: requestAccountID
+            )
             messages = reset ? result.messages : merged(messages, result.messages)
             messagePage = page
             messageHasMore = result.hasMore
-            unreadCount = messages.filter(\.isUnread).count
+            setUnreadCount(messages.filter(\.isUnread).count, for: folder)
         }
     }
 
     func openMessage(_ message: ForumMessage) async {
+        selectedTopicID = nil
+        currentTopic = nil
         selectedMessageID = message.id
+        let folder = messageFolder
+        if folder == .notifications {
+            markMessageRead(message, folder: folder)
+            currentMessage = messages.first(where: { $0.id == message.id }) ?? message
+            return
+        }
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let requestID = UUID()
@@ -737,6 +751,7 @@ final class AppModel {
                 return
             }
             currentMessage = result
+            markMessageRead(message, folder: folder)
         }
     }
 
@@ -894,16 +909,28 @@ final class AppModel {
         for record in records where record.sessionState == .valid {
             guard let service = services[record.accountID] else { continue }
             do {
-                async let inbox = service.messages(folder: .inbox, page: 1)
-                async let reminders = service.messages(folder: .reminders, page: 1)
-                let pages = try await [inbox, reminders]
+                async let privateMessages = service.messages(folder: .privateMessages, page: 1)
+                async let notifications = service.messages(folder: .notifications, page: 1)
+                var pages = try await [privateMessages, notifications]
+                if let notificationIndex = pages.firstIndex(where: { $0.folder == .notifications }) {
+                    pages[notificationIndex].messages = applyingPersistedReadState(
+                        to: pages[notificationIndex].messages,
+                        folder: .notifications,
+                        accountID: record.accountID
+                    )
+                }
                 let update = UnreadMessagePolicy.update(
                     pages: pages,
                     previouslySeenKeys: record.seenUnreadMessageKeys
                 )
                 record.seenUnreadMessageKeys = update.seenKeys
                 record.unreadBaseline = update.unreadCount
-                if record.accountID == activeAccountID { unreadCount = update.unreadCount }
+                if record.accountID == activeAccountID {
+                    for page in pages {
+                        messageUnreadCounts[page.folder] = page.messages.filter(\.isUnread).count
+                    }
+                    unreadCount = messageUnreadCounts.values.reduce(0, +)
+                }
                 let account = record.summary()
                 for item in update.newMessages {
                     await notificationService.notify(
@@ -963,7 +990,7 @@ final class AppModel {
               let rawMessageID = Int64(messageIDString) else {
             return
         }
-        let folder = MessageFolder(rawValue: messageFolderString) ?? .inbox
+        let folder = MessageFolder(rawValue: messageFolderString) ?? .privateMessages
         await selectAccount(accountID)
         await loadMessages(folder: folder)
         if let message = messages.first(where: { $0.id.rawValue == rawMessageID }) {
@@ -1105,6 +1132,7 @@ final class AppModel {
         topicHasMore = false
         topicTotalPages = 1
         unreadCount = 0
+        messageUnreadCounts = [:]
     }
 
     private func beginLoading() {
@@ -1183,6 +1211,57 @@ final class AppModel {
     private func merged<T: Identifiable>(_ existing: [T], _ incoming: [T]) -> [T] where T.ID: Hashable {
         var seen = Set(existing.map(\.id))
         return existing + incoming.filter { seen.insert($0.id).inserted }
+    }
+
+    private func applyingPersistedReadState(
+        to messages: [ForumMessage],
+        folder: MessageFolder,
+        accountID: AccountID
+    ) -> [ForumMessage] {
+        guard folder == .notifications,
+              let record = accountRecord(id: accountID) else {
+            return messages
+        }
+        // NGA 的提醒接口在读取后会清除服务端未读计数；在用户实际打开提醒前，
+        // 用本地状态保留未读标记，避免下一轮轮询把提醒误判为已读。
+        return NotificationReadPolicy.applying(
+            to: messages,
+            folder: folder,
+            readKeys: record.readNotificationKeys,
+            previouslyUnreadKeys: record.seenUnreadMessageKeys ?? []
+        )
+    }
+
+    private func markMessageRead(_ message: ForumMessage, folder: MessageFolder) {
+        guard message.isUnread else { return }
+        if let index = messages.firstIndex(where: { $0.id == message.id }) {
+            messages[index].isUnread = false
+        }
+        if currentMessage?.id == message.id {
+            currentMessage?.isUnread = false
+        }
+        setUnreadCount(max(0, (messageUnreadCounts[folder] ?? 0) - 1), for: folder)
+
+        guard folder == .notifications,
+              let activeAccountID,
+              let record = accountRecord(id: activeAccountID) else {
+            return
+        }
+        let key = UnreadMessagePolicy.key(folder: folder, messageID: message.id)
+        var keys = record.readNotificationKeys.filter { $0 != key }
+        keys.insert(key, at: 0)
+        record.readNotificationKeys = Array(keys.prefix(UnreadMessagePolicy.maximumSeenKeyCount))
+        try? context.save()
+    }
+
+    private func setUnreadCount(_ count: Int, for folder: MessageFolder) {
+        messageUnreadCounts[folder] = max(0, count)
+        unreadCount = messageUnreadCounts.values.reduce(0, +)
+    }
+
+    private func accountRecord(id: AccountID) -> AccountRecord? {
+        ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
+            .first { $0.accountID == id }
     }
 
     private func updateVoteState(

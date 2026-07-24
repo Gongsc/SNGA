@@ -87,7 +87,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
 
     func testUnreadMessagePolicyEstablishesFirstBaselineWithoutNotifying() {
         let inbox = MessagePage(
-            folder: .inbox,
+            folder: .privateMessages,
             messages: [
                 ForumMessage(
                     id: MessageID(rawValue: 10),
@@ -114,7 +114,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
 
     func testUnreadMessagePolicyDetectsReplacementWhenCountDoesNotChange() {
         let inbox = MessagePage(
-            folder: .inbox,
+            folder: .privateMessages,
             messages: [
                 ForumMessage(
                     id: MessageID(rawValue: 11),
@@ -135,14 +135,14 @@ final class FavoriteAndCheckInTests: XCTestCase {
         )
 
         XCTAssertEqual(update.newMessages.map(\.message.id), [MessageID(rawValue: 11)])
-        XCTAssertEqual(update.newMessages.map(\.folder), [.inbox])
+        XCTAssertEqual(update.newMessages.map(\.folder), [.privateMessages])
         XCTAssertEqual(update.unreadCount, 1)
         XCTAssertEqual(update.seenKeys, ["inbox:11", "inbox:10"])
     }
 
     func testUnreadMessagePolicyKeepsFoldersDistinct() {
         let reminders = MessagePage(
-            folder: .reminders,
+            folder: .notifications,
             messages: [
                 ForumMessage(
                     id: MessageID(rawValue: 10),
@@ -162,7 +162,35 @@ final class FavoriteAndCheckInTests: XCTestCase {
             previouslySeenKeys: ["inbox:10"]
         )
 
-        XCTAssertEqual(update.newMessages.map(\.folder), [.reminders])
+        XCTAssertEqual(update.newMessages.map(\.folder), [.notifications])
         XCTAssertEqual(update.seenKeys.first, "reminders:10")
+    }
+
+    func testNotificationReadPolicyKeepsUnreadUntilUserOpensIt() {
+        let message = ForumMessage(
+            id: MessageID(rawValue: 99),
+            kind: .mention,
+            sender: "Alice",
+            subject: "提醒",
+            preview: "有人提到了你",
+            isUnread: false
+        )
+        let key = UnreadMessagePolicy.key(folder: .notifications, messageID: message.id)
+
+        let stillUnread = NotificationReadPolicy.applying(
+            to: [message],
+            folder: .notifications,
+            readKeys: [],
+            previouslyUnreadKeys: [key]
+        )
+        XCTAssertEqual(stillUnread.first?.isUnread, true)
+
+        let opened = NotificationReadPolicy.applying(
+            to: stillUnread,
+            folder: .notifications,
+            readKeys: [key],
+            previouslyUnreadKeys: [key]
+        )
+        XCTAssertEqual(opened.first?.isUnread, false)
     }
 }

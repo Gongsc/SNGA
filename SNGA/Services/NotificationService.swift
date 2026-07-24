@@ -47,6 +47,29 @@ enum UnreadMessagePolicy {
     }
 }
 
+enum NotificationReadPolicy {
+    static func applying(
+        to messages: [ForumMessage],
+        folder: MessageFolder,
+        readKeys: [String],
+        previouslyUnreadKeys: [String]
+    ) -> [ForumMessage] {
+        guard folder == .notifications else { return messages }
+        let readSet = Set(readKeys)
+        let unreadSet = Set(previouslyUnreadKeys)
+        return messages.map { message in
+            var value = message
+            let key = UnreadMessagePolicy.key(folder: folder, messageID: message.id)
+            if readSet.contains(key) {
+                value.isUnread = false
+            } else if unreadSet.contains(key) {
+                value.isUnread = true
+            }
+            return value
+        }
+    }
+}
+
 actor NotificationService {
     static let shared = NotificationService()
     private var requestedAuthorization = false

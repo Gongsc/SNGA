@@ -554,9 +554,21 @@ struct NGAParser: Sendable {
         if let root = jsonRoot(response.data) {
             try throwJSONErrorIfPresent(in: root)
             let payload = jsonPayload(in: root)
-            let values: [ForumMessage]
-            if folder == .reminders {
-                values = dictionaries(in: payload).compactMap(notificationMessage(from:))
+            var values: [ForumMessage]
+            if folder == .notifications {
+                values = dictionaries(in: payload)
+                    .compactMap(notificationMessage(from:))
+                    .filter { $0.kind != .privateMessage }
+                    .sorted {
+                        ($0.sentAt ?? .distantPast) < ($1.sentAt ?? .distantPast)
+                    }
+                if let unreadCount = notificationUnreadCount(in: payload) {
+                    let unreadStart = max(0, values.count - unreadCount)
+                    for index in values.indices {
+                        values[index].isUnread = index >= unreadStart
+                    }
+                }
+                values.reverse()
             } else {
                 values = dictionaries(in: payload).compactMap { message(from: $0, folder: folder) }
             }
@@ -1989,7 +2001,8 @@ struct NGAParser: Sendable {
             subject: subject.isEmpty ? kind.notificationTitle : subject,
             preview: kind.notificationTitle,
             sentAt: Date(timeIntervalSince1970: TimeInterval(timestamp)),
-            isUnread: true,
+            isUnread: bool(dictionary["unread"])
+                || (int(dictionary["read"]) == 0),
             topicID: topicID,
             replyURL: components?.url
         )
@@ -2001,6 +2014,12 @@ struct NGAParser: Sendable {
         return stride(from: 1, to: values.count, by: 2).compactMap { index in
             normalizedUsername(values[index])
         }
+    }
+
+    private func notificationUnreadCount(in payload: Any) -> Int? {
+        dictionaries(in: payload)
+            .compactMap { int($0["unread"]) }
+            .first
     }
 
     private func normalizedUsername(_ rawValue: String?) -> String? {
@@ -2361,7 +2380,7 @@ struct NGAParser: Sendable {
 
     private func kind(from value: String, folder: MessageFolder) -> ForumMessageKind {
         let lower = value.lowercased()
-        if folder != .reminders { return .privateMessage }
+        if folder != .notifications { return .privateMessage }
         if lower.contains("引用") || lower.contains("quote") { return .quote }
         if lower.contains("@") || lower.contains("mention") { return .mention }
         if lower.contains("回复") || lower.contains("reply") { return .reply }

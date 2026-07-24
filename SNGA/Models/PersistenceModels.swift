@@ -14,6 +14,7 @@ final class AccountRecord {
     var lastCheckInMessage: String?
     var unreadBaseline: Int?
     var seenUnreadMessageKeysRaw: String?
+    var readNotificationKeysRaw: String?
 
     init(
         id: UUID = UUID(),
@@ -39,6 +40,15 @@ final class AccountRecord {
         }
         set {
             seenUnreadMessageKeysRaw = newValue?.joined(separator: "\n")
+        }
+    }
+
+    var readNotificationKeys: [String] {
+        get {
+            readNotificationKeysRaw?.split(separator: "\n").map(String.init) ?? []
+        }
+        set {
+            readNotificationKeysRaw = newValue.isEmpty ? nil : newValue.joined(separator: "\n")
         }
     }
 
