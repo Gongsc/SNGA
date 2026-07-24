@@ -117,16 +117,14 @@ struct PostVoteState: Hashable, Codable, Sendable {
 }
 
 enum MessageFolder: String, CaseIterable, Codable, Sendable, Identifiable {
-    case inbox
-    case sent
-    case reminders
+    case privateMessages = "inbox"
+    case notifications = "reminders"
 
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .inbox: "收件箱"
-        case .sent: "已发送"
-        case .reminders: "提醒"
+        case .privateMessages: "短消息"
+        case .notifications: "提醒信息"
         }
     }
 }

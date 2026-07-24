@@ -137,19 +137,16 @@ struct NGAEndpoint: Sendable {
 
     static func messages(folder: MessageFolder, page: Int) -> NGAEndpoint {
         switch folder {
-        case .inbox, .sent:
-            var items: [URLQueryItem] = [
+        case .privateMessages:
+            let items: [URLQueryItem] = [
                 URLQueryItem(name: "__lib", value: "message"),
                 URLQueryItem(name: "__act", value: "message"),
                 URLQueryItem(name: "act", value: "list"),
                 URLQueryItem(name: "page", value: String(max(1, page))),
                 URLQueryItem(name: "__output", value: "11")
             ]
-            if folder == .sent {
-                items.append(URLQueryItem(name: "folder", value: "-1"))
-            }
             return NGAEndpoint(path: "/nuke.php", queryItems: items, method: .post)
-        case .reminders:
+        case .notifications:
             return NGAEndpoint(path: "/nuke.php", queryItems: [
                 .init(name: "__lib", value: "noti"),
                 .init(name: "__act", value: "get_all"),

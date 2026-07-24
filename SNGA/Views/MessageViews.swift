@@ -8,7 +8,14 @@ struct MessageListView: View {
         VStack(spacing: 0) {
             Picker("消息分类", selection: Binding(
                 get: { model.messageFolder },
-                set: { newValue in Task { await model.loadMessages(folder: newValue) } }
+                set: { newValue in
+                    model.messageFolder = newValue
+                    model.sidebarSelection = .messages(newValue)
+                    model.selectedMessageID = nil
+                    model.selectedTopicID = nil
+                    model.currentMessage = nil
+                    model.currentTopic = nil
+                }
             )) {
                 ForEach(MessageFolder.allCases) { folder in
                     Text(folder.title).tag(folder)
@@ -19,6 +26,7 @@ struct MessageListView: View {
             Divider()
             if model.messages.isEmpty && !model.isLoading {
                 ContentUnavailableView("暂无消息", systemImage: "tray")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
                     ForEach(model.messages) { message in
@@ -43,6 +51,7 @@ struct MessageListView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("论坛消息")
         .task(id: folder) {
             await model.loadMessages(folder: folder)
@@ -62,6 +71,17 @@ private struct MessageRow: View {
                 HStack {
                     Text(message.subject).fontWeight(message.isUnread ? .semibold : .regular).lineLimit(2)
                     Spacer()
+                    Text(message.isUnread ? "未读" : "已读")
+                        .font(.caption2)
+                        .foregroundStyle(message.isUnread ? Color.accentColor : Color.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            message.isUnread
+                                ? Color.accentColor.opacity(0.12)
+                                : Color.secondary.opacity(0.08),
+                            in: Capsule()
+                        )
                     if let date = message.sentAt { Text(date, style: .relative).font(.caption).foregroundStyle(.secondary) }
                 }
                 if !message.sender.isEmpty {

@@ -777,15 +777,23 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertTrue(html.contains("https://img.nga.178.com/attachments/mon_202607/23/example.jpg"))
         XCTAssertTrue(html.contains("https://img4.nga.178.com/ngabbs/post/smile/ac0.png"))
+        XCTAssertTrue(html.contains("background:var(--snga-smile-backdrop)"))
         XCTAssertFalse(html.contains("[s:ac:blink]"))
     }
 
-    func testRendersSafeRichTextFormattingForReplyPreview() {
+    func testRendersSafeRichTextFormattingForReplyPreview() throws {
         let html = parser.sanitizedPostHTML(
-            "[color=red]红色[/color] [size=130%]大字[/size]\n[align=center][b]居中[/b][/align]"
+            """
+            [color=red]红色[/color] [size=130%]大字[/size]
+            [align=center][b]居中[/b][/align]
+            适合[color=chocolate][异常][/color]特性的代理人挑战
+            """
         )
+        let document = try SwiftSoup.parse(html)
 
         XCTAssertTrue(html.contains(#"class="ubb-color-red""#))
+        XCTAssertEqual(try document.select("span.ubb-color-chocolate").first?.text(), "[异常]")
+        XCTAssertTrue(html.contains(".ubb-color-chocolate{color:chocolate}"))
         XCTAssertTrue(html.contains(#"class="ubb-size-130""#))
         XCTAssertTrue(html.contains(#"class="ubb-align-center""#))
         XCTAssertTrue(html.contains("<strong>居中</strong>"))
@@ -835,6 +843,43 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.select("hr").count, 1)
         XCTAssertTrue(try document.body()?.text().contains("a======b") == true)
         XCTAssertFalse(html.contains("[*]"))
+    }
+
+    func testRendersNGASectionHeadingAndWeightedTableColumns() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            ===· 危局详情===<br/>
+            (38)[sup]1[/sup]<br/>
+            [size=120%][b]增益[/b][/size]<br/>
+            [table][tr][td width=4][align=center][b]增益名称[/b][/align]<br/>[/td]<br/>
+            [td width=6][align=center][b]增益效果[/b][/align]<br/>[/td]<br/>[/tr]<br/>
+            [tr][td]溃亡<br/>[/td]<br/><td>[list][*]失衡值提升[/list]<br/>[/td]<br/>[/tr]<br/>[/table]<br/>
+            [size=120%][b]强敌[/b][/size]<br/>
+            [table][tr][td width=15]当期强敌<br/>[/td]<br/>
+            [td width=8]弱点/抗性<br/>[/td]<br/>
+            [td width=17]数值<br/>[/td]<br/>
+            [td width=60]敌情详解<br/>[/td]<br/>[/tr]<br/>[/table]
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+        let tables = try document.select("table")
+        let firstRowCells = try tables.first?.select("tr").first?.select("td")
+        let enemyCells = try tables.last?.select("tr").first?.select("td")
+
+        XCTAssertEqual(try document.select("h3.nga-section-title").first?.text(), "· 危局详情")
+        XCTAssertFalse(try document.body()?.text().contains("===") == true)
+        XCTAssertEqual(try document.select("sup").first?.text(), "1")
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[sup]"))
+        XCTAssertEqual(tables.count, 2)
+        XCTAssertEqual(firstRowCells?.count, 2)
+        XCTAssertEqual(try firstRowCells?.get(0).attr("width"), "40%")
+        XCTAssertEqual(try firstRowCells?.get(1).attr("width"), "60%")
+        XCTAssertEqual(enemyCells?.count, 4)
+        XCTAssertEqual(try enemyCells?.get(0).attr("width"), "15%")
+        XCTAssertEqual(try enemyCells?.get(1).attr("width"), "8%")
+        XCTAssertEqual(try enemyCells?.get(2).attr("width"), "17%")
+        XCTAssertEqual(try enemyCells?.get(3).attr("width"), "60%")
+        XCTAssertEqual(try tables.first?.select("ul li").first?.text(), "失衡值提升")
     }
 
     func testLocalizesPostImageContextMenuTitles() {
@@ -939,7 +984,7 @@ final class NGAParserTests: XCTestCase {
           }
         }
         """)
-        let inbox = try parser.messages(from: privateMessages, folder: .inbox, page: 1)
+        let inbox = try parser.messages(from: privateMessages, folder: .privateMessages, page: 1)
         XCTAssertEqual(inbox.messages.first?.id, MessageID(rawValue: 42))
         XCTAssertEqual(inbox.messages.first?.sender, "Alice")
         XCTAssertEqual(inbox.messages.first?.preview, "共 3 条消息")
@@ -950,16 +995,25 @@ final class NGAParserTests: XCTestCase {
           "data": {
             "0": {
               "0": [
+                {"0":"1","1":"90","2":"Carol","5":"有人回复了你","6":"100","7":"190","8":"191","9":"1700000100","10":"1"},
                 {"0":"7","1":"100","2":"Bob","5":"有人提到了你","6":"101","7":"200","8":"201","9":"1700000200","10":"1"}
-              ]
+              ],
+              "1": [
+                {"0":"10","1":"100","2":"Alice","5":"新短消息","9":"1700000300","10":"1"}
+              ],
+              "unread": "1"
             }
           }
         }
         """)
-        let reminders = try parser.messages(from: notifications, folder: .reminders, page: 1)
+        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(reminders.messages.count, 2)
         XCTAssertEqual(reminders.messages.first?.kind, .mention)
         XCTAssertEqual(reminders.messages.first?.sender, "Bob")
         XCTAssertEqual(reminders.messages.first?.topicID, TopicID(rawValue: 101))
+        XCTAssertEqual(reminders.messages.first?.isUnread, true)
+        XCTAssertEqual(reminders.messages.last?.kind, .reply)
+        XCTAssertEqual(reminders.messages.last?.isUnread, false)
     }
 
     func testVisitorPermissionErrorDoesNotMeanWholeSessionExpired() {
@@ -968,7 +1022,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertThrowsError(
             try parser.messages(
                 from: response(payload),
-                folder: .inbox,
+                folder: .privateMessages,
                 page: 1
             )
         ) { error in
@@ -980,12 +1034,12 @@ final class NGAParserTests: XCTestCase {
     }
 
     func testMessageEndpointsUseCurrentRoutes() {
-        let inbox = NGAEndpoint.messages(folder: .inbox, page: 1)
+        let inbox = NGAEndpoint.messages(folder: .privateMessages, page: 1)
         XCTAssertEqual(inbox.method, .post)
         XCTAssertEqual(inbox.queryItems.first(where: { $0.name == "__lib" })?.value, "message")
         XCTAssertEqual(inbox.queryItems.first(where: { $0.name == "act" })?.value, "list")
 
-        let reminders = NGAEndpoint.messages(folder: .reminders, page: 1)
+        let reminders = NGAEndpoint.messages(folder: .notifications, page: 1)
         XCTAssertEqual(reminders.queryItems.first(where: { $0.name == "__act" })?.value, "get_all")
 
         let detail = NGAEndpoint.message(id: MessageID(rawValue: 42))

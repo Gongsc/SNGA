@@ -226,7 +226,10 @@ struct UBBRichEditor: NSViewRepresentable {
       <meta http-equiv="Content-Security-Policy"
             content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
       <style>
-        :root { color-scheme: light dark; --snga-accent:#b06d00; --snga-highlight:#d59b3a; }
+        :root { color-scheme: light dark; --snga-accent:#b06d00; --snga-highlight:#d59b3a; --snga-smile-backdrop-system:transparent; --snga-smile-backdrop:var(--snga-smile-backdrop-system); }
+        @media (prefers-color-scheme: dark) {
+          :root { --snga-smile-backdrop-system:rgba(255,255,255,.88); }
+        }
         html, body { height: 100%; margin: 0; background: transparent; }
         body {
           font: 15px/1.55 -apple-system, BlinkMacSystemFont, sans-serif;
@@ -268,7 +271,12 @@ struct UBBRichEditor: NSViewRepresentable {
         summary { cursor: pointer; font-weight: 600; }
         a { color: var(--snga-accent); }
         img { max-width: 100%; height: auto; vertical-align: middle; }
-        img.nga-smile { max-width: 64px; max-height: 64px; }
+        img.nga-smile {
+          max-width: 64px;
+          max-height: 64px;
+          background: var(--snga-smile-backdrop);
+          border-radius: 6px;
+        }
       </style>
     </head>
     <body>
@@ -655,6 +663,7 @@ struct UBBRichEditor: NSViewRepresentable {
 
 struct NGAEmoticonPicker: View {
     var insert: (NGAEmoticon) -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var searchText = ""
 
     private var results: [NGAEmoticon] {
@@ -688,6 +697,14 @@ struct NGAEmoticonPicker: View {
                                     .controlSize(.mini)
                             }
                             .frame(width: 30, height: 30)
+                            .background {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(
+                                        colorScheme == .dark
+                                            ? Color.white.opacity(0.88)
+                                            : Color.clear
+                                    )
+                            }
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

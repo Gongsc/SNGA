@@ -30,7 +30,7 @@ final class AppModel {
     var hotReplies: [Post] = []
     var messages: [ForumMessage] = []
     var currentMessage: ForumMessage?
-    var messageFolder: MessageFolder = .inbox
+    var messageFolder: MessageFolder = .privateMessages
 
     var topicPage = 1
     var topicHasMore = false
@@ -62,6 +62,16 @@ final class AppModel {
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var subforumSelectionForumID: ForumID?
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
+    @ObservationIgnored private var loadingRequestCount = 0
+    @ObservationIgnored private var profileRequestID: UUID?
+    @ObservationIgnored private var userActivityRequestID: UUID?
+    @ObservationIgnored private var forumDirectoryRequestID: UUID?
+    @ObservationIgnored private var topicListRequestID: UUID?
+    @ObservationIgnored private var threadRequestID: UUID?
+    @ObservationIgnored private var messageListRequestID: UUID?
+    @ObservationIgnored private var messageDetailRequestID: UUID?
+    @ObservationIgnored private var favoriteRequestID: UUID?
+    @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
 
     init(
         container: ModelContainer,
@@ -350,7 +360,10 @@ final class AppModel {
         )
 
         guard let service = activeService else { return }
-        isLoading = true
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        profileRequestID = requestID
+        beginLoading()
         do {
             var profile = try await service.profile(uid: uid)
             if profile.displayName == "NGA \(uid)", !resolvedName.isEmpty {
@@ -359,14 +372,20 @@ final class AppModel {
             if profile.avatarURL == nil {
                 profile.avatarURL = resolvedAvatarURL
             }
-            if displayedUserUID == uid {
+            if activeAccountID == requestAccountID,
+               profileRequestID == requestID,
+               displayedUserUID == uid {
                 currentProfile = profile
             }
         } catch {
             // 用户中心保留楼层或账号中已有的资料，不因资料接口失败阻断浏览。
         }
-        isLoading = false
-        guard displayedUserUID == uid else { return }
+        endLoading()
+        guard activeAccountID == requestAccountID,
+              profileRequestID == requestID,
+              displayedUserUID == uid else {
+            return
+        }
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
     }
 
@@ -377,12 +396,17 @@ final class AppModel {
 
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        userActivityRequestID = requestID
         let targetPage = max(1, page)
         userActivityUID = uid
         userActivityKind = kind
-        await withLoading {
+        await withLoading(isCurrent: { self.userActivityRequestID == requestID }) {
             let result = try await service.userActivities(uid: uid, kind: kind, page: targetPage)
-            guard displayedUserUID == uid,
+            guard activeAccountID == requestAccountID,
+                  userActivityRequestID == requestID,
+                  displayedUserUID == uid,
                   userActivityUID == uid,
                   userActivityKind == kind else {
                 return
@@ -408,9 +432,17 @@ final class AppModel {
 
     func loadForums() async {
         guard let service = activeService else { return }
-        await withLoading {
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        forumDirectoryRequestID = requestID
+        await withLoading(isCurrent: { self.forumDirectoryRequestID == requestID }) {
             // NGA 的接口顺序就是官网分组和板块顺序，不能在这里全局排序。
-            forums = try await service.forums()
+            let result = try await service.forums()
+            guard activeAccountID == requestAccountID,
+                  forumDirectoryRequestID == requestID else {
+                return
+            }
+            forums = result
         }
     }
 
@@ -446,18 +478,34 @@ final class AppModel {
 
     func loadTopics(forumID: ForumID, reset: Bool) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        topicListRequestID = requestID
         let page = reset ? 1 : topicPage + 1
-        await withLoading {
+        await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
             let result = try await service.topics(forumID: forumID, page: page)
+            guard activeAccountID == requestAccountID,
+                  topicListRequestID == requestID,
+                  selectedForumID == forumID else {
+                return
+            }
             applyForumPage(result, forumID: forumID, replaceTopics: reset)
         }
     }
 
     func loadTopicPage(forumID: ForumID, page: Int) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        topicListRequestID = requestID
         let targetPage = max(1, min(page, topicTotalPages))
-        await withLoading {
+        await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
             let result = try await service.topics(forumID: forumID, page: targetPage)
+            guard activeAccountID == requestAccountID,
+                  topicListRequestID == requestID,
+                  selectedForumID == forumID else {
+                return
+            }
             applyForumPage(result, forumID: forumID, replaceTopics: true)
         }
     }
@@ -584,9 +632,17 @@ final class AppModel {
 
     func loadThread(topicID: TopicID, reset: Bool) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        threadRequestID = requestID
         let page = reset ? 1 : threadPage + 1
-        await withLoading {
+        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(topicID: topicID, page: page)
+            guard activeAccountID == requestAccountID,
+                  threadRequestID == requestID,
+                  selectedTopicID == topicID else {
+                return
+            }
             currentTopic = result.topic
             posts = reset ? result.posts : merged(posts, result.posts)
             if reset || !result.hotReplies.isEmpty {
@@ -600,9 +656,17 @@ final class AppModel {
 
     func loadThreadPage(topicID: TopicID, page: Int) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        threadRequestID = requestID
         let targetPage = max(1, page)
-        await withLoading {
+        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(topicID: topicID, page: targetPage)
+            guard activeAccountID == requestAccountID,
+                  threadRequestID == requestID,
+                  selectedTopicID == topicID else {
+                return
+            }
             currentTopic = result.topic
             posts = result.posts
             hotReplies = result.hotReplies
@@ -639,23 +703,55 @@ final class AppModel {
 
     func loadMessages(folder: MessageFolder, reset: Bool = true) async {
         guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        messageListRequestID = requestID
         messageFolder = folder
         sidebarSelection = .messages(folder)
         let page = reset ? 1 : messagePage + 1
-        await withLoading {
-            let result = try await service.messages(folder: folder, page: page)
+        await withLoading(isCurrent: { self.messageListRequestID == requestID }) {
+            var result = try await service.messages(folder: folder, page: page)
+            guard activeAccountID == requestAccountID,
+                  messageListRequestID == requestID,
+                  sidebarSelection == .messages(folder),
+                  messageFolder == folder else {
+                return
+            }
+            result.messages = applyingPersistedReadState(
+                to: result.messages,
+                folder: folder,
+                accountID: requestAccountID
+            )
             messages = reset ? result.messages : merged(messages, result.messages)
             messagePage = page
             messageHasMore = result.hasMore
-            unreadCount = messages.filter(\.isUnread).count
+            setUnreadCount(messages.filter(\.isUnread).count, for: folder)
         }
     }
 
     func openMessage(_ message: ForumMessage) async {
+        selectedTopicID = nil
+        currentTopic = nil
         selectedMessageID = message.id
+        let folder = messageFolder
+        if folder == .notifications {
+            markMessageRead(message, folder: folder)
+            currentMessage = messages.first(where: { $0.id == message.id }) ?? message
+            return
+        }
         guard let service = activeService else { return }
-        await withLoading {
-            currentMessage = try await service.message(id: message.id)
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        messageDetailRequestID = requestID
+        await withLoading(isCurrent: { self.messageDetailRequestID == requestID }) {
+            let result = try await service.message(id: message.id)
+            guard activeAccountID == requestAccountID,
+                  messageDetailRequestID == requestID,
+                  selectedMessageID == message.id else {
+                return
+            }
+            currentMessage = result
+            markMessageRead(message, folder: folder)
         }
     }
 
@@ -702,9 +798,16 @@ final class AppModel {
         }
         favorites = local.filter { $0.state != .pendingRemove }.sorted { $0.order < $1.order }
         guard let service = services[accountID] else { return }
+        let requestID = UUID()
+        favoriteRequestID = requestID
 
         do {
-            let server = try await service.favorites().map { favorite in
+            let fetchedFavorites = try await service.favorites()
+            guard activeAccountID == accountID,
+                  favoriteRequestID == requestID else {
+                return
+            }
+            let server = fetchedFavorites.map { favorite in
                 guard let directoryForum = forums.first(where: { $0.id == favorite.id }) else {
                     return favorite
                 }
@@ -806,19 +909,36 @@ final class AppModel {
         for record in records where record.sessionState == .valid {
             guard let service = services[record.accountID] else { continue }
             do {
-                async let inbox = service.messages(folder: .inbox, page: 1)
-                async let reminders = service.messages(folder: .reminders, page: 1)
-                let pages = try await [inbox, reminders]
-                let unread = pages.flatMap(\.messages).filter(\.isUnread)
-                if let baseline = record.unreadBaseline, unread.count > baseline {
-                    let newCount = unread.count - baseline
-                    let account = record.summary()
-                    for message in unread.prefix(newCount) {
-                        await notificationService.notify(account: account, message: message)
-                    }
+                async let privateMessages = service.messages(folder: .privateMessages, page: 1)
+                async let notifications = service.messages(folder: .notifications, page: 1)
+                var pages = try await [privateMessages, notifications]
+                if let notificationIndex = pages.firstIndex(where: { $0.folder == .notifications }) {
+                    pages[notificationIndex].messages = applyingPersistedReadState(
+                        to: pages[notificationIndex].messages,
+                        folder: .notifications,
+                        accountID: record.accountID
+                    )
                 }
-                record.unreadBaseline = unread.count
-                if record.accountID == activeAccountID { unreadCount = unread.count }
+                let update = UnreadMessagePolicy.update(
+                    pages: pages,
+                    previouslySeenKeys: record.seenUnreadMessageKeys
+                )
+                record.seenUnreadMessageKeys = update.seenKeys
+                record.unreadBaseline = update.unreadCount
+                if record.accountID == activeAccountID {
+                    for page in pages {
+                        messageUnreadCounts[page.folder] = page.messages.filter(\.isUnread).count
+                    }
+                    unreadCount = messageUnreadCounts.values.reduce(0, +)
+                }
+                let account = record.summary()
+                for item in update.newMessages {
+                    await notificationService.notify(
+                        account: account,
+                        folder: item.folder,
+                        message: item.message
+                    )
+                }
             } catch {
                 // 私信或提醒接口偶发返回未登录时，只跳过本轮轮询。
                 // 论坛浏览仍可验证账号有效，后台接口不能单独使整个账号失效。
@@ -860,10 +980,19 @@ final class AppModel {
         await loadThreadPage(topicID: selectedTopicID, page: threadPage)
     }
 
-    func handleNotification(accountIDString: String, messageIDString: String) async {
-        guard let accountID = AccountID(accountIDString), let rawMessageID = Int64(messageIDString) else { return }
+    func handleNotification(
+        accountIDString: String,
+        messageIDString: String,
+        messageFolderString: String
+    ) async {
+        guard let accountID = AccountID(accountIDString),
+              accounts.contains(where: { $0.id == accountID }),
+              let rawMessageID = Int64(messageIDString) else {
+            return
+        }
+        let folder = MessageFolder(rawValue: messageFolderString) ?? .privateMessages
         await selectAccount(accountID)
-        await loadMessages(folder: .inbox)
+        await loadMessages(folder: folder)
         if let message = messages.first(where: { $0.id.rawValue == rawMessageID }) {
             await openMessage(message)
         }
@@ -959,9 +1088,11 @@ final class AppModel {
             }
         }
         try? context.save()
-        favorites = favoriteRecords(accountID: accountID)
-            .filter { $0.syncState != .pendingRemove }
-            .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
+        if activeAccountID == accountID {
+            favorites = favoriteRecords(accountID: accountID)
+                .filter { $0.syncState != .pendingRemove }
+                .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
+        }
     }
 
     private func deleteDraft(topicID: TopicID) {
@@ -1001,18 +1132,35 @@ final class AppModel {
         topicHasMore = false
         topicTotalPages = 1
         unreadCount = 0
+        messageUnreadCounts = [:]
     }
 
-    private func withLoading(_ operation: () async throws -> Void) async {
-        let requestAccountID = activeAccountID
+    private func beginLoading() {
+        loadingRequestCount += 1
         isLoading = true
-        defer { isLoading = false }
+    }
+
+    private func endLoading() {
+        loadingRequestCount = max(0, loadingRequestCount - 1)
+        isLoading = loadingRequestCount > 0
+    }
+
+    private func withLoading(
+        isCurrent: () -> Bool = { true },
+        _ operation: () async throws -> Void
+    ) async {
+        let requestAccountID = activeAccountID
+        beginLoading()
+        defer { endLoading() }
         do {
             try await operation()
-            if let requestAccountID {
+            if let requestAccountID,
+               requestAccountID == activeAccountID,
+               isCurrent() {
                 foregroundLoginFailureDates[requestAccountID] = nil
             }
         } catch {
+            guard requestAccountID == activeAccountID, isCurrent() else { return }
             present(error)
         }
     }
@@ -1063,6 +1211,57 @@ final class AppModel {
     private func merged<T: Identifiable>(_ existing: [T], _ incoming: [T]) -> [T] where T.ID: Hashable {
         var seen = Set(existing.map(\.id))
         return existing + incoming.filter { seen.insert($0.id).inserted }
+    }
+
+    private func applyingPersistedReadState(
+        to messages: [ForumMessage],
+        folder: MessageFolder,
+        accountID: AccountID
+    ) -> [ForumMessage] {
+        guard folder == .notifications,
+              let record = accountRecord(id: accountID) else {
+            return messages
+        }
+        // NGA 的提醒接口在读取后会清除服务端未读计数；在用户实际打开提醒前，
+        // 用本地状态保留未读标记，避免下一轮轮询把提醒误判为已读。
+        return NotificationReadPolicy.applying(
+            to: messages,
+            folder: folder,
+            readKeys: record.readNotificationKeys,
+            previouslyUnreadKeys: record.seenUnreadMessageKeys ?? []
+        )
+    }
+
+    private func markMessageRead(_ message: ForumMessage, folder: MessageFolder) {
+        guard message.isUnread else { return }
+        if let index = messages.firstIndex(where: { $0.id == message.id }) {
+            messages[index].isUnread = false
+        }
+        if currentMessage?.id == message.id {
+            currentMessage?.isUnread = false
+        }
+        setUnreadCount(max(0, (messageUnreadCounts[folder] ?? 0) - 1), for: folder)
+
+        guard folder == .notifications,
+              let activeAccountID,
+              let record = accountRecord(id: activeAccountID) else {
+            return
+        }
+        let key = UnreadMessagePolicy.key(folder: folder, messageID: message.id)
+        var keys = record.readNotificationKeys.filter { $0 != key }
+        keys.insert(key, at: 0)
+        record.readNotificationKeys = Array(keys.prefix(UnreadMessagePolicy.maximumSeenKeyCount))
+        try? context.save()
+    }
+
+    private func setUnreadCount(_ count: Int, for folder: MessageFolder) {
+        messageUnreadCounts[folder] = max(0, count)
+        unreadCount = messageUnreadCounts.values.reduce(0, +)
+    }
+
+    private func accountRecord(id: AccountID) -> AccountRecord? {
+        ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
+            .first { $0.accountID == id }
     }
 
     private func updateVoteState(
