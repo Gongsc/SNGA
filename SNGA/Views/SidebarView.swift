@@ -67,7 +67,12 @@ struct SidebarView: View {
                         selection: .userCenter(model.activeAccount?.ngaUID)
                     )
                     sidebarButton("全部板块", systemImage: "square.grid.2x2", selection: .directory)
-                    sidebarButton("论坛消息", systemImage: "tray.full", selection: .messages(.inbox), badge: model.unreadCount)
+                    sidebarButton(
+                        "论坛消息",
+                        systemImage: "tray.full",
+                        selection: .messages(.privateMessages),
+                        badge: model.unreadCount
+                    )
                 }
 
                 Section("收藏板块") {

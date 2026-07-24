@@ -86,6 +86,18 @@ struct ThreadView: View {
                     }
                 ) {
                     Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(topAnchor, anchor: .top)
+                        }
+                    } label: {
+                        Label("回到顶部", systemImage: "arrow.up.to.line")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("回到主题内容顶部")
+                    .disabled(model.currentTopic == nil)
+                    .accessibilityIdentifier("thread-scroll-to-top")
+
+                    Button {
                         showsTopicLinkActions = true
                     } label: {
                         Label("分享主题", systemImage: "square.and.arrow.up")
@@ -265,7 +277,51 @@ private struct ThreadPaginationBar<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        paginationContent
+            .buttonStyle(BottomActionBarButtonStyle())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial)
+            .overlay(alignment: .top) {
+                Divider()
+            }
+            .onAppear {
+                pageText = String(currentPage)
+            }
+            .onChange(of: currentPage) { _, newValue in
+                pageText = String(newValue)
+            }
+            .onChange(of: totalPages) { _, newValue in
+                if let value = Int(pageText), value > newValue {
+                    pageText = String(newValue)
+                }
+            }
+    }
+
+    private var paginationContent: some View {
+        HStack(spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                paginationControls(isCompact: false)
+                paginationControls(isCompact: true)
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 4) {
+                actions
+            }
+            .fixedSize()
+        }
+    }
+
+    private func paginationControls(isCompact: Bool) -> some View {
+        HStack(spacing: isCompact ? 3 : 6) {
             Button("首页", systemImage: "backward.end.fill") {
                 navigate(1)
             }
@@ -281,18 +337,20 @@ private struct ThreadPaginationBar<Actions: View>: View {
             .disabled(isLoading || currentPage <= 1)
 
             TextField("页码", text: $pageText)
-                .frame(width: 54)
+                .frame(width: isCompact ? 44 : 54)
                 .multilineTextAlignment(.center)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(performJump)
                 .accessibilityLabel("目标页码")
 
-            Text("/ \(totalPages)")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
+            if !isCompact {
+                Text("/ \(totalPages)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
 
-            Button("跳转", action: performJump)
-                .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
+                Button("跳转", action: performJump)
+                    .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
+            }
 
             Button("下一页", systemImage: "chevron.right") {
                 navigate(currentPage + 1)
@@ -307,37 +365,8 @@ private struct ThreadPaginationBar<Actions: View>: View {
             .labelStyle(.iconOnly)
             .help("跳转到尾页")
             .disabled(isLoading || currentPage >= totalPages)
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Spacer(minLength: 12)
-
-            HStack(spacing: 10) {
-                actions
-            }
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-        }
-        .onAppear {
-            pageText = String(currentPage)
-        }
-        .onChange(of: currentPage) { _, newValue in
-            pageText = String(newValue)
-        }
-        .onChange(of: totalPages) { _, newValue in
-            if let value = Int(pageText), value > newValue {
-                pageText = String(newValue)
-            }
-        }
+        .fixedSize()
     }
 
     private var parsedPage: Int? {

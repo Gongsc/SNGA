@@ -1,5 +1,50 @@
 import SwiftUI
 
+struct BottomActionBarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        BottomActionBarButton(configuration: configuration)
+    }
+
+    private struct BottomActionBarButton: View {
+        @Environment(\.isEnabled) private var isEnabled
+        let configuration: Configuration
+        @State private var isHovered = false
+
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, 4)
+                .frame(minWidth: 26, minHeight: 26)
+                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 5))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(borderColor)
+                }
+                .contentShape(.rect)
+                .scaleEffect(configuration.isPressed && isEnabled ? 0.96 : 1)
+                .opacity(isEnabled ? 1 : 0.45)
+                .onHover { isHovered = $0 }
+                .animation(.easeOut(duration: 0.1), value: isHovered)
+                .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+        }
+
+        private var backgroundColor: Color {
+            guard isEnabled else { return .clear }
+            if configuration.isPressed {
+                return Color.accentColor.opacity(0.25)
+            }
+            if isHovered {
+                return Color.accentColor.opacity(0.14)
+            }
+            return .clear
+        }
+
+        private var borderColor: Color {
+            guard isEnabled, isHovered || configuration.isPressed else { return .clear }
+            return Color.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
+        }
+    }
+}
+
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     let uid: Int64?
@@ -604,6 +649,17 @@ struct TopicListView: View {
                     }
                 ) {
                     Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(topAnchor, anchor: .top)
+                        }
+                    } label: {
+                        Label("回到顶部", systemImage: "arrow.up.to.line")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("回到主题列表顶部")
+                    .accessibilityIdentifier("topic-list-scroll-to-top")
+
+                    Button {
                         guard let forum = model.currentForum else { return }
                         Task { await model.toggleFavorite(forum) }
                     } label: {
@@ -719,8 +775,53 @@ private struct TopicListPaginationBar<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            if totalPages > 1 {
+        paginationContent
+            .buttonStyle(BottomActionBarButtonStyle())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial)
+            .overlay(alignment: .top) {
+                Divider()
+            }
+            .onAppear {
+                pageText = String(currentPage)
+            }
+            .onChange(of: currentPage) { _, newValue in
+                pageText = String(newValue)
+            }
+            .onChange(of: totalPages) { _, newValue in
+                if let value = Int(pageText), value > newValue {
+                    pageText = String(newValue)
+                }
+            }
+    }
+
+    private var paginationContent: some View {
+        HStack(spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                paginationControls(isCompact: false)
+                paginationControls(isCompact: true)
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 4) {
+                actions
+            }
+            .fixedSize()
+        }
+    }
+
+    @ViewBuilder
+    private func paginationControls(isCompact: Bool) -> some View {
+        if totalPages > 1 {
+            HStack(spacing: isCompact ? 3 : 6) {
                 Button("首页", systemImage: "backward.end.fill") {
                     navigate(1)
                 }
@@ -738,20 +839,22 @@ private struct TopicListPaginationBar<Actions: View>: View {
                 .disabled(isLoading || currentPage <= 1)
 
                 TextField("页码", text: $pageText)
-                    .frame(width: 62)
+                    .frame(width: isCompact ? 44 : 54)
                     .multilineTextAlignment(.center)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(performJump)
                     .accessibilityLabel("主题列表目标页码")
                     .accessibilityIdentifier("topic-list-page-field")
 
-                Text("/ \(totalPages)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if !isCompact {
+                    Text("/ \(totalPages)")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
 
-                Button("跳转", action: performJump)
-                    .accessibilityIdentifier("topic-list-jump")
-                    .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
+                    Button("跳转", action: performJump)
+                        .accessibilityIdentifier("topic-list-jump")
+                        .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
+                }
 
                 Button("下一页", systemImage: "chevron.right") {
                     navigate(currentPage + 1)
@@ -769,36 +872,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                 .accessibilityIdentifier("topic-list-last-page")
                 .disabled(isLoading || currentPage >= totalPages)
             }
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Spacer(minLength: 10)
-
-            HStack(spacing: 10) {
-                actions
-            }
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Divider()
-        }
-        .onAppear {
-            pageText = String(currentPage)
-        }
-        .onChange(of: currentPage) { _, newValue in
-            pageText = String(newValue)
-        }
-        .onChange(of: totalPages) { _, newValue in
-            if let value = Int(pageText), value > newValue {
-                pageText = String(newValue)
-            }
+            .fixedSize()
         }
     }
 

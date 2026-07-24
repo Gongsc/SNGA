@@ -60,6 +60,7 @@ final class SNGAUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-list-scroll-to-top"].waitForExistence(timeout: 5))
 
         let nextPage = app.buttons["topic-list-next-page"]
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
@@ -71,6 +72,7 @@ final class SNGAUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
+        XCTAssertTrue(app.buttons["thread-scroll-to-top"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["分享主题"].waitForExistence(timeout: 5))
         app.buttons["分享主题"].click()
 

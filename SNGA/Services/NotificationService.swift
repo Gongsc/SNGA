@@ -1,6 +1,75 @@
 @preconcurrency import UserNotifications
 import Foundation
 
+struct PolledMessage: Sendable {
+    var folder: MessageFolder
+    var message: ForumMessage
+}
+
+struct UnreadMessageUpdate: Sendable {
+    var newMessages: [PolledMessage]
+    var seenKeys: [String]
+    var unreadCount: Int
+}
+
+enum UnreadMessagePolicy {
+    static let maximumSeenKeyCount = 200
+
+    static func update(
+        pages: [MessagePage],
+        previouslySeenKeys: [String]?
+    ) -> UnreadMessageUpdate {
+        let unread = pages.flatMap { page in
+            page.messages
+                .filter(\.isUnread)
+                .map { PolledMessage(folder: page.folder, message: $0) }
+        }
+        let currentKeys = unread.map { key(folder: $0.folder, messageID: $0.message.id) }
+        let previousSet = Set(previouslySeenKeys ?? [])
+        let newMessages = previouslySeenKeys == nil
+            ? []
+            : unread.filter { !previousSet.contains(key(folder: $0.folder, messageID: $0.message.id)) }
+
+        var accumulated = Set<String>()
+        let seenKeys = (currentKeys + (previouslySeenKeys ?? []))
+            .filter { accumulated.insert($0).inserted }
+            .prefix(maximumSeenKeyCount)
+
+        return UnreadMessageUpdate(
+            newMessages: newMessages,
+            seenKeys: Array(seenKeys),
+            unreadCount: unread.count
+        )
+    }
+
+    static func key(folder: MessageFolder, messageID: MessageID) -> String {
+        "\(folder.rawValue):\(messageID.rawValue)"
+    }
+}
+
+enum NotificationReadPolicy {
+    static func applying(
+        to messages: [ForumMessage],
+        folder: MessageFolder,
+        readKeys: [String],
+        previouslyUnreadKeys: [String]
+    ) -> [ForumMessage] {
+        guard folder == .notifications else { return messages }
+        let readSet = Set(readKeys)
+        let unreadSet = Set(previouslyUnreadKeys)
+        return messages.map { message in
+            var value = message
+            let key = UnreadMessagePolicy.key(folder: folder, messageID: message.id)
+            if readSet.contains(key) {
+                value.isUnread = false
+            } else if unreadSet.contains(key) {
+                value.isUnread = true
+            }
+            return value
+        }
+    }
+}
+
 actor NotificationService {
     static let shared = NotificationService()
     private var requestedAuthorization = false
@@ -11,7 +80,7 @@ actor NotificationService {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
     }
 
-    func notify(account: AccountSummary, message: ForumMessage) async {
+    func notify(account: AccountSummary, folder: MessageFolder, message: ForumMessage) async {
         await requestAuthorizationIfNeeded()
         let content = UNMutableNotificationContent()
         content.title = "SNGA · \(account.displayName)"
@@ -19,10 +88,11 @@ actor NotificationService {
         content.sound = .default
         content.userInfo = [
             "accountID": account.id.description,
-            "messageID": String(message.id.rawValue)
+            "messageID": String(message.id.rawValue),
+            "messageFolder": folder.rawValue
         ]
         let request = UNNotificationRequest(
-            identifier: "\(account.id.description):\(message.id.rawValue)",
+            identifier: "\(account.id.description):\(folder.rawValue):\(message.id.rawValue)",
             content: content,
             trigger: nil
         )

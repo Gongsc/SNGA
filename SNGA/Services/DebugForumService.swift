@@ -90,7 +90,7 @@ actor DebugForumService: NGAForumService {
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
         MessagePage(folder: folder, messages: [
-            ForumMessage(id: MessageID(rawValue: 7001), kind: folder == .reminders ? .mention : .privateMessage, sender: "系统测试", subject: "测试消息", preview: "这是消息预览", html: NGAParser().sanitizedPostHTML("<p>这是消息正文。</p>"), isUnread: true)
+            ForumMessage(id: MessageID(rawValue: 7001), kind: folder == .notifications ? .mention : .privateMessage, sender: "系统测试", subject: "测试消息", preview: "这是消息预览", html: NGAParser().sanitizedPostHTML("<p>这是消息正文。</p>"), isUnread: true)
         ], page: page, hasMore: false)
     }
 
