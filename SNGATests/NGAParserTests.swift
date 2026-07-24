@@ -781,12 +781,19 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("[s:ac:blink]"))
     }
 
-    func testRendersSafeRichTextFormattingForReplyPreview() {
+    func testRendersSafeRichTextFormattingForReplyPreview() throws {
         let html = parser.sanitizedPostHTML(
-            "[color=red]红色[/color] [size=130%]大字[/size]\n[align=center][b]居中[/b][/align]"
+            """
+            [color=red]红色[/color] [size=130%]大字[/size]
+            [align=center][b]居中[/b][/align]
+            适合[color=chocolate][异常][/color]特性的代理人挑战
+            """
         )
+        let document = try SwiftSoup.parse(html)
 
         XCTAssertTrue(html.contains(#"class="ubb-color-red""#))
+        XCTAssertEqual(try document.select("span.ubb-color-chocolate").first?.text(), "[异常]")
+        XCTAssertTrue(html.contains(".ubb-color-chocolate{color:chocolate}"))
         XCTAssertTrue(html.contains(#"class="ubb-size-130""#))
         XCTAssertTrue(html.contains(#"class="ubb-align-center""#))
         XCTAssertTrue(html.contains("<strong>居中</strong>"))
@@ -836,6 +843,43 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.select("hr").count, 1)
         XCTAssertTrue(try document.body()?.text().contains("a======b") == true)
         XCTAssertFalse(html.contains("[*]"))
+    }
+
+    func testRendersNGASectionHeadingAndWeightedTableColumns() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            ===· 危局详情===<br/>
+            (38)[sup]1[/sup]<br/>
+            [size=120%][b]增益[/b][/size]<br/>
+            [table][tr][td width=4][align=center][b]增益名称[/b][/align]<br/>[/td]<br/>
+            [td width=6][align=center][b]增益效果[/b][/align]<br/>[/td]<br/>[/tr]<br/>
+            [tr][td]溃亡<br/>[/td]<br/><td>[list][*]失衡值提升[/list]<br/>[/td]<br/>[/tr]<br/>[/table]<br/>
+            [size=120%][b]强敌[/b][/size]<br/>
+            [table][tr][td width=15]当期强敌<br/>[/td]<br/>
+            [td width=8]弱点/抗性<br/>[/td]<br/>
+            [td width=17]数值<br/>[/td]<br/>
+            [td width=60]敌情详解<br/>[/td]<br/>[/tr]<br/>[/table]
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+        let tables = try document.select("table")
+        let firstRowCells = try tables.first?.select("tr").first?.select("td")
+        let enemyCells = try tables.last?.select("tr").first?.select("td")
+
+        XCTAssertEqual(try document.select("h3.nga-section-title").first?.text(), "· 危局详情")
+        XCTAssertFalse(try document.body()?.text().contains("===") == true)
+        XCTAssertEqual(try document.select("sup").first?.text(), "1")
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[sup]"))
+        XCTAssertEqual(tables.count, 2)
+        XCTAssertEqual(firstRowCells?.count, 2)
+        XCTAssertEqual(try firstRowCells?.get(0).attr("width"), "40%")
+        XCTAssertEqual(try firstRowCells?.get(1).attr("width"), "60%")
+        XCTAssertEqual(enemyCells?.count, 4)
+        XCTAssertEqual(try enemyCells?.get(0).attr("width"), "15%")
+        XCTAssertEqual(try enemyCells?.get(1).attr("width"), "8%")
+        XCTAssertEqual(try enemyCells?.get(2).attr("width"), "17%")
+        XCTAssertEqual(try enemyCells?.get(3).attr("width"), "60%")
+        XCTAssertEqual(try tables.first?.select("ul li").first?.text(), "失衡值提升")
     }
 
     func testLocalizesPostImageContextMenuTitles() {

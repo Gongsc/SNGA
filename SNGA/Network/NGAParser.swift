@@ -952,6 +952,8 @@ struct NGAParser: Sendable {
                 .addAttributes("h3", "class")
                 .addAttributes("section", "class")
                 .addAttributes("details", "open")
+                .addAttributes("td", "width")
+                .addAttributes("th", "width")
             clean = try SwiftSoup.clean(
                 try document.body()?.html() ?? rendered,
                 NGAEndpoint.baseURL.absoluteString,
@@ -970,10 +972,10 @@ struct NGAParser: Sendable {
         img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{max-width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:4px}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
         blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
-        details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}
+        details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
         .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
         .nga-rich-card-title{margin:0 0 8px;font-size:1.15em}.nga-rich-card-image{margin:6px 0}.nga-rich-card-image img{display:block;border-radius:7px}
-        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-gray{color:gray}
+        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}
         .ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}
         .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
@@ -1179,11 +1181,11 @@ struct NGAParser: Sendable {
             "<blockquote>\(captures.first ?? "")</blockquote>"
         }
         output = renderListBBCode(output)
+        output = renderTableBBCode(output)
 
         let pairedTags: [(String, String)] = [
             ("b", "strong"), ("i", "em"), ("u", "u"), ("s", "strike"),
-            ("del", "strike"), ("table", "table"),
-            ("tr", "tr"), ("td", "td"), ("th", "th")
+            ("del", "strike"), ("sup", "sup")
         ]
         for (bbcode, htmlTag) in pairedTags {
             output = output.replacingOccurrences(
@@ -1203,7 +1205,10 @@ struct NGAParser: Sendable {
             pattern: #"\[color=([^\]]+)\]"#,
             options: [.caseInsensitive]
         ) { captures in
-            let supported = ["red", "orange", "green", "teal", "royalblue", "purple", "gray"]
+            let supported = [
+                "red", "orange", "green", "teal", "blue", "skyblue",
+                "royalblue", "purple", "deeppink", "chocolate", "sienna", "gray"
+            ]
             let value = captures.first?.lowercased() ?? ""
             let color = supported.contains(value) ? value : "default"
             return #"<span class="ubb-color-\#(color)">"#
@@ -1251,6 +1256,15 @@ struct NGAParser: Sendable {
         )
         output = replacingMatches(
             in: output,
+            pattern: #"(^|<br\s*/?>|\n)\s*={3,}\s*((?:(?!<br\s*/?>|\n|={3,}).)+?)\s*={3,}\s*(?=<br\s*/?>|\n|$)"#,
+            options: [.caseInsensitive]
+        ) { captures in
+            guard captures.count == 2 else { return "" }
+            let title = captures[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            return #"\#(captures[0])<h3 class="nga-section-title">\#(title)</h3>"#
+        }
+        output = replacingMatches(
+            in: output,
             pattern: #"(^|<br\s*/?>|\n)\s*={3,}\s*(<br\s*/?>|\n|$)"#,
             options: [.caseInsensitive]
         ) { _ in
@@ -1264,6 +1278,111 @@ struct NGAParser: Sendable {
             with: "<br><br>",
             options: .regularExpression
         )
+    }
+
+    private func renderTableBBCode(_ source: String) -> String {
+        replacingMatches(
+            in: source,
+            pattern: #"\[table(?:\s+[^\]]*)?\](.*?)\[/table\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) { tableCaptures in
+            let body = tableCaptures.first ?? ""
+            let rows = replacingMatches(
+                in: body,
+                pattern: #"\[tr(?:\s+[^\]]*)?\](.*?)\[/tr\]"#,
+                options: [.caseInsensitive, .dotMatchesLineSeparators]
+            ) { rowCaptures in
+                let row = rowCaptures.first ?? ""
+                let widths = tableCellWidths(in: row)
+                let totalWidth = widths.reduce(0, +)
+                var renderedRow = replacingMatches(
+                    in: row,
+                    pattern: #"\[(td|th)(?:\s+([^\]]*))?\](.*?)\[/\1\]"#,
+                    options: [.caseInsensitive, .dotMatchesLineSeparators]
+                ) { cellCaptures in
+                    guard cellCaptures.count == 3 else { return "" }
+                    let tag = cellCaptures[0].lowercased()
+                    let width = tableCellWidth(in: cellCaptures[1])
+                    let widthAttribute: String
+                    if let width, totalWidth > 0 {
+                        let percentage = width / totalWidth * 100
+                        widthAttribute = #" width="\#(formattedPercentage(percentage))%""#
+                    } else {
+                        widthAttribute = ""
+                    }
+                    return "<\(tag)\(widthAttribute)>\(cellCaptures[2])</\(tag)>"
+                }
+                renderedRow = renderedRow.replacingOccurrences(
+                    of: #"(?i)(</?(?:td|th)\b[^>]*>)\s*(?:<br\s*/?>\s*)+(?=</?(?:td|th)\b)"#,
+                    with: "$1",
+                    options: .regularExpression
+                )
+                renderedRow = renderedRow.replacingOccurrences(
+                    of: #"(?i)^(?:\s*<br\s*/?>\s*)+|(?:\s*<br\s*/?>\s*)+$"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                return "<tr>\(renderedRow)</tr>"
+            }
+            var cleanedRows = rows.replacingOccurrences(
+                of: #"(?i)(</?tr\b[^>]*>)\s*(?:<br\s*/?>\s*)+(?=</?tr\b)"#,
+                with: "$1",
+                options: .regularExpression
+            )
+            cleanedRows = cleanedRows.replacingOccurrences(
+                of: #"(?i)^(?:\s*<br\s*/?>\s*)+|(?:\s*<br\s*/?>\s*)+$"#,
+                with: "",
+                options: .regularExpression
+            )
+            return "<table>\(cleanedRows)</table>"
+        }
+    }
+
+    private func tableCellWidths(in row: String) -> [Double] {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[(?:td|th)\b([^\]]*)\]"#,
+            options: [.caseInsensitive]
+        ) else {
+            return []
+        }
+        let source = row as NSString
+        return expression.matches(
+            in: row,
+            range: NSRange(location: 0, length: source.length)
+        ).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  match.range(at: 1).location != NSNotFound else {
+                return nil
+            }
+            return tableCellWidth(in: source.substring(with: match.range(at: 1)))
+        }
+    }
+
+    private func tableCellWidth(in attributes: String) -> Double? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"(?:^|\s)width\s*=\s*["']?(\d+(?:\.\d+)?)"#,
+            options: [.caseInsensitive]
+        ) else {
+            return nil
+        }
+        let source = attributes as NSString
+        guard let match = expression.firstMatch(
+            in: attributes,
+            range: NSRange(location: 0, length: source.length)
+        ), match.numberOfRanges > 1 else {
+            return nil
+        }
+        return Double(source.substring(with: match.range(at: 1)))
+    }
+
+    private func formattedPercentage(_ value: Double) -> String {
+        let rounded = value.rounded()
+        if abs(value - rounded) < 0.01 {
+            return String(Int(rounded))
+        }
+        return String(format: "%.2f", value)
+            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
     }
 
     private func renderListBBCode(_ source: String) -> String {
