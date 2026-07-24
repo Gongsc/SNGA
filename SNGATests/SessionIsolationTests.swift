@@ -1,0 +1,307 @@
+import Foundation
+import XCTest
+@testable import SNGA
+
+final class SessionIsolationTests: XCTestCase {
+    func testClientsNeverShareCookieHeaders() async throws {
+        let transportA = RecordingTransport()
+        let transportB = RecordingTransport()
+        let cookieA = SessionCookie(name: "ngaPassportUid", value: "100", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
+        let cookieB = SessionCookie(name: "ngaPassportUid", value: "200", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
+        let clientA = NGANetworkClient(cookies: [cookieA], transport: transportA)
+        let clientB = NGANetworkClient(cookies: [cookieB], transport: transportB)
+
+        async let responseA = clientA.request(.forums)
+        async let responseB = clientB.request(.forums)
+        _ = try await (responseA, responseB)
+
+        let headersA = await transportA.cookieHeaders()
+        let headersB = await transportB.cookieHeaders()
+        XCTAssertEqual(headersA, ["ngaPassportUid=100"])
+        XCTAssertEqual(headersB, ["ngaPassportUid=200"])
+        XCTAssertFalse(headersA.joined().contains("200"))
+        XCTAssertFalse(headersB.joined().contains("100"))
+    }
+
+    func testWriteFailureIsNeverRetried() async {
+        let transport = FailingTransport()
+        let client = NGANetworkClient(cookies: [], transport: transport)
+        do {
+            _ = try await client.request(.checkIn)
+            XCTFail("写入失败应抛出错误")
+        } catch let error as NGAServiceError {
+            XCTAssertEqual(error, .ambiguousWrite)
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+        let requestCount = await transport.requestCount()
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testAppAPIReceivesCredentialsFromOnlyItsOwnCookies() async throws {
+        let transport = RecordingTransport()
+        let cookies = [
+            SessionCookie(name: "ngaPassportUid", value: "123", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true),
+            SessionCookie(name: "ngaPassportCid", value: "secret-token", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
+        ]
+        let client = NGANetworkClient(cookies: cookies, transport: transport)
+
+        _ = try await client.request(.favorites)
+
+        let bodies = await transport.requestBodies()
+        let body = try XCTUnwrap(bodies.first)
+        XCTAssertTrue(body.contains("access_uid=123"))
+        XCTAssertTrue(body.contains("access_token=secret-token"))
+    }
+
+    func testCheckInUsesOfficialClientHeaderAndAuthenticatedForm() async throws {
+        let transport = RecordingTransport()
+        let cookies = [
+            SessionCookie(name: "ngaPassportUid", value: "123", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true),
+            SessionCookie(name: "ngaPassportCid", value: "secret-token", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
+        ]
+        let client = NGANetworkClient(cookies: cookies, transport: transport)
+
+        _ = try await client.request(.checkIn)
+
+        let xUserAgents = await transport.xUserAgents()
+        let bodies = await transport.requestBodies()
+        XCTAssertEqual(xUserAgents, ["Nga_Official"])
+        let body = try XCTUnwrap(bodies.first)
+        XCTAssertTrue(body.contains("access_uid=123"))
+        XCTAssertTrue(body.contains("access_token=secret-token"))
+    }
+
+    func testReplyUsesAuthenticatedStructuredPreflightThenSubmitsExactlyOnce() async throws {
+        let transport = ReplySubmissionTransport()
+        let cookies = [
+            SessionCookie(name: "ngaPassportUid", value: "123", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true),
+            SessionCookie(name: "ngaPassportCid", value: "secret-token", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
+        ]
+        let service = LiveNGAForumService(
+            accountID: AccountID(),
+            cookies: cookies,
+            transport: transport
+        )
+
+        _ = try await service.submitReply(
+            topicID: TopicID(rawValue: 47239186),
+            submission: ReplySubmission(content: "测试回复", replyTo: PostID(rawValue: 876078281))
+        )
+
+        let requests = await transport.requests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].httpMethod, "POST")
+        XCTAssertTrue(requests[0].url?.query?.contains("lite=xml") == true)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "X-User-Agent"), "NGA_WP_JW/(;WINDOWS)")
+        let preflightBody = try XCTUnwrap(requests[0].httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertTrue(preflightBody.contains("access_uid=123"))
+        XCTAssertTrue(preflightBody.contains("access_token=secret-token"))
+
+        let submissionBody = try XCTUnwrap(requests[1].httpBody.flatMap { String(data: $0, encoding: .utf8) })
+        XCTAssertTrue(submissionBody.contains("auth=reply-token"))
+        XCTAssertTrue(submissionBody.contains("post_content="))
+        XCTAssertTrue(submissionBody.contains("step=2"))
+        XCTAssertTrue(requests[1].url?.query?.contains("pid=876078281") == true)
+    }
+
+    func testThreadFallsBackToWebHTMLWhenStructuredResponseHasNoPosts() async throws {
+        let transport = ThreadFallbackTransport()
+        let service = LiveNGAForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: transport
+        )
+
+        let page = try await service.threadPage(topicID: TopicID(rawValue: 47239680), page: 1)
+
+        XCTAssertEqual(page.topic.subject, "兼容主题")
+        XCTAssertEqual(page.posts.first?.author, "网页用户")
+        XCTAssertTrue(page.posts.first?.html.contains("网页正文") == true)
+        let requests = await transport.requests()
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests[0].url?.query?.contains("__output=11") == true)
+        XCTAssertFalse(requests[1].url?.query?.contains("__output") == true)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "User-Agent"), "NGA_WP_JW/(;WINDOWS)")
+    }
+
+    func testLocalSessionStorePersistsPerAccountWithoutKeychain() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "SNGA-SessionStore-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalSessionStore(directoryURL: directory)
+        let accountA = AccountID()
+        let accountB = AccountID()
+        let cookie = SessionCookie(
+            name: "ngaPassportUid",
+            value: "123",
+            domain: "bbs.nga.cn",
+            path: "/",
+            expiresAt: nil,
+            isSecure: true,
+            isHTTPOnly: true
+        )
+
+        try await store.save(cookies: [cookie], for: accountA)
+
+        let storedA = try await store.cookies(for: accountA)
+        let storedB = try await store.cookies(for: accountB)
+        XCTAssertEqual(storedA, [cookie])
+        XCTAssertEqual(storedB, [])
+        try await store.remove(accountID: accountA)
+        let removedA = try await store.cookies(for: accountA)
+        XCTAssertEqual(removedA, [])
+    }
+
+    func testGenericHTTP403DoesNotInvalidateSession() async {
+        let transport = FixedResponseTransport(
+            statusCode: 403,
+            body: "<html><title>Access denied</title></html>"
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.forums)
+            XCTFail("HTTP 403 应抛出错误")
+        } catch let error as NGAServiceError {
+            guard case let .restricted(message) = error else {
+                return XCTFail("普通 403 不应被识别为登录失效：\(error)")
+            }
+            XCTAssertTrue(message.contains("HTTP 403"))
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+    }
+
+    func testExplicitLoginHTTP403StillRequiresLogin() async {
+        let transport = FixedResponseTransport(
+            statusCode: 403,
+            body: """
+            {"error":["1:未登录","<a href='/nuke.php?__lib=login'>登录</a>"]}
+            """
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.forums)
+            XCTFail("明确的未登录响应应抛出错误")
+        } catch let error as NGAServiceError {
+            XCTAssertEqual(error, .requiresLogin)
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+    }
+}
+
+private actor RecordingTransport: HTTPTransport {
+    private var headers: [String] = []
+    private var bodies: [String] = []
+    private var recordedXUserAgents: [String] = []
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        headers.append(request.value(forHTTPHeaderField: "Cookie") ?? "")
+        bodies.append(request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "")
+        recordedXUserAgents.append(request.value(forHTTPHeaderField: "X-User-Agent") ?? "")
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/html; charset=utf-8"])!
+        return (Data("<a href='/thread.php?fid=-7'>测试板块</a>".utf8), response)
+    }
+
+    func cookieHeaders() -> [String] { headers }
+    func requestBodies() -> [String] { bodies }
+    func xUserAgents() -> [String] { recordedXUserAgents }
+}
+
+private actor FailingTransport: HTTPTransport {
+    private var count = 0
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        count += 1
+        throw URLError(.networkConnectionLost)
+    }
+
+    func requestCount() -> Int { count }
+}
+
+private actor FixedResponseTransport: HTTPTransport {
+    let statusCode: Int
+    let body: String
+
+    init(statusCode: Int, body: String) {
+        self.statusCode = statusCode
+        self.body = body
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "text/html; charset=utf-8"]
+        )!
+        return (Data(body.utf8), response)
+    }
+}
+
+private actor ThreadFallbackTransport: HTTPTransport {
+    private var recordedRequests: [URLRequest] = []
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        recordedRequests.append(request)
+        let isStructured = request.url?.query?.contains("__output=11") == true
+        let body: String
+        let contentType: String
+        if isStructured {
+            body = #"{"data":{"__T":{"tid":47239680,"fid":-7,"subject":"兼容主题","replies":0},"__R":[]}}"#
+            contentType = "application/json; charset=utf-8"
+        } else {
+            body = """
+            <html>
+              <head><title>兼容主题 - NGA玩家社区</title></head>
+              <body>
+                <div>
+                  <span class="author">网页用户</span>
+                  <div id="postcontent301" class="postcontent"><p>网页正文</p></div>
+                </div>
+              </body>
+            </html>
+            """
+            contentType = "text/html; charset=utf-8"
+        }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": contentType]
+        )!
+        return (Data(body.utf8), response)
+    }
+
+    func requests() -> [URLRequest] { recordedRequests }
+}
+
+private actor ReplySubmissionTransport: HTTPTransport {
+    private var recordedRequests: [URLRequest] = []
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        recordedRequests.append(request)
+        let isPreflight = recordedRequests.count == 1
+        let body = isPreflight
+            ? """
+              <?xml version="1.0" encoding="UTF-8"?>
+              <root><content></content><auth>reply-token</auth></root>
+              """
+            : """
+              <?xml version="1.0" encoding="UTF-8"?>
+              <root><__MESSAGE><item>0</item><item>发帖完毕</item><item>200</item></__MESSAGE></root>
+              """
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/xml; charset=utf-8"]
+        )!
+        return (Data(body.utf8), response)
+    }
+
+    func requests() -> [URLRequest] { recordedRequests }
+}

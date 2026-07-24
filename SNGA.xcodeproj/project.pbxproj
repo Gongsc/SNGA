@@ -1,0 +1,703 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0246EC521B336CF50CC0FCD7 /* NGAParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */; };
+		1081D471D274B56291188892 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB00A3D61556F1889A61F1E /* SwiftSoup */; };
+		189986D3BF5D6C041C9703FB /* UBBRichEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */; };
+		19745F82297470AA6FBAF9C7 /* NGAEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */; };
+		25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */; };
+		26B721BD8D05B28C170741BF /* NGAForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE78B47EBCD9C893087DA621 /* NGAForumService.swift */; };
+		2C35932AD881A29C313E16F8 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */; };
+		30718179FA2D1AC01BF722CA /* PersistenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F78187F7A7D91C4B955A2FEB /* PersistenceModels.swift */; };
+		316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */; };
+		32692E9BB42F16013BB0D4B4 /* DebugForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34CB07AA27560EA85CD09759 /* DebugForumService.swift */; };
+		4886EE12B42D50AB38EB2EE6 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92C014C3D8A3473B7341EC7 /* NotificationService.swift */; };
+		4A001FD0F1762C51AB89C9DD /* SessionIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6817FFD7353256F7177C155E /* SessionIsolationTests.swift */; };
+		589ECF182CD27AF1B8B2EFA6 /* Identifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F34C7E7F57C5FC1740780D7D /* Identifiers.swift */; };
+		6322FA63D852FC366437FBF0 /* SNGAUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4279D94AB00DDD4D9F0D362F /* SNGAUITests.swift */; };
+		6788A3D67B25227C89289B89 /* PostWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */; };
+		6DE94328F17652A2C4E4BC90 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 6EB729886DE7982F6AEE4B62 /* AppIcon.icon */; };
+		855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */; };
+		85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F0C86AA303E8B9438408600 /* ThreadViews.swift */; };
+		8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */; };
+		B17FD659E2BB6E83D60552A6 /* ForumViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12618816A06AC96CE940A86 /* ForumViews.swift */; };
+		B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */; };
+		B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F28E6EC3AF398C4F536780 /* ForumService.swift */; };
+		CF4D5028D136A415C1B1EC74 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 74F907941FE34B2E0487DAC1 /* Assets.xcassets */; };
+		D057341F6FF1EC975E29F3B4 /* DomainModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45E326F278EE7F0B5619DC66 /* DomainModels.swift */; };
+		D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D5977B956991E18788ADB30 /* MessageViews.swift */; };
+		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
+		EA2B802B1BFC2285F9FD75B5 /* CheckInScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04583C294B1E0994FAB7581D /* CheckInScheduler.swift */; };
+		F42D2B846FC38121AD31CC97 /* NGANetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */; };
+		F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2FE63519863D051826534B /* RootView.swift */; };
+		FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3495F33CDD5AC5F41660E2E0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3B9B99C79D3289A15AD25E99 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B164E0CDB955DC00BB2F0495;
+			remoteInfo = SNGA;
+		};
+		EFD6059B6E60E100FEC6A3D2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3B9B99C79D3289A15AD25E99 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B164E0CDB955DC00BB2F0495;
+			remoteInfo = SNGA;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04583C294B1E0994FAB7581D /* CheckInScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScheduler.swift; sourceTree = "<group>"; };
+		2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteAndCheckInTests.swift; sourceTree = "<group>"; };
+		2D5977B956991E18788ADB30 /* MessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageViews.swift; sourceTree = "<group>"; };
+		2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
+		30F28E6EC3AF398C4F536780 /* ForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumService.swift; sourceTree = "<group>"; };
+		34CB07AA27560EA85CD09759 /* DebugForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugForumService.swift; sourceTree = "<group>"; };
+		4279D94AB00DDD4D9F0D362F /* SNGAUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SNGAUITests.swift; sourceTree = "<group>"; };
+		45E326F278EE7F0B5619DC66 /* DomainModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DomainModels.swift; sourceTree = "<group>"; };
+		466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSessionStore.swift; sourceTree = "<group>"; };
+		4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteSyncEngine.swift; sourceTree = "<group>"; };
+		56BF648EE4A2EC4050DC77E4 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		6817FFD7353256F7177C155E /* SessionIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIsolationTests.swift; sourceTree = "<group>"; };
+		6EB729886DE7982F6AEE4B62 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		6F0C86AA303E8B9438408600 /* ThreadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViews.swift; sourceTree = "<group>"; };
+		74F907941FE34B2E0487DAC1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8832D4CE472AC37C4868F769 /* SNGA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SNGA.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC2A3630313FF101D2020A0A /* SNGATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC2FE63519863D051826534B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UBBRichEditor.swift; sourceTree = "<group>"; };
+		B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostWebView.swift; sourceTree = "<group>"; };
+		BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAEndpoint.swift; sourceTree = "<group>"; };
+		BE78B47EBCD9C893087DA621 /* NGAForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAForumService.swift; sourceTree = "<group>"; };
+		C414AA0229E2093B7A0C16F1 /* SNGA.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SNGA.entitlements; sourceTree = "<group>"; };
+		D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAParser.swift; sourceTree = "<group>"; };
+		D92C014C3D8A3473B7341EC7 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAParserTests.swift; sourceTree = "<group>"; };
+		E12618816A06AC96CE940A86 /* ForumViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumViews.swift; sourceTree = "<group>"; };
+		F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		F34C7E7F57C5FC1740780D7D /* Identifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identifiers.swift; sourceTree = "<group>"; };
+		F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGANetworkClient.swift; sourceTree = "<group>"; };
+		F78187F7A7D91C4B955A2FEB /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
+		FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SNGAApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2C9D060D40642FC5BECD6072 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1081D471D274B56291188892 /* SwiftSoup in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2728E3DCBAA2D5D76F0D97BD /* App */ = {
+			isa = PBXGroup;
+			children = (
+				56BF648EE4A2EC4050DC77E4 /* AppModel.swift */,
+				FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		2B20D6C86EB61573CC21EA76 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8832D4CE472AC37C4868F769 /* SNGA.app */,
+				AC2A3630313FF101D2020A0A /* SNGATests.xctest */,
+				AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8D96745DD65BEBEF64B609F9 /* SNGAUITests */ = {
+			isa = PBXGroup;
+			children = (
+				4279D94AB00DDD4D9F0D362F /* SNGAUITests.swift */,
+			);
+			path = SNGAUITests;
+			sourceTree = "<group>";
+		};
+		9A07DA85DABC6A64464A35D7 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				45E326F278EE7F0B5619DC66 /* DomainModels.swift */,
+				F34C7E7F57C5FC1740780D7D /* Identifiers.swift */,
+				F78187F7A7D91C4B955A2FEB /* PersistenceModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A449481931BE07E0174D8163 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				04583C294B1E0994FAB7581D /* CheckInScheduler.swift */,
+				34CB07AA27560EA85CD09759 /* DebugForumService.swift */,
+				4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */,
+				466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */,
+				D92C014C3D8A3473B7341EC7 /* NotificationService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AB7C934DB2582BB3F12724BB /* SNGA */ = {
+			isa = PBXGroup;
+			children = (
+				2728E3DCBAA2D5D76F0D97BD /* App */,
+				9A07DA85DABC6A64464A35D7 /* Models */,
+				B0E9269AAA2BBF7019360B58 /* Network */,
+				A449481931BE07E0174D8163 /* Services */,
+				E2829A46FBC76945C0A4F453 /* Views */,
+				6EB729886DE7982F6AEE4B62 /* AppIcon.icon */,
+				74F907941FE34B2E0487DAC1 /* Assets.xcassets */,
+				C414AA0229E2093B7A0C16F1 /* SNGA.entitlements */,
+			);
+			path = SNGA;
+			sourceTree = "<group>";
+		};
+		B0E9269AAA2BBF7019360B58 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				30F28E6EC3AF398C4F536780 /* ForumService.swift */,
+				BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */,
+				BE78B47EBCD9C893087DA621 /* NGAForumService.swift */,
+				F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */,
+				D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		E26F0C36F8C5A64FD731885A = {
+			isa = PBXGroup;
+			children = (
+				AB7C934DB2582BB3F12724BB /* SNGA */,
+				E83F715C57A40DEB0B666CCA /* SNGATests */,
+				8D96745DD65BEBEF64B609F9 /* SNGAUITests */,
+				2B20D6C86EB61573CC21EA76 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E2829A46FBC76945C0A4F453 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				E38CA9081796C1C452348BEF /* Components */,
+				E12618816A06AC96CE940A86 /* ForumViews.swift */,
+				2D5977B956991E18788ADB30 /* MessageViews.swift */,
+				AC2FE63519863D051826534B /* RootView.swift */,
+				F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */,
+				6F0C86AA303E8B9438408600 /* ThreadViews.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E38CA9081796C1C452348BEF /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */,
+				B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */,
+				AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		E83F715C57A40DEB0B666CCA /* SNGATests */ = {
+			isa = PBXGroup;
+			children = (
+				2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */,
+				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
+				6817FFD7353256F7177C155E /* SessionIsolationTests.swift */,
+			);
+			path = SNGATests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		85F5B07DD4BC732ED67B853E /* SNGATests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC7248AF52CC3683BB0EE686 /* Build configuration list for PBXNativeTarget "SNGATests" */;
+			buildPhases = (
+				397B72AA306D6BD14A6E9841 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				051A2A41B73504FEA2709CA4 /* PBXTargetDependency */,
+			);
+			name = SNGATests;
+			packageProductDependencies = (
+			);
+			productName = SNGATests;
+			productReference = AC2A3630313FF101D2020A0A /* SNGATests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B164E0CDB955DC00BB2F0495 /* SNGA */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6E014C168806046449340C00 /* Build configuration list for PBXNativeTarget "SNGA" */;
+			buildPhases = (
+				1EA4F7827A5DED37F58BD55C /* Sources */,
+				709CC1A01CC640AB4C578F77 /* Resources */,
+				2C9D060D40642FC5BECD6072 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SNGA;
+			packageProductDependencies = (
+				5EB00A3D61556F1889A61F1E /* SwiftSoup */,
+			);
+			productName = SNGA;
+			productReference = 8832D4CE472AC37C4868F769 /* SNGA.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B31922D8BFC1CF3DDD3E6B9A /* SNGAUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D98288417DDBD707EA0AA561 /* Build configuration list for PBXNativeTarget "SNGAUITests" */;
+			buildPhases = (
+				251A20517E4CD2157DCC7EDC /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1FCC5ADA5C56A1E89DE039AF /* PBXTargetDependency */,
+			);
+			name = SNGAUITests;
+			packageProductDependencies = (
+			);
+			productName = SNGAUITests;
+			productReference = AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3B9B99C79D3289A15AD25E99 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					B164E0CDB955DC00BB2F0495 = {
+						ProvisioningStyle = Automatic;
+					};
+					B31922D8BFC1CF3DDD3E6B9A = {
+						TestTargetID = B164E0CDB955DC00BB2F0495;
+					};
+				};
+			};
+			buildConfigurationList = 510A65F70CB49E1718AAC20E /* Build configuration list for PBXProject "SNGA" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E26F0C36F8C5A64FD731885A;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F960246989C301BA43095F25 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2B20D6C86EB61573CC21EA76 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B164E0CDB955DC00BB2F0495 /* SNGA */,
+				85F5B07DD4BC732ED67B853E /* SNGATests */,
+				B31922D8BFC1CF3DDD3E6B9A /* SNGAUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		709CC1A01CC640AB4C578F77 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6DE94328F17652A2C4E4BC90 /* AppIcon.icon in Resources */,
+				CF4D5028D136A415C1B1EC74 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1EA4F7827A5DED37F58BD55C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */,
+				EA2B802B1BFC2285F9FD75B5 /* CheckInScheduler.swift in Sources */,
+				32692E9BB42F16013BB0D4B4 /* DebugForumService.swift in Sources */,
+				D057341F6FF1EC975E29F3B4 /* DomainModels.swift in Sources */,
+				8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */,
+				B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */,
+				B17FD659E2BB6E83D60552A6 /* ForumViews.swift in Sources */,
+				589ECF182CD27AF1B8B2EFA6 /* Identifiers.swift in Sources */,
+				B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */,
+				2C35932AD881A29C313E16F8 /* LoginWebView.swift in Sources */,
+				D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */,
+				19745F82297470AA6FBAF9C7 /* NGAEndpoint.swift in Sources */,
+				26B721BD8D05B28C170741BF /* NGAForumService.swift in Sources */,
+				F42D2B846FC38121AD31CC97 /* NGANetworkClient.swift in Sources */,
+				0246EC521B336CF50CC0FCD7 /* NGAParser.swift in Sources */,
+				4886EE12B42D50AB38EB2EE6 /* NotificationService.swift in Sources */,
+				30718179FA2D1AC01BF722CA /* PersistenceModels.swift in Sources */,
+				6788A3D67B25227C89289B89 /* PostWebView.swift in Sources */,
+				F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */,
+				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
+				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
+				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
+				189986D3BF5D6C041C9703FB /* UBBRichEditor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		251A20517E4CD2157DCC7EDC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6322FA63D852FC366437FBF0 /* SNGAUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		397B72AA306D6BD14A6E9841 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */,
+				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
+				4A001FD0F1762C51AB89C9DD /* SessionIsolationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		051A2A41B73504FEA2709CA4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B164E0CDB955DC00BB2F0495 /* SNGA */;
+			targetProxy = EFD6059B6E60E100FEC6A3D2 /* PBXContainerItemProxy */;
+		};
+		1FCC5ADA5C56A1E89DE039AF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B164E0CDB955DC00BB2F0495 /* SNGA */;
+			targetProxy = 3495F33CDD5AC5F41660E2E0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1426B7CAB1B29A19534B6F57 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = SNGA;
+			};
+			name = Debug;
+		};
+		1B70AA3FCDDE08A1D5503710 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SNGA.app/Contents/MacOS/SNGA";
+			};
+			name = Release;
+		};
+		3CEE9AC7C3C4430D2E195CCA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SNGA.app/Contents/MacOS/SNGA";
+			};
+			name = Debug;
+		};
+		534F79DD57D00521144B35F4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SNGA/SNGA.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SNGA;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
+				PRODUCT_NAME = SNGA;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		958AA2E613E8EE2BB6369929 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client.uitests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = SNGA;
+			};
+			name = Release;
+		};
+		A52FBA810154220EB3900245 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SNGA/SNGA.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = SNGA;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
+				PRODUCT_NAME = SNGA;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		B0AF8CA2AD85C4D776312776 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		D00552EEF110C07411491574 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		510A65F70CB49E1718AAC20E /* Build configuration list for PBXProject "SNGA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00552EEF110C07411491574 /* Debug */,
+				B0AF8CA2AD85C4D776312776 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6E014C168806046449340C00 /* Build configuration list for PBXNativeTarget "SNGA" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A52FBA810154220EB3900245 /* Debug */,
+				534F79DD57D00521144B35F4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D98288417DDBD707EA0AA561 /* Build configuration list for PBXNativeTarget "SNGAUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1426B7CAB1B29A19534B6F57 /* Debug */,
+				958AA2E613E8EE2BB6369929 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EC7248AF52CC3683BB0EE686 /* Build configuration list for PBXNativeTarget "SNGATests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3CEE9AC7C3C4430D2E195CCA /* Debug */,
+				1B70AA3FCDDE08A1D5503710 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F960246989C301BA43095F25 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.13.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5EB00A3D61556F1889A61F1E /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F960246989C301BA43095F25 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3B9B99C79D3289A15AD25E99 /* Project object */;
+}

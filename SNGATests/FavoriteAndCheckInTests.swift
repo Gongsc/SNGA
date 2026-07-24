@@ -1,0 +1,86 @@
+import Foundation
+import XCTest
+@testable import SNGA
+
+final class FavoriteAndCheckInTests: XCTestCase {
+    func testAppThemeFallsBackAndAppliesWebPalette() {
+        XCTAssertEqual(AppTheme.resolve("unknown-theme"), .system)
+
+        let html = """
+        <style>
+        :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a}
+        </style>
+        """
+        let themed = AppTheme.midnight.applying(to: html)
+
+        XCTAssertTrue(themed.contains("color-scheme:dark"))
+        XCTAssertTrue(themed.contains("--snga-accent:#52d6e8"))
+        XCTAssertTrue(themed.contains("--snga-highlight:#278fa5"))
+        XCTAssertFalse(themed.contains("color-scheme:light dark"))
+    }
+
+    func testPendingLocalOperationsWinDuringMerge() {
+        let one = Forum(id: ForumID(rawValue: 1), name: "一号板块")
+        let two = Forum(id: ForumID(rawValue: 2), name: "二号板块")
+        let three = Forum(id: ForumID(rawValue: 3), name: "三号板块")
+        let local = [
+            FavoriteSnapshot(forum: one, order: 0, state: .pendingRemove),
+            FavoriteSnapshot(forum: two, order: 1, state: .pendingAdd)
+        ]
+
+        let result = FavoriteSyncEngine.merge(server: [one, three], local: local)
+
+        XCTAssertEqual(result.visible.map(\.forum.id), [two.id, three.id])
+        XCTAssertEqual(result.pendingAdds, [two.id])
+        XCTAssertEqual(result.pendingRemovals, [one.id])
+    }
+
+    func testServerAdditionsKeepLocalOrder() {
+        let localForum = Forum(id: ForumID(rawValue: 1), name: "本地")
+        let serverForum = Forum(id: ForumID(rawValue: 2), name: "站端")
+        let result = FavoriteSyncEngine.merge(
+            server: [localForum, serverForum],
+            local: [FavoriteSnapshot(forum: localForum, order: 4, state: .synced)]
+        )
+        XCTAssertEqual(result.visible.map(\.forum.id), [localForum.id, serverForum.id])
+        XCTAssertEqual(result.visible.map(\.order), [4, 5])
+    }
+
+    func testCheckInUsesBeijingCalendarDay() throws {
+        let formatter = ISO8601DateFormatter()
+        let beforeMidnightUTC = try XCTUnwrap(formatter.date(from: "2026-07-22T15:59:59Z"))
+        let afterMidnightUTC = try XCTUnwrap(formatter.date(from: "2026-07-22T16:00:01Z"))
+
+        XCTAssertEqual(CheckInPolicy.dayKey(for: beforeMidnightUTC), "2026-07-22")
+        XCTAssertEqual(CheckInPolicy.dayKey(for: afterMidnightUTC), "2026-07-23")
+        XCTAssertFalse(CheckInPolicy.shouldCheckIn(lastSuccessfulDay: "2026-07-23", now: afterMidnightUTC))
+        XCTAssertTrue(CheckInPolicy.shouldCheckIn(lastSuccessfulDay: "2026-07-22", now: afterMidnightUTC))
+    }
+
+    func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {
+        let accountID = AccountID(rawValue: UUID())
+        let parentForumID = ForumID(rawValue: 414)
+        let selectedForumIDs: Set<ForumID> = [
+            ForumID(rawValue: 614),
+            ForumID(stid: 35_925_536)
+        ]
+        let record = SubforumPreferenceRecord(
+            accountID: accountID,
+            parentForumID: parentForumID,
+            selectedForumIDs: selectedForumIDs
+        )
+
+        XCTAssertEqual(record.selectedForumIDs, selectedForumIDs)
+        XCTAssertEqual(
+            record.id,
+            SubforumPreferenceRecord.recordID(
+                accountID: accountID,
+                parentForumID: parentForumID
+            )
+        )
+
+        record.selectedForumIDs = []
+        XCTAssertEqual(record.selectedForumIDs, [])
+        XCTAssertEqual(record.selectedForumIDsRaw, "")
+    }
+}

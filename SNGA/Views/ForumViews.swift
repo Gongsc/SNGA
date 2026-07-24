@@ -1,0 +1,975 @@
+import SwiftUI
+
+struct UserCenterView: View {
+    @Environment(AppModel.self) private var model
+    let uid: Int64?
+
+    var body: some View {
+        if model.activeAccountID == nil {
+            ContentUnavailableView {
+                Label("欢迎使用 SNGA", systemImage: "bubble.left.and.bubble.right")
+            } description: {
+                Text("添加 NGA 账号后即可浏览论坛。")
+            } actions: {
+                Button("登录 NGA") { model.showsLogin = true }
+                    .buttonStyle(.borderedProminent)
+            }
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    profileHeader
+
+                    if model.isDisplayingActiveAccount {
+                        checkInContent
+                    }
+
+                    basicInformation
+                    reputationContent
+                    activityContent
+                }
+                .padding(24)
+            }
+            .navigationTitle("用户中心")
+            .task(id: targetUID) {
+                if let targetUID {
+                    await model.ensureUserCenterLoaded(uid: targetUID)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var profileHeader: some View {
+        if let profile {
+            HStack(alignment: .center, spacing: 16) {
+                AsyncImage(url: profile.avatarURL) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Image(systemName: "person.crop.circle.fill")
+                        .resizable()
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: 72, height: 72)
+                .clipShape(.circle)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(profile.displayName)
+                        .font(.largeTitle.bold())
+                    Text("UID \(profile.uid)")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if let group = profile.userGroup, !group.isEmpty {
+                            Text(group)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(.quaternary, in: Capsule())
+                        }
+                        if let title = profile.title, !title.isEmpty {
+                            Text(title)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.caption)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var checkInContent: some View {
+        let status = model.activeAccountCheckInStatus
+        if status.canCheckIn {
+            Button {
+                Task { await model.checkInActiveAccount() }
+            } label: {
+                checkInStatusCard(status)
+            }
+            .buttonStyle(.plain)
+            .help("点击签到")
+        } else {
+            checkInStatusCard(status)
+                .help(checkInTitle(for: status))
+        }
+    }
+
+    private func checkInStatusCard(_ status: DailyCheckInStatus) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: checkInIcon(for: status))
+                .font(.title2)
+                .foregroundStyle(checkInColor(for: status))
+                .frame(width: 30)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(checkInTitle(for: status))
+                    .font(.headline)
+                Text(checkInDetail(for: status))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+
+            Spacer()
+            if status == .checkingIn {
+                ProgressView()
+                    .controlSize(.small)
+            } else if status.canCheckIn {
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            checkInColor(for: status).opacity(0.1),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
+        .contentShape(.rect)
+    }
+
+    private func checkInTitle(for status: DailyCheckInStatus) -> String {
+        switch status {
+        case .checkedIn: "今日已签到"
+        case .notCheckedIn: "今日尚未签到"
+        case .checkingIn: "正在签到…"
+        case .failed: "签到失败"
+        }
+    }
+
+    private func checkInDetail(for status: DailyCheckInStatus) -> String {
+        switch status {
+        case let .checkedIn(message): message
+        case .notCheckedIn: "点击状态卡完成今日签到"
+        case .checkingIn: "正在向 NGA 确认签到结果"
+        case let .failed(message): "\(message)；点击重试"
+        }
+    }
+
+    private func checkInIcon(for status: DailyCheckInStatus) -> String {
+        switch status {
+        case .checkedIn: "checkmark.seal.fill"
+        case .notCheckedIn: "checkmark.seal"
+        case .checkingIn: "arrow.triangle.2.circlepath"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func checkInColor(for status: DailyCheckInStatus) -> Color {
+        switch status {
+        case .checkedIn: .green
+        case .notCheckedIn: .accentColor
+        case .checkingIn: .secondary
+        case .failed: .orange
+        }
+    }
+
+    @ViewBuilder
+    private var basicInformation: some View {
+        if let profile {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionTitle("基础信息")
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 150), alignment: .leading)],
+                    alignment: .leading,
+                    spacing: 14
+                ) {
+                    ProfileField(title: "用户 ID", value: String(profile.uid))
+                    ProfileField(title: "用户名", value: profile.displayName)
+                    ProfileField(title: "用户组", value: profile.userGroup ?? "—")
+                    ProfileField(title: "发帖数", value: profile.postCount.map(String.init) ?? "—")
+                    ProfileField(title: "注册时间", value: formatted(profile.registeredAt))
+                    ProfileField(title: "IP 属地", value: profile.location ?? "—")
+                    if let honor = profile.honor, !honor.isEmpty {
+                        ProfileField(title: "头衔", value: honor)
+                    }
+                    if let followers = profile.followerCount {
+                        ProfileField(title: "被关注", value: String(followers))
+                    }
+                }
+                .padding(16)
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+
+                if let signature = profile.signature, !signature.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("签名").font(.caption).foregroundStyle(.secondary)
+                        Text(signature)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(16)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reputationContent: some View {
+        if let profile {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionTitle("声望")
+                LazyVGrid(
+                    columns: [
+                        GridItem(.adaptive(minimum: 170), spacing: 12, alignment: .leading)
+                    ],
+                    alignment: .leading,
+                    spacing: 12
+                ) {
+                    ReputationMetric(
+                        title: "威望",
+                        value: profile.reputation.map { String(format: "%.1f", $0) } ?? "—",
+                        systemImage: "star.circle"
+                    )
+                    ReputationMetric(
+                        title: "声望",
+                        value: profile.fame.map(String.init) ?? "—",
+                        systemImage: "medal"
+                    )
+                    ReputationMetric(
+                        title: "N 币",
+                        value: profile.money.map(String.init) ?? "—",
+                        systemImage: "circle.hexagongrid"
+                    )
+                }
+            }
+        }
+    }
+
+    private var activityContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("发布记录")
+            Picker(
+                "发布记录",
+                selection: Binding(
+                    get: { model.userActivityKind },
+                    set: { kind in
+                        guard let targetUID else { return }
+                        Task {
+                            await model.loadUserActivities(uid: targetUID, kind: kind, page: 1)
+                        }
+                    }
+                )
+            ) {
+                ForEach(UserActivityKind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 320)
+
+            if model.userActivities.isEmpty {
+                if model.isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                } else {
+                    ContentUnavailableView(
+                        "暂无\(model.userActivityKind.title)",
+                        systemImage: model.userActivityKind == .topics
+                            ? "text.bubble"
+                            : "arrowshape.turn.up.left"
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                }
+            } else {
+                LazyVStack(spacing: 6) {
+                    ForEach(model.userActivities) { activity in
+                        Button {
+                            Task { await model.openUserActivity(activity) }
+                        } label: {
+                            UserActivityRow(activity: activity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                userActivityPagination
+            }
+        }
+    }
+
+    private var userActivityPagination: some View {
+        HStack(spacing: 12) {
+            Button("上一页", systemImage: "chevron.left") {
+                navigateActivity(to: model.userActivityPage - 1)
+            }
+            .disabled(model.isLoading || model.userActivityPage <= 1)
+
+            Text("第 \(model.userActivityPage) / \(model.userActivityTotalPages) 页")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Button("下一页", systemImage: "chevron.right") {
+                navigateActivity(to: model.userActivityPage + 1)
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(model.isLoading || !model.userActivityHasMore)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
+    }
+
+    private func navigateActivity(to page: Int) {
+        guard let targetUID else { return }
+        Task {
+            await model.loadUserActivities(
+                uid: targetUID,
+                kind: model.userActivityKind,
+                page: page
+            )
+        }
+    }
+
+    private var targetUID: Int64? {
+        uid ?? model.activeAccount?.ngaUID
+    }
+
+    private var profile: Profile? {
+        if let currentProfile = model.currentProfile,
+           currentProfile.uid == targetUID {
+            return currentProfile
+        }
+        guard let account = model.activeAccount,
+              account.ngaUID == targetUID else {
+            return nil
+        }
+        return Profile(
+            uid: account.ngaUID,
+            displayName: account.displayName,
+            avatarURL: account.avatarURL
+        )
+    }
+
+    private func formatted(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return date.formatted(
+            .dateTime
+                .year()
+                .month(.twoDigits)
+                .day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits)
+        )
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.title3.bold())
+    }
+}
+
+private struct ProfileField: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct ReputationMetric: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(value)
+                    .font(.title3.monospacedDigit().bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct UserActivityRow: View {
+    let activity: UserActivity
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                if let forumName = activity.forumName, !forumName.isEmpty {
+                    Text(forumName)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange.opacity(0.12), in: Capsule())
+                }
+                Text(activity.subject)
+                    .font(.body.weight(.medium))
+                    .lineLimit(2)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            if let excerpt = activity.excerpt, !excerpt.isEmpty {
+                Text(excerpt)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+            }
+            if let postedAt = activity.postedAt {
+                Text(
+                    postedAt,
+                    format: .dateTime
+                        .year()
+                        .month(.twoDigits)
+                        .day(.twoDigits)
+                        .hour(.twoDigits(amPM: .omitted))
+                        .minute(.twoDigits)
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .background(
+            isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .onHover { isHovered = $0 }
+    }
+}
+
+struct ForumDirectoryView: View {
+    @Environment(AppModel.self) private var model
+    @State private var collapsedCategories: Set<String> = []
+
+    var body: some View {
+        Group {
+            if model.forums.isEmpty && !model.isLoading {
+                ContentUnavailableView("没有可用板块", systemImage: "square.grid.2x2")
+            } else {
+                List {
+                    ForEach(model.forumCategories) { category in
+                        DisclosureGroup(isExpanded: expansionBinding(for: category.id)) {
+                            ForEach(category.forums) { forum in
+                                Button {
+                                    Task { await model.openForum(forum) }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        AsyncImage(url: forum.iconURL) { image in
+                                            image.resizable().scaledToFit()
+                                        } placeholder: {
+                                            Image(systemName: "bubble.left.and.bubble.right")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .frame(width: 28, height: 28)
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(forum.name)
+                                            if let subtitle = forum.subtitle, !subtitle.isEmpty {
+                                                Text(subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(2)
+                                            }
+                                        }
+                                    }
+                                    .contentShape(.rect)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        } label: {
+                            HStack {
+                                Text(category.name).font(.headline)
+                                Spacer()
+                                Text("\(category.forums.count)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                        }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("全部板块")
+        .task {
+            if model.forums.isEmpty { await model.loadForums() }
+        }
+    }
+
+    private func expansionBinding(for categoryID: String) -> Binding<Bool> {
+        Binding {
+            !collapsedCategories.contains(categoryID)
+        } set: { expanded in
+            if expanded {
+                collapsedCategories.remove(categoryID)
+            } else {
+                collapsedCategories.insert(categoryID)
+            }
+        }
+    }
+}
+
+struct TopicListView: View {
+    @Environment(AppModel.self) private var model
+    let forumID: ForumID
+    @State private var isSubforumsExpanded = false
+    private let topAnchor = "topic-list-top"
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List {
+                forumTitleRow
+                    .id(topAnchor)
+
+                if !model.subforums.isEmpty {
+                    Section {
+                        DisclosureGroup(isExpanded: $isSubforumsExpanded) {
+                            HStack {
+                                Text("勾选后在当前主题列表中显示该子板块的主题")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
+                                    model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                            }
+
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
+                                alignment: .leading,
+                                spacing: 8
+                            ) {
+                                ForEach(model.subforums) { forum in
+                                    SubforumTile(
+                                        forum: forum,
+                                        isIncluded: model.includedSubforumIDs.contains(forum.id)
+                                    )
+                                }
+                            }
+                            .padding(.top, 4)
+                        } label: {
+                            HStack {
+                                Label("子板块", systemImage: "square.grid.3x3")
+                                    .font(.headline)
+                                Text("\(model.subforums.count)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text("已显示 \(includedSubforumCount)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .contentShape(.rect)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10))
+                }
+
+                if model.subforums.isEmpty {
+                    topicRows
+                } else {
+                    Section("主题") {
+                        topicRows
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                TopicListPaginationBar(
+                    currentPage: model.topicPage,
+                    totalPages: model.topicTotalPages,
+                    isLoading: model.isLoading,
+                    navigate: { page in
+                        Task {
+                            await model.loadTopicPage(forumID: forumID, page: page)
+                            await Task.yield()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(topAnchor, anchor: .top)
+                            }
+                        }
+                    }
+                ) {
+                    Button {
+                        guard let forum = model.currentForum else { return }
+                        Task { await model.toggleFavorite(forum) }
+                    } label: {
+                        Label(
+                            model.isActiveForumFavorite ? "取消收藏" : "收藏板块",
+                            systemImage: model.isActiveForumFavorite ? "star.fill" : "star"
+                        )
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(model.isActiveForumFavorite ? "取消收藏当前板块" : "收藏当前板块")
+                    .disabled(model.currentForum == nil)
+                    .accessibilityIdentifier("forum-favorite")
+
+                    Button {
+                        Task { await model.refreshTopicList() }
+                    } label: {
+                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("刷新主题列表")
+                    .disabled(model.isLoading)
+                    .accessibilityIdentifier("forum-refresh")
+                }
+            }
+        }
+        .task(id: forumID) {
+            if model.currentForum?.id != forumID || model.topics.isEmpty {
+                await model.loadTopics(forumID: forumID, reset: true)
+            }
+        }
+        .onChange(of: forumID) {
+            isSubforumsExpanded = false
+        }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var forumTitleRow: some View {
+        HStack(spacing: 10) {
+            if let parentForum = model.parentForum {
+                Button {
+                    Task { await model.openParentForum() }
+                } label: {
+                    Label("返回 \(parentForum.name)", systemImage: "chevron.left")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("返回上级板块 \(parentForum.name)")
+                .disabled(model.isLoading)
+            }
+
+            Text(model.currentForum?.name ?? "主题")
+                .font(.title2.bold())
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    @ViewBuilder
+    private var topicRows: some View {
+        ForEach(model.displayedTopics) { topic in
+            Button {
+                Task { await model.openTopic(topic) }
+            } label: {
+                TopicInteractiveRow(
+                    topic: topic,
+                    isSelected: model.selectedTopicID == topic.id
+                )
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("topic-\(topic.id.rawValue)")
+        }
+    }
+
+    private var includedSubforumCount: Int {
+        model.subforums.count { model.includedSubforumIDs.contains($0.id) }
+    }
+
+    private var allSubforumsIncluded: Bool {
+        !model.subforums.isEmpty &&
+            model.subforums.allSatisfy { model.includedSubforumIDs.contains($0.id) }
+    }
+}
+
+private struct TopicListPaginationBar<Actions: View>: View {
+    let currentPage: Int
+    let totalPages: Int
+    let isLoading: Bool
+    var navigate: (Int) -> Void
+    let actions: Actions
+
+    @State private var pageText = "1"
+
+    init(
+        currentPage: Int,
+        totalPages: Int,
+        isLoading: Bool,
+        navigate: @escaping (Int) -> Void,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.currentPage = currentPage
+        self.totalPages = totalPages
+        self.isLoading = isLoading
+        self.navigate = navigate
+        self.actions = actions()
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if totalPages > 1 {
+                Button("首页", systemImage: "backward.end.fill") {
+                    navigate(1)
+                }
+                .labelStyle(.iconOnly)
+                .help("跳转到主题列表首页")
+                .accessibilityIdentifier("topic-list-first-page")
+                .disabled(isLoading || currentPage <= 1)
+
+                Button("上一页", systemImage: "chevron.left") {
+                    navigate(currentPage - 1)
+                }
+                .labelStyle(.iconOnly)
+                .help("主题列表上一页")
+                .accessibilityIdentifier("topic-list-previous-page")
+                .disabled(isLoading || currentPage <= 1)
+
+                TextField("页码", text: $pageText)
+                    .frame(width: 62)
+                    .multilineTextAlignment(.center)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(performJump)
+                    .accessibilityLabel("主题列表目标页码")
+                    .accessibilityIdentifier("topic-list-page-field")
+
+                Text("/ \(totalPages)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Button("跳转", action: performJump)
+                    .accessibilityIdentifier("topic-list-jump")
+                    .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
+
+                Button("下一页", systemImage: "chevron.right") {
+                    navigate(currentPage + 1)
+                }
+                .labelStyle(.iconOnly)
+                .help("主题列表下一页")
+                .accessibilityIdentifier("topic-list-next-page")
+                .disabled(isLoading || currentPage >= totalPages)
+
+                Button("尾页", systemImage: "forward.end.fill") {
+                    navigate(totalPages)
+                }
+                .labelStyle(.iconOnly)
+                .help("跳转到主题列表尾页")
+                .accessibilityIdentifier("topic-list-last-page")
+                .disabled(isLoading || currentPage >= totalPages)
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Spacer(minLength: 10)
+
+            HStack(spacing: 10) {
+                actions
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+        .onAppear {
+            pageText = String(currentPage)
+        }
+        .onChange(of: currentPage) { _, newValue in
+            pageText = String(newValue)
+        }
+        .onChange(of: totalPages) { _, newValue in
+            if let value = Int(pageText), value > newValue {
+                pageText = String(newValue)
+            }
+        }
+    }
+
+    private var parsedPage: Int? {
+        guard let value = Int(pageText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...totalPages).contains(value) else {
+            return nil
+        }
+        return value
+    }
+
+    private func performJump() {
+        guard let parsedPage, parsedPage != currentPage, !isLoading else {
+            pageText = String(currentPage)
+            return
+        }
+        navigate(parsedPage)
+    }
+}
+
+private struct SubforumTile: View {
+    @Environment(AppModel.self) private var model
+    let forum: Forum
+    let isIncluded: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                Task { await model.openSubforum(forum) }
+            } label: {
+                HStack(spacing: 9) {
+                    AsyncImage(url: forum.iconURL) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 28, height: 28)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(forum.name)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                        if let subtitle = forum.subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            Toggle(
+                "在主板块主题列表中显示 \(forum.name)",
+                isOn: Binding(
+                    get: { isIncluded },
+                    set: { model.setSubforumIncluded(forum.id, included: $0) }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+            .help(isIncluded ? "隐藏该子板块及其下属主题" : "显示该子板块及其下属主题")
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.separator.opacity(0.5))
+        }
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct TopicInteractiveRow: View {
+    let topic: Topic
+    let isSelected: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        TopicRow(topic: topic)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(backgroundColor)
+            }
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.12), value: isSelected)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.18)
+        }
+        if isHovered {
+            return Color.primary.opacity(0.08)
+        }
+        return .clear
+    }
+}
+
+private struct TopicRow: View {
+    let topic: Topic
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                if topic.isPinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
+                if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
+                if topic.mirroredForumID != nil {
+                    Label("版面镜像", systemImage: "arrow.triangle.branch")
+                        .font(.caption2.weight(.medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .foregroundStyle(.blue)
+                        .background(Color.blue.opacity(0.12), in: Capsule())
+                } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
+                    Text(sourceForumName)
+                        .font(.caption2.weight(.medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .foregroundStyle(.orange)
+                        .background(Color.orange.opacity(0.12), in: Capsule())
+                }
+                Text(topic.subject)
+                    .font(.body.weight(topic.isPinned ? .semibold : .regular))
+                    .lineLimit(3)
+            }
+            HStack {
+                if topic.mirroredForumID != nil {
+                    Label("进入 \(topic.subject) 板块", systemImage: "arrow.right.circle")
+                } else {
+                    Text(topic.author.isEmpty ? "未知作者" : topic.author)
+                }
+                Spacer()
+                if topic.mirroredForumID == nil {
+                    Label("\(topic.replyCount)", systemImage: "bubble.left")
+                }
+                if topic.mirroredForumID == nil,
+                   let date = topic.lastReplyAt ?? topic.publishedAt {
+                    Text(
+                        date,
+                        format: .dateTime
+                            .year()
+                            .month(.twoDigits)
+                            .day(.twoDigits)
+                            .hour(.twoDigits(amPM: .omitted))
+                            .minute(.twoDigits)
+                    )
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
