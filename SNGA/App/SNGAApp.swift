@@ -104,6 +104,14 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    private var webSmileBackdrop: String {
+        switch self {
+        case .system: "var(--snga-smile-backdrop-system)"
+        case .light, .ngaClassic: "transparent"
+        case .dark, .midnight: "rgba(255,255,255,.88)"
+        }
+    }
+
     static func resolve(_ rawValue: String) -> AppTheme {
         AppTheme(rawValue: rawValue) ?? .system
     }
@@ -125,6 +133,10 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
             .replacingOccurrences(
                 of: "--snga-highlight:#d59b3a",
                 with: "--snga-highlight:\(webHighlightHex)"
+            )
+            .replacingOccurrences(
+                of: "--snga-smile-backdrop:var(--snga-smile-backdrop-system)",
+                with: "--snga-smile-backdrop:\(webSmileBackdrop)"
             )
     }
 }

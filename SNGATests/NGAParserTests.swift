@@ -777,6 +777,7 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertTrue(html.contains("https://img.nga.178.com/attachments/mon_202607/23/example.jpg"))
         XCTAssertTrue(html.contains("https://img4.nga.178.com/ngabbs/post/smile/ac0.png"))
+        XCTAssertTrue(html.contains("background:var(--snga-smile-backdrop)"))
         XCTAssertFalse(html.contains("[s:ac:blink]"))
     }
 

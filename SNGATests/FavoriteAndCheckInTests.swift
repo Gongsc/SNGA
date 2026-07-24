@@ -8,7 +8,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
 
         let html = """
         <style>
-        :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a}
+        :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}
         </style>
         """
         let themed = AppTheme.midnight.applying(to: html)
@@ -16,6 +16,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertTrue(themed.contains("color-scheme:dark"))
         XCTAssertTrue(themed.contains("--snga-accent:#52d6e8"))
         XCTAssertTrue(themed.contains("--snga-highlight:#278fa5"))
+        XCTAssertTrue(themed.contains("--snga-smile-backdrop:rgba(255,255,255,.88)"))
         XCTAssertFalse(themed.contains("color-scheme:light dark"))
     }
 
