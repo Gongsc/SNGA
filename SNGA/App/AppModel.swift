@@ -1166,6 +1166,13 @@ final class AppModel {
     }
 
     private func present(_ error: Error) {
+        Task {
+            await RuntimeLogger.shared.log(
+                .error,
+                category: "app",
+                error.localizedDescription
+            )
+        }
         guard let serviceError = error as? NGAServiceError,
               serviceError == .requiresLogin,
               let activeAccountID else {

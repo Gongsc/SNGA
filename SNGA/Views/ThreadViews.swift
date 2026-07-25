@@ -12,7 +12,11 @@ struct ThreadView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
+                // A thread page contains at most about 20 posts. Build every row
+                // up front so each embedded WKWebView can load and measure before
+                // the user scrolls to it; lazy creation caused visible stalls at
+                // every newly reached floor.
+                VStack(spacing: 12) {
                     if let topic = model.currentTopic {
                         ThreadTitleHeader(topic: topic)
                             .id(topAnchor)

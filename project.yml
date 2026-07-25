@@ -25,6 +25,10 @@ targets:
       - package: SwiftSoup
     entitlements:
       path: SNGA/SNGA.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.network.client: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: cn.snga.client

@@ -223,6 +223,15 @@ struct SNGAApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         UNUserNotificationCenter.current().delegate = self
+        Task {
+            await RuntimeLogger.shared.log(category: "lifecycle", "SNGA launched")
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Task {
+            await RuntimeLogger.shared.log(category: "lifecycle", "SNGA will terminate")
+        }
     }
 
     nonisolated func userNotificationCenter(

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RootView: View {
@@ -290,8 +291,11 @@ private struct DetailColumnView: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
+    @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @State private var accountToRemove: AccountSummary?
     @State private var loginRequest: SettingsLoginRequest?
+    @State private var runtimeLogPath = RuntimeLogSettings.displayPath
+    @State private var runtimeLogError: String?
 
     var body: some View {
         Form {
@@ -357,6 +361,41 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("运行日志") {
+                Toggle("启用运行日志", isOn: $runtimeLogEnabled)
+                    .onChange(of: runtimeLogEnabled) { _, isEnabled in
+                        guard isEnabled else { return }
+                        Task {
+                            await RuntimeLogger.shared.log(
+                                category: "configuration",
+                                "Runtime logging enabled"
+                            )
+                        }
+                    }
+
+                LabeledContent("输出目录") {
+                    Text(runtimeLogPath)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                HStack {
+                    Button("选择目录…", systemImage: "folder") {
+                        chooseRuntimeLogDirectory()
+                    }
+                    if RuntimeLogSettings.selectedDirectoryURL != nil {
+                        Button("恢复默认") {
+                            RuntimeLogSettings.useDefaultDirectory()
+                            runtimeLogPath = RuntimeLogSettings.displayPath
+                        }
+                    }
+                }
+
+                Text("每天生成一个 SNGA-日期.log 文件。请求正文、Cookie 和登录令牌不会写入日志。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
@@ -380,6 +419,43 @@ struct SettingsView: View {
             Button("取消", role: .cancel) { accountToRemove = nil }
         } message: { _ in
             Text("会删除此账号的本地会话、收藏和草稿，不能撤销。")
+        }
+        .alert(
+            "无法使用日志目录",
+            isPresented: Binding(
+                get: { runtimeLogError != nil },
+                set: { if !$0 { runtimeLogError = nil } }
+            )
+        ) {
+            Button("好") { runtimeLogError = nil }
+        } message: {
+            Text(runtimeLogError ?? "")
+        }
+    }
+
+    private func chooseRuntimeLogDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择运行日志输出目录"
+        panel.prompt = "选择"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = RuntimeLogSettings.outputDirectoryURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try RuntimeLogSettings.selectDirectory(url)
+            runtimeLogPath = RuntimeLogSettings.displayPath
+            if runtimeLogEnabled {
+                Task {
+                    await RuntimeLogger.shared.log(
+                        category: "configuration",
+                        "Log output directory changed"
+                    )
+                }
+            }
+        } catch {
+            runtimeLogError = error.localizedDescription
         }
     }
 }
