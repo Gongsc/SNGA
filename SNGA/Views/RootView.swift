@@ -24,6 +24,15 @@ struct RootView: View {
                 if model.isLoading {
                     ProgressView().controlSize(.small)
                 }
+                if model.canReturnFromUserCenterToTopicList {
+                    Button {
+                        model.returnFromUserCenterToTopicList()
+                    } label: {
+                        Label("返回主题列表", systemImage: "chevron.left")
+                    }
+                    .help("返回主题列表")
+                    .accessibilityIdentifier("user-center-back-to-topics")
+                }
                 if model.selectedForumID == nil {
                     Button {
                         Task { await model.refreshCurrentSelection() }

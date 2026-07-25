@@ -72,6 +72,7 @@ final class AppModel {
     @ObservationIgnored private var messageDetailRequestID: UUID?
     @ObservationIgnored private var favoriteRequestID: UUID?
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
+    private var forumUserReturnSelection: SidebarSelection?
 
     init(
         container: ModelContainer,
@@ -97,6 +98,11 @@ final class AppModel {
     var isDisplayingActiveAccount: Bool {
         guard let displayedUserUID, let activeAccount else { return false }
         return displayedUserUID == activeAccount.ngaUID
+    }
+
+    var canReturnFromUserCenterToTopicList: Bool {
+        guard case .forum = forumUserReturnSelection else { return false }
+        return true
     }
 
     var activeAccountCheckInStatus: DailyCheckInStatus {
@@ -336,12 +342,20 @@ final class AppModel {
     func openUserCenter(
         uid: Int64,
         fallbackName: String? = nil,
-        fallbackAvatarURL: URL? = nil
+        fallbackAvatarURL: URL? = nil,
+        preservingForumContext: Bool = false
     ) async {
+        if preservingForumContext {
+            if case .forum = sidebarSelection {
+                forumUserReturnSelection = sidebarSelection
+            }
+        } else {
+            forumUserReturnSelection = nil
+            selectedTopicID = nil
+            currentTopic = nil
+        }
         sidebarSelection = .userCenter(uid)
-        selectedTopicID = nil
         selectedMessageID = nil
-        currentTopic = nil
         currentMessage = nil
         userActivities = []
         userActivityUID = uid
@@ -387,6 +401,12 @@ final class AppModel {
             return
         }
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
+    }
+
+    func returnFromUserCenterToTopicList() {
+        guard case let .forum(forumID) = forumUserReturnSelection else { return }
+        sidebarSelection = .forum(forumID)
+        forumUserReturnSelection = nil
     }
 
     func ensureUserCenterLoaded(uid: Int64) async {

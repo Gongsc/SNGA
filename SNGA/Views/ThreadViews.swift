@@ -497,7 +497,8 @@ private struct PostRow: View {
             await model.openUserCenter(
                 uid: uid,
                 fallbackName: post.author,
-                fallbackAvatarURL: post.avatarURL
+                fallbackAvatarURL: post.avatarURL,
+                preservingForumContext: true
             )
         }
     }
