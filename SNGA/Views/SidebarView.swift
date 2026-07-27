@@ -158,6 +158,7 @@ struct SidebarView: View {
 }
 
 private struct SidebarInteractiveRow<Content: View>: View {
+    @Environment(\.sngaTheme) private var theme
     let isSelected: Bool
     let content: () -> Content
     @State private var isHovered = false
@@ -184,7 +185,7 @@ private struct SidebarInteractiveRow<Content: View>: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.18)
+            return theme.accentColor.opacity(0.18)
         }
         if isHovered {
             return Color.primary.opacity(0.08)

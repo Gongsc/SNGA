@@ -392,6 +392,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
 
 private struct PostRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let post: Post
     var isHotReply = false
     var reply: () -> Void
@@ -527,7 +528,7 @@ private struct PostRow: View {
         } label: {
             Label("\(count)", systemImage: systemImage)
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isSelected ? theme.accentColor : Color.secondary)
         }
         .buttonStyle(.borderless)
         .disabled(model.votingPostIDs.contains(post.id))

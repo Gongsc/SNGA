@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.sngaTheme) private var theme
     @State private var accountToRemove: AccountSummary?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
@@ -19,6 +20,7 @@ struct RootView: View {
             DetailColumnView()
         }
         .navigationSplitViewStyle(.balanced)
+        .tint(theme.accentColor)
         .toolbar {
             ToolbarItemGroup {
                 if model.isLoading {

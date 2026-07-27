@@ -7,6 +7,7 @@ struct BottomActionBarButtonStyle: ButtonStyle {
 
     private struct BottomActionBarButton: View {
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.sngaTheme) private var theme
         let configuration: Configuration
         @State private var isHovered = false
 
@@ -30,23 +31,24 @@ struct BottomActionBarButtonStyle: ButtonStyle {
         private var backgroundColor: Color {
             guard isEnabled else { return .clear }
             if configuration.isPressed {
-                return Color.accentColor.opacity(0.25)
+                return theme.accentColor.opacity(0.25)
             }
             if isHovered {
-                return Color.accentColor.opacity(0.14)
+                return theme.accentColor.opacity(0.14)
             }
             return .clear
         }
 
         private var borderColor: Color {
             guard isEnabled, isHovered || configuration.isPressed else { return .clear }
-            return Color.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
+            return theme.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
         }
     }
 }
 
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let uid: Int64?
 
     var body: some View {
@@ -203,7 +205,7 @@ struct UserCenterView: View {
     private func checkInColor(for status: DailyCheckInStatus) -> Color {
         switch status {
         case .checkedIn: .green
-        case .notCheckedIn: .accentColor
+        case .notCheckedIn: theme.accentColor
         case .checkingIn: .secondary
         case .failed: .orange
         }
@@ -959,6 +961,7 @@ private struct SubforumTile: View {
 }
 
 private struct TopicInteractiveRow: View {
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
     let isSelected: Bool
     @State private var isHovered = false
@@ -980,7 +983,7 @@ private struct TopicInteractiveRow: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.18)
+            return theme.accentColor.opacity(0.18)
         }
         if isHovered {
             return Color.primary.opacity(0.08)
