@@ -717,6 +717,155 @@ final class NGAParserTests: XCTestCase {
         )
     }
 
+    func testParsesFavoriteTopicsAndBuildsTopicFavoriteEndpoints() throws {
+        let payload = """
+        {
+          "data": {
+            "__ROWS": 21,
+            "__T__ROWS_PAGE": 20,
+            "__T": {
+              "0": {
+                "tid": 47239680,
+                "fid": -7,
+                "subject": "收藏主题",
+                "author": "Alice",
+                "replies": 12
+              }
+            }
+          }
+        }
+        """
+
+        let page = try parser.favoriteTopicPage(from: response(payload), page: 1)
+        XCTAssertEqual(page.topics.map(\.id), [TopicID(rawValue: 47239680)])
+        XCTAssertEqual(page.topics.first?.forumID, ForumID(rawValue: -7))
+        XCTAssertTrue(page.topics.first?.isFavorite == true)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.totalPages, 2)
+
+        let listEndpoint = NGAEndpoint.favoriteTopics(folderID: "541", page: 3)
+        XCTAssertEqual(listEndpoint.path, "/thread.php")
+        XCTAssertEqual(
+            listEndpoint.queryItems.first(where: { $0.name == "favor" })?.value,
+            "541"
+        )
+        XCTAssertEqual(
+            listEndpoint.queryItems.first(where: { $0.name == "page" })?.value,
+            "3"
+        )
+
+        let addEndpoint = NGAEndpoint.updateTopicFavorite(
+            topicID: TopicID(rawValue: 47239680),
+            folderID: "541",
+            isFavorite: true
+        )
+        XCTAssertEqual(addEndpoint.method, .post)
+        XCTAssertTrue(addEndpoint.isWrite)
+        XCTAssertEqual(
+            addEndpoint.queryItems.first(where: { $0.name == "__lib" })?.value,
+            "topic_favor_v2"
+        )
+        XCTAssertEqual(
+            addEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "add"
+        )
+        XCTAssertEqual(addEndpoint.form["tid"], "47239680")
+        XCTAssertNil(addEndpoint.form["tidarray"])
+        XCTAssertEqual(addEndpoint.form["folder"], "541")
+
+        let removeEndpoint = NGAEndpoint.updateTopicFavorite(
+            topicID: TopicID(rawValue: 47239680),
+            folderID: "541",
+            isFavorite: false
+        )
+        XCTAssertEqual(
+            removeEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "del"
+        )
+        XCTAssertEqual(removeEndpoint.form["tidarray"], "47239680")
+        XCTAssertNil(removeEndpoint.form["tid"])
+    }
+
+    func testParsesAndBuildsFavoriteTopicFolderRequests() throws {
+        let payload = """
+        {
+          "data": {
+            "0": {
+              "1": {
+                "id": 1,
+                "name": "公主连结",
+                "length": 31,
+                "default": ""
+              },
+              "541": {
+                "id": "541",
+                "name": "未命名的收藏夹#541",
+                "length": 27,
+                "public": 1
+              }
+            }
+          }
+        }
+        """
+
+        let folders = try parser.favoriteTopicFolders(from: response(payload))
+        XCTAssertEqual(folders.map(\.id), ["1", "541"])
+        XCTAssertEqual(folders.map(\.name), ["公主连结", "未命名的收藏夹#541"])
+        XCTAssertEqual(folders.map(\.topicCount), [31, 27])
+        XCTAssertTrue(folders[0].isDefault)
+        XCTAssertFalse(folders[0].isPublic)
+        XCTAssertFalse(folders[1].isDefault)
+        XCTAssertTrue(folders[1].isPublic)
+
+        let listEndpoint = NGAEndpoint.favoriteTopicFolders
+        XCTAssertEqual(
+            listEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "list_folder"
+        )
+
+        let createEndpoint = NGAEndpoint.createTopicFavoriteFolder(
+            name: "攻略",
+            isPublic: true,
+            isDefault: true
+        )
+        XCTAssertEqual(
+            createEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "new_folder"
+        )
+        XCTAssertEqual(createEndpoint.form["name"], "攻略")
+        XCTAssertEqual(createEndpoint.form["opt"], "3")
+
+        let folder = TopicFavoriteFolder(
+            id: "541",
+            name: "攻略合集",
+            topicCount: 27,
+            isPublic: true,
+            isDefault: false
+        )
+        let modifyEndpoint = NGAEndpoint.updateTopicFavoriteFolder(folder)
+        XCTAssertEqual(
+            modifyEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "modify_folder"
+        )
+        XCTAssertEqual(modifyEndpoint.form["folder"], "541")
+        XCTAssertEqual(modifyEndpoint.form["name"], "攻略合集")
+        XCTAssertEqual(modifyEndpoint.form["opt"], "1")
+
+        let deleteEndpoint = NGAEndpoint.deleteTopicFavoriteFolder(folderID: "541")
+        XCTAssertEqual(
+            deleteEndpoint.queryItems.first(where: { $0.name == "__act" })?.value,
+            "del_folder"
+        )
+        XCTAssertEqual(deleteEndpoint.form["folder"], "541")
+
+        XCTAssertEqual(
+            try parser.createdTopicFavoriteFolderID(
+                from: response(#"{"data":{"1":"542"}}"#)
+            ),
+            "542"
+        )
+    }
+
     func testFallsBackToHTML() throws {
         let html = """
         <html><body>

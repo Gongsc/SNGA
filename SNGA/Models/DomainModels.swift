@@ -63,6 +63,15 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var sourceParentForumID: ForumID? = nil
     var sourceForumName: String? = nil
     var mirroredForumID: ForumID? = nil
+    var isFavorite: Bool = false
+}
+
+struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {
+    let id: String
+    var name: String
+    var topicCount: Int = 0
+    var isPublic: Bool = false
+    var isDefault: Bool = false
 }
 
 struct ForumPage: Hashable, Codable, Sendable {
@@ -274,5 +283,6 @@ enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
     case forum(ForumID)
     case directory
+    case favorites
     case messages(MessageFolder)
 }

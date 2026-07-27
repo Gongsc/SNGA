@@ -240,6 +240,136 @@ struct NGAEndpoint: Sendable {
         )
     }
 
+    static let favoriteTopicFolders = NGAEndpoint(
+        path: "/nuke.php",
+        queryItems: [
+            .init(name: "__lib", value: "topic_favor_v2"),
+            .init(name: "__act", value: "list_folder"),
+            .init(name: "page", value: "1"),
+            .init(name: "__output", value: "8")
+        ],
+        method: .post,
+        form: ["__inchst": "UTF8"],
+        userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+    )
+
+    static func favoriteTopics(folderID: String, page: Int) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/thread.php",
+            queryItems: [
+                .init(name: "favor", value: folderID),
+                .init(name: "order_by", value: "postdatedesc"),
+                .init(name: "page", value: String(max(1, page))),
+                .init(name: "__output", value: "11")
+            ],
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func updateTopicFavorite(
+        topicID: TopicID,
+        folderID: String,
+        isFavorite: Bool
+    ) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            queryItems: [
+                .init(name: "__lib", value: "topic_favor_v2"),
+                .init(name: "__act", value: isFavorite ? "add" : "del"),
+                .init(name: "__output", value: "11")
+            ],
+            method: .post,
+            form: [
+                "__inchst": "UTF8",
+                "folder": folderID,
+                (isFavorite ? "tid" : "tidarray"): topicID.description
+            ],
+            referer: topicWebURL(topicID: topicID),
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func createTopicFavoriteFolder(
+        name: String,
+        isPublic: Bool,
+        isDefault: Bool
+    ) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            queryItems: [
+                .init(name: "__lib", value: "topic_favor_v2"),
+                .init(name: "__act", value: "new_folder"),
+                .init(name: "raw", value: "3"),
+                .init(name: "__output", value: "8")
+            ],
+            method: .post,
+            form: [
+                "__inchst": "UTF8",
+                "name": name,
+                "opt": topicFavoriteFolderOption(
+                    isPublic: isPublic,
+                    isDefault: isDefault
+                )
+            ],
+            referer: baseURL,
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            queryItems: [
+                .init(name: "__lib", value: "topic_favor_v2"),
+                .init(name: "__act", value: "modify_folder"),
+                .init(name: "raw", value: "3"),
+                .init(name: "__output", value: "8")
+            ],
+            method: .post,
+            form: [
+                "__inchst": "UTF8",
+                "folder": folder.id,
+                "name": folder.name,
+                "opt": topicFavoriteFolderOption(
+                    isPublic: folder.isPublic,
+                    isDefault: folder.isDefault
+                )
+            ],
+            referer: baseURL,
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func deleteTopicFavoriteFolder(folderID: String) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            queryItems: [
+                .init(name: "__lib", value: "topic_favor_v2"),
+                .init(name: "__act", value: "del_folder"),
+                .init(name: "raw", value: "3"),
+                .init(name: "__output", value: "8")
+            ],
+            method: .post,
+            form: [
+                "__inchst": "UTF8",
+                "folder": folderID
+            ],
+            referer: baseURL,
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    private static func topicFavoriteFolderOption(
+        isPublic: Bool,
+        isDefault: Bool
+    ) -> String {
+        String((isPublic ? 1 : 0) | (isDefault ? 2 : 0))
+    }
+
     static let checkIn = NGAEndpoint(
         path: "/nuke.php",
         queryItems: [

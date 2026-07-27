@@ -569,6 +569,346 @@ struct ForumDirectoryView: View {
     }
 }
 
+struct FavoritesView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    @State private var editingFolder: TopicFavoriteFolder?
+    @State private var showsCreateFolder = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !model.favoriteTopicFolders.isEmpty {
+                folderBar
+                Divider()
+            }
+
+            Group {
+                if model.favoriteTopicFolders.isEmpty && !model.isLoading {
+                    ContentUnavailableView {
+                        Label("还没有收藏夹", systemImage: "folder")
+                    } description: {
+                        Text("新建一个收藏夹后，即可按目录整理论坛主题。")
+                    } actions: {
+                        Button("新建收藏夹") {
+                            showsCreateFolder = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else if model.favoriteTopics.isEmpty && !model.isLoading {
+                ContentUnavailableView {
+                    Label("收藏夹为空", systemImage: "star")
+                } description: {
+                        if let folder = model.selectedFavoriteTopicFolder {
+                            Text("“\(folder.name)”中还没有主题。打开主题后可从底部星标菜单选择收藏目录。")
+                        } else {
+                            Text("打开主题后可从底部星标菜单选择收藏目录。")
+                        }
+                } actions: {
+                    Button("浏览全部板块") {
+                        model.sidebarSelection = .directory
+                        Task { await model.loadForums() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                } else {
+                    List {
+                        ForEach(model.favoriteTopics) { topic in
+                            HStack(spacing: 10) {
+                                Button {
+                                    Task { await model.openTopic(topic) }
+                                } label: {
+                                    TopicRow(topic: topic)
+                                        .contentShape(.rect)
+                                }
+                                .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Button {
+                                    remove(topic)
+                                } label: {
+                                    Label("从当前收藏夹移除", systemImage: "star.fill")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("从当前收藏夹移除《\(topic.subject)》")
+                                .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                .accessibilityIdentifier(
+                                    "favorite-topic-remove-\(topic.id.rawValue)"
+                                )
+                            }
+                            .contextMenu {
+                                Button("打开主题") {
+                                    Task { await model.openTopic(topic) }
+                                }
+                                Button("从当前收藏夹移除", role: .destructive) {
+                                    remove(topic)
+                                }
+                            }
+                            .accessibilityIdentifier(
+                                "favorite-topic-\(topic.id.rawValue)"
+                            )
+                        }
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        TopicListPaginationBar(
+                            currentPage: model.favoriteTopicPage,
+                            totalPages: model.favoriteTopicTotalPages,
+                            isLoading: model.isLoading,
+                            navigate: { page in
+                                Task { await model.loadFavoriteTopics(page: page) }
+                            }
+                        ) {
+                            Button {
+                                Task {
+                                    await model.loadFavoriteTopicFolders(force: true)
+                                    await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+                                }
+                            } label: {
+                                Label("刷新收藏夹", systemImage: "arrow.clockwise")
+                            }
+                            .labelStyle(.iconOnly)
+                            .help("刷新收藏目录与主题")
+                            .disabled(model.isLoading)
+                            .accessibilityIdentifier("favorite-topics-refresh")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("收藏夹")
+        .task {
+            await model.loadFavoriteTopicFolders(force: true)
+            await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+        }
+        .sheet(isPresented: $showsCreateFolder) {
+            FavoriteFolderEditorSheet(
+                title: "新建收藏夹",
+                initialName: "",
+                initialIsPublic: false,
+                initialIsDefault: model.favoriteTopicFolders.isEmpty,
+                save: { name, isPublic, isDefault in
+                    await model.createTopicFavoriteFolder(
+                        name: name,
+                        isPublic: isPublic,
+                        isDefault: isDefault
+                    )
+                }
+            )
+        }
+        .sheet(item: $editingFolder) { folder in
+            FavoriteFolderEditorSheet(
+                title: "修改收藏夹",
+                initialName: folder.name,
+                initialIsPublic: folder.isPublic,
+                initialIsDefault: folder.isDefault,
+                save: { name, isPublic, isDefault in
+                    var updated = folder
+                    updated.name = name
+                    updated.isPublic = isPublic
+                    updated.isDefault = isDefault
+                    return await model.updateTopicFavoriteFolder(updated)
+                },
+                delete: {
+                    await model.deleteTopicFavoriteFolder(folder)
+                }
+            )
+        }
+    }
+
+    private var folderBar: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                        Button {
+                            Task { await model.selectFavoriteTopicFolder(folder.id) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: folder.isDefault ? "folder.fill" : "folder")
+                                Text(folder.name)
+                                    .lineLimit(1)
+                                if folder.isDefault {
+                                    Text("默认")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                                Text("\(folder.topicCount)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(
+                                model.selectedFavoriteTopicFolderID == folder.id
+                                    ? theme.accentColor
+                                    : Color.primary
+                            )
+                            .background(
+                                model.selectedFavoriteTopicFolderID == folder.id
+                                    ? theme.accentColor.opacity(0.14)
+                                    : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("favorite-folder-\(folder.id)")
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+
+            Divider()
+                .frame(height: 22)
+
+            Button {
+                editingFolder = model.selectedFavoriteTopicFolder
+            } label: {
+                Label("修改收藏夹", systemImage: "pencil")
+            }
+            .labelStyle(.iconOnly)
+            .help("修改名称、公开状态及默认收藏夹")
+            .disabled(model.selectedFavoriteTopicFolder == nil)
+            .accessibilityIdentifier("favorite-folder-edit")
+
+            Button {
+                showsCreateFolder = true
+            } label: {
+                Label("新建收藏夹", systemImage: "folder.badge.plus")
+            }
+            .labelStyle(.iconOnly)
+            .help("新建收藏夹")
+            .accessibilityIdentifier("favorite-folder-create")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+    }
+
+    private func remove(_ topic: Topic) {
+        guard let folder = model.selectedFavoriteTopicFolder else { return }
+        Task {
+            await model.setTopicFavorite(topic, in: folder, isFavorite: false)
+        }
+    }
+}
+
+private struct FavoriteFolderEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let save: (String, Bool, Bool) async -> Bool
+    let delete: (() async -> Bool)?
+
+    @State private var name: String
+    @State private var isPublic: Bool
+    @State private var isDefault: Bool
+    @State private var isWorking = false
+    @State private var showsDeleteConfirmation = false
+
+    init(
+        title: String,
+        initialName: String,
+        initialIsPublic: Bool,
+        initialIsDefault: Bool,
+        save: @escaping (String, Bool, Bool) async -> Bool,
+        delete: (() async -> Bool)? = nil
+    ) {
+        self.title = title
+        self.save = save
+        self.delete = delete
+        _name = State(initialValue: initialName)
+        _isPublic = State(initialValue: initialIsPublic)
+        _isDefault = State(initialValue: initialIsDefault)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title)
+                .font(.title2.bold())
+
+            TextField("收藏夹名称", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(saveChanges)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("公开收藏夹", isOn: $isPublic)
+                Text("公开后，其他用户可通过网页查看这个收藏夹。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("设为默认收藏夹", isOn: $isDefault)
+                Text("从主题页快速收藏时，默认优先选中这个目录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            HStack {
+                if delete != nil {
+                    Button("删除收藏夹", role: .destructive) {
+                        showsDeleteConfirmation = true
+                    }
+                    .disabled(isWorking)
+                }
+                Spacer()
+                Button("取消", role: .cancel) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("保存") {
+                    saveChanges()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmedName.isEmpty || isWorking)
+            }
+
+            if isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(22)
+        .frame(width: 430)
+        .confirmationDialog(
+            "删除收藏夹及其中的所有收藏主题？",
+            isPresented: $showsDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                guard let delete else { return }
+                isWorking = true
+                Task {
+                    if await delete() {
+                        dismiss()
+                    } else {
+                        isWorking = false
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func saveChanges() {
+        guard !trimmedName.isEmpty, !isWorking else { return }
+        isWorking = true
+        Task {
+            if await save(trimmedName, isPublic, isDefault) {
+                dismiss()
+            } else {
+                isWorking = false
+            }
+        }
+    }
+}
+
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
     let forumID: ForumID

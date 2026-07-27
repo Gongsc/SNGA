@@ -101,6 +101,42 @@ actor DebugForumService: NGAForumService {
     func replyMessage(id: MessageID, content: String) async throws {}
     func favorites() async throws -> [Forum] { [forum] }
     func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws {}
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
+        [
+            TopicFavoriteFolder(
+                id: "1",
+                name: "默认收藏夹",
+                topicCount: 1,
+                isDefault: true
+            ),
+            TopicFavoriteFolder(
+                id: "541",
+                name: "未命名的收藏夹#541",
+                isPublic: false
+            )
+        ]
+    }
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
+        ForumPage(
+            forum: nil,
+            topics: [
+                Topic(
+                    id: TopicID(rawValue: 9001),
+                    forumID: forum.id,
+                    subject: "主题一：欢迎使用 SNGA",
+                    author: "测试用户",
+                    replyCount: 2,
+                    isFavorite: true
+                )
+            ],
+            page: page,
+            hasMore: false
+        )
+    }
+    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {}
+    func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? { "542" }
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws {}
+    func deleteTopicFavoriteFolder(folderID: String) async throws {}
     func checkIn() async throws -> CheckInResult { .alreadyCheckedIn(message: "今日已签到") }
 }
 #endif

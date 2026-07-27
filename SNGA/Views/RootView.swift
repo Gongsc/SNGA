@@ -272,6 +272,8 @@ private struct ContentColumnView: View {
                 UserCenterView(uid: nil)
             case .directory:
                 ForumDirectoryView()
+            case .favorites:
+                FavoritesView()
             case let .forum(forumID):
                 TopicListView(forumID: forumID)
             case let .messages(folder):

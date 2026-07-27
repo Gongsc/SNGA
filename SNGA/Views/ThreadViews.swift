@@ -121,6 +121,66 @@ struct ThreadView: View {
                         }
                     }
 
+                    Menu {
+                        if let topic = model.currentTopic {
+                            if model.favoriteTopicFolders.isEmpty {
+                                Text("正在加载收藏目录…")
+                            } else {
+                                ForEach(model.sortedFavoriteTopicFolders) { folder in
+                                    Toggle(
+                                        isOn: Binding(
+                                            get: {
+                                                model.isTopicFavorite(topic, in: folder)
+                                            },
+                                            set: { isFavorite in
+                                                Task {
+                                                    await model.setTopicFavorite(
+                                                        topic,
+                                                        in: folder,
+                                                        isFavorite: isFavorite
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    ) {
+                                        Text(folder.name)
+                                        if folder.isDefault {
+                                            Text("默认收藏夹")
+                                        }
+                                    }
+                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                }
+                                Divider()
+                                if model.isCurrentTopicFavorite {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await model.cancelTopicFavorite(topic)
+                                        }
+                                    } label: {
+                                        Label("取消收藏", systemImage: "star.slash")
+                                    }
+                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                    .accessibilityIdentifier("thread-topic-unfavorite")
+                                    Divider()
+                                }
+                                Button {
+                                    model.sidebarSelection = .favorites
+                                } label: {
+                                    Label("管理收藏夹", systemImage: "folder")
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(
+                            model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
+                            systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                        )
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("选择主题收藏夹")
+                    .disabled(model.currentTopic == nil)
+                    .accessibilityIdentifier("thread-topic-favorite")
+
                     Button {
                         Task { await model.refreshThreadContent() }
                     } label: {
@@ -154,6 +214,9 @@ struct ThreadView: View {
                 ReplyComposerView(topic: topic, replyTo: nil)
                     .environment(model)
             }
+        }
+        .task {
+            await model.loadFavoriteTopicFolders()
         }
         .ignoresSafeArea(.container, edges: .top)
     }

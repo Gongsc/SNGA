@@ -370,6 +370,106 @@ struct NGAParser: Sendable {
         )
     }
 
+    func favoriteTopicPage(from response: NGAHTTPResponse, page: Int) throws -> ForumPage {
+        if let root = jsonRoot(response.data) {
+            try throwJSONErrorIfPresent(in: root)
+            let topics = dictionaries(in: root).compactMap {
+                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+            }.map { topic in
+                var topic = topic
+                topic.isFavorite = true
+                return topic
+            }
+            let totalPages = forumPageCount(
+                in: root,
+                currentPage: page,
+                fallbackTopicCount: topics.count
+            )
+            return ForumPage(
+                forum: nil,
+                topics: unique(topics),
+                page: page,
+                hasMore: page < totalPages,
+                totalPages: totalPages
+            )
+        }
+
+        let text = try response.decodedString()
+        if text.contains("没有收藏") || text.contains("暂无收藏") {
+            return ForumPage(
+                forum: nil,
+                topics: [],
+                page: page,
+                hasMore: false,
+                totalPages: max(1, page)
+            )
+        }
+        var result = try forumPage(
+            from: response,
+            forumID: ForumID(rawValue: 0),
+            page: page
+        )
+        result.topics = result.topics.map { topic in
+            var topic = topic
+            topic.isFavorite = true
+            return topic
+        }
+        return result
+    }
+
+    func favoriteTopicFolders(from response: NGAHTTPResponse) throws -> [TopicFavoriteFolder] {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.unexpectedPage("未找到收藏目录数据")
+        }
+        try throwJSONErrorIfPresent(in: root)
+        let folders = dictionaries(in: jsonPayload(in: root)).compactMap { dictionary -> TopicFavoriteFolder? in
+            guard let id = nonEmptyString(dictionary["id"]),
+                  let name = nonEmptyString(dictionary["name"]) else {
+                return nil
+            }
+            return TopicFavoriteFolder(
+                id: id,
+                name: plainText(name),
+                topicCount: max(0, int(dictionary["length"]) ?? int(dictionary["topic_count"]) ?? 0),
+                isPublic: marker(dictionary["public"])
+                    || marker(dictionary["is_public"])
+                    || ((int(dictionary["opt"]) ?? 0) & 1) != 0,
+                isDefault: marker(dictionary["default"])
+                    || marker(dictionary["is_default"])
+                    || ((int(dictionary["opt"]) ?? 0) & 2) != 0
+            )
+        }
+        let uniqueFolders = Dictionary(folders.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            .values
+        return uniqueFolders.sorted { left, right in
+            if left.isDefault != right.isDefault { return left.isDefault }
+            switch (Int64(left.id), Int64(right.id)) {
+            case let (leftID?, rightID?) where leftID != rightID:
+                return leftID < rightID
+            default:
+                return left.name.localizedStandardCompare(right.name) == .orderedAscending
+            }
+        }
+    }
+
+    func createdTopicFavoriteFolderID(from response: NGAHTTPResponse) throws -> String? {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.ambiguousWrite
+        }
+        try throwJSONErrorIfPresent(in: root)
+        let payload = jsonPayload(in: root)
+        if let dictionary = payload as? [String: Any] {
+            for key in ["1", "0", "folder", "folder_id", "id"] {
+                if let value = nonEmptyString(dictionary[key]), value != "0" {
+                    return value
+                }
+            }
+        }
+        return nil
+    }
+
     private func forumPageCount(
         in root: Any,
         currentPage: Int,
@@ -760,6 +860,7 @@ struct NGAParser: Sendable {
     func actionSucceeded(from response: NGAHTTPResponse) throws {
         let text = try response.decodedString()
         if let root = jsonRoot(response.data) {
+            try throwJSONErrorIfPresent(in: root)
             if let dictionary = root as? [String: Any],
                let code = int(dictionary["code"]) {
                 guard code == 0 else {
@@ -1506,7 +1607,11 @@ struct NGAParser: Sendable {
             sourceForumID: sourceForum?.id,
             sourceParentForumID: sourceForum?.parentID,
             sourceForumName: sourceForum?.name,
-            mirroredForumID: mirroredForumID
+            mirroredForumID: mirroredForumID,
+            isFavorite: bool(dictionary["favor"])
+                || bool(dictionary["favorite"])
+                || (int(dictionary["favor"]) ?? 0) > 0
+                || (int(dictionary["favorite"]) ?? 0) > 0
         )
     }
 
@@ -2263,6 +2368,17 @@ struct NGAParser: Sendable {
         case let value as NSNumber: value.stringValue
         default: nil
         }
+    }
+
+    private func marker(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else { return false }
+        if let boolValue = value as? Bool { return boolValue }
+        if let number = value as? NSNumber { return number.intValue != 0 }
+        if let stringValue = value as? String {
+            let normalized = stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return !["0", "false", "no", "off"].contains(normalized)
+        }
+        return true
     }
 
     private func nonEmptyString(_ value: Any?) -> String? {
