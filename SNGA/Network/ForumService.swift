@@ -41,6 +41,12 @@ protocol NGAForumService: Sendable {
     func replyMessage(id: MessageID, content: String) async throws
     func favorites() async throws -> [Forum]
     func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder]
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage
+    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws
+    func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String?
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws
+    func deleteTopicFavoriteFolder(folderID: String) async throws
     func checkIn() async throws -> CheckInResult
 }
 

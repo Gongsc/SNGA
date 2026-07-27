@@ -7,6 +7,7 @@ struct BottomActionBarButtonStyle: ButtonStyle {
 
     private struct BottomActionBarButton: View {
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.sngaTheme) private var theme
         let configuration: Configuration
         @State private var isHovered = false
 
@@ -30,23 +31,24 @@ struct BottomActionBarButtonStyle: ButtonStyle {
         private var backgroundColor: Color {
             guard isEnabled else { return .clear }
             if configuration.isPressed {
-                return Color.accentColor.opacity(0.25)
+                return theme.accentColor.opacity(0.25)
             }
             if isHovered {
-                return Color.accentColor.opacity(0.14)
+                return theme.accentColor.opacity(0.14)
             }
             return .clear
         }
 
         private var borderColor: Color {
             guard isEnabled, isHovered || configuration.isPressed else { return .clear }
-            return Color.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
+            return theme.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
         }
     }
 }
 
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let uid: Int64?
 
     var body: some View {
@@ -203,7 +205,7 @@ struct UserCenterView: View {
     private func checkInColor(for status: DailyCheckInStatus) -> Color {
         switch status {
         case .checkedIn: .green
-        case .notCheckedIn: .accentColor
+        case .notCheckedIn: theme.accentColor
         case .checkingIn: .secondary
         case .failed: .orange
         }
@@ -503,65 +505,466 @@ struct ForumDirectoryView: View {
     var body: some View {
         Group {
             if model.forums.isEmpty && !model.isLoading {
-                ContentUnavailableView("没有可用板块", systemImage: "square.grid.2x2")
+                ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
             } else {
                 List {
                     ForEach(model.forumCategories) { category in
-                        DisclosureGroup(isExpanded: expansionBinding(for: category.id)) {
-                            ForEach(category.forums) { forum in
-                                Button {
-                                    Task { await model.openForum(forum) }
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        AsyncImage(url: forum.iconURL) { image in
-                                            image.resizable().scaledToFit()
-                                        } placeholder: {
-                                            Image(systemName: "bubble.left.and.bubble.right")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .frame(width: 28, height: 28)
-
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(forum.name)
-                                            if let subtitle = forum.subtitle, !subtitle.isEmpty {
-                                                Text(subtitle)
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(2)
-                                            }
-                                        }
-                                    }
-                                    .contentShape(.rect)
-                                }
-                                .buttonStyle(.plain)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                toggleCategory(category.id)
                             }
                         } label: {
-                            HStack {
-                                Text(category.name).font(.headline)
+                            HStack(spacing: 6) {
+                                Image(
+                                    systemName: collapsedCategories.contains(category.id)
+                                        ? "chevron.right"
+                                        : "chevron.down"
+                                )
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 12)
+                                Text(category.name)
+                                    .font(.headline)
                                 Spacer()
                                 Text("\(category.forums.count)")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
+                            }
+                            .contentShape(.rect)
                         }
+                        .buttonStyle(.plain)
+                        .listRowInsets(
+                            EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+                        )
+                        .accessibilityIdentifier("directory-category-\(category.id)")
+
+                        if !collapsedCategories.contains(category.id) {
+                            ForEach(category.forums) { forum in
+                                Button {
+                                    Task { await model.openForum(forum) }
+                                } label: {
+                                    ForumDirectoryInteractiveRow(
+                                        forum: forum,
+                                        isFavorite: model.favorites.contains {
+                                            $0.forum.id == forum.id && $0.state != .pendingRemove
+                                        }
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .listRowInsets(
+                                    EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+                                )
+                                .listRowBackground(Color.clear)
+                                .accessibilityIdentifier("directory-forum-\(forum.id.description)")
+                            }
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
         }
-        .navigationTitle("全部板块")
+        .navigationTitle("全部版面")
         .task {
             if model.forums.isEmpty { await model.loadForums() }
         }
     }
 
-    private func expansionBinding(for categoryID: String) -> Binding<Bool> {
-        Binding {
-            !collapsedCategories.contains(categoryID)
-        } set: { expanded in
-            if expanded {
-                collapsedCategories.remove(categoryID)
+    private func toggleCategory(_ categoryID: String) {
+        if collapsedCategories.contains(categoryID) {
+            collapsedCategories.remove(categoryID)
+        } else {
+            collapsedCategories.insert(categoryID)
+        }
+    }
+}
+
+private struct ForumDirectoryInteractiveRow: View {
+    @Environment(\.sngaTheme) private var theme
+    let forum: Forum
+    let isFavorite: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: forum.iconURL) { image in
+                image.resizable().scaledToFit()
+            } placeholder: {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(forum.name)
+                if let subtitle = forum.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+            if isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+                    .accessibilityLabel("已收藏")
+                    .accessibilityIdentifier("directory-forum-favorite-\(forum.id.description)")
+            }
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isHovered ? theme.accentColor.opacity(0.14) : Color.clear)
+        }
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+struct FavoritesView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    @State private var editingFolder: TopicFavoriteFolder?
+    @State private var showsCreateFolder = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !model.favoriteTopicFolders.isEmpty {
+                folderBar
+                Divider()
+            }
+
+            Group {
+                if model.favoriteTopicFolders.isEmpty && !model.isLoading {
+                    ContentUnavailableView {
+                        Label("还没有收藏夹", systemImage: "folder")
+                    } description: {
+                        Text("新建一个收藏夹后，即可按目录整理论坛主题。")
+                    } actions: {
+                        Button("新建收藏夹") {
+                            showsCreateFolder = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else if model.favoriteTopics.isEmpty && !model.isLoading {
+                ContentUnavailableView {
+                    Label("收藏夹为空", systemImage: "star")
+                } description: {
+                        if let folder = model.selectedFavoriteTopicFolder {
+                            Text("“\(folder.name)”中还没有主题。打开主题后可从底部星标菜单选择收藏目录。")
+                        } else {
+                            Text("打开主题后可从底部星标菜单选择收藏目录。")
+                        }
+                } actions: {
+                    Button("浏览全部版面") {
+                        model.sidebarSelection = .directory
+                        Task { await model.loadForums() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                } else {
+                    List {
+                        ForEach(model.favoriteTopics) { topic in
+                            HStack(spacing: 10) {
+                                Button {
+                                    Task { await model.openTopic(topic) }
+                                } label: {
+                                    TopicRow(topic: topic)
+                                        .contentShape(.rect)
+                                }
+                                .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Button {
+                                    remove(topic)
+                                } label: {
+                                    Label("从当前收藏夹移除", systemImage: "star.fill")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("从当前收藏夹移除《\(topic.subject)》")
+                                .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                .accessibilityIdentifier(
+                                    "favorite-topic-remove-\(topic.id.rawValue)"
+                                )
+                            }
+                            .contextMenu {
+                                Button("打开主题") {
+                                    Task { await model.openTopic(topic) }
+                                }
+                                Button("从当前收藏夹移除", role: .destructive) {
+                                    remove(topic)
+                                }
+                            }
+                            .accessibilityIdentifier(
+                                "favorite-topic-\(topic.id.rawValue)"
+                            )
+                        }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        TopicListPaginationBar(
+                            currentPage: model.favoriteTopicPage,
+                            totalPages: model.favoriteTopicTotalPages,
+                            isLoading: model.isLoading,
+                            navigate: { page in
+                                Task { await model.loadFavoriteTopics(page: page) }
+                            }
+                        ) {
+                            Button {
+                                Task {
+                                    await model.loadFavoriteTopicFolders(force: true)
+                                    await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+                                }
+                            } label: {
+                                Label("刷新收藏夹", systemImage: "arrow.clockwise")
+                            }
+                            .labelStyle(.iconOnly)
+                            .help("刷新收藏目录与主题")
+                            .disabled(model.isLoading)
+                            .accessibilityIdentifier("favorite-topics-refresh")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("收藏夹")
+        .task {
+            await model.loadFavoriteTopicFolders(force: true)
+            await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+        }
+        .sheet(isPresented: $showsCreateFolder) {
+            FavoriteFolderEditorSheet(
+                title: "新建收藏夹",
+                initialName: "",
+                initialIsPublic: false,
+                initialIsDefault: model.favoriteTopicFolders.isEmpty,
+                save: { name, isPublic, isDefault in
+                    await model.createTopicFavoriteFolder(
+                        name: name,
+                        isPublic: isPublic,
+                        isDefault: isDefault
+                    )
+                }
+            )
+        }
+        .sheet(item: $editingFolder) { folder in
+            FavoriteFolderEditorSheet(
+                title: "修改收藏夹",
+                initialName: folder.name,
+                initialIsPublic: folder.isPublic,
+                initialIsDefault: folder.isDefault,
+                save: { name, isPublic, isDefault in
+                    var updated = folder
+                    updated.name = name
+                    updated.isPublic = isPublic
+                    updated.isDefault = isDefault
+                    return await model.updateTopicFavoriteFolder(updated)
+                },
+                delete: {
+                    await model.deleteTopicFavoriteFolder(folder)
+                }
+            )
+        }
+    }
+
+    private var folderBar: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                        Button {
+                            Task { await model.selectFavoriteTopicFolder(folder.id) }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: folder.isDefault ? "folder.fill" : "folder")
+                                Text(folder.name)
+                                    .lineLimit(1)
+                                if folder.isDefault {
+                                    Text("默认")
+                                        .font(.caption2)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(.quaternary, in: Capsule())
+                                }
+                                Text("\(folder.topicCount)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(
+                                model.selectedFavoriteTopicFolderID == folder.id
+                                    ? theme.accentColor
+                                    : Color.primary
+                            )
+                            .background(
+                                model.selectedFavoriteTopicFolderID == folder.id
+                                    ? theme.accentColor.opacity(0.14)
+                                    : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("favorite-folder-\(folder.id)")
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+
+            Divider()
+                .frame(height: 22)
+
+            Button {
+                editingFolder = model.selectedFavoriteTopicFolder
+            } label: {
+                Label("修改收藏夹", systemImage: "pencil")
+            }
+            .labelStyle(.iconOnly)
+            .help("修改名称、公开状态及默认收藏夹")
+            .disabled(model.selectedFavoriteTopicFolder == nil)
+            .accessibilityIdentifier("favorite-folder-edit")
+
+            Button {
+                showsCreateFolder = true
+            } label: {
+                Label("新建收藏夹", systemImage: "folder.badge.plus")
+            }
+            .labelStyle(.iconOnly)
+            .help("新建收藏夹")
+            .accessibilityIdentifier("favorite-folder-create")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.regularMaterial)
+    }
+
+    private func remove(_ topic: Topic) {
+        guard let folder = model.selectedFavoriteTopicFolder else { return }
+        Task {
+            await model.setTopicFavorite(topic, in: folder, isFavorite: false)
+        }
+    }
+}
+
+private struct FavoriteFolderEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let title: String
+    let save: (String, Bool, Bool) async -> Bool
+    let delete: (() async -> Bool)?
+
+    @State private var name: String
+    @State private var isPublic: Bool
+    @State private var isDefault: Bool
+    @State private var isWorking = false
+    @State private var showsDeleteConfirmation = false
+
+    init(
+        title: String,
+        initialName: String,
+        initialIsPublic: Bool,
+        initialIsDefault: Bool,
+        save: @escaping (String, Bool, Bool) async -> Bool,
+        delete: (() async -> Bool)? = nil
+    ) {
+        self.title = title
+        self.save = save
+        self.delete = delete
+        _name = State(initialValue: initialName)
+        _isPublic = State(initialValue: initialIsPublic)
+        _isDefault = State(initialValue: initialIsDefault)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(title)
+                .font(.title2.bold())
+
+            TextField("收藏夹名称", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(saveChanges)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("公开收藏夹", isOn: $isPublic)
+                Text("公开后，其他用户可通过网页查看这个收藏夹。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("设为默认收藏夹", isOn: $isDefault)
+                Text("从主题页快速收藏时，默认优先选中这个目录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            HStack {
+                if delete != nil {
+                    Button("删除收藏夹", role: .destructive) {
+                        showsDeleteConfirmation = true
+                    }
+                    .disabled(isWorking)
+                }
+                Spacer()
+                Button("取消", role: .cancel) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("保存") {
+                    saveChanges()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(trimmedName.isEmpty || isWorking)
+            }
+
+            if isWorking {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(22)
+        .frame(width: 430)
+        .confirmationDialog(
+            "删除收藏夹及其中的所有收藏主题？",
+            isPresented: $showsDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                guard let delete else { return }
+                isWorking = true
+                Task {
+                    if await delete() {
+                        dismiss()
+                    } else {
+                        isWorking = false
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func saveChanges() {
+        guard !trimmedName.isEmpty, !isWorking else { return }
+        isWorking = true
+        Task {
+            if await save(trimmedName, isPublic, isDefault) {
+                dismiss()
             } else {
-                collapsedCategories.insert(categoryID)
+                isWorking = false
             }
         }
     }
@@ -569,9 +972,12 @@ struct ForumDirectoryView: View {
 
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let forumID: ForumID
+    var reservesSidebarToggleSpace = false
     @State private var isSubforumsExpanded = false
     private let topAnchor = "topic-list-top"
+    private let hiddenSidebarTitleClearance: CGFloat = 140
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -581,58 +987,89 @@ struct TopicListView: View {
 
                 if !model.subforums.isEmpty {
                     Section {
-                        DisclosureGroup(isExpanded: $isSubforumsExpanded) {
-                            HStack {
-                                Text("勾选后在当前主题列表中显示该子板块的主题")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
-                                    model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.16)) {
+                                    isSubforumsExpanded.toggle()
                                 }
-                                .buttonStyle(.borderless)
-                                .font(.caption)
-                            }
-
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
-                                alignment: .leading,
-                                spacing: 8
-                            ) {
-                                ForEach(model.subforums) { forum in
-                                    SubforumTile(
-                                        forum: forum,
-                                        isIncluded: model.includedSubforumIDs.contains(forum.id)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(
+                                        systemName: isSubforumsExpanded
+                                            ? "chevron.down"
+                                            : "chevron.right"
                                     )
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 12)
+
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "square.grid.3x3")
+                                            .foregroundStyle(theme.accentColor)
+                                        Text("子版面")
+                                    }
+                                    .font(.headline)
+                                    Text("\(model.subforums.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("已显示 \(includedSubforumCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("topic-list-subforums-toggle")
+
+                            if isSubforumsExpanded {
+                                HStack {
+                                    Text("勾选后在当前主题列表中显示该子版面的主题")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
+                                        model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption)
+                                }
+
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    ForEach(model.subforums) { forum in
+                                        SubforumTile(
+                                            forum: forum,
+                                            isIncluded: model.includedSubforumIDs.contains(forum.id)
+                                        )
+                                    }
                                 }
                             }
-                            .padding(.top, 4)
-                        } label: {
-                            HStack {
-                                Label("子板块", systemImage: "square.grid.3x3")
-                                    .font(.headline)
-                                Text("\(model.subforums.count)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text("已显示 \(includedSubforumCount)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(.rect)
+                        }
+                        .padding(.horizontal, 8)
+                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                            dimensions[.leading] + 8
+                        }
+                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                            dimensions[.trailing] - 8
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10))
+                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
                 }
 
                 if model.subforums.isEmpty {
                     topicRows
                 } else {
-                    Section("主题") {
-                        topicRows
-                    }
+                    topicListHeader
+                    topicRows
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TopicListPaginationBar(
                     currentPage: model.topicPage,
@@ -664,12 +1101,12 @@ struct TopicListView: View {
                         Task { await model.toggleFavorite(forum) }
                     } label: {
                         Label(
-                            model.isActiveForumFavorite ? "取消收藏" : "收藏板块",
+                            model.isActiveForumFavorite ? "取消收藏" : "收藏版面",
                             systemImage: model.isActiveForumFavorite ? "star.fill" : "star"
                         )
                     }
                     .labelStyle(.iconOnly)
-                    .help(model.isActiveForumFavorite ? "取消收藏当前板块" : "收藏当前板块")
+                    .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
                     .disabled(model.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
 
@@ -696,18 +1133,39 @@ struct TopicListView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    private var topicListHeader: some View {
+        Text("主题")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) {
+                Divider()
+                    .padding(.horizontal, 8)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+
     private var forumTitleRow: some View {
         HStack(spacing: 10) {
             if let parentForum = model.parentForum {
-                Button {
+                ForumTitleBackButton(
+                    title: "返回上级版面 \(parentForum.name)",
+                    accessibilityIdentifier: "forum-back-to-parent",
+                    isDisabled: model.isLoading
+                ) {
                     Task { await model.openParentForum() }
-                } label: {
-                    Label("返回 \(parentForum.name)", systemImage: "chevron.left")
-                        .labelStyle(.iconOnly)
                 }
-                .buttonStyle(.borderless)
-                .help("返回上级板块 \(parentForum.name)")
-                .disabled(model.isLoading)
+            } else {
+                ForumTitleBackButton(
+                    title: "返回全部版面",
+                    accessibilityIdentifier: "forum-back-to-directory"
+                ) {
+                    model.returnToForumDirectory()
+                }
             }
 
             Text(model.currentForum?.name ?? "主题")
@@ -716,11 +1174,16 @@ struct TopicListView: View {
 
             Spacer(minLength: 0)
         }
+        .padding(
+            .leading,
+            reservesSidebarToggleSpace ? hiddenSidebarTitleClearance : 0
+        )
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 12))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
+        .animation(.easeOut(duration: 0.16), value: reservesSidebarToggleSpace)
     }
 
     @ViewBuilder
@@ -735,8 +1198,14 @@ struct TopicListView: View {
                 )
             }
             .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
             .listRowBackground(Color.clear)
+            .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                dimensions[.leading] + 8
+            }
+            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                dimensions[.trailing] - 8
+            }
             .accessibilityIdentifier("topic-\(topic.id.rawValue)")
         }
     }
@@ -748,6 +1217,40 @@ struct TopicListView: View {
     private var allSubforumsIncluded: Bool {
         !model.subforums.isEmpty &&
             model.subforums.allSatisfy { model.includedSubforumIDs.contains($0.id) }
+    }
+}
+
+private struct ForumTitleBackButton: View {
+    @Environment(\.sngaTheme) private var theme
+    let title: String
+    let accessibilityIdentifier: String
+    var isDisabled = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.body.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(isHovered ? theme.accentColor : Color.secondary)
+                .background {
+                    Circle()
+                        .fill(
+                            isHovered
+                                ? theme.accentColor.opacity(0.16)
+                                : Color.clear
+                        )
+                }
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .onHover { isHovered = $0 && !isDisabled }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -934,7 +1437,7 @@ private struct SubforumTile: View {
             .buttonStyle(.plain)
 
             Toggle(
-                "在主板块主题列表中显示 \(forum.name)",
+                "在主版面主题列表中显示 \(forum.name)",
                 isOn: Binding(
                     get: { isIncluded },
                     set: { model.setSubforumIncluded(forum.id, included: $0) }
@@ -942,7 +1445,7 @@ private struct SubforumTile: View {
             )
             .labelsHidden()
             .toggleStyle(.checkbox)
-            .help(isIncluded ? "隐藏该子板块及其下属主题" : "显示该子板块及其下属主题")
+            .help(isIncluded ? "隐藏该子版面及其下属主题" : "显示该子版面及其下属主题")
         }
         .padding(8)
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
@@ -959,6 +1462,7 @@ private struct SubforumTile: View {
 }
 
 private struct TopicInteractiveRow: View {
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
     let isSelected: Bool
     @State private var isHovered = false
@@ -980,7 +1484,7 @@ private struct TopicInteractiveRow: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.18)
+            return theme.accentColor.opacity(0.18)
         }
         if isHovered {
             return Color.primary.opacity(0.08)
@@ -990,12 +1494,16 @@ private struct TopicInteractiveRow: View {
 }
 
 private struct TopicRow: View {
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                if topic.isPinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
+                if topic.isPinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundStyle(theme.accentColor)
+                }
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")
@@ -1003,16 +1511,16 @@ private struct TopicRow: View {
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .foregroundStyle(.blue)
-                        .background(Color.blue.opacity(0.12), in: Capsule())
+                        .foregroundStyle(theme.accentColor)
+                        .background(theme.accentColor.opacity(0.12), in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
                         .font(.caption2.weight(.medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .foregroundStyle(.orange)
-                        .background(Color.orange.opacity(0.12), in: Capsule())
+                        .foregroundStyle(theme.accentColor)
+                        .background(theme.accentColor.opacity(0.12), in: Capsule())
                 }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
@@ -1020,7 +1528,7 @@ private struct TopicRow: View {
             }
             HStack {
                 if topic.mirroredForumID != nil {
-                    Label("进入 \(topic.subject) 板块", systemImage: "arrow.right.circle")
+                    Label("进入 \(topic.subject) 版面", systemImage: "arrow.right.circle")
                 } else {
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
                 }

@@ -39,7 +39,7 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var subtitle: String? = nil
     var iconURL: URL? = nil
     var category: String? = nil
-    /// NGA 在父板块页面中返回的当前勾选状态；普通板块没有该值。
+    /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
     var isSelectedInParent: Bool? = nil
 }
 
@@ -63,6 +63,15 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var sourceParentForumID: ForumID? = nil
     var sourceForumName: String? = nil
     var mirroredForumID: ForumID? = nil
+    var isFavorite: Bool = false
+}
+
+struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {
+    let id: String
+    var name: String
+    var topicCount: Int = 0
+    var isPublic: Bool = false
+    var isDefault: Bool = false
 }
 
 struct ForumPage: Hashable, Codable, Sendable {
@@ -114,6 +123,38 @@ struct PostVoteState: Hashable, Codable, Sendable {
     var upvoteCount: Int
     var downvoteCount: Int
     var userVote: PostVoteDirection?
+
+    func optimisticallyApplying(_ direction: PostVoteDirection) -> PostVoteState {
+        var result = self
+        if result.userVote == direction {
+            switch direction {
+            case .up:
+                result.upvoteCount = max(0, result.upvoteCount - 1)
+            case .down:
+                result.downvoteCount = max(0, result.downvoteCount - 1)
+            }
+            result.userVote = nil
+            return result
+        }
+
+        switch result.userVote {
+        case .up:
+            result.upvoteCount = max(0, result.upvoteCount - 1)
+        case .down:
+            result.downvoteCount = max(0, result.downvoteCount - 1)
+        case nil:
+            break
+        }
+
+        switch direction {
+        case .up:
+            result.upvoteCount += 1
+        case .down:
+            result.downvoteCount += 1
+        }
+        result.userVote = direction
+        return result
+    }
 }
 
 enum MessageFolder: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -274,5 +315,6 @@ enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
     case forum(ForumID)
     case directory
+    case favorites
     case messages(MessageFolder)
 }

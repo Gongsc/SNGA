@@ -131,6 +131,55 @@ actor LiveNGAForumService: NGAForumService {
         }
     }
 
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
+        try parser.favoriteTopicFolders(
+            from: await client.request(.favoriteTopicFolders)
+        )
+    }
+
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
+        try parser.favoriteTopicPage(
+            from: await client.request(.favoriteTopics(folderID: folderID, page: page)),
+            page: page
+        )
+    }
+
+    func updateTopicFavorite(
+        topicID: TopicID,
+        folderID: String,
+        isFavorite: Bool
+    ) async throws {
+        let response = try await client.request(.updateTopicFavorite(
+            topicID: topicID,
+            folderID: folderID,
+            isFavorite: isFavorite
+        ))
+        try parser.actionSucceeded(from: response)
+    }
+
+    func createTopicFavoriteFolder(
+        name: String,
+        isPublic: Bool,
+        isDefault: Bool
+    ) async throws -> String? {
+        let response = try await client.request(.createTopicFavoriteFolder(
+            name: name,
+            isPublic: isPublic,
+            isDefault: isDefault
+        ))
+        return try parser.createdTopicFavoriteFolderID(from: response)
+    }
+
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws {
+        let response = try await client.request(.updateTopicFavoriteFolder(folder))
+        try parser.actionSucceeded(from: response)
+    }
+
+    func deleteTopicFavoriteFolder(folderID: String) async throws {
+        let response = try await client.request(.deleteTopicFavoriteFolder(folderID: folderID))
+        try parser.actionSucceeded(from: response)
+    }
+
     func checkIn() async throws -> CheckInResult {
         try parser.checkIn(from: await client.request(.checkIn))
     }

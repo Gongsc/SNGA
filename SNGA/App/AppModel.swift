@@ -20,6 +20,9 @@ final class AppModel {
 
     var forums: [Forum] = []
     var favorites: [FavoriteSnapshot] = []
+    var favoriteTopicFolders: [TopicFavoriteFolder] = []
+    var selectedFavoriteTopicFolderID: String?
+    var favoriteTopics: [Topic] = []
     var topics: [Topic] = []
     var subforums: [Forum] = []
     var includedSubforumIDs: Set<ForumID> = []
@@ -35,6 +38,9 @@ final class AppModel {
     var topicPage = 1
     var topicHasMore = false
     var topicTotalPages = 1
+    var favoriteTopicPage = 1
+    var favoriteTopicHasMore = false
+    var favoriteTopicTotalPages = 1
     var threadPage = 1
     var threadHasMore = false
     var threadTotalPages = 1
@@ -45,6 +51,8 @@ final class AppModel {
     var isLoading = false
     var isSubmitting = false
     var votingPostIDs: Set<PostID> = []
+    var updatingFavoriteTopicIDs: Set<TopicID> = []
+    var isUpdatingFavoriteTopicFolders = false
     var showsLogin = false
     var errorMessage: String?
     var statusMessage: String?
@@ -71,7 +79,12 @@ final class AppModel {
     @ObservationIgnored private var messageListRequestID: UUID?
     @ObservationIgnored private var messageDetailRequestID: UUID?
     @ObservationIgnored private var favoriteRequestID: UUID?
+    @ObservationIgnored private var favoriteTopicFolderRequestID: UUID?
+    @ObservationIgnored private var favoriteTopicRequestID: UUID?
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
+    private var forumUserReturnSelection: SidebarSelection?
+    private var favoriteTopicIDs: Set<TopicID> = []
+    private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
     init(
         container: ModelContainer,
@@ -97,6 +110,11 @@ final class AppModel {
     var isDisplayingActiveAccount: Bool {
         guard let displayedUserUID, let activeAccount else { return false }
         return displayedUserUID == activeAccount.ngaUID
+    }
+
+    var canReturnFromUserCenterToTopicList: Bool {
+        guard case .forum = forumUserReturnSelection else { return false }
+        return true
     }
 
     var activeAccountCheckInStatus: DailyCheckInStatus {
@@ -131,6 +149,22 @@ final class AppModel {
         return favorites.contains { $0.forum.id == currentForum.id && $0.state != .pendingRemove }
     }
 
+    var isCurrentTopicFavorite: Bool {
+        guard let currentTopic else { return false }
+        return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+    }
+
+    var selectedFavoriteTopicFolder: TopicFavoriteFolder? {
+        favoriteTopicFolders.first { $0.id == selectedFavoriteTopicFolderID }
+    }
+
+    var sortedFavoriteTopicFolders: [TopicFavoriteFolder] {
+        favoriteTopicFolders.sorted { left, right in
+            if left.isDefault != right.isDefault { return left.isDefault }
+            return left.name.localizedStandardCompare(right.name) == .orderedAscending
+        }
+    }
+
     var parentForum: Forum? {
         forumNavigationPath.last
     }
@@ -140,7 +174,7 @@ final class AppModel {
         var grouped: [String: [Forum]] = [:]
         for forum in forums {
             let category = forum.category?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = category.flatMap { $0.isEmpty ? nil : $0 } ?? "其他板块"
+            let name = category.flatMap { $0.isEmpty ? nil : $0 } ?? "其他版面"
             if grouped[name] == nil { order.append(name) }
             grouped[name, default: []].append(forum)
         }
@@ -336,12 +370,20 @@ final class AppModel {
     func openUserCenter(
         uid: Int64,
         fallbackName: String? = nil,
-        fallbackAvatarURL: URL? = nil
+        fallbackAvatarURL: URL? = nil,
+        preservingForumContext: Bool = false
     ) async {
+        if preservingForumContext {
+            if case .forum = sidebarSelection {
+                forumUserReturnSelection = sidebarSelection
+            }
+        } else {
+            forumUserReturnSelection = nil
+            selectedTopicID = nil
+            currentTopic = nil
+        }
         sidebarSelection = .userCenter(uid)
-        selectedTopicID = nil
         selectedMessageID = nil
-        currentTopic = nil
         currentMessage = nil
         userActivities = []
         userActivityUID = uid
@@ -387,6 +429,12 @@ final class AppModel {
             return
         }
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
+    }
+
+    func returnFromUserCenterToTopicList() {
+        guard case let .forum(forumID) = forumUserReturnSelection else { return }
+        sidebarSelection = .forum(forumID)
+        forumUserReturnSelection = nil
     }
 
     func ensureUserCenterLoaded(uid: Int64) async {
@@ -436,19 +484,29 @@ final class AppModel {
         let requestID = UUID()
         forumDirectoryRequestID = requestID
         await withLoading(isCurrent: { self.forumDirectoryRequestID == requestID }) {
-            // NGA 的接口顺序就是官网分组和板块顺序，不能在这里全局排序。
+            // NGA 的接口顺序就是官网分组和版面顺序，不能在这里全局排序。
             let result = try await service.forums()
             guard activeAccountID == requestAccountID,
                   forumDirectoryRequestID == requestID else {
                 return
             }
             forums = result
+            favorites = enrichingFavoriteForums(favorites)
         }
     }
 
     func openForum(_ forum: Forum) async {
         forumNavigationPath = []
         await showForum(forum)
+    }
+
+    func returnToForumDirectory() {
+        forumNavigationPath = []
+        sidebarSelection = .directory
+        selectedTopicID = nil
+        currentTopic = nil
+        posts = []
+        hotReplies = []
     }
 
     func openSubforum(_ forum: Forum) async {
@@ -622,28 +680,40 @@ final class AppModel {
             return
         }
         selectedTopicID = topic.id
-        currentTopic = topic
+        var selectedTopic = topic
+        selectedTopic.isFavorite = topic.isFavorite || favoriteTopicIDs.contains(topic.id)
+        currentTopic = selectedTopic
         posts = []
         hotReplies = []
         threadPage = 1
         threadTotalPages = max(1, (topic.replyCount + 20) / 20)
-        await loadThread(topicID: topic.id, reset: true)
+        await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
     }
 
-    func loadThread(topicID: TopicID, reset: Bool) async {
+    func loadThread(
+        topicID: TopicID,
+        reset: Bool,
+        showsLoadingIndicator: Bool = true
+    ) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let requestID = UUID()
         threadRequestID = requestID
         let page = reset ? 1 : threadPage + 1
-        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+        await withLoading(
+            showsIndicator: showsLoadingIndicator,
+            isCurrent: { self.threadRequestID == requestID }
+        ) {
             let result = try await service.threadPage(topicID: topicID, page: page)
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
                   selectedTopicID == topicID else {
                 return
             }
-            currentTopic = result.topic
+            var loadedTopic = result.topic
+            loadedTopic.isFavorite = loadedTopic.isFavorite
+                || favoriteTopicIDs.contains(loadedTopic.id)
+            currentTopic = loadedTopic
             posts = reset ? result.posts : merged(posts, result.posts)
             if reset || !result.hotReplies.isEmpty {
                 hotReplies = result.hotReplies
@@ -667,7 +737,10 @@ final class AppModel {
                   selectedTopicID == topicID else {
                 return
             }
-            currentTopic = result.topic
+            var loadedTopic = result.topic
+            loadedTopic.isFavorite = loadedTopic.isFavorite
+                || favoriteTopicIDs.contains(loadedTopic.id)
+            currentTopic = loadedTopic
             posts = result.posts
             hotReplies = result.hotReplies
             threadPage = result.page
@@ -686,6 +759,15 @@ final class AppModel {
         votingPostIDs.insert(postID)
         defer { votingPostIDs.remove(postID) }
 
+        let originalState = PostVoteState(
+            upvoteCount: post.upvoteCount,
+            downvoteCount: post.downvoteCount,
+            userVote: post.userVote
+        )
+        let optimisticState = originalState.optimisticallyApplying(direction)
+        updateVoteState(optimisticState, postID: postID, in: &posts)
+        updateVoteState(optimisticState, postID: postID, in: &hotReplies)
+
         do {
             let state = try await service.vote(
                 topicID: post.topicID,
@@ -697,6 +779,15 @@ final class AppModel {
             statusMessage = "评价已更新"
             statusMessageIsError = false
         } catch {
+            if voteSubmissionMayHaveSucceeded(error) {
+                // NGA 偶尔会先执行点赞，再以 403 或无法解析的响应结束请求。
+                // 此时保留即时更新，避免误报失败及用户重复提交。
+                statusMessage = "评价已更新"
+                statusMessageIsError = false
+                return
+            }
+            updateVoteState(originalState, postID: postID, in: &posts)
+            updateVoteState(originalState, postID: postID, in: &hotReplies)
             present(error)
         }
     }
@@ -793,9 +884,11 @@ final class AppModel {
             return
         }
         let records = favoriteRecords(accountID: accountID)
-        let local = records.map {
-            FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
-        }
+        let local = enrichingFavoriteForums(
+            records.map {
+                FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
+            }
+        )
         favorites = local.filter { $0.state != .pendingRemove }.sorted { $0.order < $1.order }
         guard let service = services[accountID] else { return }
         let requestID = UUID()
@@ -807,16 +900,7 @@ final class AppModel {
                   favoriteRequestID == requestID else {
                 return
             }
-            let server = fetchedFavorites.map { favorite in
-                guard let directoryForum = forums.first(where: { $0.id == favorite.id }) else {
-                    return favorite
-                }
-                var enriched = favorite
-                if enriched.subtitle?.isEmpty != false { enriched.subtitle = directoryForum.subtitle }
-                if enriched.iconURL == nil { enriched.iconURL = directoryForum.iconURL }
-                if enriched.category?.isEmpty != false { enriched.category = directoryForum.category }
-                return enriched
-            }
+            let server = fetchedFavorites.map(enrichingForumFromDirectory)
             let result = FavoriteSyncEngine.merge(server: server, local: local)
             reconcileFavorites(result.visible, accountID: accountID)
             favorites = result.visible
@@ -841,12 +925,326 @@ final class AppModel {
             context.insert(FavoriteRecord(accountID: accountID, forum: forum, order: order, syncState: .pendingAdd, serverPresent: false))
         }
         try? context.save()
-        favorites = favoriteRecords(accountID: accountID)
-            .filter { $0.syncState != .pendingRemove }
-            .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
-            .sorted { $0.order < $1.order }
+        favorites = enrichingFavoriteForums(
+            favoriteRecords(accountID: accountID)
+                .filter { $0.syncState != .pendingRemove }
+                .map {
+                    FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
+                }
+                .sorted { $0.order < $1.order }
+        )
         if let service = services[accountID] {
             await replayFavoriteChanges(accountID: accountID, service: service)
+        }
+    }
+
+    func loadFavoriteTopicFolders(force: Bool = false) async {
+        guard force || favoriteTopicFolders.isEmpty else { return }
+        guard let service = activeService else {
+            favoriteTopicFolders = []
+            selectedFavoriteTopicFolderID = nil
+            return
+        }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        favoriteTopicFolderRequestID = requestID
+        await withLoading(isCurrent: { self.favoriteTopicFolderRequestID == requestID }) {
+            let folders = try await service.favoriteTopicFolders()
+            guard activeAccountID == requestAccountID,
+                  favoriteTopicFolderRequestID == requestID else {
+                return
+            }
+            applyFavoriteTopicFolders(folders)
+        }
+    }
+
+    func selectFavoriteTopicFolder(_ folderID: String) async {
+        guard favoriteTopicFolders.contains(where: { $0.id == folderID }) else { return }
+        selectedFavoriteTopicFolderID = folderID
+        favoriteTopicPage = 1
+        favoriteTopicHasMore = false
+        favoriteTopicTotalPages = 1
+        favoriteTopics = []
+        await loadFavoriteTopics(page: 1)
+    }
+
+    func loadFavoriteTopics(page: Int = 1) async {
+        if favoriteTopicFolders.isEmpty {
+            await loadFavoriteTopicFolders()
+        }
+        guard let service = activeService else {
+            favoriteTopics = []
+            favoriteTopicIDs = []
+            return
+        }
+        guard let folderID = selectedFavoriteTopicFolderID else {
+            favoriteTopics = []
+            return
+        }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        favoriteTopicRequestID = requestID
+        let targetPage = max(1, page)
+        await withLoading(isCurrent: { self.favoriteTopicRequestID == requestID }) {
+            let result = try await service.favoriteTopics(folderID: folderID, page: targetPage)
+            guard activeAccountID == requestAccountID,
+                  favoriteTopicRequestID == requestID,
+                  selectedFavoriteTopicFolderID == folderID else {
+                return
+            }
+            let values = result.topics.map { topic in
+                var topic = topic
+                topic.isFavorite = true
+                return topic
+            }
+            favoriteTopics = values
+            favoriteTopicIDs.formUnion(values.map(\.id))
+            for topic in values {
+                favoriteTopicFolderIDsByTopic[topic.id, default: []].insert(folderID)
+            }
+            favoriteTopicPage = result.page
+            favoriteTopicHasMore = result.hasMore
+            favoriteTopicTotalPages = max(result.totalPages, result.page)
+        }
+    }
+
+    func isTopicFavorite(_ topic: Topic, in folder: TopicFavoriteFolder) -> Bool {
+        if favoriteTopicFolderIDsByTopic[topic.id]?.contains(folder.id) == true {
+            return true
+        }
+        if favoriteTopicFolderIDsByTopic[topic.id] == nil,
+           (topic.isFavorite || favoriteTopicIDs.contains(topic.id)),
+           folder.isDefault {
+            return true
+        }
+        return false
+    }
+
+    func toggleTopicFavorite(_ topic: Topic, in folderID: String? = nil) async {
+        guard let folder = folderID.flatMap({ id in
+            favoriteTopicFolders.first { $0.id == id }
+        }) ?? favoriteTopicFolders.first(where: \.isDefault) ?? favoriteTopicFolders.first else {
+            await loadFavoriteTopicFolders()
+            guard let folder = favoriteTopicFolders.first(where: \.isDefault)
+                ?? favoriteTopicFolders.first else {
+                return
+            }
+            await setTopicFavorite(topic, in: folder, isFavorite: true)
+            return
+        }
+        await setTopicFavorite(
+            topic,
+            in: folder,
+            isFavorite: !isTopicFavorite(topic, in: folder)
+        )
+    }
+
+    func setTopicFavorite(
+        _ topic: Topic,
+        in folder: TopicFavoriteFolder,
+        isFavorite: Bool
+    ) async {
+        guard let service = activeService,
+              !updatingFavoriteTopicIDs.contains(topic.id) else {
+            return
+        }
+        updatingFavoriteTopicIDs.insert(topic.id)
+        defer { updatingFavoriteTopicIDs.remove(topic.id) }
+        let wasFavoriteInFolder = isTopicFavorite(topic, in: folder)
+        do {
+            try await service.updateTopicFavorite(
+                topicID: topic.id,
+                folderID: folder.id,
+                isFavorite: isFavorite
+            )
+            if isFavorite {
+                favoriteTopicFolderIDsByTopic[topic.id, default: []].insert(folder.id)
+                favoriteTopicIDs.insert(topic.id)
+                var favorite = topic
+                favorite.isFavorite = true
+                if selectedFavoriteTopicFolderID == folder.id,
+                   !favoriteTopics.contains(where: { $0.id == topic.id }) {
+                    favoriteTopics.insert(favorite, at: 0)
+                }
+            } else {
+                favoriteTopicFolderIDsByTopic[topic.id]?.remove(folder.id)
+                if favoriteTopicFolderIDsByTopic[topic.id]?.isEmpty == true {
+                    favoriteTopicFolderIDsByTopic[topic.id] = nil
+                    favoriteTopicIDs.remove(topic.id)
+                }
+                if selectedFavoriteTopicFolderID == folder.id {
+                    favoriteTopics.removeAll { $0.id == topic.id }
+                }
+            }
+            if wasFavoriteInFolder != isFavorite,
+               let folderIndex = favoriteTopicFolders.firstIndex(where: { $0.id == folder.id }) {
+                favoriteTopicFolders[folderIndex].topicCount = max(
+                    0,
+                    favoriteTopicFolders[folderIndex].topicCount + (isFavorite ? 1 : -1)
+                )
+            }
+            let remainsFavorite = favoriteTopicIDs.contains(topic.id)
+            if currentTopic?.id == topic.id {
+                currentTopic?.isFavorite = remainsFavorite
+            }
+            if let index = topics.firstIndex(where: { $0.id == topic.id }) {
+                topics[index].isFavorite = remainsFavorite
+            }
+            statusMessage = isFavorite
+                ? "已收藏到“\(folder.name)”"
+                : "已从“\(folder.name)”移除"
+            statusMessageIsError = false
+        } catch {
+            present(error)
+        }
+    }
+
+    func cancelTopicFavorite(_ topic: Topic) async {
+        if favoriteTopicFolders.isEmpty {
+            await loadFavoriteTopicFolders()
+        }
+        guard let service = activeService,
+              !updatingFavoriteTopicIDs.contains(topic.id) else {
+            return
+        }
+
+        let knownFolderIDs = favoriteTopicFolderIDsByTopic[topic.id] ?? []
+        let targetFolders: [TopicFavoriteFolder]
+        if knownFolderIDs.isEmpty {
+            targetFolders = [
+                favoriteTopicFolders.first(where: \.isDefault)
+                    ?? favoriteTopicFolders.first
+            ].compactMap(\.self)
+        } else {
+            targetFolders = favoriteTopicFolders.filter {
+                knownFolderIDs.contains($0.id)
+            }
+        }
+        guard !targetFolders.isEmpty else { return }
+
+        updatingFavoriteTopicIDs.insert(topic.id)
+        defer { updatingFavoriteTopicIDs.remove(topic.id) }
+        do {
+            for folder in targetFolders {
+                try await service.updateTopicFavorite(
+                    topicID: topic.id,
+                    folderID: folder.id,
+                    isFavorite: false
+                )
+                favoriteTopicFolderIDsByTopic[topic.id]?.remove(folder.id)
+                if let folderIndex = favoriteTopicFolders.firstIndex(where: { $0.id == folder.id }) {
+                    favoriteTopicFolders[folderIndex].topicCount = max(
+                        0,
+                        favoriteTopicFolders[folderIndex].topicCount - 1
+                    )
+                }
+                if selectedFavoriteTopicFolderID == folder.id {
+                    favoriteTopics.removeAll { $0.id == topic.id }
+                }
+            }
+
+            if favoriteTopicFolderIDsByTopic[topic.id]?.isEmpty != false {
+                favoriteTopicFolderIDsByTopic[topic.id] = nil
+                favoriteTopicIDs.remove(topic.id)
+                if currentTopic?.id == topic.id {
+                    currentTopic?.isFavorite = false
+                }
+                if let index = topics.firstIndex(where: { $0.id == topic.id }) {
+                    topics[index].isFavorite = false
+                }
+            }
+            statusMessage = "已取消主题收藏"
+            statusMessageIsError = false
+        } catch {
+            present(error)
+        }
+    }
+
+    func createTopicFavoriteFolder(
+        name: String,
+        isPublic: Bool,
+        isDefault: Bool
+    ) async -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              let service = activeService,
+              !isUpdatingFavoriteTopicFolders else {
+            return false
+        }
+        isUpdatingFavoriteTopicFolders = true
+        defer { isUpdatingFavoriteTopicFolders = false }
+        do {
+            let folderID = try await service.createTopicFavoriteFolder(
+                name: trimmedName,
+                isPublic: isPublic,
+                isDefault: isDefault
+            )
+            let folders = try await service.favoriteTopicFolders()
+            applyFavoriteTopicFolders(folders, preferredID: folderID)
+            statusMessage = "收藏夹已创建"
+            statusMessageIsError = false
+            if selectedFavoriteTopicFolderID != nil {
+                await loadFavoriteTopics(page: 1)
+            }
+            return true
+        } catch {
+            present(error)
+            return false
+        }
+    }
+
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async -> Bool {
+        let trimmedName = folder.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              let service = activeService,
+              !isUpdatingFavoriteTopicFolders else {
+            return false
+        }
+        var updatedFolder = folder
+        updatedFolder.name = trimmedName
+        isUpdatingFavoriteTopicFolders = true
+        defer { isUpdatingFavoriteTopicFolders = false }
+        do {
+            try await service.updateTopicFavoriteFolder(updatedFolder)
+            let folders = try await service.favoriteTopicFolders()
+            applyFavoriteTopicFolders(folders, preferredID: folder.id)
+            statusMessage = "收藏夹设置已更新"
+            statusMessageIsError = false
+            return true
+        } catch {
+            present(error)
+            return false
+        }
+    }
+
+    func deleteTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async -> Bool {
+        guard let service = activeService,
+              !isUpdatingFavoriteTopicFolders else {
+            return false
+        }
+        isUpdatingFavoriteTopicFolders = true
+        defer { isUpdatingFavoriteTopicFolders = false }
+        do {
+            try await service.deleteTopicFavoriteFolder(folderID: folder.id)
+            for topicID in Array(favoriteTopicFolderIDsByTopic.keys) {
+                favoriteTopicFolderIDsByTopic[topicID]?.remove(folder.id)
+                if favoriteTopicFolderIDsByTopic[topicID]?.isEmpty == true {
+                    favoriteTopicFolderIDsByTopic[topicID] = nil
+                    favoriteTopicIDs.remove(topicID)
+                }
+            }
+            let folders = try await service.favoriteTopicFolders()
+            applyFavoriteTopicFolders(folders)
+            favoriteTopics = []
+            if selectedFavoriteTopicFolderID != nil {
+                await loadFavoriteTopics(page: 1)
+            }
+            statusMessage = "收藏夹“\(folder.name)”已删除"
+            statusMessageIsError = false
+            return true
+        } catch {
+            present(error)
+            return false
         }
     }
 
@@ -956,6 +1354,7 @@ final class AppModel {
         case let .forum(id): await loadTopics(forumID: id, reset: true)
         case let .messages(folder): await loadMessages(folder: folder)
         case .directory: await loadForums()
+        case .favorites: await loadFavoriteTopics(page: favoriteTopicPage)
         case let .userCenter(uid):
             if let targetUID = uid ?? activeAccount?.ngaUID {
                 await openUserCenter(uid: targetUID)
@@ -1036,6 +1435,41 @@ final class AppModel {
             .sorted { $0.order < $1.order }
     }
 
+    private func enrichingForumFromDirectory(_ forum: Forum) -> Forum {
+        guard let directoryForum = forums.first(where: { $0.id == forum.id }) else {
+            return forum
+        }
+        var enriched = forum
+        if enriched.subtitle?.isEmpty != false { enriched.subtitle = directoryForum.subtitle }
+        if enriched.iconURL == nil { enriched.iconURL = directoryForum.iconURL }
+        if enriched.category?.isEmpty != false { enriched.category = directoryForum.category }
+        return enriched
+    }
+
+    private func enrichingFavoriteForums(
+        _ snapshots: [FavoriteSnapshot]
+    ) -> [FavoriteSnapshot] {
+        snapshots.map { snapshot in
+            var enriched = snapshot
+            enriched.forum = enrichingForumFromDirectory(snapshot.forum)
+            return enriched
+        }
+    }
+
+    private func applyFavoriteTopicFolders(
+        _ folders: [TopicFavoriteFolder],
+        preferredID: String? = nil
+    ) {
+        favoriteTopicFolders = folders
+        let retainedID = preferredID ?? selectedFavoriteTopicFolderID
+        if let retainedID, folders.contains(where: { $0.id == retainedID }) {
+            selectedFavoriteTopicFolderID = retainedID
+        } else {
+            selectedFavoriteTopicFolderID = folders.first(where: \.isDefault)?.id
+                ?? folders.first?.id
+        }
+    }
+
     private func reconcileFavorites(_ snapshots: [FavoriteSnapshot], accountID: AccountID) {
         let records = favoriteRecords(accountID: accountID)
         let snapshotIDs = Set(snapshots.map { $0.forum.id.rawValue })
@@ -1089,9 +1523,17 @@ final class AppModel {
         }
         try? context.save()
         if activeAccountID == accountID {
-            favorites = favoriteRecords(accountID: accountID)
-                .filter { $0.syncState != .pendingRemove }
-                .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
+            favorites = enrichingFavoriteForums(
+                favoriteRecords(accountID: accountID)
+                    .filter { $0.syncState != .pendingRemove }
+                    .map {
+                        FavoriteSnapshot(
+                            forum: $0.forum,
+                            order: $0.order,
+                            state: $0.syncState
+                        )
+                    }
+            )
         }
     }
 
@@ -1103,6 +1545,11 @@ final class AppModel {
 
     private func clearVisibleContent() {
         favorites = []
+        favoriteTopicFolders = []
+        selectedFavoriteTopicFolderID = nil
+        favoriteTopics = []
+        favoriteTopicIDs = []
+        favoriteTopicFolderIDsByTopic = [:]
         forums = []
         topics = []
         subforums = []
@@ -1131,6 +1578,9 @@ final class AppModel {
         topicPage = 1
         topicHasMore = false
         topicTotalPages = 1
+        favoriteTopicPage = 1
+        favoriteTopicHasMore = false
+        favoriteTopicTotalPages = 1
         unreadCount = 0
         messageUnreadCounts = [:]
     }
@@ -1146,12 +1596,15 @@ final class AppModel {
     }
 
     private func withLoading(
+        showsIndicator: Bool = true,
         isCurrent: () -> Bool = { true },
         _ operation: () async throws -> Void
     ) async {
         let requestAccountID = activeAccountID
-        beginLoading()
-        defer { endLoading() }
+        if showsIndicator { beginLoading() }
+        defer {
+            if showsIndicator { endLoading() }
+        }
         do {
             try await operation()
             if let requestAccountID,
@@ -1166,6 +1619,13 @@ final class AppModel {
     }
 
     private func present(_ error: Error) {
+        Task {
+            await RuntimeLogger.shared.log(
+                .error,
+                category: "app",
+                error.localizedDescription
+            )
+        }
         guard let serviceError = error as? NGAServiceError,
               serviceError == .requiresLogin,
               let activeAccountID else {
@@ -1275,13 +1735,25 @@ final class AppModel {
         posts[index].userVote = state.userVote
     }
 
+    private func voteSubmissionMayHaveSucceeded(_ error: Error) -> Bool {
+        guard let serviceError = error as? NGAServiceError else { return false }
+        switch serviceError {
+        case .ambiguousWrite:
+            return true
+        case let .restricted(message):
+            return message.contains("HTTP 403")
+        default:
+            return false
+        }
+    }
+
 #if DEBUG
     private func seedUITestData() {
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         context.insert(accountA)
         context.insert(accountB)
-        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试板块")
+        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
         context.insert(FavoriteRecord(
             accountID: accountA.accountID,
             forum: favoriteForum,

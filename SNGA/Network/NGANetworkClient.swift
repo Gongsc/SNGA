@@ -52,6 +52,7 @@ actor NGANetworkClient {
         var lastError: Error?
 
         for attempt in 1...maximumAttempts {
+            let startedAt = Date()
             do {
                 try await throttle()
                 var request = URLRequest(url: endpoint.url)
@@ -92,7 +93,16 @@ actor NGANetworkClient {
                     request.httpBody = formEncoded(form)
                 }
 
+                await RuntimeLogger.shared.log(
+                    category: "network",
+                    "\(request.httpMethod ?? "GET") \(RuntimeLogger.sanitizedURL(endpoint.url)) attempt=\(attempt)"
+                )
                 let (data, response) = try await transport.data(for: request)
+                let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
+                await RuntimeLogger.shared.log(
+                    category: "network",
+                    "\(request.httpMethod ?? "GET") \(RuntimeLogger.sanitizedURL(endpoint.url)) status=\(response.statusCode) bytes=\(data.count) durationMs=\(elapsedMilliseconds)"
+                )
                 let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, item in
                     result[String(describing: item.key)] = String(describing: item.value)
                 }
@@ -102,6 +112,11 @@ actor NGANetworkClient {
                 return payload
             } catch {
                 lastError = error
+                await RuntimeLogger.shared.log(
+                    .warning,
+                    category: "network",
+                    "\(endpoint.method.rawValue) \(RuntimeLogger.sanitizedURL(endpoint.url)) attempt=\(attempt) failed=\(error.localizedDescription)"
+                )
                 guard attempt < maximumAttempts, isRetryable(error) else { break }
                 try await Task.sleep(for: .milliseconds(450 * attempt))
             }

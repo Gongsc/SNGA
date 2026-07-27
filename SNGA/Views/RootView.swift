@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.sngaTheme) private var theme
     @State private var accountToRemove: AccountSummary?
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
@@ -11,17 +13,33 @@ struct RootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(accountToRemove: $accountToRemove)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
+                .background(theme.backgroundColor)
         } content: {
-            ContentColumnView()
+            ContentColumnView(
+                reservesSidebarToggleSpace: columnVisibility == .doubleColumn
+            )
                 .navigationSplitViewColumnWidth(min: 320, ideal: 400)
+                .background(theme.backgroundColor)
         } detail: {
             DetailColumnView()
+                .background(theme.backgroundColor)
         }
         .navigationSplitViewStyle(.balanced)
+        .background(theme.backgroundColor)
+        .tint(theme.accentColor)
         .toolbar {
             ToolbarItemGroup {
                 if model.isLoading {
                     ProgressView().controlSize(.small)
+                }
+                if model.canReturnFromUserCenterToTopicList {
+                    Button {
+                        model.returnFromUserCenterToTopicList()
+                    } label: {
+                        Label("返回主题列表", systemImage: "chevron.left")
+                    }
+                    .help("返回主题列表")
+                    .accessibilityIdentifier("user-center-back-to-topics")
                 }
                 if model.selectedForumID == nil {
                     Button {
@@ -250,6 +268,7 @@ private struct WindowImagePreview: View {
 
 private struct ContentColumnView: View {
     @Environment(AppModel.self) private var model
+    let reservesSidebarToggleSpace: Bool
 
     var body: some View {
         Group {
@@ -260,8 +279,13 @@ private struct ContentColumnView: View {
                 UserCenterView(uid: nil)
             case .directory:
                 ForumDirectoryView()
+            case .favorites:
+                FavoritesView()
             case let .forum(forumID):
-                TopicListView(forumID: forumID)
+                TopicListView(
+                    forumID: forumID,
+                    reservesSidebarToggleSpace: reservesSidebarToggleSpace
+                )
             case let .messages(folder):
                 MessageListView(folder: folder)
             }
@@ -281,7 +305,7 @@ private struct DetailColumnView: View {
             ContentUnavailableView(
                 "选择内容",
                 systemImage: "text.bubble",
-                description: Text("从左侧选择板块或消息，再打开一个主题。")
+                description: Text("从左侧选择版面或消息，再打开一个主题。")
             )
         }
     }
@@ -290,8 +314,16 @@ private struct DetailColumnView: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
+    @AppStorage(AppTheme.customBackgroundKey)
+    private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
+    @AppStorage(AppTheme.customAccentKey)
+    private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @State private var accountToRemove: AccountSummary?
     @State private var loginRequest: SettingsLoginRequest?
+    @State private var runtimeLogPath = RuntimeLogSettings.displayPath
+    @State private var runtimeLogError: String?
 
     var body: some View {
         Form {
@@ -303,6 +335,10 @@ struct SettingsView: View {
                     ForEach(AppTheme.allCases) { theme in
                         ThemeChoiceCard(
                             theme: theme,
+                            style: theme.resolved(
+                                customBackgroundHex: customBackgroundHex,
+                                customAccentHex: customAccentHex
+                            ),
                             isSelected: selectedThemeRaw == theme.rawValue
                         ) {
                             selectedThemeRaw = theme.rawValue
@@ -310,6 +346,33 @@ struct SettingsView: View {
                     }
                 }
                 Text(AppTheme.resolve(selectedThemeRaw).description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if AppTheme.resolve(selectedThemeRaw) == .custom {
+                    HStack(spacing: 18) {
+                        ColorPicker(
+                            "背景颜色",
+                            selection: customBackgroundColor,
+                            supportsOpacity: false
+                        )
+                        ColorPicker(
+                            "突出颜色",
+                            selection: customAccentColor,
+                            supportsOpacity: false
+                        )
+                        Spacer()
+                        Button("恢复默认") {
+                            customBackgroundHex = AppTheme.defaultCustomBackgroundHex
+                            customAccentHex = AppTheme.defaultCustomAccentHex
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            Section("浏览") {
+                Toggle("无图模式", isOn: $imageFreeMode)
+                Text("开启后，主题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -357,6 +420,41 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("运行日志") {
+                Toggle("启用运行日志", isOn: $runtimeLogEnabled)
+                    .onChange(of: runtimeLogEnabled) { _, isEnabled in
+                        guard isEnabled else { return }
+                        Task {
+                            await RuntimeLogger.shared.log(
+                                category: "configuration",
+                                "Runtime logging enabled"
+                            )
+                        }
+                    }
+
+                LabeledContent("输出目录") {
+                    Text(runtimeLogPath)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                HStack {
+                    Button("选择目录…", systemImage: "folder") {
+                        chooseRuntimeLogDirectory()
+                    }
+                    if RuntimeLogSettings.selectedDirectoryURL != nil {
+                        Button("恢复默认") {
+                            RuntimeLogSettings.useDefaultDirectory()
+                            runtimeLogPath = RuntimeLogSettings.displayPath
+                        }
+                    }
+                }
+
+                Text("每天生成一个 SNGA-日期.log 文件。请求正文、Cookie 和登录令牌不会写入日志。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .padding()
@@ -381,11 +479,94 @@ struct SettingsView: View {
         } message: { _ in
             Text("会删除此账号的本地会话、收藏和草稿，不能撤销。")
         }
+        .alert(
+            "无法使用日志目录",
+            isPresented: Binding(
+                get: { runtimeLogError != nil },
+                set: { if !$0 { runtimeLogError = nil } }
+            )
+        ) {
+            Button("好") { runtimeLogError = nil }
+        } message: {
+            Text(runtimeLogError ?? "")
+        }
+    }
+
+    private func chooseRuntimeLogDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择运行日志输出目录"
+        panel.prompt = "选择"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = RuntimeLogSettings.outputDirectoryURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try RuntimeLogSettings.selectDirectory(url)
+            runtimeLogPath = RuntimeLogSettings.displayPath
+            if runtimeLogEnabled {
+                Task {
+                    await RuntimeLogger.shared.log(
+                        category: "configuration",
+                        "Log output directory changed"
+                    )
+                }
+            }
+        } catch {
+            runtimeLogError = error.localizedDescription
+        }
+    }
+
+    private var customBackgroundColor: Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: customBackgroundHex,
+                    fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
+                )!.color
+            },
+            set: {
+                customBackgroundHex = colorHex(
+                    $0,
+                    fallback: AppTheme.defaultCustomBackgroundHex
+                )
+            }
+        )
+    }
+
+    private var customAccentColor: Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: customAccentHex,
+                    fallback: ThemeRGB(hex: AppTheme.defaultCustomAccentHex)!
+                )!.color
+            },
+            set: {
+                customAccentHex = colorHex(
+                    $0,
+                    fallback: AppTheme.defaultCustomAccentHex
+                )
+            }
+        )
+    }
+
+    private func colorHex(_ color: Color, fallback: String) -> String {
+        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
+            return fallback
+        }
+        return ThemeRGB(
+            red: converted.redComponent,
+            green: converted.greenComponent,
+            blue: converted.blueComponent
+        ).hex
     }
 }
 
 private struct ThemeChoiceCard: View {
     let theme: AppTheme
+    let style: ResolvedAppTheme
     let isSelected: Bool
     let action: () -> Void
 
@@ -397,7 +578,7 @@ private struct ThemeChoiceCard: View {
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(theme.accentColor)
+                            .foregroundStyle(style.accentColor)
                     }
                 }
                 .font(.title3)
@@ -407,20 +588,20 @@ private struct ThemeChoiceCard: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    Circle().fill(theme.accentColor)
-                    Circle().fill(theme.previewForeground.opacity(0.68))
-                    Circle().fill(theme.previewForeground.opacity(0.25))
+                    Circle().fill(style.accentColor)
+                    Circle().fill(style.foregroundColor.opacity(0.68))
+                    Circle().fill(style.foregroundColor.opacity(0.25))
                 }
                 .frame(height: 8)
             }
-            .foregroundStyle(theme.previewForeground)
+            .foregroundStyle(style.foregroundColor)
             .padding(10)
             .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-            .background(theme.previewBackground, in: RoundedRectangle(cornerRadius: 10))
+            .background(style.backgroundColor, in: RoundedRectangle(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(
-                        isSelected ? theme.accentColor : Color.secondary.opacity(0.22),
+                        isSelected ? style.accentColor : Color.secondary.opacity(0.22),
                         lineWidth: isSelected ? 2 : 1
                     )
             }

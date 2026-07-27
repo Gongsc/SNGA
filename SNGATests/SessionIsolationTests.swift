@@ -3,6 +3,20 @@ import XCTest
 @testable import SNGA
 
 final class SessionIsolationTests: XCTestCase {
+    func testRuntimeLoggerRedactsCredentials() {
+        let url = URL(string: "https://bbs.nga.cn/app_api.php?access_uid=123&access_token=secret&fid=-7")!
+        let sanitized = RuntimeLogger.sanitizedURL(url)
+
+        XCTAssertFalse(sanitized.contains("secret"))
+        XCTAssertFalse(sanitized.contains("access_uid=123"))
+        XCTAssertTrue(sanitized.contains("access_token="))
+        XCTAssertTrue(sanitized.contains("fid=-7"))
+        XCTAssertEqual(
+            RuntimeLogger.redacted("Cookie: ngaPassportCid=very-secret"),
+            "Cookie: <redacted>"
+        )
+    }
+
     func testClientsNeverShareCookieHeaders() async throws {
         let transportA = RecordingTransport()
         let transportB = RecordingTransport()

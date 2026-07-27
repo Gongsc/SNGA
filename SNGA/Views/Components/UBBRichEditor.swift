@@ -91,7 +91,7 @@ struct NGAEmoticon: Identifiable, Hashable {
 struct UBBRichEditor: NSViewRepresentable {
     @Binding var content: String
     var command: UBBEditorCommand?
-    var theme: AppTheme
+    var theme: ResolvedAppTheme
 
     private static let messageName = "sngaUBBChanged"
 
@@ -147,7 +147,7 @@ struct UBBRichEditor: NSViewRepresentable {
         var lastCommandID: UUID?
         var isReady = false
         var pendingAction: UBBEditorAction?
-        var lastTheme = AppTheme.system
+        var lastTheme = ResolvedAppTheme.system
 
         init(content: Binding<String>) {
             contentBinding = content

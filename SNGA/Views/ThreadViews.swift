@@ -12,7 +12,11 @@ struct ThreadView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 12) {
+                // A thread page contains at most about 20 posts. Build every row
+                // up front so each embedded WKWebView can load and measure before
+                // the user scrolls to it; lazy creation caused visible stalls at
+                // every newly reached floor.
+                VStack(spacing: 12) {
                     if let topic = model.currentTopic {
                         ThreadTitleHeader(topic: topic)
                             .id(topAnchor)
@@ -117,6 +121,66 @@ struct ThreadView: View {
                         }
                     }
 
+                    Menu {
+                        if let topic = model.currentTopic {
+                            if model.favoriteTopicFolders.isEmpty {
+                                Text("正在加载收藏目录…")
+                            } else {
+                                ForEach(model.sortedFavoriteTopicFolders) { folder in
+                                    Toggle(
+                                        isOn: Binding(
+                                            get: {
+                                                model.isTopicFavorite(topic, in: folder)
+                                            },
+                                            set: { isFavorite in
+                                                Task {
+                                                    await model.setTopicFavorite(
+                                                        topic,
+                                                        in: folder,
+                                                        isFavorite: isFavorite
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    ) {
+                                        Text(folder.name)
+                                        if folder.isDefault {
+                                            Text("默认收藏夹")
+                                        }
+                                    }
+                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                }
+                                Divider()
+                                if model.isCurrentTopicFavorite {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            await model.cancelTopicFavorite(topic)
+                                        }
+                                    } label: {
+                                        Label("取消收藏", systemImage: "star.slash")
+                                    }
+                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                    .accessibilityIdentifier("thread-topic-unfavorite")
+                                    Divider()
+                                }
+                                Button {
+                                    model.sidebarSelection = .favorites
+                                } label: {
+                                    Label("管理收藏夹", systemImage: "folder")
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(
+                            model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
+                            systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                        )
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("选择主题收藏夹")
+                    .disabled(model.currentTopic == nil)
+                    .accessibilityIdentifier("thread-topic-favorite")
+
                     Button {
                         Task { await model.refreshThreadContent() }
                     } label: {
@@ -150,6 +214,9 @@ struct ThreadView: View {
                 ReplyComposerView(topic: topic, replyTo: nil)
                     .environment(model)
             }
+        }
+        .task {
+            await model.loadFavoriteTopicFolders()
         }
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -388,6 +455,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
 
 private struct PostRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let post: Post
     var isHotReply = false
     var reply: () -> Void
@@ -439,7 +507,7 @@ private struct PostRow: View {
                 Spacer()
                 Text(floorLabel)
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(isHotReply ? Color.orange : Color.secondary)
+                    .foregroundStyle(isHotReply ? theme.accentColor : Color.secondary)
                 Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -467,7 +535,7 @@ private struct PostRow: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
                     isHotReply
-                        ? Color.orange.opacity(0.5)
+                        ? theme.accentColor.opacity(0.5)
                         : Color(nsColor: .separatorColor).opacity(0.5)
                 )
         }
@@ -493,7 +561,8 @@ private struct PostRow: View {
             await model.openUserCenter(
                 uid: uid,
                 fallbackName: post.author,
-                fallbackAvatarURL: post.avatarURL
+                fallbackAvatarURL: post.avatarURL,
+                preservingForumContext: true
             )
         }
     }
@@ -504,7 +573,9 @@ private struct PostRow: View {
     }
 
     private var rowBackground: Color {
-        isHotReply ? Color.orange.opacity(0.11) : Color(nsColor: .controlBackgroundColor)
+        isHotReply
+            ? theme.accentColor.opacity(0.11)
+            : theme.surfaceColor
     }
 
     private func voteButton(direction: PostVoteDirection) -> some View {
@@ -522,7 +593,7 @@ private struct PostRow: View {
         } label: {
             Label("\(count)", systemImage: systemImage)
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isSelected ? theme.accentColor : Color.secondary)
         }
         .buttonStyle(.borderless)
         .disabled(model.votingPostIDs.contains(post.id))
@@ -531,6 +602,7 @@ private struct PostRow: View {
 }
 
 private struct HotRepliesSection: View {
+    @Environment(\.sngaTheme) private var theme
     let posts: [Post]
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
@@ -539,7 +611,7 @@ private struct HotRepliesSection: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("热点回复", systemImage: "flame.fill")
                 .font(.headline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 2)
 
             ForEach(posts) { post in
@@ -552,7 +624,10 @@ private struct HotRepliesSection: View {
             }
         }
         .padding(10)
-        .background(Color.orange.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .background(
+            theme.accentColor.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
     }
 }
 

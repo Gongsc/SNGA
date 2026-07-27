@@ -161,7 +161,7 @@ struct NGAParser: Sendable {
     func forums(from response: NGAHTTPResponse) throws -> [Forum] {
         if let root = jsonRoot(response.data) as? [String: Any] {
             if let code = int(root["code"]), code != 0 {
-                let message = string(root["msg"]) ?? "板块目录请求失败（代码 \(code)）"
+                let message = string(root["msg"]) ?? "版面目录请求失败（代码 \(code)）"
                 if code == 5 || message.contains("登录") {
                     throw NGAServiceError.requiresLogin
                 }
@@ -188,7 +188,7 @@ struct NGAParser: Sendable {
                     }
                 }
                 guard !result.isEmpty else {
-                    throw NGAServiceError.unexpectedPage("官方板块目录返回为空")
+                    throw NGAServiceError.unexpectedPage("官方版面目录返回为空")
                 }
                 return unique(result)
             }
@@ -215,7 +215,7 @@ struct NGAParser: Sendable {
             guard !name.isEmpty else { continue }
             result.append(Forum(id: forumID, name: name))
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到板块目录") }
+        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
     }
 
@@ -269,7 +269,7 @@ struct NGAParser: Sendable {
             if !name.isEmpty { result.append(Forum(id: id, name: name)) }
         }
         guard !result.isEmpty else {
-            throw NGAServiceError.unexpectedPage("未找到账号收藏板块")
+            throw NGAServiceError.unexpectedPage("未找到账号收藏版面")
         }
         return unique(result)
     }
@@ -368,6 +368,106 @@ struct NGAParser: Sendable {
             hasMore: page < totalPages,
             totalPages: totalPages
         )
+    }
+
+    func favoriteTopicPage(from response: NGAHTTPResponse, page: Int) throws -> ForumPage {
+        if let root = jsonRoot(response.data) {
+            try throwJSONErrorIfPresent(in: root)
+            let topics = dictionaries(in: root).compactMap {
+                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+            }.map { topic in
+                var topic = topic
+                topic.isFavorite = true
+                return topic
+            }
+            let totalPages = forumPageCount(
+                in: root,
+                currentPage: page,
+                fallbackTopicCount: topics.count
+            )
+            return ForumPage(
+                forum: nil,
+                topics: unique(topics),
+                page: page,
+                hasMore: page < totalPages,
+                totalPages: totalPages
+            )
+        }
+
+        let text = try response.decodedString()
+        if text.contains("没有收藏") || text.contains("暂无收藏") {
+            return ForumPage(
+                forum: nil,
+                topics: [],
+                page: page,
+                hasMore: false,
+                totalPages: max(1, page)
+            )
+        }
+        var result = try forumPage(
+            from: response,
+            forumID: ForumID(rawValue: 0),
+            page: page
+        )
+        result.topics = result.topics.map { topic in
+            var topic = topic
+            topic.isFavorite = true
+            return topic
+        }
+        return result
+    }
+
+    func favoriteTopicFolders(from response: NGAHTTPResponse) throws -> [TopicFavoriteFolder] {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.unexpectedPage("未找到收藏目录数据")
+        }
+        try throwJSONErrorIfPresent(in: root)
+        let folders = dictionaries(in: jsonPayload(in: root)).compactMap { dictionary -> TopicFavoriteFolder? in
+            guard let id = nonEmptyString(dictionary["id"]),
+                  let name = nonEmptyString(dictionary["name"]) else {
+                return nil
+            }
+            return TopicFavoriteFolder(
+                id: id,
+                name: plainText(name),
+                topicCount: max(0, int(dictionary["length"]) ?? int(dictionary["topic_count"]) ?? 0),
+                isPublic: marker(dictionary["public"])
+                    || marker(dictionary["is_public"])
+                    || ((int(dictionary["opt"]) ?? 0) & 1) != 0,
+                isDefault: marker(dictionary["default"])
+                    || marker(dictionary["is_default"])
+                    || ((int(dictionary["opt"]) ?? 0) & 2) != 0
+            )
+        }
+        let uniqueFolders = Dictionary(folders.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            .values
+        return uniqueFolders.sorted { left, right in
+            if left.isDefault != right.isDefault { return left.isDefault }
+            switch (Int64(left.id), Int64(right.id)) {
+            case let (leftID?, rightID?) where leftID != rightID:
+                return leftID < rightID
+            default:
+                return left.name.localizedStandardCompare(right.name) == .orderedAscending
+            }
+        }
+    }
+
+    func createdTopicFavoriteFolderID(from response: NGAHTTPResponse) throws -> String? {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.ambiguousWrite
+        }
+        try throwJSONErrorIfPresent(in: root)
+        let payload = jsonPayload(in: root)
+        if let dictionary = payload as? [String: Any] {
+            for key in ["1", "0", "folder", "folder_id", "id"] {
+                if let value = nonEmptyString(dictionary[key]), value != "0" {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 
     private func forumPageCount(
@@ -760,6 +860,7 @@ struct NGAParser: Sendable {
     func actionSucceeded(from response: NGAHTTPResponse) throws {
         let text = try response.decodedString()
         if let root = jsonRoot(response.data) {
+            try throwJSONErrorIfPresent(in: root)
             if let dictionary = root as? [String: Any],
                let code = int(dictionary["code"]) {
                 guard code == 0 else {
@@ -911,7 +1012,7 @@ struct NGAParser: Sendable {
 
     func sanitizedPostHTML(_ source: String) -> String {
         let rendered = renderBBCode(source)
-        let clean: String
+        var clean: String
         do {
             let document = try SwiftSoup.parseBodyFragment(rendered, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
@@ -929,6 +1030,9 @@ struct NGAParser: Sendable {
                     try image.attr("src", resolved.absoluteString)
                     try image.attr("loading", "lazy")
                     try image.attr("referrerpolicy", "no-referrer")
+                    if resolved.path.localizedCaseInsensitiveContains("/ngabbs/post/smile/") {
+                        try image.addClass("nga-smile")
+                    }
                 } else {
                     try image.remove()
                 }
@@ -959,6 +1063,7 @@ struct NGAParser: Sendable {
                 NGAEndpoint.baseURL.absoluteString,
                 whitelist
             ) ?? "<p>内容无法显示</p>"
+            clean = compactedPostSpacing(clean)
         } catch {
             clean = "<p>内容无法显示</p>"
         }
@@ -968,8 +1073,9 @@ struct NGAParser: Sendable {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
         <style>
         :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
-        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}
+        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child{margin-bottom:0}p{margin:6px 0}
         img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{max-width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:4px}
+        .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
         blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
         details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
@@ -980,6 +1086,30 @@ struct NGAParser: Sendable {
         .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
+    }
+
+    private func compactedPostSpacing(_ html: String) -> String {
+        var output = html
+        output = output.replacingOccurrences(
+            of: #"^(?:\s*<br\s*/?>\s*)+"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        output = output.replacingOccurrences(
+            of: #"(?:\s*<br\s*/?>\s*)+(?=<blockquote\b)"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        output = output.replacingOccurrences(
+            of: #"(</blockquote>)(?:\s*<br\s*/?>\s*)+"#,
+            with: "$1",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return output.replacingOccurrences(
+            of: #"(?:\s*<br\s*/?>\s*)+$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
 
     private enum RemoteResourceKind {
@@ -1506,7 +1636,11 @@ struct NGAParser: Sendable {
             sourceForumID: sourceForum?.id,
             sourceParentForumID: sourceForum?.parentID,
             sourceForumName: sourceForum?.name,
-            mirroredForumID: mirroredForumID
+            mirroredForumID: mirroredForumID,
+            isFavorite: bool(dictionary["favor"])
+                || bool(dictionary["favorite"])
+                || (int(dictionary["favor"]) ?? 0) > 0
+                || (int(dictionary["favorite"]) ?? 0) > 0
         )
     }
 
@@ -2263,6 +2397,17 @@ struct NGAParser: Sendable {
         case let value as NSNumber: value.stringValue
         default: nil
         }
+    }
+
+    private func marker(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else { return false }
+        if let boolValue = value as? Bool { return boolValue }
+        if let number = value as? NSNumber { return number.intValue != 0 }
+        if let stringValue = value as? String {
+            let normalized = stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return !["0", "false", "no", "off"].contains(normalized)
+        }
+        return true
     }
 
     private func nonEmptyString(_ value: Any?) -> String? {

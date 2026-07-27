@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let folder: MessageFolder
 
     var body: some View {
@@ -49,8 +50,10 @@ struct MessageListView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
         }
+        .background(theme.backgroundColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("论坛消息")
         .task(id: folder) {
@@ -60,12 +63,13 @@ struct MessageListView: View {
 }
 
 private struct MessageRow: View {
+    @Environment(\.sngaTheme) private var theme
     let message: ForumMessage
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
-                .foregroundStyle(message.isUnread ? Color.accentColor : Color.gray)
+                .foregroundStyle(message.isUnread ? theme.accentColor : Color.gray)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -73,12 +77,12 @@ private struct MessageRow: View {
                     Spacer()
                     Text(message.isUnread ? "未读" : "已读")
                         .font(.caption2)
-                        .foregroundStyle(message.isUnread ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(message.isUnread ? theme.accentColor : Color.secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(
                             message.isUnread
-                                ? Color.accentColor.opacity(0.12)
+                                ? theme.accentColor.opacity(0.12)
                                 : Color.secondary.opacity(0.08),
                             in: Capsule()
                         )

@@ -3,6 +3,21 @@ import XCTest
 @testable import SNGA
 
 final class FavoriteAndCheckInTests: XCTestCase {
+    func testOptimisticVoteStateUpdatesCountsAndSelection() {
+        let initial = PostVoteState(upvoteCount: 12, downvoteCount: 3, userVote: nil)
+
+        let upvoted = initial.optimisticallyApplying(.up)
+        XCTAssertEqual(upvoted, PostVoteState(upvoteCount: 13, downvoteCount: 3, userVote: .up))
+        XCTAssertEqual(
+            upvoted.optimisticallyApplying(.up),
+            PostVoteState(upvoteCount: 12, downvoteCount: 3, userVote: nil)
+        )
+        XCTAssertEqual(
+            upvoted.optimisticallyApplying(.down),
+            PostVoteState(upvoteCount: 12, downvoteCount: 4, userVote: .down)
+        )
+    }
+
     func testAppThemeFallsBackAndAppliesWebPalette() {
         XCTAssertEqual(AppTheme.resolve("unknown-theme"), .system)
 
@@ -18,6 +33,16 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertTrue(themed.contains("--snga-highlight:#278fa5"))
         XCTAssertTrue(themed.contains("--snga-smile-backdrop:rgba(255,255,255,.88)"))
         XCTAssertFalse(themed.contains("color-scheme:light dark"))
+
+        let custom = AppTheme.custom.resolved(
+            customBackgroundHex: "#263238",
+            customAccentHex: "#80CBC4"
+        )
+        let customHTML = custom.applying(to: html)
+        XCTAssertEqual(custom.preferredColorScheme, .dark)
+        XCTAssertTrue(customHTML.contains("color-scheme:dark"))
+        XCTAssertTrue(customHTML.contains("--snga-accent:#80CBC4"))
+        XCTAssertTrue(customHTML.contains("--snga-smile-backdrop:rgba(255,255,255,.88)"))
     }
 
     func testPendingLocalOperationsWinDuringMerge() {

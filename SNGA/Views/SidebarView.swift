@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     @Binding var accountToRemove: AccountSummary?
 
     var body: some View {
@@ -66,7 +67,8 @@ struct SidebarView: View {
                         systemImage: "person.crop.circle",
                         selection: .userCenter(model.activeAccount?.ngaUID)
                     )
-                    sidebarButton("全部板块", systemImage: "square.grid.2x2", selection: .directory)
+                    sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
+                    sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
                     sidebarButton(
                         "论坛消息",
                         systemImage: "tray.full",
@@ -75,7 +77,7 @@ struct SidebarView: View {
                     )
                 }
 
-                Section("收藏板块") {
+                Section("收藏版面") {
                     if model.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)
@@ -87,8 +89,19 @@ struct SidebarView: View {
                             SidebarInteractiveRow(
                                 isSelected: model.sidebarSelection == .forum(favorite.forum.id)
                             ) {
-                                HStack {
-                                    Label(favorite.forum.name, systemImage: favorite.state == .localOnly ? "star.slash" : "star.fill")
+                                HStack(spacing: 8) {
+                                    AsyncImage(url: favorite.forum.iconURL) { image in
+                                        image
+                                            .resizable()
+                                            .scaledToFit()
+                                    } placeholder: {
+                                        Image(systemName: "bubble.left.and.bubble.right")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(width: 24, height: 24)
+                                    .accessibilityHidden(true)
+
+                                    Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
                                     if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
@@ -106,6 +119,8 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
         .navigationTitle("SNGA")
     }
 
@@ -118,6 +133,8 @@ struct SidebarView: View {
             switch selection {
             case .directory:
                 Task { await model.loadForums() }
+            case .favorites:
+                break
             case let .userCenter(uid):
                 if let uid = uid ?? model.activeAccount?.ngaUID {
                     Task { await model.openUserCenter(uid: uid) }
@@ -158,6 +175,7 @@ struct SidebarView: View {
 }
 
 private struct SidebarInteractiveRow<Content: View>: View {
+    @Environment(\.sngaTheme) private var theme
     let isSelected: Bool
     let content: () -> Content
     @State private var isHovered = false
@@ -184,7 +202,7 @@ private struct SidebarInteractiveRow<Content: View>: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.18)
+            return theme.accentColor.opacity(0.18)
         }
         if isHovered {
             return Color.primary.opacity(0.08)
