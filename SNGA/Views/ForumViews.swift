@@ -957,6 +957,7 @@ private struct FavoriteFolderEditorSheet: View {
 
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let forumID: ForumID
     var reservesSidebarToggleSpace = false
     @State private var isSubforumsExpanded = false
@@ -987,8 +988,12 @@ struct TopicListView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 12)
 
-                                    Label("子版面", systemImage: "square.grid.3x3")
-                                        .font(.headline)
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "square.grid.3x3")
+                                            .foregroundStyle(theme.accentColor)
+                                        Text("子版面")
+                                    }
+                                    .font(.headline)
                                     Text("\(model.subforums.count)")
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(.secondary)
@@ -1479,7 +1484,10 @@ private struct TopicRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                if topic.isPinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
+                if topic.isPinned {
+                    Image(systemName: "pin.fill")
+                        .foregroundStyle(theme.accentColor)
+                }
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")

@@ -507,7 +507,7 @@ private struct PostRow: View {
                 Spacer()
                 Text(floorLabel)
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(isHotReply ? Color.orange : Color.secondary)
+                    .foregroundStyle(isHotReply ? theme.accentColor : Color.secondary)
                 Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
@@ -535,7 +535,7 @@ private struct PostRow: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
                     isHotReply
-                        ? Color.orange.opacity(0.5)
+                        ? theme.accentColor.opacity(0.5)
                         : Color(nsColor: .separatorColor).opacity(0.5)
                 )
         }
@@ -573,7 +573,9 @@ private struct PostRow: View {
     }
 
     private var rowBackground: Color {
-        isHotReply ? Color.orange.opacity(0.11) : Color(nsColor: .controlBackgroundColor)
+        isHotReply
+            ? theme.accentColor.opacity(0.11)
+            : Color(nsColor: .controlBackgroundColor)
     }
 
     private func voteButton(direction: PostVoteDirection) -> some View {
@@ -600,6 +602,7 @@ private struct PostRow: View {
 }
 
 private struct HotRepliesSection: View {
+    @Environment(\.sngaTheme) private var theme
     let posts: [Post]
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
@@ -608,7 +611,7 @@ private struct HotRepliesSection: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("热点回复", systemImage: "flame.fill")
                 .font(.headline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 2)
 
             ForEach(posts) { post in
@@ -621,7 +624,10 @@ private struct HotRepliesSection: View {
             }
         }
         .padding(10)
-        .background(Color.orange.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+        .background(
+            theme.accentColor.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
     }
 }
 
