@@ -1,5 +1,9 @@
 # SNGA(Super NGA)
 
+<p align="center">
+  <img src="Design/SNGA-AppIcon-Master.png" width="160" alt="SNGA 应用图标">
+</p>
+
 SNGA 是一个面向 macOS 26 的原生 NGA 论坛客户端，初衷是为了方便上班摸鱼，后续根据使用情况会不断完善。
 
 项目使用 SwiftUI 构建，登录流程由 NGA 官方网页完成，并通过独立的网络与解析适配层访问论坛。
