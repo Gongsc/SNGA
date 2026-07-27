@@ -958,8 +958,10 @@ private struct FavoriteFolderEditorSheet: View {
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
     let forumID: ForumID
+    var reservesSidebarToggleSpace = false
     @State private var isSubforumsExpanded = false
     private let topAnchor = "topic-list-top"
+    private let hiddenSidebarTitleClearance: CGFloat = 140
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -1151,11 +1153,16 @@ struct TopicListView: View {
 
             Spacer(minLength: 0)
         }
+        .padding(
+            .leading,
+            reservesSidebarToggleSpace ? hiddenSidebarTitleClearance : 0
+        )
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 12))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
+        .animation(.easeOut(duration: 0.16), value: reservesSidebarToggleSpace)
     }
 
     @ViewBuilder

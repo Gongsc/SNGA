@@ -1012,7 +1012,7 @@ struct NGAParser: Sendable {
 
     func sanitizedPostHTML(_ source: String) -> String {
         let rendered = renderBBCode(source)
-        let clean: String
+        var clean: String
         do {
             let document = try SwiftSoup.parseBodyFragment(rendered, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
@@ -1060,6 +1060,7 @@ struct NGAParser: Sendable {
                 NGAEndpoint.baseURL.absoluteString,
                 whitelist
             ) ?? "<p>内容无法显示</p>"
+            clean = compactedPostSpacing(clean)
         } catch {
             clean = "<p>内容无法显示</p>"
         }
@@ -1069,7 +1070,7 @@ struct NGAParser: Sendable {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
         <style>
         :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
-        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}
+        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child{margin-bottom:0}p{margin:6px 0}
         img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{max-width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:4px}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
         blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
@@ -1081,6 +1082,30 @@ struct NGAParser: Sendable {
         .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
+    }
+
+    private func compactedPostSpacing(_ html: String) -> String {
+        var output = html
+        output = output.replacingOccurrences(
+            of: #"^(?:\s*<br\s*/?>\s*)+"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        output = output.replacingOccurrences(
+            of: #"(?:\s*<br\s*/?>\s*)+(?=<blockquote\b)"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        output = output.replacingOccurrences(
+            of: #"(</blockquote>)(?:\s*<br\s*/?>\s*)+"#,
+            with: "$1",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return output.replacingOccurrences(
+            of: #"(?:\s*<br\s*/?>\s*)+$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
 
     private enum RemoteResourceKind {

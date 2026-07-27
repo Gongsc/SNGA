@@ -14,7 +14,9 @@ struct RootView: View {
             SidebarView(accountToRemove: $accountToRemove)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
         } content: {
-            ContentColumnView()
+            ContentColumnView(
+                reservesSidebarToggleSpace: columnVisibility == .doubleColumn
+            )
                 .navigationSplitViewColumnWidth(min: 320, ideal: 400)
         } detail: {
             DetailColumnView()
@@ -262,6 +264,7 @@ private struct WindowImagePreview: View {
 
 private struct ContentColumnView: View {
     @Environment(AppModel.self) private var model
+    let reservesSidebarToggleSpace: Bool
 
     var body: some View {
         Group {
@@ -275,7 +278,10 @@ private struct ContentColumnView: View {
             case .favorites:
                 FavoritesView()
             case let .forum(forumID):
-                TopicListView(forumID: forumID)
+                TopicListView(
+                    forumID: forumID,
+                    reservesSidebarToggleSpace: reservesSidebarToggleSpace
+                )
             case let .messages(folder):
                 MessageListView(folder: folder)
             }

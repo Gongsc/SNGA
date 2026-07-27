@@ -951,6 +951,17 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("[align="))
     }
 
+    func testCompactsRedundantSpacingAroundQuotedReplies() {
+        let html = parser.sanitizedPostHTML(
+            "\n\n[quote]引用内容[/quote]\n\n回复内容\n\n"
+        )
+
+        XCTAssertFalse(html.contains(#"<main id="snga-post-content"><br"#))
+        XCTAssertFalse(html.contains("</blockquote><br>"))
+        XCTAssertTrue(html.contains("</blockquote>回复内容"))
+        XCTAssertTrue(html.contains("p{margin:6px 0}"))
+    }
+
     func testRendersAdvancedNGAStyleCardWithoutLeakingLayoutUBB() {
         let html = parser.sanitizedPostHTML(
             """
