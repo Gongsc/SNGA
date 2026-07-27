@@ -10,6 +10,10 @@ SNGA 是一个面向 macOS 26 的原生 NGA 论坛客户端，初衷是为了方
 
 > SNGA 是非官方客户端，与 NGA 官方没有从属关系。NGA 未提供稳定的公开 API，页面或接口调整可能导致部分功能暂时不可用。
 
+## 界面预览
+
+![SNGA 明亮与深色模式界面](Design/SNGA-Light-Dark-Comparison.png)
+
 ## 主要功能
 
 ### 账号与登录
