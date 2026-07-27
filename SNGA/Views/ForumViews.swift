@@ -509,42 +509,49 @@ struct ForumDirectoryView: View {
             } else {
                 List {
                     ForEach(model.forumCategories) { category in
-                        DisclosureGroup(isExpanded: expansionBinding(for: category.id)) {
-                            ForEach(category.forums) { forum in
-                                Button {
-                                    Task { await model.openForum(forum) }
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        AsyncImage(url: forum.iconURL) { image in
-                                            image.resizable().scaledToFit()
-                                        } placeholder: {
-                                            Image(systemName: "bubble.left.and.bubble.right")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .frame(width: 28, height: 28)
-
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(forum.name)
-                                            if let subtitle = forum.subtitle, !subtitle.isEmpty {
-                                                Text(subtitle)
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(2)
-                                            }
-                                        }
-                                    }
-                                    .contentShape(.rect)
-                                }
-                                .buttonStyle(.plain)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                toggleCategory(category.id)
                             }
                         } label: {
-                            HStack {
-                                Text(category.name).font(.headline)
+                            HStack(spacing: 6) {
+                                Image(
+                                    systemName: collapsedCategories.contains(category.id)
+                                        ? "chevron.right"
+                                        : "chevron.down"
+                                )
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 12)
+                                Text(category.name)
+                                    .font(.headline)
                                 Spacer()
                                 Text("\(category.forums.count)")
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
+                            }
+                            .contentShape(.rect)
                         }
+                        .buttonStyle(.plain)
+                        .listRowInsets(
+                            EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+                        )
+                        .accessibilityIdentifier("directory-category-\(category.id)")
+
+                        if !collapsedCategories.contains(category.id) {
+                            ForEach(category.forums) { forum in
+                                Button {
+                                    Task { await model.openForum(forum) }
+                                } label: {
+                                    ForumDirectoryInteractiveRow(forum: forum)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowInsets(
+                                    EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+                                )
+                                .listRowBackground(Color.clear)
+                                .accessibilityIdentifier("directory-forum-\(forum.id.description)")
+                            }
                         }
                     }
                 }
@@ -556,16 +563,55 @@ struct ForumDirectoryView: View {
         }
     }
 
-    private func expansionBinding(for categoryID: String) -> Binding<Bool> {
-        Binding {
-            !collapsedCategories.contains(categoryID)
-        } set: { expanded in
-            if expanded {
-                collapsedCategories.remove(categoryID)
-            } else {
-                collapsedCategories.insert(categoryID)
-            }
+    private func toggleCategory(_ categoryID: String) {
+        if collapsedCategories.contains(categoryID) {
+            collapsedCategories.remove(categoryID)
+        } else {
+            collapsedCategories.insert(categoryID)
         }
+    }
+}
+
+private struct ForumDirectoryInteractiveRow: View {
+    @Environment(\.sngaTheme) private var theme
+    let forum: Forum
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AsyncImage(url: forum.iconURL) { image in
+                image.resizable().scaledToFit()
+            } placeholder: {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(forum.name)
+                if let subtitle = forum.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isHovered ? theme.accentColor.opacity(0.14) : Color.clear)
+        }
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 
@@ -923,58 +969,84 @@ struct TopicListView: View {
 
                 if !model.subforums.isEmpty {
                     Section {
-                        DisclosureGroup(isExpanded: $isSubforumsExpanded) {
-                            HStack {
-                                Text("勾选后在当前主题列表中显示该子板块的主题")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
-                                    model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.16)) {
+                                    isSubforumsExpanded.toggle()
                                 }
-                                .buttonStyle(.borderless)
-                                .font(.caption)
-                            }
-
-                            LazyVGrid(
-                                columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
-                                alignment: .leading,
-                                spacing: 8
-                            ) {
-                                ForEach(model.subforums) { forum in
-                                    SubforumTile(
-                                        forum: forum,
-                                        isIncluded: model.includedSubforumIDs.contains(forum.id)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(
+                                        systemName: isSubforumsExpanded
+                                            ? "chevron.down"
+                                            : "chevron.right"
                                     )
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 12)
+
+                                    Label("子板块", systemImage: "square.grid.3x3")
+                                        .font(.headline)
+                                    Text("\(model.subforums.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("已显示 \(includedSubforumCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("topic-list-subforums-toggle")
+
+                            if isSubforumsExpanded {
+                                HStack {
+                                    Text("勾选后在当前主题列表中显示该子板块的主题")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
+                                        model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption)
+                                }
+
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    ForEach(model.subforums) { forum in
+                                        SubforumTile(
+                                            forum: forum,
+                                            isIncluded: model.includedSubforumIDs.contains(forum.id)
+                                        )
+                                    }
                                 }
                             }
-                            .padding(.top, 4)
-                        } label: {
-                            HStack {
-                                Label("子板块", systemImage: "square.grid.3x3")
-                                    .font(.headline)
-                                Text("\(model.subforums.count)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text("已显示 \(includedSubforumCount)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(.rect)
+                        }
+                        .padding(.horizontal, 8)
+                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                            dimensions[.leading] + 8
+                        }
+                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                            dimensions[.trailing] - 8
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10))
+                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
                 }
 
                 if model.subforums.isEmpty {
                     topicRows
                 } else {
-                    Section("主题") {
-                        topicRows
-                    }
+                    topicListHeader
+                    topicRows
                 }
             }
+            .listStyle(.plain)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TopicListPaginationBar(
                     currentPage: model.topicPage,
@@ -1038,18 +1110,39 @@ struct TopicListView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
+    private var topicListHeader: some View {
+        Text("主题")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) {
+                Divider()
+                    .padding(.horizontal, 8)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+
     private var forumTitleRow: some View {
         HStack(spacing: 10) {
             if let parentForum = model.parentForum {
-                Button {
+                ForumTitleBackButton(
+                    title: "返回上级板块 \(parentForum.name)",
+                    accessibilityIdentifier: "forum-back-to-parent",
+                    isDisabled: model.isLoading
+                ) {
                     Task { await model.openParentForum() }
-                } label: {
-                    Label("返回 \(parentForum.name)", systemImage: "chevron.left")
-                        .labelStyle(.iconOnly)
                 }
-                .buttonStyle(.borderless)
-                .help("返回上级板块 \(parentForum.name)")
-                .disabled(model.isLoading)
+            } else {
+                ForumTitleBackButton(
+                    title: "返回全部板块",
+                    accessibilityIdentifier: "forum-back-to-directory"
+                ) {
+                    model.returnToForumDirectory()
+                }
             }
 
             Text(model.currentForum?.name ?? "主题")
@@ -1060,7 +1153,7 @@ struct TopicListView: View {
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 12))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
     }
@@ -1077,8 +1170,14 @@ struct TopicListView: View {
                 )
             }
             .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
             .listRowBackground(Color.clear)
+            .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                dimensions[.leading] + 8
+            }
+            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                dimensions[.trailing] - 8
+            }
             .accessibilityIdentifier("topic-\(topic.id.rawValue)")
         }
     }
@@ -1090,6 +1189,40 @@ struct TopicListView: View {
     private var allSubforumsIncluded: Bool {
         !model.subforums.isEmpty &&
             model.subforums.allSatisfy { model.includedSubforumIDs.contains($0.id) }
+    }
+}
+
+private struct ForumTitleBackButton: View {
+    @Environment(\.sngaTheme) private var theme
+    let title: String
+    let accessibilityIdentifier: String
+    var isDisabled = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.body.weight(.semibold))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(isHovered ? theme.accentColor : Color.secondary)
+                .background {
+                    Circle()
+                        .fill(
+                            isHovered
+                                ? theme.accentColor.opacity(0.16)
+                                : Color.clear
+                        )
+                }
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .onHover { isHovered = $0 && !isDisabled }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 

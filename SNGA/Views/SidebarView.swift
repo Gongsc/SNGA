@@ -88,8 +88,19 @@ struct SidebarView: View {
                             SidebarInteractiveRow(
                                 isSelected: model.sidebarSelection == .forum(favorite.forum.id)
                             ) {
-                                HStack {
-                                    Label(favorite.forum.name, systemImage: favorite.state == .localOnly ? "star.slash" : "star.fill")
+                                HStack(spacing: 8) {
+                                    AsyncImage(url: favorite.forum.iconURL) { image in
+                                        image
+                                            .resizable()
+                                            .scaledToFit()
+                                    } placeholder: {
+                                        Image(systemName: "bubble.left.and.bubble.right")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(width: 24, height: 24)
+                                    .accessibilityHidden(true)
+
+                                    Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
                                     if favorite.state == .pendingAdd || favorite.state == .pendingRemove {

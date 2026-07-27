@@ -491,12 +491,22 @@ final class AppModel {
                 return
             }
             forums = result
+            favorites = enrichingFavoriteForums(favorites)
         }
     }
 
     func openForum(_ forum: Forum) async {
         forumNavigationPath = []
         await showForum(forum)
+    }
+
+    func returnToForumDirectory() {
+        forumNavigationPath = []
+        sidebarSelection = .directory
+        selectedTopicID = nil
+        currentTopic = nil
+        posts = []
+        hotReplies = []
     }
 
     func openSubforum(_ forum: Forum) async {
@@ -677,16 +687,23 @@ final class AppModel {
         hotReplies = []
         threadPage = 1
         threadTotalPages = max(1, (topic.replyCount + 20) / 20)
-        await loadThread(topicID: topic.id, reset: true)
+        await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
     }
 
-    func loadThread(topicID: TopicID, reset: Bool) async {
+    func loadThread(
+        topicID: TopicID,
+        reset: Bool,
+        showsLoadingIndicator: Bool = true
+    ) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let requestID = UUID()
         threadRequestID = requestID
         let page = reset ? 1 : threadPage + 1
-        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+        await withLoading(
+            showsIndicator: showsLoadingIndicator,
+            isCurrent: { self.threadRequestID == requestID }
+        ) {
             let result = try await service.threadPage(topicID: topicID, page: page)
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
@@ -849,9 +866,11 @@ final class AppModel {
             return
         }
         let records = favoriteRecords(accountID: accountID)
-        let local = records.map {
-            FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
-        }
+        let local = enrichingFavoriteForums(
+            records.map {
+                FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
+            }
+        )
         favorites = local.filter { $0.state != .pendingRemove }.sorted { $0.order < $1.order }
         guard let service = services[accountID] else { return }
         let requestID = UUID()
@@ -863,16 +882,7 @@ final class AppModel {
                   favoriteRequestID == requestID else {
                 return
             }
-            let server = fetchedFavorites.map { favorite in
-                guard let directoryForum = forums.first(where: { $0.id == favorite.id }) else {
-                    return favorite
-                }
-                var enriched = favorite
-                if enriched.subtitle?.isEmpty != false { enriched.subtitle = directoryForum.subtitle }
-                if enriched.iconURL == nil { enriched.iconURL = directoryForum.iconURL }
-                if enriched.category?.isEmpty != false { enriched.category = directoryForum.category }
-                return enriched
-            }
+            let server = fetchedFavorites.map(enrichingForumFromDirectory)
             let result = FavoriteSyncEngine.merge(server: server, local: local)
             reconcileFavorites(result.visible, accountID: accountID)
             favorites = result.visible
@@ -897,10 +907,14 @@ final class AppModel {
             context.insert(FavoriteRecord(accountID: accountID, forum: forum, order: order, syncState: .pendingAdd, serverPresent: false))
         }
         try? context.save()
-        favorites = favoriteRecords(accountID: accountID)
-            .filter { $0.syncState != .pendingRemove }
-            .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
-            .sorted { $0.order < $1.order }
+        favorites = enrichingFavoriteForums(
+            favoriteRecords(accountID: accountID)
+                .filter { $0.syncState != .pendingRemove }
+                .map {
+                    FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState)
+                }
+                .sorted { $0.order < $1.order }
+        )
         if let service = services[accountID] {
             await replayFavoriteChanges(accountID: accountID, service: service)
         }
@@ -1403,6 +1417,27 @@ final class AppModel {
             .sorted { $0.order < $1.order }
     }
 
+    private func enrichingForumFromDirectory(_ forum: Forum) -> Forum {
+        guard let directoryForum = forums.first(where: { $0.id == forum.id }) else {
+            return forum
+        }
+        var enriched = forum
+        if enriched.subtitle?.isEmpty != false { enriched.subtitle = directoryForum.subtitle }
+        if enriched.iconURL == nil { enriched.iconURL = directoryForum.iconURL }
+        if enriched.category?.isEmpty != false { enriched.category = directoryForum.category }
+        return enriched
+    }
+
+    private func enrichingFavoriteForums(
+        _ snapshots: [FavoriteSnapshot]
+    ) -> [FavoriteSnapshot] {
+        snapshots.map { snapshot in
+            var enriched = snapshot
+            enriched.forum = enrichingForumFromDirectory(snapshot.forum)
+            return enriched
+        }
+    }
+
     private func applyFavoriteTopicFolders(
         _ folders: [TopicFavoriteFolder],
         preferredID: String? = nil
@@ -1470,9 +1505,17 @@ final class AppModel {
         }
         try? context.save()
         if activeAccountID == accountID {
-            favorites = favoriteRecords(accountID: accountID)
-                .filter { $0.syncState != .pendingRemove }
-                .map { FavoriteSnapshot(forum: $0.forum, order: $0.order, state: $0.syncState) }
+            favorites = enrichingFavoriteForums(
+                favoriteRecords(accountID: accountID)
+                    .filter { $0.syncState != .pendingRemove }
+                    .map {
+                        FavoriteSnapshot(
+                            forum: $0.forum,
+                            order: $0.order,
+                            state: $0.syncState
+                        )
+                    }
+            )
         }
     }
 
@@ -1535,12 +1578,15 @@ final class AppModel {
     }
 
     private func withLoading(
+        showsIndicator: Bool = true,
         isCurrent: () -> Bool = { true },
         _ operation: () async throws -> Void
     ) async {
         let requestAccountID = activeAccountID
-        beginLoading()
-        defer { endLoading() }
+        if showsIndicator { beginLoading() }
+        defer {
+            if showsIndicator { endLoading() }
+        }
         do {
             try await operation()
             if let requestAccountID,
