@@ -575,7 +575,7 @@ private struct PostRow: View {
     private var rowBackground: Color {
         isHotReply
             ? theme.accentColor.opacity(0.11)
-            : Color(nsColor: .controlBackgroundColor)
+            : theme.surfaceColor
     }
 
     private func voteButton(direction: PostVoteDirection) -> some View {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageListView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let folder: MessageFolder
 
     var body: some View {
@@ -49,8 +50,10 @@ struct MessageListView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
         }
+        .background(theme.backgroundColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("论坛消息")
         .task(id: folder) {

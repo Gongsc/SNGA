@@ -62,7 +62,7 @@ struct PostWebView: NSViewRepresentable {
     """
 
     var html: String
-    var theme: AppTheme
+    var theme: ResolvedAppTheme
     @Binding var contentHeight: CGFloat
     var onOpenPost: @MainActor (PostID, Int?) -> Void = { _, _ in }
     var onOpenTopic: @MainActor (TopicID) -> Void = { _ in }

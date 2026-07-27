@@ -555,6 +555,7 @@ struct ForumDirectoryView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
         }
         .navigationTitle("全部版面")
@@ -695,6 +696,7 @@ struct FavoritesView: View {
                             )
                         }
                     }
+                    .scrollContentBackground(.hidden)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         TopicListPaginationBar(
                             currentPage: model.favoriteTopicPage,
@@ -1053,6 +1055,7 @@ struct TopicListView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TopicListPaginationBar(

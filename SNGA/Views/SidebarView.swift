@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     @Binding var accountToRemove: AccountSummary?
 
     var body: some View {
@@ -118,6 +119,8 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(theme.backgroundColor)
         .navigationTitle("SNGA")
     }
 

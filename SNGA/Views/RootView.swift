@@ -13,15 +13,19 @@ struct RootView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(accountToRemove: $accountToRemove)
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
+                .background(theme.backgroundColor)
         } content: {
             ContentColumnView(
                 reservesSidebarToggleSpace: columnVisibility == .doubleColumn
             )
                 .navigationSplitViewColumnWidth(min: 320, ideal: 400)
+                .background(theme.backgroundColor)
         } detail: {
             DetailColumnView()
+                .background(theme.backgroundColor)
         }
         .navigationSplitViewStyle(.balanced)
+        .background(theme.backgroundColor)
         .tint(theme.accentColor)
         .toolbar {
             ToolbarItemGroup {
@@ -310,6 +314,10 @@ private struct DetailColumnView: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
+    @AppStorage(AppTheme.customBackgroundKey)
+    private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
+    @AppStorage(AppTheme.customAccentKey)
+    private var customAccentHex = AppTheme.defaultCustomAccentHex
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @State private var accountToRemove: AccountSummary?
     @State private var loginRequest: SettingsLoginRequest?
@@ -326,6 +334,10 @@ struct SettingsView: View {
                     ForEach(AppTheme.allCases) { theme in
                         ThemeChoiceCard(
                             theme: theme,
+                            style: theme.resolved(
+                                customBackgroundHex: customBackgroundHex,
+                                customAccentHex: customAccentHex
+                            ),
                             isSelected: selectedThemeRaw == theme.rawValue
                         ) {
                             selectedThemeRaw = theme.rawValue
@@ -335,6 +347,27 @@ struct SettingsView: View {
                 Text(AppTheme.resolve(selectedThemeRaw).description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if AppTheme.resolve(selectedThemeRaw) == .custom {
+                    HStack(spacing: 18) {
+                        ColorPicker(
+                            "背景颜色",
+                            selection: customBackgroundColor,
+                            supportsOpacity: false
+                        )
+                        ColorPicker(
+                            "突出颜色",
+                            selection: customAccentColor,
+                            supportsOpacity: false
+                        )
+                        Spacer()
+                        Button("恢复默认") {
+                            customBackgroundHex = AppTheme.defaultCustomBackgroundHex
+                            customAccentHex = AppTheme.defaultCustomAccentHex
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
             Section("账号") {
                 if model.accounts.isEmpty {
@@ -477,10 +510,56 @@ struct SettingsView: View {
             runtimeLogError = error.localizedDescription
         }
     }
+
+    private var customBackgroundColor: Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: customBackgroundHex,
+                    fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
+                )!.color
+            },
+            set: {
+                customBackgroundHex = colorHex(
+                    $0,
+                    fallback: AppTheme.defaultCustomBackgroundHex
+                )
+            }
+        )
+    }
+
+    private var customAccentColor: Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: customAccentHex,
+                    fallback: ThemeRGB(hex: AppTheme.defaultCustomAccentHex)!
+                )!.color
+            },
+            set: {
+                customAccentHex = colorHex(
+                    $0,
+                    fallback: AppTheme.defaultCustomAccentHex
+                )
+            }
+        )
+    }
+
+    private func colorHex(_ color: Color, fallback: String) -> String {
+        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
+            return fallback
+        }
+        return ThemeRGB(
+            red: converted.redComponent,
+            green: converted.greenComponent,
+            blue: converted.blueComponent
+        ).hex
+    }
 }
 
 private struct ThemeChoiceCard: View {
     let theme: AppTheme
+    let style: ResolvedAppTheme
     let isSelected: Bool
     let action: () -> Void
 
@@ -492,7 +571,7 @@ private struct ThemeChoiceCard: View {
                     Spacer()
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(theme.accentColor)
+                            .foregroundStyle(style.accentColor)
                     }
                 }
                 .font(.title3)
@@ -502,20 +581,20 @@ private struct ThemeChoiceCard: View {
                     .lineLimit(1)
 
                 HStack(spacing: 4) {
-                    Circle().fill(theme.accentColor)
-                    Circle().fill(theme.previewForeground.opacity(0.68))
-                    Circle().fill(theme.previewForeground.opacity(0.25))
+                    Circle().fill(style.accentColor)
+                    Circle().fill(style.foregroundColor.opacity(0.68))
+                    Circle().fill(style.foregroundColor.opacity(0.25))
                 }
                 .frame(height: 8)
             }
-            .foregroundStyle(theme.previewForeground)
+            .foregroundStyle(style.foregroundColor)
             .padding(10)
             .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-            .background(theme.previewBackground, in: RoundedRectangle(cornerRadius: 10))
+            .background(style.backgroundColor, in: RoundedRectangle(cornerRadius: 10))
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(
-                        isSelected ? theme.accentColor : Color.secondary.opacity(0.22),
+                        isSelected ? style.accentColor : Color.secondary.opacity(0.22),
                         lineWidth: isSelected ? 2 : 1
                     )
             }
