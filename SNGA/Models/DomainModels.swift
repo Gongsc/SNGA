@@ -39,7 +39,7 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var subtitle: String? = nil
     var iconURL: URL? = nil
     var category: String? = nil
-    /// NGA 在父板块页面中返回的当前勾选状态；普通板块没有该值。
+    /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
     var isSelectedInParent: Bool? = nil
 }
 

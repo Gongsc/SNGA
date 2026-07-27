@@ -66,7 +66,7 @@ struct SidebarView: View {
                         systemImage: "person.crop.circle",
                         selection: .userCenter(model.activeAccount?.ngaUID)
                     )
-                    sidebarButton("全部板块", systemImage: "square.grid.2x2", selection: .directory)
+                    sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
                     sidebarButton(
                         "论坛消息",
@@ -76,7 +76,7 @@ struct SidebarView: View {
                     )
                 }
 
-                Section("收藏板块") {
+                Section("收藏版面") {
                     if model.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)

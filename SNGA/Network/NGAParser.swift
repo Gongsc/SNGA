@@ -161,7 +161,7 @@ struct NGAParser: Sendable {
     func forums(from response: NGAHTTPResponse) throws -> [Forum] {
         if let root = jsonRoot(response.data) as? [String: Any] {
             if let code = int(root["code"]), code != 0 {
-                let message = string(root["msg"]) ?? "板块目录请求失败（代码 \(code)）"
+                let message = string(root["msg"]) ?? "版面目录请求失败（代码 \(code)）"
                 if code == 5 || message.contains("登录") {
                     throw NGAServiceError.requiresLogin
                 }
@@ -188,7 +188,7 @@ struct NGAParser: Sendable {
                     }
                 }
                 guard !result.isEmpty else {
-                    throw NGAServiceError.unexpectedPage("官方板块目录返回为空")
+                    throw NGAServiceError.unexpectedPage("官方版面目录返回为空")
                 }
                 return unique(result)
             }
@@ -215,7 +215,7 @@ struct NGAParser: Sendable {
             guard !name.isEmpty else { continue }
             result.append(Forum(id: forumID, name: name))
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到板块目录") }
+        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
     }
 
@@ -269,7 +269,7 @@ struct NGAParser: Sendable {
             if !name.isEmpty { result.append(Forum(id: id, name: name)) }
         }
         guard !result.isEmpty else {
-            throw NGAServiceError.unexpectedPage("未找到账号收藏板块")
+            throw NGAServiceError.unexpectedPage("未找到账号收藏版面")
         }
         return unique(result)
     }

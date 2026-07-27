@@ -3,7 +3,7 @@ import Foundation
 
 actor DebugForumService: NGAForumService {
     nonisolated let accountID: AccountID
-    private let forum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试板块")
+    private let forum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
 
     init(accountID: AccountID) {
         self.accountID = accountID

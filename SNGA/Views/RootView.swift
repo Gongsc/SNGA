@@ -301,7 +301,7 @@ private struct DetailColumnView: View {
             ContentUnavailableView(
                 "选择内容",
                 systemImage: "text.bubble",
-                description: Text("从左侧选择板块或消息，再打开一个主题。")
+                description: Text("从左侧选择版面或消息，再打开一个主题。")
             )
         }
     }

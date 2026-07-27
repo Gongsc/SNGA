@@ -505,7 +505,7 @@ struct ForumDirectoryView: View {
     var body: some View {
         Group {
             if model.forums.isEmpty && !model.isLoading {
-                ContentUnavailableView("没有可用板块", systemImage: "square.grid.2x2")
+                ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
             } else {
                 List {
                     ForEach(model.forumCategories) { category in
@@ -557,7 +557,7 @@ struct ForumDirectoryView: View {
                 }
             }
         }
-        .navigationTitle("全部板块")
+        .navigationTitle("全部版面")
         .task {
             if model.forums.isEmpty { await model.loadForums() }
         }
@@ -650,7 +650,7 @@ struct FavoritesView: View {
                             Text("打开主题后可从底部星标菜单选择收藏目录。")
                         }
                 } actions: {
-                    Button("浏览全部板块") {
+                    Button("浏览全部版面") {
                         model.sidebarSelection = .directory
                         Task { await model.loadForums() }
                     }
@@ -987,7 +987,7 @@ struct TopicListView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 12)
 
-                                    Label("子板块", systemImage: "square.grid.3x3")
+                                    Label("子版面", systemImage: "square.grid.3x3")
                                         .font(.headline)
                                     Text("\(model.subforums.count)")
                                         .font(.caption.monospacedDigit())
@@ -1004,7 +1004,7 @@ struct TopicListView: View {
 
                             if isSubforumsExpanded {
                                 HStack {
-                                    Text("勾选后在当前主题列表中显示该子板块的主题")
+                                    Text("勾选后在当前主题列表中显示该子版面的主题")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     Spacer()
@@ -1080,12 +1080,12 @@ struct TopicListView: View {
                         Task { await model.toggleFavorite(forum) }
                     } label: {
                         Label(
-                            model.isActiveForumFavorite ? "取消收藏" : "收藏板块",
+                            model.isActiveForumFavorite ? "取消收藏" : "收藏版面",
                             systemImage: model.isActiveForumFavorite ? "star.fill" : "star"
                         )
                     }
                     .labelStyle(.iconOnly)
-                    .help(model.isActiveForumFavorite ? "取消收藏当前板块" : "收藏当前板块")
+                    .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
                     .disabled(model.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
 
@@ -1132,7 +1132,7 @@ struct TopicListView: View {
         HStack(spacing: 10) {
             if let parentForum = model.parentForum {
                 ForumTitleBackButton(
-                    title: "返回上级板块 \(parentForum.name)",
+                    title: "返回上级版面 \(parentForum.name)",
                     accessibilityIdentifier: "forum-back-to-parent",
                     isDisabled: model.isLoading
                 ) {
@@ -1140,7 +1140,7 @@ struct TopicListView: View {
                 }
             } else {
                 ForumTitleBackButton(
-                    title: "返回全部板块",
+                    title: "返回全部版面",
                     accessibilityIdentifier: "forum-back-to-directory"
                 ) {
                     model.returnToForumDirectory()
@@ -1416,7 +1416,7 @@ private struct SubforumTile: View {
             .buttonStyle(.plain)
 
             Toggle(
-                "在主板块主题列表中显示 \(forum.name)",
+                "在主版面主题列表中显示 \(forum.name)",
                 isOn: Binding(
                     get: { isIncluded },
                     set: { model.setSubforumIncluded(forum.id, included: $0) }
@@ -1424,7 +1424,7 @@ private struct SubforumTile: View {
             )
             .labelsHidden()
             .toggleStyle(.checkbox)
-            .help(isIncluded ? "隐藏该子板块及其下属主题" : "显示该子板块及其下属主题")
+            .help(isIncluded ? "隐藏该子版面及其下属主题" : "显示该子版面及其下属主题")
         }
         .padding(8)
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
@@ -1473,6 +1473,7 @@ private struct TopicInteractiveRow: View {
 }
 
 private struct TopicRow: View {
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
 
     var body: some View {
@@ -1486,16 +1487,16 @@ private struct TopicRow: View {
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .foregroundStyle(.blue)
-                        .background(Color.blue.opacity(0.12), in: Capsule())
+                        .foregroundStyle(theme.accentColor)
+                        .background(theme.accentColor.opacity(0.12), in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
                         .font(.caption2.weight(.medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .foregroundStyle(.orange)
-                        .background(Color.orange.opacity(0.12), in: Capsule())
+                        .foregroundStyle(theme.accentColor)
+                        .background(theme.accentColor.opacity(0.12), in: Capsule())
                 }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
@@ -1503,7 +1504,7 @@ private struct TopicRow: View {
             }
             HStack {
                 if topic.mirroredForumID != nil {
-                    Label("进入 \(topic.subject) 板块", systemImage: "arrow.right.circle")
+                    Label("进入 \(topic.subject) 版面", systemImage: "arrow.right.circle")
                 } else {
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
                 }

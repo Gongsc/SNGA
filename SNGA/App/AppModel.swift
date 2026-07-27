@@ -174,7 +174,7 @@ final class AppModel {
         var grouped: [String: [Forum]] = [:]
         for forum in forums {
             let category = forum.category?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = category.flatMap { $0.isEmpty ? nil : $0 } ?? "其他板块"
+            let name = category.flatMap { $0.isEmpty ? nil : $0 } ?? "其他版面"
             if grouped[name] == nil { order.append(name) }
             grouped[name, default: []].append(forum)
         }
@@ -484,7 +484,7 @@ final class AppModel {
         let requestID = UUID()
         forumDirectoryRequestID = requestID
         await withLoading(isCurrent: { self.forumDirectoryRequestID == requestID }) {
-            // NGA 的接口顺序就是官网分组和板块顺序，不能在这里全局排序。
+            // NGA 的接口顺序就是官网分组和版面顺序，不能在这里全局排序。
             let result = try await service.forums()
             guard activeAccountID == requestAccountID,
                   forumDirectoryRequestID == requestID else {
@@ -1723,7 +1723,7 @@ final class AppModel {
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         context.insert(accountA)
         context.insert(accountB)
-        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试板块")
+        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
         context.insert(FavoriteRecord(
             accountID: accountA.accountID,
             forum: favoriteForum,
