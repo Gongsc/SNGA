@@ -123,6 +123,38 @@ struct PostVoteState: Hashable, Codable, Sendable {
     var upvoteCount: Int
     var downvoteCount: Int
     var userVote: PostVoteDirection?
+
+    func optimisticallyApplying(_ direction: PostVoteDirection) -> PostVoteState {
+        var result = self
+        if result.userVote == direction {
+            switch direction {
+            case .up:
+                result.upvoteCount = max(0, result.upvoteCount - 1)
+            case .down:
+                result.downvoteCount = max(0, result.downvoteCount - 1)
+            }
+            result.userVote = nil
+            return result
+        }
+
+        switch result.userVote {
+        case .up:
+            result.upvoteCount = max(0, result.upvoteCount - 1)
+        case .down:
+            result.downvoteCount = max(0, result.downvoteCount - 1)
+        case nil:
+            break
+        }
+
+        switch direction {
+        case .up:
+            result.upvoteCount += 1
+        case .down:
+            result.downvoteCount += 1
+        }
+        result.userVote = direction
+        return result
+    }
 }
 
 enum MessageFolder: String, CaseIterable, Codable, Sendable, Identifiable {

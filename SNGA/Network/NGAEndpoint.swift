@@ -123,7 +123,10 @@ struct NGAEndpoint: Sendable {
             queryItems: [
                 .init(name: "__lib", value: "topic_recommend"),
                 .init(name: "__act", value: "add"),
-                .init(name: "raw", value: "3")
+                .init(name: "raw", value: "3"),
+                // 点赞接口默认可能返回网页脚本；显式请求 XML，才能取得
+                // 最新赞/踩数量以及当前用户的选择状态。
+                .init(name: "lite", value: "xml")
             ],
             method: .post,
             form: [
@@ -131,7 +134,8 @@ struct NGAEndpoint: Sendable {
                 "pid": postID.description,
                 "value": direction.requestValue
             ],
-            isWrite: true
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
         )
     }
 

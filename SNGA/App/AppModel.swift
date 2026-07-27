@@ -759,6 +759,15 @@ final class AppModel {
         votingPostIDs.insert(postID)
         defer { votingPostIDs.remove(postID) }
 
+        let originalState = PostVoteState(
+            upvoteCount: post.upvoteCount,
+            downvoteCount: post.downvoteCount,
+            userVote: post.userVote
+        )
+        let optimisticState = originalState.optimisticallyApplying(direction)
+        updateVoteState(optimisticState, postID: postID, in: &posts)
+        updateVoteState(optimisticState, postID: postID, in: &hotReplies)
+
         do {
             let state = try await service.vote(
                 topicID: post.topicID,
@@ -770,6 +779,15 @@ final class AppModel {
             statusMessage = "评价已更新"
             statusMessageIsError = false
         } catch {
+            if voteSubmissionMayHaveSucceeded(error) {
+                // NGA 偶尔会先执行点赞，再以 403 或无法解析的响应结束请求。
+                // 此时保留即时更新，避免误报失败及用户重复提交。
+                statusMessage = "评价已更新"
+                statusMessageIsError = false
+                return
+            }
+            updateVoteState(originalState, postID: postID, in: &posts)
+            updateVoteState(originalState, postID: postID, in: &hotReplies)
             present(error)
         }
     }
@@ -1715,6 +1733,18 @@ final class AppModel {
         posts[index].upvoteCount = state.upvoteCount
         posts[index].downvoteCount = state.downvoteCount
         posts[index].userVote = state.userVote
+    }
+
+    private func voteSubmissionMayHaveSucceeded(_ error: Error) -> Bool {
+        guard let serviceError = error as? NGAServiceError else { return false }
+        switch serviceError {
+        case .ambiguousWrite:
+            return true
+        case let .restricted(message):
+            return message.contains("HTTP 403")
+        default:
+            return false
+        }
     }
 
 #if DEBUG

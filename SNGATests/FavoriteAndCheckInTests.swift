@@ -3,6 +3,21 @@ import XCTest
 @testable import SNGA
 
 final class FavoriteAndCheckInTests: XCTestCase {
+    func testOptimisticVoteStateUpdatesCountsAndSelection() {
+        let initial = PostVoteState(upvoteCount: 12, downvoteCount: 3, userVote: nil)
+
+        let upvoted = initial.optimisticallyApplying(.up)
+        XCTAssertEqual(upvoted, PostVoteState(upvoteCount: 13, downvoteCount: 3, userVote: .up))
+        XCTAssertEqual(
+            upvoted.optimisticallyApplying(.up),
+            PostVoteState(upvoteCount: 12, downvoteCount: 3, userVote: nil)
+        )
+        XCTAssertEqual(
+            upvoted.optimisticallyApplying(.down),
+            PostVoteState(upvoteCount: 12, downvoteCount: 4, userVote: .down)
+        )
+    }
+
     func testAppThemeFallsBackAndAppliesWebPalette() {
         XCTAssertEqual(AppTheme.resolve("unknown-theme"), .system)
 
