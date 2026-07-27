@@ -318,6 +318,7 @@ struct SettingsView: View {
     private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @State private var accountToRemove: AccountSummary?
     @State private var loginRequest: SettingsLoginRequest?
@@ -368,6 +369,12 @@ struct SettingsView: View {
                     }
                     .padding(.top, 4)
                 }
+            }
+            Section("浏览") {
+                Toggle("无图模式", isOn: $imageFreeMode)
+                Text("开启后，主题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("账号") {
                 if model.accounts.isEmpty {

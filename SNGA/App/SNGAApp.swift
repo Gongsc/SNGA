@@ -3,6 +3,10 @@ import SwiftData
 import SwiftUI
 @preconcurrency import UserNotifications
 
+enum BrowsingSettings {
+    static let imageFreeModeKey = "browsing.imageFreeMode"
+}
+
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     case system
     case light

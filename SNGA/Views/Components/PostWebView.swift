@@ -1,6 +1,40 @@
 import AppKit
 import SwiftUI
+import SwiftSoup
 @preconcurrency import WebKit
+
+enum PostImagePolicy {
+    static func applying(to html: String, hidesRemoteImages: Bool) -> String {
+        guard hidesRemoteImages else { return html }
+        do {
+            let document = try SwiftSoup.parse(html, NGAEndpoint.baseURL.absoluteString)
+            for image in try document.select("img") {
+                let source = try image.attr("src")
+                guard !source.isEmpty, !isEmoticon(image, source: source) else { continue }
+
+                let placeholder = try Element(Tag.valueOf("span"), image.getBaseUri())
+                    .attr("class", "snga-image-placeholder")
+                    .attr("data-snga-src", source)
+                    .attr("data-snga-alt", try image.attr("alt"))
+                    .attr("data-snga-class", try image.className())
+                    .attr("role", "button")
+                    .attr("tabindex", "0")
+                    .attr("title", "点击加载图片")
+                    .attr("aria-label", "图片，点击加载")
+                    .text("▧ 图片 · 点击加载")
+                try image.replaceWith(placeholder)
+            }
+            return try document.outerHtml()
+        } catch {
+            return html
+        }
+    }
+
+    private static func isEmoticon(_ image: Element, source: String) -> Bool {
+        image.hasClass("nga-smile")
+            || source.localizedCaseInsensitiveContains("/ngabbs/post/smile/")
+    }
+}
 
 struct PostWebView: NSViewRepresentable {
     private static let heightMessageName = "sngaContentHeightChanged"
@@ -25,7 +59,7 @@ struct PostWebView: NSViewRepresentable {
         if (!content) return;
         const observer = new ResizeObserver(notify);
         observer.observe(content);
-        document.querySelectorAll("img, details, table, pre, blockquote").forEach((element) => {
+        document.querySelectorAll("img, .snga-image-placeholder, details, table, pre, blockquote").forEach((element) => {
             observer.observe(element);
         });
         window.__sngaHeightObserver = observer;
@@ -47,9 +81,33 @@ struct PostWebView: NSViewRepresentable {
             });
         };
 
+        const loadDeferredImage = (placeholder) => {
+            const source = placeholder.getAttribute("data-snga-src");
+            if (!source) return;
+            const image = document.createElement("img");
+            const alt = placeholder.getAttribute("data-snga-alt");
+            const originalClass = placeholder.getAttribute("data-snga-class");
+            if (alt) image.setAttribute("alt", alt);
+            if (originalClass) image.setAttribute("class", originalClass);
+            image.setAttribute("loading", "eager");
+            image.setAttribute("referrerpolicy", "no-referrer");
+            image.draggable = false;
+            image.style.cursor = "zoom-in";
+            image.setAttribute("title", "点击查看大图");
+            placeholder.replaceWith(image);
+            image.src = source;
+        };
+
         prepareImages(document);
         document.addEventListener("click", (event) => {
             if (!(event.target instanceof Element)) return;
+            const placeholder = event.target.closest(".snga-image-placeholder");
+            if (placeholder) {
+                event.preventDefault();
+                event.stopPropagation();
+                loadDeferredImage(placeholder);
+                return;
+            }
             const image = event.target.closest("img");
             if (!image) return;
             const source = image.currentSrc || image.src;
@@ -58,11 +116,21 @@ struct PostWebView: NSViewRepresentable {
             event.stopPropagation();
             window.webkit.messageHandlers.sngaImageClicked.postMessage(source);
         }, true);
+        document.addEventListener("keydown", (event) => {
+            if (!(event.target instanceof Element)) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            const placeholder = event.target.closest(".snga-image-placeholder");
+            if (!placeholder) return;
+            event.preventDefault();
+            event.stopPropagation();
+            loadDeferredImage(placeholder);
+        }, true);
     })();
     """
 
     var html: String
     var theme: ResolvedAppTheme
+    var imageFreeMode: Bool
     @Binding var contentHeight: CGFloat
     var onOpenPost: @MainActor (PostID, Int?) -> Void = { _, _ in }
     var onOpenTopic: @MainActor (TopicID) -> Void = { _ in }
@@ -78,7 +146,7 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let themedHTML = theme.applying(to: html)
+        let themedHTML = renderedHTML
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Self.sharedDataStore
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -128,11 +196,18 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let themedHTML = theme.applying(to: html)
+        let themedHTML = renderedHTML
         if context.coordinator.lastHTML != themedHTML {
             context.coordinator.prepareForLoad(themedHTML)
             webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
         }
+    }
+
+    private var renderedHTML: String {
+        PostImagePolicy.applying(
+            to: theme.applying(to: html),
+            hidesRemoteImages: imageFreeMode
+        )
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -415,6 +490,7 @@ enum PostContextMenuLocalization {
 struct PostBodyView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     var html: String
     var onOpenPost: @MainActor (PostID, Int?) -> Void = { _, _ in }
     var onOpenTopic: @MainActor (TopicID) -> Void = { _ in }
@@ -424,6 +500,7 @@ struct PostBodyView: View {
         PostWebView(
             html: html,
             theme: theme,
+            imageFreeMode: imageFreeMode,
             contentHeight: $height,
             onOpenPost: onOpenPost,
             onOpenTopic: onOpenTopic,

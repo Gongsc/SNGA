@@ -930,6 +930,25 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("[s:ac:blink]"))
     }
 
+    func testImageFreeModeDefersPostImagesButKeepsEmoticons() throws {
+        let html = parser.sanitizedPostHTML(
+            "[img]./mon_202607/23/example.jpg[/img]\n[s:ac:blink]"
+        )
+        let deferred = PostImagePolicy.applying(to: html, hidesRemoteImages: true)
+        let document = try SwiftSoup.parse(deferred)
+
+        XCTAssertEqual(try document.select(".snga-image-placeholder").count, 1)
+        XCTAssertEqual(
+            try document.select(".snga-image-placeholder").first()?.attr("data-snga-src"),
+            "https://img.nga.178.com/attachments/mon_202607/23/example.jpg"
+        )
+        XCTAssertEqual(try document.select("img.nga-smile[src]").count, 1)
+        XCTAssertEqual(
+            PostImagePolicy.applying(to: html, hidesRemoteImages: false),
+            html
+        )
+    }
+
     func testRendersSafeRichTextFormattingForReplyPreview() throws {
         let html = parser.sanitizedPostHTML(
             """
