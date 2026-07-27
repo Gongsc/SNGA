@@ -543,7 +543,12 @@ struct ForumDirectoryView: View {
                                 Button {
                                     Task { await model.openForum(forum) }
                                 } label: {
-                                    ForumDirectoryInteractiveRow(forum: forum)
+                                    ForumDirectoryInteractiveRow(
+                                        forum: forum,
+                                        isFavorite: model.favorites.contains {
+                                            $0.forum.id == forum.id && $0.state != .pendingRemove
+                                        }
+                                    )
                                 }
                                 .buttonStyle(.plain)
                                 .listRowInsets(
@@ -576,6 +581,7 @@ struct ForumDirectoryView: View {
 private struct ForumDirectoryInteractiveRow: View {
     @Environment(\.sngaTheme) private var theme
     let forum: Forum
+    let isFavorite: Bool
     @State private var isHovered = false
 
     var body: some View {
@@ -599,6 +605,13 @@ private struct ForumDirectoryInteractiveRow: View {
             }
 
             Spacer(minLength: 8)
+            if isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+                    .accessibilityLabel("已收藏")
+                    .accessibilityIdentifier("directory-forum-favorite-\(forum.id.description)")
+            }
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
