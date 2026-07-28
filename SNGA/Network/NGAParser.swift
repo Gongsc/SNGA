@@ -658,7 +658,6 @@ struct NGAParser: Sendable {
             if folder == .notifications {
                 values = dictionaries(in: payload)
                     .compactMap(notificationMessage(from:))
-                    .filter { $0.kind != .privateMessage }
                     .sorted {
                         ($0.sentAt ?? .distantPast) < ($1.sentAt ?? .distantPast)
                     }
@@ -673,7 +672,12 @@ struct NGAParser: Sendable {
                 values = dictionaries(in: payload).compactMap { message(from: $0, folder: folder) }
             }
             if !values.isEmpty {
-                return MessagePage(folder: folder, messages: unique(values), page: page, hasMore: values.count >= 20)
+                return MessagePage(
+                    folder: folder,
+                    messages: unique(values),
+                    page: page,
+                    hasMore: folder == .privateMessages && values.count >= 20
+                )
             }
             if isKnownMessageEnvelope(payload) {
                 return MessagePage(folder: folder, messages: [], page: page, hasMore: false)
@@ -721,22 +725,36 @@ struct NGAParser: Sendable {
                 if !items.isEmpty {
                     let subject = items.compactMap { string($0["subject"]) }
                         .first(where: { !$0.isEmpty }) ?? "私信"
-                    let sender = items.compactMap { dictionary -> String? in
-                        if let value = normalizedUsername(string(dictionary["from_username"])) {
-                            return value
+                    let posts = items.compactMap { dictionary -> ForumMessagePost? in
+                        guard let rawID = int64(dictionary["id"]),
+                              let content = string(dictionary["content"]) else {
+                            return nil
                         }
-                        return int64(dictionary["from"]).flatMap { users[$0]?.name }
-                    }.first ?? ""
-                    let articles = items.map { dictionary in
                         let uid = int64(dictionary["from"]) ?? int64(dictionary["from_uid"])
                         let name = normalizedUsername(string(dictionary["from_username"]))
                             ?? uid.flatMap { users[$0]?.name }
                             ?? "未知用户"
-                        let content = string(dictionary["content"]) ?? ""
+                        return ForumMessagePost(
+                            id: MessageID(rawValue: rawID),
+                            author: name,
+                            authorUID: uid,
+                            avatarURL: uid.flatMap { users[$0]?.avatarURL },
+                            sentAt: date(dictionary["time"]),
+                            html: content
+                        )
+                    }
+                    .sorted { lhs, rhs in
+                        if lhs.sentAt != rhs.sentAt {
+                            return (lhs.sentAt ?? .distantPast) < (rhs.sentAt ?? .distantPast)
+                        }
+                        return lhs.id.rawValue < rhs.id.rawValue
+                    }
+                    let sender = posts.first?.author ?? ""
+                    let articles = posts.map { post in
                         return """
                         <article>
-                          <header><strong>\(htmlEscaped(name))</strong></header>
-                          <div>\(content)</div>
+                          <header><strong>\(htmlEscaped(post.author))</strong></header>
+                          <div>\(post.html)</div>
                         </article>
                         """
                     }
@@ -745,11 +763,12 @@ struct NGAParser: Sendable {
                         kind: .privateMessage,
                         sender: sender,
                         subject: subject,
-                        preview: items.last.flatMap { string($0["content"]) } ?? "",
+                        preview: posts.last?.html ?? "",
                         html: articles.joined(separator: "<hr>"),
-                        sentAt: items.last.flatMap { date($0["time"]) },
+                        sentAt: posts.last?.sentAt,
                         isUnread: false,
-                        replyURL: response.url
+                        replyURL: response.url,
+                        posts: posts
                     )
                 }
             }
@@ -773,7 +792,14 @@ struct NGAParser: Sendable {
             html: html,
             sentAt: nil,
             isUnread: false,
-            replyURL: replyLink
+            replyURL: replyLink,
+            posts: [
+                ForumMessagePost(
+                    id: id,
+                    author: sender,
+                    html: html
+                )
+            ]
         )
     }
 
@@ -2217,8 +2243,8 @@ struct NGAParser: Sendable {
     }
 
     private func notificationMessage(from dictionary: [String: Any]) -> ForumMessage? {
-        guard let rawType = int(dictionary["0"]),
-              let timestamp = int64(dictionary["9"]) else { return nil }
+        guard let rawType = int(dictionary["0"]) else { return nil }
+        let timestamp = int64(dictionary["9"])
         let sender = normalizedUsername(string(dictionary["2"])) ?? ""
         let subject = string(dictionary["5"]).map(plainText) ?? "论坛提醒"
         let topicID = int64(dictionary["6"]).map(TopicID.init(rawValue:))
@@ -2226,13 +2252,16 @@ struct NGAParser: Sendable {
         let kind: ForumMessageKind
         switch rawType {
         case 1, 2: kind = .reply
+        case 3, 4: kind = .comment
         case 7, 8: kind = .mention
         case 10, 11: kind = .privateMessage
         default: kind = .unknown
         }
         let identity = [
-            String(timestamp),
+            timestamp.map(String.init) ?? "",
             String(rawType),
+            sender,
+            subject,
             string(dictionary["6"]) ?? "",
             string(dictionary["7"]) ?? "",
             string(dictionary["8"]) ?? ""
@@ -2251,14 +2280,30 @@ struct NGAParser: Sendable {
             id: MessageID(rawValue: stableID(for: identity)),
             kind: kind,
             sender: sender,
-            subject: subject.isEmpty ? kind.notificationTitle : subject,
-            preview: kind.notificationTitle,
-            sentAt: Date(timeIntervalSince1970: TimeInterval(timestamp)),
+            subject: kind == .privateMessage
+                ? "短消息"
+                : (subject.isEmpty ? kind.notificationTitle : subject),
+            preview: notificationPreview(rawType: rawType, sender: sender),
+            sentAt: timestamp.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             isUnread: bool(dictionary["unread"])
                 || (int(dictionary["read"]) == 0),
             topicID: topicID,
             replyURL: components?.url
         )
+    }
+
+    private func notificationPreview(rawType: Int, sender: String) -> String {
+        let actor = sender.isEmpty ? "有用户" : sender
+        switch rawType {
+        case 1: return "\(actor) 回复了你的主题"
+        case 2: return "\(actor) 回复了你的回复"
+        case 3: return "\(actor) 评价了你的主题"
+        case 4: return "\(actor) 评价了你的回复"
+        case 7: return "\(actor) 在主题中提到了你"
+        case 8: return "\(actor) 在回复中提到了你"
+        case 10, 11: return sender.isEmpty ? "收到一条短消息" : "\(sender) 发来一条短消息"
+        default: return "收到一条论坛通知"
+        }
     }
 
     private func names(in allUsers: String?) -> [String] {
@@ -2646,6 +2691,7 @@ struct NGAParser: Sendable {
         let lower = value.lowercased()
         if folder != .notifications { return .privateMessage }
         if lower.contains("引用") || lower.contains("quote") { return .quote }
+        if lower.contains("评价") || lower.contains("评论") || lower.contains("comment") { return .comment }
         if lower.contains("@") || lower.contains("mention") { return .mention }
         if lower.contains("回复") || lower.contains("reply") { return .reply }
         return .unknown

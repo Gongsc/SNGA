@@ -218,4 +218,110 @@ final class FavoriteAndCheckInTests: XCTestCase {
         )
         XCTAssertEqual(opened.first?.isUnread, false)
     }
+
+    func testNotificationReadPolicyAppliesExplicitReadStateToInboxMessage() {
+        let message = ForumMessage(
+            id: MessageID(rawValue: 100),
+            kind: .privateMessage,
+            sender: "Bob",
+            subject: "短消息",
+            preview: "这是一条短消息",
+            isUnread: true
+        )
+        let key = UnreadMessagePolicy.key(
+            folder: .privateMessages,
+            messageID: message.id
+        )
+
+        let opened = NotificationReadPolicy.applying(
+            to: [message],
+            folder: .privateMessages,
+            readKeys: [key],
+            previouslyUnreadKeys: [key]
+        )
+
+        XCTAssertEqual(opened.first?.isUnread, false)
+    }
+
+    func testUnifiedMessageFeedCombinesNotificationsAndInbox() {
+        let notifications = MessagePage(
+            folder: .notifications,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 1),
+                    kind: .reply,
+                    sender: "甲",
+                    subject: "有人回复了你",
+                    preview: "回复内容",
+                    sentAt: Date(timeIntervalSince1970: 200),
+                    isUnread: true
+                ),
+                ForumMessage(
+                    id: MessageID(rawValue: 2),
+                    kind: .privateMessage,
+                    sender: "乙",
+                    subject: "短消息提醒占位",
+                    preview: "",
+                    sentAt: Date(timeIntervalSince1970: 300),
+                    isUnread: true
+                )
+            ],
+            page: 1,
+            hasMore: false
+        )
+        let inbox = MessagePage(
+            folder: .privateMessages,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 42),
+                    kind: .privateMessage,
+                    sender: "乙",
+                    subject: "真实短消息会话",
+                    preview: "短消息内容",
+                    sentAt: Date(timeIntervalSince1970: 100),
+                    isUnread: true
+                )
+            ],
+            page: 1,
+            hasMore: true
+        )
+
+        let result = UnifiedMessageFeedPolicy.merging(
+            notifications: notifications,
+            inbox: inbox
+        )
+
+        XCTAssertEqual(result.folder, .notifications)
+        XCTAssertEqual(result.messages.map(\.id), [
+            MessageID(rawValue: 1),
+            MessageID(rawValue: 42)
+        ])
+        XCTAssertEqual(result.messages.map(\.kind), [.reply, .privateMessage])
+        XCTAssertTrue(result.hasMore)
+    }
+
+    func testUnifiedMessageFeedStillShowsInboxWhenNotificationsAreEmpty() {
+        let inbox = MessagePage(
+            folder: .privateMessages,
+            messages: [
+                ForumMessage(
+                    id: MessageID(rawValue: 88),
+                    kind: .privateMessage,
+                    sender: "丙",
+                    subject: "只有短消息",
+                    preview: "仍应显示",
+                    isUnread: false
+                )
+            ],
+            page: 1,
+            hasMore: false
+        )
+
+        let result = UnifiedMessageFeedPolicy.merging(
+            notifications: nil,
+            inbox: inbox
+        )
+
+        XCTAssertEqual(result.messages.map(\.id), [MessageID(rawValue: 88)])
+    }
 }

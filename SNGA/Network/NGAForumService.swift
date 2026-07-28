@@ -101,6 +101,11 @@ actor LiveNGAForumService: NGAForumService {
         if let html = message.html {
             message.html = parser.sanitizedPostHTML(html)
         }
+        message.posts = message.posts.map { post in
+            var post = post
+            post.html = parser.sanitizedPostHTML(post.html)
+            return post
+        }
         return message
     }
 

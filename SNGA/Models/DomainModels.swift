@@ -165,7 +165,7 @@ enum MessageFolder: String, CaseIterable, Codable, Sendable, Identifiable {
     var title: String {
         switch self {
         case .privateMessages: "短消息"
-        case .notifications: "提醒信息"
+        case .notifications: "通知"
         }
     }
 }
@@ -174,6 +174,7 @@ enum ForumMessageKind: String, Codable, Sendable {
     case privateMessage
     case reply
     case quote
+    case comment
     case mention
     case unknown
 
@@ -182,10 +183,20 @@ enum ForumMessageKind: String, Codable, Sendable {
         case .privateMessage: "收到新私信"
         case .reply: "帖子收到新回复"
         case .quote: "帖子被引用"
+        case .comment: "帖子收到新评价"
         case .mention: "帖子中有人提到你"
         case .unknown: "收到论坛消息"
         }
     }
+}
+
+struct ForumMessagePost: Identifiable, Hashable, Codable, Sendable {
+    let id: MessageID
+    var author: String
+    var authorUID: Int64? = nil
+    var avatarURL: URL? = nil
+    var sentAt: Date? = nil
+    var html: String
 }
 
 struct ForumMessage: Identifiable, Hashable, Codable, Sendable {
@@ -199,6 +210,7 @@ struct ForumMessage: Identifiable, Hashable, Codable, Sendable {
     var isUnread: Bool
     var topicID: TopicID? = nil
     var replyURL: URL? = nil
+    var posts: [ForumMessagePost] = []
 }
 
 struct MessagePage: Hashable, Codable, Sendable {

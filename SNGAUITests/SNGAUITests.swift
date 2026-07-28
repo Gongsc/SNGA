@@ -46,9 +46,12 @@ final class SNGAUITests: XCTestCase {
         app.buttons["测试账号 B"].click()
         XCTAssertTrue(app.buttons["论坛消息"].waitForExistence(timeout: 5))
         app.buttons["论坛消息"].firstMatch.click()
+        XCTAssertTrue(app.buttons["全部已读"].waitForExistence(timeout: 5))
+        app.buttons["全部已读"].click()
         XCTAssertTrue(app.buttons["message-7001"].waitForExistence(timeout: 5))
         app.buttons["message-7001"].click()
         XCTAssertTrue(app.staticTexts["测试消息"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["message-post-time-7002"].waitForExistence(timeout: 5))
     }
 
     func testTopicPaginationAndShareActions() {

@@ -1177,24 +1177,111 @@ final class NGAParserTests: XCTestCase {
             "0": {
               "0": [
                 {"0":"1","1":"90","2":"Carol","5":"有人回复了你","6":"100","7":"190","8":"191","9":"1700000100","10":"1"},
+                {"0":"4","1":"95","2":"Dave","5":"你的回复收到了评价","6":"102","7":"195","8":"196","9":"1700000150","10":"1"},
                 {"0":"7","1":"100","2":"Bob","5":"有人提到了你","6":"101","7":"200","8":"201","9":"1700000200","10":"1"}
               ],
               "1": [
                 {"0":"10","1":"100","2":"Alice","5":"新短消息","9":"1700000300","10":"1"}
+              ],
+              "unread": "2"
+            }
+          }
+        }
+        """)
+        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(reminders.messages.count, 4)
+        XCTAssertEqual(reminders.messages.map(\.kind), [.privateMessage, .mention, .comment, .reply])
+        XCTAssertEqual(reminders.messages.first?.subject, "短消息")
+        XCTAssertEqual(reminders.messages.first?.preview, "Alice 发来一条短消息")
+        XCTAssertEqual(reminders.messages.first?.isUnread, true)
+        XCTAssertEqual(reminders.messages[1].sender, "Bob")
+        XCTAssertEqual(reminders.messages[1].topicID, TopicID(rawValue: 101))
+        XCTAssertEqual(reminders.messages[1].isUnread, true)
+        XCTAssertEqual(reminders.messages[2].preview, "Dave 评价了你的回复")
+        XCTAssertEqual(reminders.messages.last?.isUnread, false)
+        XCTAssertFalse(reminders.hasMore)
+    }
+
+    func testParsesShortMessageNotificationWithoutTimestamp() throws {
+        let notifications = response("""
+        {
+          "data": {
+            "0": {
+              "1": [
+                {"0":"10","1":"100","2":"Alice","5":"新短消息"}
               ],
               "unread": "1"
             }
           }
         }
         """)
-        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
-        XCTAssertEqual(reminders.messages.count, 2)
-        XCTAssertEqual(reminders.messages.first?.kind, .mention)
-        XCTAssertEqual(reminders.messages.first?.sender, "Bob")
-        XCTAssertEqual(reminders.messages.first?.topicID, TopicID(rawValue: 101))
-        XCTAssertEqual(reminders.messages.first?.isUnread, true)
-        XCTAssertEqual(reminders.messages.last?.kind, .reply)
-        XCTAssertEqual(reminders.messages.last?.isUnread, false)
+
+        let page = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(page.messages.count, 1)
+        XCTAssertEqual(page.messages.first?.kind, .privateMessage)
+        XCTAssertEqual(page.messages.first?.subject, "短消息")
+        XCTAssertEqual(page.messages.first?.preview, "Alice 发来一条短消息")
+        XCTAssertEqual(page.messages.first?.isUnread, true)
+        XCTAssertNil(page.messages.first?.sentAt)
+    }
+
+    func testParsesShortMessageDetailsWithAuthorAndTimePerPost() throws {
+        let details = response("""
+        {
+          "data": {
+            "0": {
+              "allmsgs": {
+                "0": {
+                  "id": "501",
+                  "from": "100",
+                  "subject": "测试会话",
+                  "content": "第一条消息",
+                  "time": "1700000000"
+                },
+                "1": {
+                  "id": "502",
+                  "from": "200",
+                  "subject": "测试会话",
+                  "content": "第二条消息",
+                  "time": "1700000300"
+                }
+              },
+              "userInfo": {
+                "100": {
+                  "uid": "100",
+                  "username": "Alice",
+                  "avatar": "https://img.example/alice.png"
+                },
+                "200": {
+                  "uid": "200",
+                  "username": "Bob"
+                }
+              }
+            }
+          }
+        }
+        """)
+
+        let message = try parser.message(
+            from: details,
+            id: MessageID(rawValue: 42)
+        )
+
+        XCTAssertEqual(message.subject, "测试会话")
+        XCTAssertEqual(message.posts.map(\.id), [
+            MessageID(rawValue: 501),
+            MessageID(rawValue: 502)
+        ])
+        XCTAssertEqual(message.posts.map(\.author), ["Alice", "Bob"])
+        XCTAssertEqual(message.posts.map(\.authorUID), [100, 200])
+        XCTAssertEqual(
+            message.posts.map(\.sentAt),
+            [
+                Date(timeIntervalSince1970: 1_700_000_000),
+                Date(timeIntervalSince1970: 1_700_000_300)
+            ]
+        )
+        XCTAssertEqual(message.sentAt, Date(timeIntervalSince1970: 1_700_000_300))
     }
 
     func testVisitorPermissionErrorDoesNotMeanWholeSessionExpired() {
@@ -1225,6 +1312,8 @@ final class NGAParserTests: XCTestCase {
 
         let detail = NGAEndpoint.message(id: MessageID(rawValue: 42))
         XCTAssertEqual(detail.queryItems.first(where: { $0.name == "act" })?.value, "read")
+        XCTAssertEqual(detail.queryItems.first(where: { $0.name == "mid" })?.value, "42")
+        XCTAssertEqual(detail.queryItems.first(where: { $0.name == "page" })?.value, "1")
     }
 
     func testParsesSubmissionFormAndCheckInResult() throws {

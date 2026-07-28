@@ -71,8 +71,8 @@ struct SidebarView: View {
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
                     sidebarButton(
                         "论坛消息",
-                        systemImage: "tray.full",
-                        selection: .messages(.privateMessages),
+                        systemImage: "bell",
+                        selection: .messages(.notifications),
                         badge: model.unreadCount
                     )
                 }

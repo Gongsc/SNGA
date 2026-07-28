@@ -54,7 +54,6 @@ enum NotificationReadPolicy {
         readKeys: [String],
         previouslyUnreadKeys: [String]
     ) -> [ForumMessage] {
-        guard folder == .notifications else { return messages }
         let readSet = Set(readKeys)
         let unreadSet = Set(previouslyUnreadKeys)
         return messages.map { message in
@@ -62,11 +61,36 @@ enum NotificationReadPolicy {
             let key = UnreadMessagePolicy.key(folder: folder, messageID: message.id)
             if readSet.contains(key) {
                 value.isUnread = false
-            } else if unreadSet.contains(key) {
+            } else if folder == .notifications, unreadSet.contains(key) {
                 value.isUnread = true
             }
             return value
         }
+    }
+}
+
+enum UnifiedMessageFeedPolicy {
+    static func merging(
+        notifications: MessagePage?,
+        inbox: MessagePage?
+    ) -> MessagePage {
+        let notificationMessages = notifications?.messages.filter {
+            $0.kind != .privateMessage
+        } ?? []
+        let inboxMessages = inbox?.messages ?? []
+        var seen = Set<MessageID>()
+        let messages = (notificationMessages + inboxMessages)
+            .sorted {
+                ($0.sentAt ?? .distantPast) > ($1.sentAt ?? .distantPast)
+            }
+            .filter { seen.insert($0.id).inserted }
+
+        return MessagePage(
+            folder: .notifications,
+            messages: messages,
+            page: inbox?.page ?? 1,
+            hasMore: inbox?.hasMore ?? false
+        )
     }
 }
 
