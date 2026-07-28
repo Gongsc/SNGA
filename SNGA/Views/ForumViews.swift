@@ -1111,14 +1111,59 @@ struct TopicListView: View {
                     .accessibilityIdentifier("forum-favorite")
 
                     Button {
-                        Task { await model.refreshTopicList() }
+                        Task {
+                            await model.refreshTopicList()
+                            await Task.yield()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(topAnchor, anchor: .top)
+                            }
+                        }
                     } label: {
-                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
+                        if model.isRefreshingTopics {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "list.bullet.rectangle")
+                        }
                     }
-                    .labelStyle(.iconOnly)
+                    .accessibilityLabel(
+                        model.isRefreshingTopics ? "正在刷新主题列表" : "刷新主题列表"
+                    )
                     .help("刷新主题列表")
                     .disabled(model.isLoading)
                     .accessibilityIdentifier("forum-refresh")
+                }
+            }
+            .overlay(alignment: .top) {
+                if model.isRefreshingTopics, model.selectedForumID == forumID {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在刷新主题列表…")
+                            .font(.callout.weight(.medium))
+                    }
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .stroke(.separator.opacity(0.5))
+                    }
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("topic-list-refreshing")
+                }
+            }
+            .animation(
+                .easeInOut(duration: 0.18),
+                value: model.isRefreshingTopics
+            )
+            .onChange(of: model.topicListScrollToTopRevision) {
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(topAnchor, anchor: .top)
+                    }
                 }
             }
         }
@@ -1184,6 +1229,7 @@ struct TopicListView: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .animation(.easeOut(duration: 0.16), value: reservesSidebarToggleSpace)
+        .accessibilityIdentifier("topic-list-top")
     }
 
     @ViewBuilder

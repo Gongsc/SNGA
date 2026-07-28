@@ -52,6 +52,11 @@ final class SNGAUITests: XCTestCase {
         app.buttons["message-7001"].click()
         XCTAssertTrue(app.staticTexts["测试消息"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["message-post-time-7002"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["reply-private-message"].waitForExistence(timeout: 5))
+
+        app.buttons["favorite-forum--7"].click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["reply-private-message"].exists)
     }
 
     func testTopicPaginationAndShareActions() {
@@ -71,7 +76,33 @@ final class SNGAUITests: XCTestCase {
 
         let pageField = app.textFields["topic-list-page-field"]
         XCTAssertTrue(pageField.waitForExistence(timeout: 5))
-        XCTAssertEqual(pageField.value as? String, "2")
+        let reachedSecondPage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "2"),
+            object: pageField
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [reachedSecondPage], timeout: 5),
+            .completed
+        )
+
+        let favoriteForum = app.buttons["favorite-forum--7"]
+        XCTAssertTrue(favoriteForum.waitForExistence(timeout: 5))
+        favoriteForum.click()
+
+        let refreshing = app.descendants(matching: .any)["topic-list-refreshing"]
+        XCTAssertTrue(refreshing.waitForExistence(timeout: 2))
+        let returnedToFirstPage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"),
+            object: pageField
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [returnedToFirstPage], timeout: 5),
+            .completed
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topic-list-top"]
+                .waitForExistence(timeout: 5)
+        )
 
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()

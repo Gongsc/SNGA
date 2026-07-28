@@ -56,7 +56,9 @@ actor DebugForumService: NGAForumService {
     }
 
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
-        ForumPage(
+        // Keep the UI-test response pending long enough to verify refresh animations.
+        try await Task.sleep(for: .seconds(2))
+        return ForumPage(
             forum: forum,
             topics: [
                 Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "主题一：欢迎使用 SNGA", author: "测试用户", replyCount: 2),

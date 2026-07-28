@@ -212,6 +212,7 @@ struct MessageDetailView: View {
                     if message.kind == .privateMessage {
                         ToolbarItem {
                             Button("回复", systemImage: "arrowshape.turn.up.left") { showsReply = true }
+                                .accessibilityIdentifier("reply-private-message")
                         }
                     }
                 }

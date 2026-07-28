@@ -49,6 +49,8 @@ final class AppModel {
     var unreadCount = 0
 
     var isLoading = false
+    var isRefreshingTopics = false
+    var topicListScrollToTopRevision = 0
     var isSubmitting = false
     var votingPostIDs: Set<PostID> = []
     var updatingFavoriteTopicIDs: Set<TopicID> = []
@@ -497,6 +499,7 @@ final class AppModel {
 
     func openForum(_ forum: Forum) async {
         forumNavigationPath = []
+        topicListScrollToTopRevision &+= 1
         await showForum(forum)
     }
 
@@ -526,6 +529,8 @@ final class AppModel {
         sidebarSelection = .forum(forum.id)
         selectedTopicID = nil
         currentTopic = nil
+        selectedMessageID = nil
+        currentMessage = nil
         posts = []
         hotReplies = []
         subforums = []
@@ -539,6 +544,12 @@ final class AppModel {
         let requestAccountID = service.accountID
         let requestID = UUID()
         topicListRequestID = requestID
+        isRefreshingTopics = true
+        defer {
+            if topicListRequestID == requestID {
+                isRefreshingTopics = false
+            }
+        }
         let page = reset ? 1 : topicPage + 1
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
             let result = try await service.topics(forumID: forumID, page: page)
@@ -556,6 +567,12 @@ final class AppModel {
         let requestAccountID = service.accountID
         let requestID = UUID()
         topicListRequestID = requestID
+        isRefreshingTopics = true
+        defer {
+            if topicListRequestID == requestID {
+                isRefreshingTopics = false
+            }
+        }
         let targetPage = max(1, min(page, topicTotalPages))
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
             let result = try await service.topics(forumID: forumID, page: targetPage)
@@ -1675,6 +1692,7 @@ final class AppModel {
         favoriteTopicTotalPages = 1
         unreadCount = 0
         messageUnreadCounts = [:]
+        isRefreshingTopics = false
     }
 
     private func beginLoading() {

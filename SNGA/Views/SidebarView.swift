@@ -104,7 +104,15 @@ struct SidebarView: View {
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
+                                    if model.isRefreshingTopics,
+                                       model.selectedForumID == favorite.forum.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .accessibilityLabel("正在刷新\(favorite.forum.name)")
+                                            .accessibilityIdentifier(
+                                                "favorite-forum-refreshing-\(favorite.forum.id.description)"
+                                            )
+                                    } else if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
                                         Image(systemName: "arrow.triangle.2.circlepath")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -114,6 +122,9 @@ struct SidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .sidebarListRow()
+                        .accessibilityIdentifier(
+                            "favorite-forum-\(favorite.forum.id.description)"
+                        )
                     }
                 }
             }
