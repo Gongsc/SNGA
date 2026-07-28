@@ -195,6 +195,10 @@ xcodebuild -project SNGA.xcodeproj \
 - 楼层投票、消息未读策略、通知目标、主题分页和分享入口
 - 运行日志敏感凭据脱敏
 
+## 致谢
+
+- [60s API](https://github.com/vikiboss/60s)：为小工具模块提供开放的数据接口与实例支持
+
 ## 当前限制
 
 - 不支持发布新主题
