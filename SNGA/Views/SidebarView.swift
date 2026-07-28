@@ -69,6 +69,7 @@ struct SidebarView: View {
                     )
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
+                    sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
                     sidebarButton(
                         "论坛消息",
                         systemImage: "bell",
@@ -144,7 +145,7 @@ struct SidebarView: View {
             switch selection {
             case .directory:
                 Task { await model.loadForums() }
-            case .favorites:
+            case .favorites, .toolbox:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.activeAccount?.ngaUID {

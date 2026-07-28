@@ -17,6 +17,8 @@ final class AppModel {
     var userActivityPage = 1
     var userActivityHasMore = false
     var userActivityTotalPages = 1
+    var selectedToolboxFeed: ToolboxFeed = .worldBriefing
+    var toolboxRefreshRevision = 0
 
     var forums: [Forum] = []
     var favorites: [FavoriteSnapshot] = []
@@ -1464,6 +1466,7 @@ final class AppModel {
         case let .messages(folder): await loadMessages(folder: folder)
         case .directory: await loadForums()
         case .favorites: await loadFavoriteTopics(page: favoriteTopicPage)
+        case .toolbox: refreshToolbox()
         case let .userCenter(uid):
             if let targetUID = uid ?? activeAccount?.ngaUID {
                 await openUserCenter(uid: targetUID)
@@ -1476,6 +1479,10 @@ final class AppModel {
             await refreshFavorites()
             await performMaintenance()
         }
+    }
+
+    func refreshToolbox() {
+        toolboxRefreshRevision &+= 1
     }
 
     func refreshTopicList() async {

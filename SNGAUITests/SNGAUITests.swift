@@ -117,6 +117,82 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
     }
 
+    func testToolboxNavigationShowsAllFeeds() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["小工具"].waitForExistence(timeout: 5))
+        app.buttons["小工具"].click()
+
+        XCTAssertTrue(app.buttons["toolbox-feed-worldBriefing"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["toolbox-feed-aiNews"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-itNews"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-douyinHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-rednoteHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-bilibiliHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-weiboHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-zhihuHot"].exists)
+
+        app.buttons["toolbox-feed-aiNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-aiNews"]
+                .waitForExistence(timeout: 5)
+        )
+
+        app.buttons["toolbox-feed-itNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-itNews"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let menu = app.scrollViews["toolbox-menu-scroll"]
+        let zhihu = app.buttons["toolbox-feed-zhihuHot"]
+        if !zhihu.isHittable {
+            menu.swipeUp()
+        }
+        XCTAssertTrue(zhihu.waitForExistence(timeout: 5))
+        XCTAssertTrue(zhihu.isHittable)
+        zhihu.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-zhihuHot"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    func testToolboxInstanceSettingsShowCustomURLAndDocumentation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        app.typeKey(",", modifierFlags: .command)
+
+        let instancePicker = app.descendants(matching: .any)["toolbox-instance-picker"]
+        XCTAssertTrue(instancePicker.waitForExistence(timeout: 5))
+        instancePicker.click()
+        let customInstance = app.menuItems["自定义实例"]
+        XCTAssertTrue(customInstance.waitForExistence(timeout: 5))
+        customInstance.click()
+
+        XCTAssertTrue(
+            app.textFields["toolbox-custom-instance-field"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-instance-documentation"]
+                .waitForExistence(timeout: 5)
+        )
+
+        instancePicker.click()
+        let automaticInstance = app.menuItems["自动选择（推荐）"]
+        XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
+        automaticInstance.click()
+    }
+
     private func ensureMainWindow(in app: XCUIApplication) {
         guard !app.windows.firstMatch.waitForExistence(timeout: 2) else { return }
         let fileMenu = app.menuBars.menuBarItems["File"]
