@@ -123,6 +123,112 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(thread.hasMore)
     }
 
+    func testParsesTopicSubjectColorsFromTopicMiscAndTitlefont() throws {
+        func encodedFontBits(_ bits: UInt32) -> String {
+            Data([
+                1,
+                UInt8((bits >> 24) & 0xFF),
+                UInt8((bits >> 16) & 0xFF),
+                UInt8((bits >> 8) & 0xFF),
+                UInt8(bits & 0xFF)
+            ])
+            .base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        }
+
+        let payload = """
+        {
+          "__T": [
+            {
+              "tid": 201,
+              "fid": 650,
+              "subject": "实际响应中的红色主题",
+              "topic_misc": "AQQAACE"
+            },
+            {
+              "tid": 202,
+              "fid": 650,
+              "subject": "蓝色主题",
+              "topic_misc": "\(encodedFontBits(0x2))"
+            },
+            {
+              "tid": 203,
+              "fid": 650,
+              "subject": "绿色主题",
+              "topic_misc": "\(encodedFontBits(0x4))"
+            },
+            {
+              "tid": 204,
+              "fid": 650,
+              "subject": "橙色主题",
+              "titlefont": "\(encodedFontBits(0x8))"
+            },
+            {
+              "tid": 205,
+              "fid": 650,
+              "subject": "银色主题",
+              "topic_misc": "\(encodedFontBits(0x10))"
+            },
+            {
+              "tid": 206,
+              "fid": 650,
+              "subject": "普通主题",
+              "topic_misc": "AgI6eII"
+            }
+          ]
+        }
+        """
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 650),
+            page: 1
+        )
+
+        XCTAssertEqual(
+            page.topics.map(\.subjectColor),
+            [.red, .blue, .green, .orange, .silver, nil]
+        )
+    }
+
+    func testRepairsUTF8TopicListTextMisdecodedAsGB18030() throws {
+        let payload = #"""
+        {
+          "__T": [
+            {
+              "tid": 47265330,
+              "fid": 853,
+              "subject": "[\u942E\u7FE0\u7C28\u59D8\u792D\u9353\u0447\u5FDA\uE11F\u935B\u5A4F\u7D1D\u9358\u71B8\u6F75\u6D93\uE15F\u5C33\u93C4\u95F4\u7BC3\u93C4\uE219\u91DC\u704F\u621D\u30B3\u6FE1\u581D\uE6ED",
+              "author": "Qq189622",
+              "replies": 5,
+              "parent": {
+                "0": 853,
+                "1": 40755136,
+                "2": "\u9353\u0444\u510F\u7481\u3128\uE191"
+              }
+            },
+            {
+              "tid": 47265331,
+              "fid": 853,
+              "subject": "正常显示的主题",
+              "author": "Alice",
+              "replies": 0
+            }
+          ]
+        }
+        """#
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 853),
+            page: 1
+        )
+
+        XCTAssertEqual(page.topics.first?.subject, "[破事氵]剧透警告，原来中挽昼也是个少女妈妈")
+        XCTAssertEqual(page.topics.first?.sourceForumName, "剧情讨论")
+        XCTAssertEqual(page.topics.last?.subject, "正常显示的主题")
+    }
+
     func testThreadPageCountDoesNotAddAnEmptyPageAtTwentyPostBoundary() throws {
         let payload = #"{"data":{"__T":{"tid":102,"fid":-7,"subject":"整页主题","author":"Alice","replies":19},"__R":[{"pid":202,"tid":102,"lou":0,"author":"Alice","content":"正文"}]}}"#
 
@@ -1177,24 +1283,111 @@ final class NGAParserTests: XCTestCase {
             "0": {
               "0": [
                 {"0":"1","1":"90","2":"Carol","5":"有人回复了你","6":"100","7":"190","8":"191","9":"1700000100","10":"1"},
+                {"0":"4","1":"95","2":"Dave","5":"你的回复收到了评价","6":"102","7":"195","8":"196","9":"1700000150","10":"1"},
                 {"0":"7","1":"100","2":"Bob","5":"有人提到了你","6":"101","7":"200","8":"201","9":"1700000200","10":"1"}
               ],
               "1": [
                 {"0":"10","1":"100","2":"Alice","5":"新短消息","9":"1700000300","10":"1"}
+              ],
+              "unread": "2"
+            }
+          }
+        }
+        """)
+        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(reminders.messages.count, 4)
+        XCTAssertEqual(reminders.messages.map(\.kind), [.privateMessage, .mention, .comment, .reply])
+        XCTAssertEqual(reminders.messages.first?.subject, "短消息")
+        XCTAssertEqual(reminders.messages.first?.preview, "Alice 发来一条短消息")
+        XCTAssertEqual(reminders.messages.first?.isUnread, true)
+        XCTAssertEqual(reminders.messages[1].sender, "Bob")
+        XCTAssertEqual(reminders.messages[1].topicID, TopicID(rawValue: 101))
+        XCTAssertEqual(reminders.messages[1].isUnread, true)
+        XCTAssertEqual(reminders.messages[2].preview, "Dave 评价了你的回复")
+        XCTAssertEqual(reminders.messages.last?.isUnread, false)
+        XCTAssertFalse(reminders.hasMore)
+    }
+
+    func testParsesShortMessageNotificationWithoutTimestamp() throws {
+        let notifications = response("""
+        {
+          "data": {
+            "0": {
+              "1": [
+                {"0":"10","1":"100","2":"Alice","5":"新短消息"}
               ],
               "unread": "1"
             }
           }
         }
         """)
-        let reminders = try parser.messages(from: notifications, folder: .notifications, page: 1)
-        XCTAssertEqual(reminders.messages.count, 2)
-        XCTAssertEqual(reminders.messages.first?.kind, .mention)
-        XCTAssertEqual(reminders.messages.first?.sender, "Bob")
-        XCTAssertEqual(reminders.messages.first?.topicID, TopicID(rawValue: 101))
-        XCTAssertEqual(reminders.messages.first?.isUnread, true)
-        XCTAssertEqual(reminders.messages.last?.kind, .reply)
-        XCTAssertEqual(reminders.messages.last?.isUnread, false)
+
+        let page = try parser.messages(from: notifications, folder: .notifications, page: 1)
+        XCTAssertEqual(page.messages.count, 1)
+        XCTAssertEqual(page.messages.first?.kind, .privateMessage)
+        XCTAssertEqual(page.messages.first?.subject, "短消息")
+        XCTAssertEqual(page.messages.first?.preview, "Alice 发来一条短消息")
+        XCTAssertEqual(page.messages.first?.isUnread, true)
+        XCTAssertNil(page.messages.first?.sentAt)
+    }
+
+    func testParsesShortMessageDetailsWithAuthorAndTimePerPost() throws {
+        let details = response("""
+        {
+          "data": {
+            "0": {
+              "allmsgs": {
+                "0": {
+                  "id": "501",
+                  "from": "100",
+                  "subject": "测试会话",
+                  "content": "第一条消息",
+                  "time": "1700000000"
+                },
+                "1": {
+                  "id": "502",
+                  "from": "200",
+                  "subject": "测试会话",
+                  "content": "第二条消息",
+                  "time": "1700000300"
+                }
+              },
+              "userInfo": {
+                "100": {
+                  "uid": "100",
+                  "username": "Alice",
+                  "avatar": "https://img.example/alice.png"
+                },
+                "200": {
+                  "uid": "200",
+                  "username": "Bob"
+                }
+              }
+            }
+          }
+        }
+        """)
+
+        let message = try parser.message(
+            from: details,
+            id: MessageID(rawValue: 42)
+        )
+
+        XCTAssertEqual(message.subject, "测试会话")
+        XCTAssertEqual(message.posts.map(\.id), [
+            MessageID(rawValue: 501),
+            MessageID(rawValue: 502)
+        ])
+        XCTAssertEqual(message.posts.map(\.author), ["Alice", "Bob"])
+        XCTAssertEqual(message.posts.map(\.authorUID), [100, 200])
+        XCTAssertEqual(
+            message.posts.map(\.sentAt),
+            [
+                Date(timeIntervalSince1970: 1_700_000_000),
+                Date(timeIntervalSince1970: 1_700_000_300)
+            ]
+        )
+        XCTAssertEqual(message.sentAt, Date(timeIntervalSince1970: 1_700_000_300))
     }
 
     func testVisitorPermissionErrorDoesNotMeanWholeSessionExpired() {
@@ -1225,6 +1418,8 @@ final class NGAParserTests: XCTestCase {
 
         let detail = NGAEndpoint.message(id: MessageID(rawValue: 42))
         XCTAssertEqual(detail.queryItems.first(where: { $0.name == "act" })?.value, "read")
+        XCTAssertEqual(detail.queryItems.first(where: { $0.name == "mid" })?.value, "42")
+        XCTAssertEqual(detail.queryItems.first(where: { $0.name == "page" })?.value, "1")
     }
 
     func testParsesSubmissionFormAndCheckInResult() throws {

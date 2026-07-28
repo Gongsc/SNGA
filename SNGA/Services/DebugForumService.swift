@@ -56,7 +56,9 @@ actor DebugForumService: NGAForumService {
     }
 
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
-        ForumPage(
+        // Keep the UI-test response pending long enough to verify refresh animations.
+        try await Task.sleep(for: .seconds(2))
+        return ForumPage(
             forum: forum,
             topics: [
                 Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "主题一：欢迎使用 SNGA", author: "测试用户", replyCount: 2),
@@ -89,13 +91,41 @@ actor DebugForumService: NGAForumService {
     }
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
-        MessagePage(folder: folder, messages: [
-            ForumMessage(id: MessageID(rawValue: 7001), kind: folder == .notifications ? .mention : .privateMessage, sender: "系统测试", subject: "测试消息", preview: "这是消息预览", html: NGAParser().sanitizedPostHTML("<p>这是消息正文。</p>"), isUnread: true)
+        let isNotification = folder == .notifications
+        return MessagePage(folder: folder, messages: [
+            ForumMessage(
+                id: MessageID(rawValue: isNotification ? 7003 : 7001),
+                kind: isNotification ? .mention : .privateMessage,
+                sender: "系统测试",
+                subject: isNotification ? "测试通知" : "测试消息",
+                preview: isNotification ? "这是通知预览" : "这是消息预览",
+                sentAt: Date(timeIntervalSince1970: isNotification ? 1_700_000_100 : 1_700_000_000),
+                isUnread: true
+            )
         ], page: page, hasMore: false)
     }
 
     func message(id: MessageID) async throws -> ForumMessage {
-        ForumMessage(id: id, kind: .privateMessage, sender: "系统测试", subject: "测试消息", preview: "这是消息预览", html: NGAParser().sanitizedPostHTML("<p>这是消息正文。</p>"), isUnread: false)
+        let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let html = NGAParser().sanitizedPostHTML("<p>这是消息正文。</p>")
+        return ForumMessage(
+            id: id,
+            kind: .privateMessage,
+            sender: "系统测试",
+            subject: "测试消息",
+            preview: "这是消息预览",
+            html: html,
+            sentAt: sentAt,
+            isUnread: false,
+            posts: [
+                ForumMessagePost(
+                    id: MessageID(rawValue: 7002),
+                    author: "系统测试",
+                    sentAt: sentAt,
+                    html: html
+                )
+            ]
+        )
     }
 
     func replyMessage(id: MessageID, content: String) async throws {}

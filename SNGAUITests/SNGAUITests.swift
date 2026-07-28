@@ -46,9 +46,17 @@ final class SNGAUITests: XCTestCase {
         app.buttons["测试账号 B"].click()
         XCTAssertTrue(app.buttons["论坛消息"].waitForExistence(timeout: 5))
         app.buttons["论坛消息"].firstMatch.click()
+        XCTAssertTrue(app.buttons["全部已读"].waitForExistence(timeout: 5))
+        app.buttons["全部已读"].click()
         XCTAssertTrue(app.buttons["message-7001"].waitForExistence(timeout: 5))
         app.buttons["message-7001"].click()
         XCTAssertTrue(app.staticTexts["测试消息"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["message-post-time-7002"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["reply-private-message"].waitForExistence(timeout: 5))
+
+        app.buttons["favorite-forum--7"].click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["reply-private-message"].exists)
     }
 
     func testTopicPaginationAndShareActions() {
@@ -68,7 +76,33 @@ final class SNGAUITests: XCTestCase {
 
         let pageField = app.textFields["topic-list-page-field"]
         XCTAssertTrue(pageField.waitForExistence(timeout: 5))
-        XCTAssertEqual(pageField.value as? String, "2")
+        let reachedSecondPage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "2"),
+            object: pageField
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [reachedSecondPage], timeout: 5),
+            .completed
+        )
+
+        let favoriteForum = app.buttons["favorite-forum--7"]
+        XCTAssertTrue(favoriteForum.waitForExistence(timeout: 5))
+        favoriteForum.click()
+
+        let refreshing = app.descendants(matching: .any)["topic-list-refreshing"]
+        XCTAssertTrue(refreshing.waitForExistence(timeout: 2))
+        let returnedToFirstPage = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "1"),
+            object: pageField
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [returnedToFirstPage], timeout: 5),
+            .completed
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topic-list-top"]
+                .waitForExistence(timeout: 5)
+        )
 
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
@@ -81,6 +115,105 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["open-topic-in-browser"].exists)
         copyLink.click()
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
+    }
+
+    func testForumDirectorySearchFiltersForums() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["全部版面"].waitForExistence(timeout: 5))
+        app.buttons["全部版面"].click()
+
+        let searchField = app.textFields["directory-search-field"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["directory-forum--7"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["directory-forum-510381"].exists)
+
+        searchField.click()
+        searchField.typeText("510381")
+
+        XCTAssertEqual(searchField.value as? String, "510381")
+        XCTAssertTrue(app.buttons["directory-forum-510381"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["directory-forum--7"].exists)
+    }
+
+    func testToolboxNavigationShowsAllFeeds() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["小工具"].waitForExistence(timeout: 5))
+        app.buttons["小工具"].click()
+
+        XCTAssertTrue(app.buttons["toolbox-feed-worldBriefing"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["toolbox-feed-aiNews"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-itNews"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-douyinHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-rednoteHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-bilibiliHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-weiboHot"].exists)
+        XCTAssertTrue(app.buttons["toolbox-feed-zhihuHot"].exists)
+
+        app.buttons["toolbox-feed-aiNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-aiNews"]
+                .waitForExistence(timeout: 5)
+        )
+
+        app.buttons["toolbox-feed-itNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-itNews"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let menu = app.scrollViews["toolbox-menu-scroll"]
+        let zhihu = app.buttons["toolbox-feed-zhihuHot"]
+        if !zhihu.isHittable {
+            menu.swipeUp()
+        }
+        XCTAssertTrue(zhihu.waitForExistence(timeout: 5))
+        XCTAssertTrue(zhihu.isHittable)
+        zhihu.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-zhihuHot"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    func testToolboxInstanceSettingsShowCustomURLAndDocumentation() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        app.typeKey(",", modifierFlags: .command)
+
+        let instancePicker = app.descendants(matching: .any)["toolbox-instance-picker"]
+        XCTAssertTrue(instancePicker.waitForExistence(timeout: 5))
+        instancePicker.click()
+        let customInstance = app.menuItems["自定义实例"]
+        XCTAssertTrue(customInstance.waitForExistence(timeout: 5))
+        customInstance.click()
+
+        XCTAssertTrue(
+            app.textFields["toolbox-custom-instance-field"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-instance-documentation"]
+                .waitForExistence(timeout: 5)
+        )
+
+        instancePicker.click()
+        let automaticInstance = app.menuItems["自动选择（推荐）"]
+        XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
+        automaticInstance.click()
     }
 
     private func ensureMainWindow(in app: XCUIApplication) {

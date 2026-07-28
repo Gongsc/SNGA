@@ -49,6 +49,14 @@ struct ForumCategory: Identifiable, Hashable, Sendable {
     var forums: [Forum]
 }
 
+enum TopicSubjectColor: String, Codable, Hashable, Sendable {
+    case red
+    case blue
+    case green
+    case orange
+    case silver
+}
+
 struct Topic: Identifiable, Hashable, Codable, Sendable {
     let id: TopicID
     var forumID: ForumID
@@ -64,6 +72,7 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var sourceForumName: String? = nil
     var mirroredForumID: ForumID? = nil
     var isFavorite: Bool = false
+    var subjectColor: TopicSubjectColor? = nil
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {
@@ -165,7 +174,7 @@ enum MessageFolder: String, CaseIterable, Codable, Sendable, Identifiable {
     var title: String {
         switch self {
         case .privateMessages: "短消息"
-        case .notifications: "提醒信息"
+        case .notifications: "通知"
         }
     }
 }
@@ -174,6 +183,7 @@ enum ForumMessageKind: String, Codable, Sendable {
     case privateMessage
     case reply
     case quote
+    case comment
     case mention
     case unknown
 
@@ -182,10 +192,20 @@ enum ForumMessageKind: String, Codable, Sendable {
         case .privateMessage: "收到新私信"
         case .reply: "帖子收到新回复"
         case .quote: "帖子被引用"
+        case .comment: "帖子收到新评价"
         case .mention: "帖子中有人提到你"
         case .unknown: "收到论坛消息"
         }
     }
+}
+
+struct ForumMessagePost: Identifiable, Hashable, Codable, Sendable {
+    let id: MessageID
+    var author: String
+    var authorUID: Int64? = nil
+    var avatarURL: URL? = nil
+    var sentAt: Date? = nil
+    var html: String
 }
 
 struct ForumMessage: Identifiable, Hashable, Codable, Sendable {
@@ -199,6 +219,7 @@ struct ForumMessage: Identifiable, Hashable, Codable, Sendable {
     var isUnread: Bool
     var topicID: TopicID? = nil
     var replyURL: URL? = nil
+    var posts: [ForumMessagePost] = []
 }
 
 struct MessagePage: Hashable, Codable, Sendable {
@@ -311,10 +332,119 @@ struct LoginCapture: Sendable {
     var cookies: [SessionCookie]
 }
 
+enum ToolboxFeed: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case worldBriefing
+    case aiNews
+    case itNews
+    case douyinHot
+    case rednoteHot
+    case bilibiliHot
+    case weiboHot
+    case zhihuHot
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .worldBriefing: "每天 60s 读懂世界"
+        case .aiNews: "AI 资讯快报"
+        case .itNews: "实时 IT 资讯"
+        case .douyinHot: "抖音热搜"
+        case .rednoteHot: "小红书热点"
+        case .bilibiliHot: "哔哩哔哩热搜"
+        case .weiboHot: "微博热搜"
+        case .zhihuHot: "知乎话题榜"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .worldBriefing: "每天一分钟，快速了解全球要闻"
+        case .aiNews: "聚合 AI 与大模型领域的重要动态"
+        case .itNews: "来自 IT 之家的实时科技资讯"
+        case .douyinHot: "查看抖音当前热门搜索"
+        case .rednoteHot: "发现小红书实时热门话题"
+        case .bilibiliHot: "浏览哔哩哔哩实时热搜"
+        case .weiboHot: "追踪微博实时热搜话题"
+        case .zhihuHot: "了解知乎当前热门讨论"
+        }
+    }
+
+    var updateFrequency: String {
+        switch self {
+        case .worldBriefing, .aiNews: "日更"
+        case .itNews, .douyinHot, .rednoteHot, .bilibiliHot, .weiboHot, .zhihuHot:
+            "实时"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .worldBriefing: "globe.asia.australia"
+        case .aiNews: "sparkles"
+        case .itNews: "desktopcomputer"
+        case .douyinHot: "music.note"
+        case .rednoteHot: "book.closed.fill"
+        case .bilibiliHot: "play.rectangle.fill"
+        case .weiboHot: "bubble.left.and.bubble.right.fill"
+        case .zhihuHot: "questionmark.bubble.fill"
+        }
+    }
+}
+
+struct WorldBriefing: Hashable, Sendable {
+    var date: String
+    var dayOfWeek: String?
+    var lunarDate: String?
+    var news: [String]
+    var tip: String?
+    var imageURL: URL?
+    var coverURL: URL?
+    var sourceURL: URL?
+    var updatedAt: Date?
+}
+
+struct ToolboxArticle: Identifiable, Hashable, Sendable {
+    let id: String
+    var rank: Int?
+    var title: String
+    var summary: String
+    var source: String?
+    var publishedText: String?
+    var publishedAt: Date?
+    var link: URL?
+
+    init(
+        rank: Int? = nil,
+        title: String,
+        summary: String,
+        source: String? = nil,
+        publishedText: String? = nil,
+        publishedAt: Date? = nil,
+        link: URL? = nil
+    ) {
+        self.id = link?.absoluteString
+            ?? [title, source, publishedText].compactMap { $0 }.joined(separator: "|")
+        self.rank = rank
+        self.title = title
+        self.summary = summary
+        self.source = source
+        self.publishedText = publishedText
+        self.publishedAt = publishedAt
+        self.link = link
+    }
+}
+
+enum ToolboxContent: Hashable, Sendable {
+    case worldBriefing(WorldBriefing)
+    case articles([ToolboxArticle])
+}
+
 enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
     case forum(ForumID)
     case directory
     case favorites
     case messages(MessageFolder)
+    case toolbox
 }

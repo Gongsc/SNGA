@@ -165,6 +165,7 @@ struct NGAEndpoint: Sendable {
             .init(name: "__act", value: "message"),
             .init(name: "act", value: "read"),
             .init(name: "mid", value: id.description),
+            .init(name: "page", value: "1"),
             .init(name: "__output", value: "11")
         ], method: .post)
     }

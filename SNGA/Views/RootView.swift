@@ -41,7 +41,8 @@ struct RootView: View {
                     .help("返回主题列表")
                     .accessibilityIdentifier("user-center-back-to-topics")
                 }
-                if model.selectedForumID == nil {
+                if model.selectedForumID == nil,
+                   model.sidebarSelection != .toolbox {
                     Button {
                         Task { await model.refreshCurrentSelection() }
                     } label: {
@@ -281,6 +282,8 @@ private struct ContentColumnView: View {
                 ForumDirectoryView()
             case .favorites:
                 FavoritesView()
+            case .toolbox:
+                ToolboxMenuView()
             case let .forum(forumID):
                 TopicListView(
                     forumID: forumID,
@@ -297,7 +300,9 @@ private struct DetailColumnView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.selectedTopicID != nil {
+        if model.sidebarSelection == .toolbox {
+            ToolboxFeedView(feed: model.selectedToolboxFeed)
+        } else if model.selectedTopicID != nil {
             ThreadView()
         } else if model.selectedMessageID != nil {
             MessageDetailView()
@@ -319,6 +324,10 @@ struct SettingsView: View {
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(ToolboxInstanceSettings.selectionKey)
+    private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
+    @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
+    private var customToolboxBaseURL = ""
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @State private var accountToRemove: AccountSummary?
     @State private var loginRequest: SettingsLoginRequest?
@@ -373,6 +382,67 @@ struct SettingsView: View {
             Section("浏览") {
                 Toggle("无图模式", isOn: $imageFreeMode)
                 Text("开启后，主题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("小工具") {
+                Picker("API 实例", selection: $toolboxInstanceSelectionRaw) {
+                    ForEach(ToolboxInstanceChoice.allCases) { choice in
+                        Text(choice.title).tag(choice.rawValue)
+                    }
+                }
+                .accessibilityIdentifier("toolbox-instance-picker")
+
+                Text(selectedToolboxInstance.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                if selectedToolboxInstance == .custom {
+                    TextField(
+                        "https://example.com",
+                        text: $customToolboxBaseURL,
+                        prompt: Text("输入 60s API 基础地址")
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("toolbox-custom-instance-field")
+                    .onSubmit {
+                        if let url = normalizedCustomToolboxBaseURL {
+                            customToolboxBaseURL = url.absoluteString
+                        }
+                    }
+
+                    if customToolboxBaseURL.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty {
+                        Text("请输入包含 http:// 或 https:// 的实例基础地址。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let url = normalizedCustomToolboxBaseURL {
+                        LabeledContent("当前地址") {
+                            Text(url.absoluteString)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+                    } else {
+                        Label(
+                            "地址格式无效，请检查协议、域名，且不要包含查询参数。",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                Link(
+                    destination: ToolboxInstanceSettings.documentationURL
+                ) {
+                    Label("查看 60s API 公共实例文档", systemImage: "arrow.up.right")
+                }
+                .accessibilityIdentifier("toolbox-instance-documentation")
+
+                Text(toolboxInstanceBehaviorDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -458,7 +528,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(width: 620, height: 540)
+        .frame(width: 660, height: 640)
         .sheet(item: $loginRequest) { request in
             LoginSheet(title: request.title)
                 .environment(model)
@@ -550,6 +620,21 @@ struct SettingsView: View {
                 )
             }
         )
+    }
+
+    private var selectedToolboxInstance: ToolboxInstanceChoice {
+        ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw) ?? .automatic
+    }
+
+    private var normalizedCustomToolboxBaseURL: URL? {
+        ToolboxInstanceSettings.normalizedBaseURL(from: customToolboxBaseURL)
+    }
+
+    private var toolboxInstanceBehaviorDescription: String {
+        if selectedToolboxInstance == .automatic {
+            return "修改后在下次刷新小工具时生效；自动模式会在官方主实例与备用实例间故障切换。"
+        }
+        return "修改后在下次刷新小工具时生效；当前模式仅使用所选实例。"
     }
 
     private func colorHex(_ color: Color, fallback: String) -> String {

@@ -69,10 +69,11 @@ struct SidebarView: View {
                     )
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
+                    sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
                     sidebarButton(
                         "论坛消息",
-                        systemImage: "tray.full",
-                        selection: .messages(.privateMessages),
+                        systemImage: "bell",
+                        selection: .messages(.notifications),
                         badge: model.unreadCount
                     )
                 }
@@ -104,7 +105,15 @@ struct SidebarView: View {
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
+                                    if model.isRefreshingTopics,
+                                       model.selectedForumID == favorite.forum.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .accessibilityLabel("正在刷新\(favorite.forum.name)")
+                                            .accessibilityIdentifier(
+                                                "favorite-forum-refreshing-\(favorite.forum.id.description)"
+                                            )
+                                    } else if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
                                         Image(systemName: "arrow.triangle.2.circlepath")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -114,6 +123,9 @@ struct SidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .sidebarListRow()
+                        .accessibilityIdentifier(
+                            "favorite-forum-\(favorite.forum.id.description)"
+                        )
                     }
                 }
             }
@@ -133,7 +145,7 @@ struct SidebarView: View {
             switch selection {
             case .directory:
                 Task { await model.loadForums() }
-            case .favorites:
+            case .favorites, .toolbox:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.activeAccount?.ngaUID {

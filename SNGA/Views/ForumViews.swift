@@ -500,68 +500,76 @@ private struct UserActivityRow: View {
 
 struct ForumDirectoryView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     @State private var collapsedCategories: Set<String> = []
+    @State private var searchText = ""
 
     var body: some View {
-        Group {
-            if model.forums.isEmpty && !model.isLoading {
-                ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
-            } else {
-                List {
-                    ForEach(model.forumCategories) { category in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.16)) {
-                                toggleCategory(category.id)
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(
-                                    systemName: collapsedCategories.contains(category.id)
-                                        ? "chevron.right"
-                                        : "chevron.down"
-                                )
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 12)
-                                Text(category.name)
-                                    .font(.headline)
-                                Spacer()
-                                Text("\(category.forums.count)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(
-                            EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
-                        )
-                        .accessibilityIdentifier("directory-category-\(category.id)")
+        VStack(spacing: 0) {
+            directorySearchField
 
-                        if !collapsedCategories.contains(category.id) {
-                            ForEach(category.forums) { forum in
-                                Button {
-                                    Task { await model.openForum(forum) }
-                                } label: {
-                                    ForumDirectoryInteractiveRow(
-                                        forum: forum,
-                                        isFavorite: model.favorites.contains {
-                                            $0.forum.id == forum.id && $0.state != .pendingRemove
+            Divider()
+
+            Group {
+                if model.forums.isEmpty && !model.isLoading {
+                    ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
+                } else if isSearching && filteredCategories.isEmpty {
+                    ContentUnavailableView(
+                        "未找到版面",
+                        systemImage: "magnifyingglass",
+                        description: Text("没有与“\(trimmedSearchText)”匹配的版面")
+                    )
+                    .accessibilityIdentifier("directory-search-empty")
+                } else {
+                    List {
+                        ForEach(filteredCategories) { category in
+                            Group {
+                                if isSearching {
+                                    categoryHeader(category)
+                                } else {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.16)) {
+                                            toggleCategory(category.id)
                                         }
+                                    } label: {
+                                        categoryHeader(category)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .listRowInsets(
+                                EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+                            )
+                            .accessibilityIdentifier("directory-category-\(category.id)")
+
+                            if isSearching || !collapsedCategories.contains(category.id) {
+                                ForEach(category.forums) { forum in
+                                    Button {
+                                        Task { await model.openForum(forum) }
+                                    } label: {
+                                        ForumDirectoryInteractiveRow(
+                                            forum: forum,
+                                            isFavorite: model.favorites.contains {
+                                                $0.forum.id == forum.id && $0.state != .pendingRemove
+                                            }
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .listRowInsets(
+                                        EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
+                                    )
+                                    .listRowBackground(Color.clear)
+                                    .accessibilityIdentifier(
+                                        "directory-forum-\(forum.id.description)"
                                     )
                                 }
-                                .buttonStyle(.plain)
-                                .listRowInsets(
-                                    EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6)
-                                )
-                                .listRowBackground(Color.clear)
-                                .accessibilityIdentifier("directory-forum-\(forum.id.description)")
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)
                 }
-                .scrollContentBackground(.hidden)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("全部版面")
         .task {
@@ -569,11 +577,118 @@ struct ForumDirectoryView: View {
         }
     }
 
+    private var directorySearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            TextField("搜索版面名称或 ID", text: $searchText)
+                .textFieldStyle(.plain)
+                .accessibilityIdentifier("directory-search-field")
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("清除搜索")
+                .accessibilityLabel("清除搜索")
+                .accessibilityIdentifier("directory-search-clear")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(
+            theme.surfaceColor,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearching: Bool {
+        !trimmedSearchText.isEmpty
+    }
+
+    private var filteredCategories: [ForumCategory] {
+        ForumDirectorySearch.filter(model.forumCategories, query: searchText)
+    }
+
+    private func categoryHeader(_ category: ForumCategory) -> some View {
+        HStack(spacing: 6) {
+            Image(
+                systemName: !isSearching && collapsedCategories.contains(category.id)
+                    ? "chevron.right"
+                    : "chevron.down"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 12)
+            Text(category.name)
+                .font(.headline)
+            Spacer()
+            Text("\(category.forums.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .contentShape(.rect)
+    }
+
     private func toggleCategory(_ categoryID: String) {
         if collapsedCategories.contains(categoryID) {
             collapsedCategories.remove(categoryID)
         } else {
             collapsedCategories.insert(categoryID)
+        }
+    }
+}
+
+enum ForumDirectorySearch {
+    static func filter(_ categories: [ForumCategory], query: String) -> [ForumCategory] {
+        let terms = query
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard !terms.isEmpty else { return categories }
+
+        return categories.compactMap { category in
+            let matchingForums = category.forums.filter { forum in
+                let searchableText = [
+                    category.name,
+                    forum.name,
+                    forum.subtitle,
+                    forum.category,
+                    forum.id.queryName,
+                    forum.id.description
+                ]
+                .compactMap { $0 }
+                .joined(separator: " ")
+
+                return terms.allSatisfy { term in
+                    searchableText.range(
+                        of: term,
+                        options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                        locale: .current
+                    ) != nil
+                }
+            }
+            guard !matchingForums.isEmpty else { return nil }
+            return ForumCategory(
+                id: category.id,
+                name: category.name,
+                forums: matchingForums
+            )
         }
     }
 }
@@ -1111,14 +1226,59 @@ struct TopicListView: View {
                     .accessibilityIdentifier("forum-favorite")
 
                     Button {
-                        Task { await model.refreshTopicList() }
+                        Task {
+                            await model.refreshTopicList()
+                            await Task.yield()
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(topAnchor, anchor: .top)
+                            }
+                        }
                     } label: {
-                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
+                        if model.isRefreshingTopics {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "list.bullet.rectangle")
+                        }
                     }
-                    .labelStyle(.iconOnly)
+                    .accessibilityLabel(
+                        model.isRefreshingTopics ? "正在刷新主题列表" : "刷新主题列表"
+                    )
                     .help("刷新主题列表")
                     .disabled(model.isLoading)
                     .accessibilityIdentifier("forum-refresh")
+                }
+            }
+            .overlay(alignment: .top) {
+                if model.isRefreshingTopics, model.selectedForumID == forumID {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在刷新主题列表…")
+                            .font(.callout.weight(.medium))
+                    }
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .stroke(.separator.opacity(0.5))
+                    }
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("topic-list-refreshing")
+                }
+            }
+            .animation(
+                .easeInOut(duration: 0.18),
+                value: model.isRefreshingTopics
+            )
+            .onChange(of: model.topicListScrollToTopRevision) {
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(topAnchor, anchor: .top)
+                    }
                 }
             }
         }
@@ -1184,6 +1344,7 @@ struct TopicListView: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .animation(.easeOut(duration: 0.16), value: reservesSidebarToggleSpace)
+        .accessibilityIdentifier("topic-list-top")
     }
 
     @ViewBuilder
@@ -1500,10 +1661,6 @@ private struct TopicRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                if topic.isPinned {
-                    Image(systemName: "pin.fill")
-                        .foregroundStyle(theme.accentColor)
-                }
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")
@@ -1524,6 +1681,7 @@ private struct TopicRow: View {
                 }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
+                    .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
                     .lineLimit(3)
             }
             HStack {
@@ -1553,5 +1711,22 @@ private struct TopicRow: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+private extension TopicSubjectColor {
+    var displayColor: Color {
+        switch self {
+        case .red:
+            Color(red: 221 / 255, green: 0, blue: 0)
+        case .blue:
+            Color(red: 0, green: 102 / 255, blue: 187 / 255)
+        case .green:
+            Color(red: 61 / 255, green: 159 / 255, blue: 14 / 255)
+        case .orange:
+            Color(red: 160 / 255, green: 103 / 255, blue: 0)
+        case .silver:
+            Color(red: 136 / 255, green: 136 / 255, blue: 136 / 255)
+        }
     }
 }
