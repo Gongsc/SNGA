@@ -1661,10 +1661,6 @@ private struct TopicRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                if topic.isPinned {
-                    Image(systemName: "pin.fill")
-                        .foregroundStyle(theme.accentColor)
-                }
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")
@@ -1685,6 +1681,7 @@ private struct TopicRow: View {
                 }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
+                    .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
                     .lineLimit(3)
             }
             HStack {
@@ -1714,5 +1711,22 @@ private struct TopicRow: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+private extension TopicSubjectColor {
+    var displayColor: Color {
+        switch self {
+        case .red:
+            Color(red: 221 / 255, green: 0, blue: 0)
+        case .blue:
+            Color(red: 0, green: 102 / 255, blue: 187 / 255)
+        case .green:
+            Color(red: 61 / 255, green: 159 / 255, blue: 14 / 255)
+        case .orange:
+            Color(red: 160 / 255, green: 103 / 255, blue: 0)
+        case .silver:
+            Color(red: 136 / 255, green: 136 / 255, blue: 136 / 255)
+        }
     }
 }

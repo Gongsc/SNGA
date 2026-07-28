@@ -49,6 +49,14 @@ struct ForumCategory: Identifiable, Hashable, Sendable {
     var forums: [Forum]
 }
 
+enum TopicSubjectColor: String, Codable, Hashable, Sendable {
+    case red
+    case blue
+    case green
+    case orange
+    case silver
+}
+
 struct Topic: Identifiable, Hashable, Codable, Sendable {
     let id: TopicID
     var forumID: ForumID
@@ -64,6 +72,7 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var sourceForumName: String? = nil
     var mirroredForumID: ForumID? = nil
     var isFavorite: Bool = false
+    var subjectColor: TopicSubjectColor? = nil
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {

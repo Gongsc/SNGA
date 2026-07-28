@@ -123,6 +123,112 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(thread.hasMore)
     }
 
+    func testParsesTopicSubjectColorsFromTopicMiscAndTitlefont() throws {
+        func encodedFontBits(_ bits: UInt32) -> String {
+            Data([
+                1,
+                UInt8((bits >> 24) & 0xFF),
+                UInt8((bits >> 16) & 0xFF),
+                UInt8((bits >> 8) & 0xFF),
+                UInt8(bits & 0xFF)
+            ])
+            .base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        }
+
+        let payload = """
+        {
+          "__T": [
+            {
+              "tid": 201,
+              "fid": 650,
+              "subject": "实际响应中的红色主题",
+              "topic_misc": "AQQAACE"
+            },
+            {
+              "tid": 202,
+              "fid": 650,
+              "subject": "蓝色主题",
+              "topic_misc": "\(encodedFontBits(0x2))"
+            },
+            {
+              "tid": 203,
+              "fid": 650,
+              "subject": "绿色主题",
+              "topic_misc": "\(encodedFontBits(0x4))"
+            },
+            {
+              "tid": 204,
+              "fid": 650,
+              "subject": "橙色主题",
+              "titlefont": "\(encodedFontBits(0x8))"
+            },
+            {
+              "tid": 205,
+              "fid": 650,
+              "subject": "银色主题",
+              "topic_misc": "\(encodedFontBits(0x10))"
+            },
+            {
+              "tid": 206,
+              "fid": 650,
+              "subject": "普通主题",
+              "topic_misc": "AgI6eII"
+            }
+          ]
+        }
+        """
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 650),
+            page: 1
+        )
+
+        XCTAssertEqual(
+            page.topics.map(\.subjectColor),
+            [.red, .blue, .green, .orange, .silver, nil]
+        )
+    }
+
+    func testRepairsUTF8TopicListTextMisdecodedAsGB18030() throws {
+        let payload = #"""
+        {
+          "__T": [
+            {
+              "tid": 47265330,
+              "fid": 853,
+              "subject": "[\u942E\u7FE0\u7C28\u59D8\u792D\u9353\u0447\u5FDA\uE11F\u935B\u5A4F\u7D1D\u9358\u71B8\u6F75\u6D93\uE15F\u5C33\u93C4\u95F4\u7BC3\u93C4\uE219\u91DC\u704F\u621D\u30B3\u6FE1\u581D\uE6ED",
+              "author": "Qq189622",
+              "replies": 5,
+              "parent": {
+                "0": 853,
+                "1": 40755136,
+                "2": "\u9353\u0444\u510F\u7481\u3128\uE191"
+              }
+            },
+            {
+              "tid": 47265331,
+              "fid": 853,
+              "subject": "正常显示的主题",
+              "author": "Alice",
+              "replies": 0
+            }
+          ]
+        }
+        """#
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 853),
+            page: 1
+        )
+
+        XCTAssertEqual(page.topics.first?.subject, "[破事氵]剧透警告，原来中挽昼也是个少女妈妈")
+        XCTAssertEqual(page.topics.first?.sourceForumName, "剧情讨论")
+        XCTAssertEqual(page.topics.last?.subject, "正常显示的主题")
+    }
+
     func testThreadPageCountDoesNotAddAnEmptyPageAtTwentyPostBoundary() throws {
         let payload = #"{"data":{"__T":{"tid":102,"fid":-7,"subject":"整页主题","author":"Alice","replies":19},"__R":[{"pid":202,"tid":102,"lou":0,"author":"Alice","content":"正文"}]}}"#
 

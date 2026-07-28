@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 import SwiftSoup
 
@@ -1644,10 +1645,11 @@ struct NGAParser: Sendable {
     private func parseTopic(from dictionary: [String: Any], fallbackForumID: ForumID) -> Topic? {
         guard let tid = int64(dictionary["tid"]),
               let rawSubject = string(dictionary["subject"]) else { return nil }
-        let subject = plainText(rawSubject)
+        let subject = normalizedTopicListText(rawSubject)
         guard !subject.isEmpty else { return nil }
         let sourceForum = topicSourceForum(in: dictionary)
         let mirroredForumID = mirroredForumID(in: dictionary)
+        let subjectColor = topicSubjectColor(in: dictionary)
         return Topic(
             id: TopicID(rawValue: tid),
             forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
@@ -1666,8 +1668,63 @@ struct NGAParser: Sendable {
             isFavorite: bool(dictionary["favor"])
                 || bool(dictionary["favorite"])
                 || (int(dictionary["favor"]) ?? 0) > 0
-                || (int(dictionary["favorite"]) ?? 0) > 0
+                || (int(dictionary["favorite"]) ?? 0) > 0,
+            subjectColor: subjectColor
         )
+    }
+
+    private func topicSubjectColor(in dictionary: [String: Any]) -> TopicSubjectColor? {
+        let encodedValues = [
+            string(dictionary["topic_misc"]),
+            string(dictionary["titlefont"])
+        ]
+        for encodedValue in encodedValues.compactMap({ $0 }) {
+            guard let bits = topicSubjectFontModifierBits(encodedValue) else { continue }
+            let colors: [(TopicSubjectColor, UInt32)] = [
+                (.red, 0x1),
+                (.blue, 0x2),
+                (.green, 0x4),
+                (.orange, 0x8),
+                (.silver, 0x10)
+            ]
+            if let color = colors.last(where: { bits & $0.1 != 0 })?.0 {
+                return color
+            }
+        }
+        return nil
+    }
+
+    private func topicSubjectFontModifierBits(_ encodedValue: String) -> UInt32? {
+        var normalized = encodedValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        guard !normalized.isEmpty else { return nil }
+        let paddingCount = (4 - normalized.count % 4) % 4
+        normalized.append(String(repeating: "=", count: paddingCount))
+        guard let data = Data(base64Encoded: normalized) else { return nil }
+
+        let bytes = [UInt8](data)
+        var cursor = 0
+        while cursor < bytes.count {
+            let dataType = bytes[cursor]
+            cursor += 1
+            guard cursor + 4 <= bytes.count else { return nil }
+            let value = UInt32(bytes[cursor]) << 24
+                | UInt32(bytes[cursor + 1]) << 16
+                | UInt32(bytes[cursor + 2]) << 8
+                | UInt32(bytes[cursor + 3])
+            cursor += 4
+            switch dataType {
+            case 1:
+                return value
+            case 2:
+                continue
+            default:
+                return nil
+            }
+        }
+        return nil
     }
 
     private func mirroredForumID(in dictionary: [String: Any]) -> ForumID? {
@@ -1753,7 +1810,7 @@ struct NGAParser: Sendable {
         } else {
             return nil
         }
-        return (id, parentID, string(parent["2"]).map(plainText))
+        return (id, parentID, string(parent["2"]).map(normalizedTopicListText))
     }
 
     private struct PostUser {
@@ -2362,6 +2419,137 @@ struct NGAParser: Sendable {
             (try? SwiftSoup.parseBodyFragment(value).text()) ?? value
         )
             .replacingOccurrences(of: "&nbsp;", with: " ")
+    }
+
+    private func normalizedTopicListText(_ value: String) -> String {
+        let text = plainText(value)
+        return repairedUTF8TextMisdecodedAsGB18030(text) ?? text
+    }
+
+    private func repairedUTF8TextMisdecodedAsGB18030(_ value: String) -> String? {
+        let rawEncoding = CFStringConvertEncodingToNSStringEncoding(
+            CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
+        )
+        let encoding = String.Encoding(rawValue: rawEncoding)
+        var bytes: [UInt8] = []
+        var characterBoundaries = Set<Int>()
+
+        for scalar in value.unicodeScalars {
+            if !bytes.isEmpty {
+                characterBoundaries.insert(bytes.count)
+            }
+            guard let encoded = String(scalar).data(using: encoding) else {
+                return nil
+            }
+            bytes.append(contentsOf: encoded)
+        }
+        characterBoundaries.insert(bytes.count)
+
+        guard let repaired = utf8String(
+            restoringDropped80BytesIn: bytes,
+            characterBoundaries: characterBoundaries,
+            remainingInsertions: 8
+        ),
+        repaired != value else {
+            return nil
+        }
+
+        let originalCount = value.unicodeScalars.count
+        let repairedCount = repaired.unicodeScalars.count
+        let containsPrivateUseScalar = value.unicodeScalars.contains {
+            (0xE000...0xF8FF).contains($0.value)
+        }
+        guard repairedCount < originalCount,
+              containsPrivateUseScalar || repairedCount * 4 <= originalCount * 3 else {
+            return nil
+        }
+        return repaired
+    }
+
+    private func utf8String(
+        restoringDropped80BytesIn bytes: [UInt8],
+        characterBoundaries: Set<Int>,
+        remainingInsertions: Int
+    ) -> String? {
+        if let decoded = String(bytes: bytes, encoding: .utf8) {
+            return decoded
+        }
+        guard remainingInsertions > 0,
+              let failure = incompleteUTF8Sequence(in: bytes),
+              failure.missingContinuationCount <= remainingInsertions else {
+            return nil
+        }
+
+        let candidates = characterBoundaries
+            .filter { $0 >= failure.insertionRange.lowerBound && $0 <= failure.insertionRange.upperBound }
+            .sorted()
+        for insertionIndex in candidates {
+            var repairedBytes = bytes
+            repairedBytes.insert(
+                contentsOf: repeatElement(UInt8(0x80), count: failure.missingContinuationCount),
+                at: insertionIndex
+            )
+            let shiftedBoundaries = Set(characterBoundaries.map {
+                $0 >= insertionIndex ? $0 + failure.missingContinuationCount : $0
+            })
+            if let decoded = utf8String(
+                restoringDropped80BytesIn: repairedBytes,
+                characterBoundaries: shiftedBoundaries,
+                remainingInsertions: remainingInsertions - failure.missingContinuationCount
+            ) {
+                return decoded
+            }
+        }
+        return nil
+    }
+
+    private func incompleteUTF8Sequence(
+        in bytes: [UInt8]
+    ) -> (insertionRange: ClosedRange<Int>, missingContinuationCount: Int)? {
+        var index = 0
+        while index < bytes.count {
+            let lead = bytes[index]
+            if lead < 0x80 {
+                index += 1
+                continue
+            }
+
+            let expectedContinuationCount: Int
+            switch lead {
+            case 0xC2...0xDF:
+                expectedContinuationCount = 1
+            case 0xE0...0xEF:
+                expectedContinuationCount = 2
+            case 0xF0...0xF4:
+                expectedContinuationCount = 3
+            default:
+                return nil
+            }
+
+            var continuationCount = 0
+            while continuationCount < expectedContinuationCount {
+                let continuationIndex = index + 1 + continuationCount
+                guard continuationIndex < bytes.count,
+                      (0x80...0xBF).contains(bytes[continuationIndex]) else {
+                    let failureIndex = min(continuationIndex, bytes.count)
+                    return (
+                        (index + 1)...failureIndex,
+                        expectedContinuationCount - continuationCount
+                    )
+                }
+                continuationCount += 1
+            }
+
+            let firstContinuation = bytes[index + 1]
+            if (lead == 0xE0 && firstContinuation < 0xA0)
+                || (lead == 0xED && firstContinuation > 0x9F)
+                || (lead == 0xF0 && firstContinuation < 0x90)
+                || (lead == 0xF4 && firstContinuation > 0x8F) {
+                return nil
+            }
+            index += expectedContinuationCount + 1
+        }
+        return nil
     }
 
     private func decodedHTMLEntities(_ value: String) -> String {
