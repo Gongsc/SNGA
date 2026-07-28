@@ -117,6 +117,29 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
     }
 
+    func testForumDirectorySearchFiltersForums() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["全部版面"].waitForExistence(timeout: 5))
+        app.buttons["全部版面"].click()
+
+        let searchField = app.textFields["directory-search-field"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["directory-forum--7"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["directory-forum-510381"].exists)
+
+        searchField.click()
+        searchField.typeText("510381")
+
+        XCTAssertEqual(searchField.value as? String, "510381")
+        XCTAssertTrue(app.buttons["directory-forum-510381"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["directory-forum--7"].exists)
+    }
+
     func testToolboxNavigationShowsAllFeeds() {
         continueAfterFailure = false
         let app = XCUIApplication()

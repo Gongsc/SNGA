@@ -650,6 +650,86 @@ final class ToolboxAPIParserTests: XCTestCase {
     }
 }
 
+final class ForumDirectorySearchTests: XCTestCase {
+    private let categories = [
+        ForumCategory(
+            id: "综合讨论",
+            name: "综合讨论",
+            forums: [
+                Forum(
+                    id: ForumID(rawValue: 7),
+                    name: "艾泽拉斯国家地理",
+                    subtitle: "魔兽世界综合讨论",
+                    category: "综合讨论"
+                )
+            ]
+        ),
+        ForumCategory(
+            id: "游戏社区",
+            name: "游戏社区",
+            forums: [
+                Forum(
+                    id: ForumID(rawValue: 510381),
+                    name: "晴风村",
+                    subtitle: "FINAL FANTASY XIV",
+                    category: "游戏社区"
+                ),
+                Forum(
+                    id: ForumID(stid: 35925536),
+                    name: "二次元综合",
+                    category: "游戏社区"
+                )
+            ]
+        )
+    ]
+
+    func testEmptyQueryKeepsAllCategoriesAndForums() {
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: " \n "),
+            categories
+        )
+    }
+
+    func testSearchMatchesNameSubtitleCategoryAndForumIdentifier() {
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: "艾泽")
+                .flatMap(\.forums)
+                .map(\.name),
+            ["艾泽拉斯国家地理"]
+        )
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: "final xiv")
+                .flatMap(\.forums)
+                .map(\.name),
+            ["晴风村"]
+        )
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: "综合讨论")
+                .flatMap(\.forums)
+                .map(\.name),
+            ["艾泽拉斯国家地理"]
+        )
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: "fid 510381")
+                .flatMap(\.forums)
+                .map(\.name),
+            ["晴风村"]
+        )
+        XCTAssertEqual(
+            ForumDirectorySearch.filter(categories, query: "stid 35925536")
+                .flatMap(\.forums)
+                .map(\.name),
+            ["二次元综合"]
+        )
+    }
+
+    func testSearchReturnsOnlyCategoriesContainingMatches() {
+        let result = ForumDirectorySearch.filter(categories, query: "不存在的版面")
+
+        XCTAssertTrue(result.isEmpty)
+    }
+}
+
 private actor ToolboxFallbackTransport: HTTPTransport {
     private var hosts: [String] = []
 
