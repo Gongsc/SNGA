@@ -299,15 +299,8 @@ struct ThemeRGB: Equatable, Sendable {
     }
 }
 
-private struct AppThemeEnvironmentKey: EnvironmentKey {
-    static let defaultValue = ResolvedAppTheme.system
-}
-
 extension EnvironmentValues {
-    var sngaTheme: ResolvedAppTheme {
-        get { self[AppThemeEnvironmentKey.self] }
-        set { self[AppThemeEnvironmentKey.self] = newValue }
-    }
+    @Entry var sngaTheme: ResolvedAppTheme = .system
 }
 
 @main

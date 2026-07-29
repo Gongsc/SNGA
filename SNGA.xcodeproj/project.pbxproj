@@ -28,6 +28,9 @@
 		8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */; };
 		A60A00000000000000000001 /* ToolboxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60A00000000000000000002 /* ToolboxAPIService.swift */; };
 		A60A00000000000000000003 /* ToolboxViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60A00000000000000000004 /* ToolboxViews.swift */; };
+		A61B00000000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000002 /* SettingsView.swift */; };
+		A61B00000000000000000003 /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000004 /* MessageDetailView.swift */; };
+		A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000006 /* NGAEmoticonPicker.swift */; };
 		B17FD659E2BB6E83D60552A6 /* ForumViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12618816A06AC96CE940A86 /* ForumViews.swift */; };
 		B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */; };
 		B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F28E6EC3AF398C4F536780 /* ForumService.swift */; };
@@ -77,6 +80,9 @@
 		8832D4CE472AC37C4868F769 /* SNGA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SNGA.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A60A00000000000000000002 /* ToolboxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxAPIService.swift; sourceTree = "<group>"; };
 		A60A00000000000000000004 /* ToolboxViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxViews.swift; sourceTree = "<group>"; };
+		A61B00000000000000000002 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A61B00000000000000000004 /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
+		A61B00000000000000000006 /* NGAEmoticonPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAEmoticonPicker.swift; sourceTree = "<group>"; };
 		AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2A3630313FF101D2020A0A /* SNGATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2FE63519863D051826534B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -200,8 +206,10 @@
 			children = (
 				E38CA9081796C1C452348BEF /* Components */,
 				E12618816A06AC96CE940A86 /* ForumViews.swift */,
+				A61B00000000000000000004 /* MessageDetailView.swift */,
 				2D5977B956991E18788ADB30 /* MessageViews.swift */,
 				AC2FE63519863D051826534B /* RootView.swift */,
+				A61B00000000000000000002 /* SettingsView.swift */,
 				F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */,
 				6F0C86AA303E8B9438408600 /* ThreadViews.swift */,
 				A60A00000000000000000004 /* ToolboxViews.swift */,
@@ -213,6 +221,7 @@
 			isa = PBXGroup;
 			children = (
 				2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */,
+				A61B00000000000000000006 /* NGAEmoticonPicker.swift */,
 				B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */,
 				AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */,
 			);
@@ -355,6 +364,7 @@
 				589ECF182CD27AF1B8B2EFA6 /* Identifiers.swift in Sources */,
 				B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */,
 				2C35932AD881A29C313E16F8 /* LoginWebView.swift in Sources */,
+				A61B00000000000000000003 /* MessageDetailView.swift in Sources */,
 				D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */,
 				19745F82297470AA6FBAF9C7 /* NGAEndpoint.swift in Sources */,
 				26B721BD8D05B28C170741BF /* NGAForumService.swift in Sources */,
@@ -364,12 +374,14 @@
 				30718179FA2D1AC01BF722CA /* PersistenceModels.swift in Sources */,
 				6788A3D67B25227C89289B89 /* PostWebView.swift in Sources */,
 				F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */,
+				A61B00000000000000000001 /* SettingsView.swift in Sources */,
 				A60A00000000000000000001 /* ToolboxAPIService.swift in Sources */,
 				A60A00000000000000000003 /* ToolboxViews.swift in Sources */,
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
 				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
+				A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */,
 				189986D3BF5D6C041C9703FB /* UBBRichEditor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

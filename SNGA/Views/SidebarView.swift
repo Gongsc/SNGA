@@ -3,50 +3,12 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
-    @Binding var accountToRemove: AccountSummary?
 
     var body: some View {
         List {
             Section("账号") {
                 ForEach(model.accounts) { account in
-                    Button {
-                        Task { await model.selectAccount(account.id) }
-                    } label: {
-                        SidebarInteractiveRow(isSelected: account.id == model.activeAccountID) {
-                            HStack(spacing: 8) {
-                                AsyncImage(url: account.avatarURL) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(width: 24, height: 24)
-                                .clipShape(.circle)
-
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(account.displayName).lineLimit(1)
-                                    if account.sessionState != .valid {
-                                        Text(account.sessionState.title)
-                                            .font(.caption2)
-                                            .foregroundStyle(.red)
-                                    }
-                                }
-                                Spacer()
-                                if account.id == model.activeAccountID {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.tint)
-                                }
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .sidebarListRow()
-                    .contextMenu {
-                        if account.sessionState == .requiresLogin {
-                            Button("重新登录") { model.showsLogin = true }
-                        }
-                        Button("移除账号", role: .destructive) { accountToRemove = account }
-                    }
+                    SidebarAccountButton(account: account)
                 }
                 Button {
                     model.showsLogin = true
@@ -186,19 +148,78 @@ struct SidebarView: View {
     }
 }
 
-private struct SidebarInteractiveRow<Content: View>: View {
-    @Environment(\.sngaTheme) private var theme
-    let isSelected: Bool
-    let content: () -> Content
-    @State private var isHovered = false
-
-    init(isSelected: Bool, @ViewBuilder content: @escaping () -> Content) {
-        self.isSelected = isSelected
-        self.content = content
-    }
+private struct SidebarAccountButton: View {
+    @Environment(AppModel.self) private var model
+    let account: AccountSummary
+    @State private var showsRemoveConfirmation = false
 
     var body: some View {
-        content()
+        Button {
+            Task { await model.selectAccount(account.id) }
+        } label: {
+            SidebarInteractiveRow(isSelected: account.id == model.activeAccountID) {
+                HStack(spacing: 8) {
+                    AsyncImage(url: account.avatarURL) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "person.crop.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 24, height: 24)
+                    .clipShape(.circle)
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(account.displayName).lineLimit(1)
+                        if account.sessionState != .valid {
+                            Text(account.sessionState.title)
+                                .font(.caption2)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    Spacer()
+                    if account.id == model.activeAccountID {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.tint)
+                            .accessibilityLabel("当前账号")
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .sidebarListRow()
+        .contextMenu {
+            if account.sessionState == .requiresLogin {
+                Button("重新登录") { model.showsLogin = true }
+            }
+            Button("移除账号", role: .destructive) {
+                showsRemoveConfirmation = true
+            }
+        }
+        .confirmationDialog(
+            "移除账号？",
+            isPresented: $showsRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("移除 \(account.displayName)", role: .destructive) {
+                Task { await model.removeAccount(account.id) }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("会删除此账号的会话、收藏和草稿，不能撤销。")
+        }
+    }
+}
+
+private struct SidebarInteractiveRow<Content: View>: View {
+    @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let isSelected: Bool
+    @ViewBuilder let content: Content
+    @State private var isHovered = false
+
+    var body: some View {
+        content
             .padding(.horizontal, 7)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -208,8 +229,8 @@ private struct SidebarInteractiveRow<Content: View>: View {
                     .fill(backgroundColor)
             }
             .onHover { isHovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.12), value: isSelected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isSelected)
     }
 
     private var backgroundColor: Color {

@@ -8,6 +8,7 @@ struct BottomActionBarButtonStyle: ButtonStyle {
     private struct BottomActionBarButton: View {
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.sngaTheme) private var theme
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
         let configuration: Configuration
         @State private var isHovered = false
 
@@ -21,11 +22,16 @@ struct BottomActionBarButtonStyle: ButtonStyle {
                         .strokeBorder(borderColor)
                 }
                 .contentShape(.rect)
-                .scaleEffect(configuration.isPressed && isEnabled ? 0.96 : 1)
+                .scaleEffect(
+                    configuration.isPressed && isEnabled && !reduceMotion ? 0.96 : 1
+                )
                 .opacity(isEnabled ? 1 : 0.45)
                 .onHover { isHovered = $0 }
-                .animation(.easeOut(duration: 0.1), value: isHovered)
-                .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isHovered)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.08),
+                    value: configuration.isPressed
+                )
         }
 
         private var backgroundColor: Color {
@@ -265,7 +271,9 @@ struct UserCenterView: View {
                 ) {
                     ReputationMetric(
                         title: "威望",
-                        value: profile.reputation.map { String(format: "%.1f", $0) } ?? "—",
+                        value: profile.reputation?.formatted(
+                            .number.precision(.fractionLength(1))
+                        ) ?? "—",
                         systemImage: "star.circle"
                     )
                     ReputationMetric(
@@ -501,6 +509,7 @@ private struct UserActivityRow: View {
 struct ForumDirectoryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsedCategories: Set<String> = []
     @State private var searchText = ""
 
@@ -528,7 +537,9 @@ struct ForumDirectoryView: View {
                                     categoryHeader(category)
                                 } else {
                                     Button {
-                                        withAnimation(.easeInOut(duration: 0.16)) {
+                                        withAnimation(
+                                            reduceMotion ? nil : .easeInOut(duration: 0.16)
+                                        ) {
                                             toggleCategory(category.id)
                                         }
                                     } label: {
@@ -676,11 +687,7 @@ enum ForumDirectorySearch {
                 .joined(separator: " ")
 
                 return terms.allSatisfy { term in
-                    searchableText.range(
-                        of: term,
-                        options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                        locale: .current
-                    ) != nil
+                    searchableText.localizedStandardContains(term)
                 }
             }
             guard !matchingForums.isEmpty else { return nil }
@@ -695,6 +702,7 @@ enum ForumDirectorySearch {
 
 private struct ForumDirectoryInteractiveRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let forum: Forum
     let isFavorite: Bool
     @State private var isHovered = false
@@ -740,7 +748,7 @@ private struct ForumDirectoryInteractiveRow: View {
                 .fill(isHovered ? theme.accentColor.opacity(0.14) : Color.clear)
         }
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
     }
 }
 
@@ -1026,6 +1034,14 @@ private struct FavoriteFolderEditorSheet: View {
                         showsDeleteConfirmation = true
                     }
                     .disabled(isWorking)
+                    .confirmationDialog(
+                        "删除收藏夹及其中的所有收藏主题？",
+                        isPresented: $showsDeleteConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("删除", role: .destructive, action: deleteFolder)
+                        Button("取消", role: .cancel) {}
+                    }
                 }
                 Spacer()
                 Button("取消", role: .cancel) {
@@ -1048,24 +1064,6 @@ private struct FavoriteFolderEditorSheet: View {
         }
         .padding(22)
         .frame(width: 430)
-        .confirmationDialog(
-            "删除收藏夹及其中的所有收藏主题？",
-            isPresented: $showsDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("删除", role: .destructive) {
-                guard let delete else { return }
-                isWorking = true
-                Task {
-                    if await delete() {
-                        dismiss()
-                    } else {
-                        isWorking = false
-                    }
-                }
-            }
-            Button("取消", role: .cancel) {}
-        }
     }
 
     private var trimmedName: String {
@@ -1083,11 +1081,24 @@ private struct FavoriteFolderEditorSheet: View {
             }
         }
     }
+
+    private func deleteFolder() {
+        guard let delete else { return }
+        isWorking = true
+        Task {
+            if await delete() {
+                dismiss()
+            } else {
+                isWorking = false
+            }
+        }
+    }
 }
 
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let forumID: ForumID
     var reservesSidebarToggleSpace = false
     @State private var isSubforumsExpanded = false
@@ -1104,7 +1115,7 @@ struct TopicListView: View {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
                             Button {
-                                withAnimation(.easeInOut(duration: 0.16)) {
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.16))) {
                                     isSubforumsExpanded.toggle()
                                 }
                             } label: {
@@ -1194,14 +1205,14 @@ struct TopicListView: View {
                         Task {
                             await model.loadTopicPage(forumID: forumID, page: page)
                             await Task.yield()
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
                         }
                     }
                 ) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
                         }
                     } label: {
@@ -1229,7 +1240,7 @@ struct TopicListView: View {
                         Task {
                             await model.refreshTopicList()
                             await Task.yield()
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
                         }
@@ -1265,18 +1276,22 @@ struct TopicListView: View {
                             .stroke(.separator.opacity(0.5))
                     }
                     .padding(.top, 10)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .move(edge: .top).combined(with: .opacity)
+                    )
                     .accessibilityIdentifier("topic-list-refreshing")
                 }
             }
             .animation(
-                .easeInOut(duration: 0.18),
+                motionAnimation(.easeInOut(duration: 0.18)),
                 value: model.isRefreshingTopics
             )
             .onChange(of: model.topicListScrollToTopRevision) {
                 Task { @MainActor in
                     await Task.yield()
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                         proxy.scrollTo(topAnchor, anchor: .top)
                     }
                 }
@@ -1343,7 +1358,10 @@ struct TopicListView: View {
         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 12))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
-        .animation(.easeOut(duration: 0.16), value: reservesSidebarToggleSpace)
+        .animation(
+            motionAnimation(.easeOut(duration: 0.16)),
+            value: reservesSidebarToggleSpace
+        )
         .accessibilityIdentifier("topic-list-top")
     }
 
@@ -1379,10 +1397,15 @@ struct TopicListView: View {
         !model.subforums.isEmpty &&
             model.subforums.allSatisfy { model.includedSubforumIDs.contains($0.id) }
     }
+
+    private func motionAnimation(_ animation: Animation) -> Animation? {
+        reduceMotion ? nil : animation
+    }
 }
 
 private struct ForumTitleBackButton: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let accessibilityIdentifier: String
     var isDisabled = false
@@ -1408,7 +1431,7 @@ private struct ForumTitleBackButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .onHover { isHovered = $0 && !isDisabled }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
         .help(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier(accessibilityIdentifier)
@@ -1624,6 +1647,7 @@ private struct SubforumTile: View {
 
 private struct TopicInteractiveRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let topic: Topic
     let isSelected: Bool
     @State private var isHovered = false
@@ -1639,8 +1663,8 @@ private struct TopicInteractiveRow: View {
                     .fill(backgroundColor)
             }
             .onHover { isHovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
-            .animation(.easeOut(duration: 0.12), value: isSelected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isSelected)
     }
 
     private var backgroundColor: Color {

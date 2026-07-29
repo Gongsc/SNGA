@@ -73,7 +73,9 @@ final class AppModel {
     var previewImageURL: URL?
     var checkingInAccountIDs: Set<AccountID> = []
     var checkInFailures: [AccountID: String] = [:]
-    private var checkInRevision = 0
+    private(set) var activeAccountCheckInStatus: DailyCheckInStatus = .failed(
+        message: "尚未登录"
+    )
 
     @ObservationIgnored private let container: ModelContainer
     @ObservationIgnored private let context: ModelContext
@@ -129,27 +131,6 @@ final class AppModel {
     var canReturnFromUserCenterToTopicList: Bool {
         guard case .forum = forumUserReturnSelection else { return false }
         return true
-    }
-
-    var activeAccountCheckInStatus: DailyCheckInStatus {
-        _ = checkInRevision
-        guard let activeAccountID else {
-            return .failed(message: "尚未登录")
-        }
-        if checkingInAccountIDs.contains(activeAccountID) {
-            return .checkingIn
-        }
-        if let failure = checkInFailures[activeAccountID] {
-            return .failed(message: failure)
-        }
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
-            return .failed(message: "无法读取签到状态")
-        }
-        if record.lastCheckInDay == CheckInPolicy.dayKey(for: Date()) {
-            return .checkedIn(message: record.lastCheckInMessage ?? "今日已签到")
-        }
-        return .notCheckedIn
     }
 
     var selectedForumID: ForumID? {
@@ -271,6 +252,7 @@ final class AppModel {
             try context.save()
             accounts = records.map { $0.summary() }
             activeAccountID = records.first(where: \.isCurrent)?.accountID ?? records.first?.accountID
+            refreshActiveAccountCheckInStatus(records: records)
         } catch {
             present(error)
         }
@@ -330,6 +312,7 @@ final class AppModel {
             try context.save()
             activeAccountID = accountID
             accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
+            refreshActiveAccountCheckInStatus(records: records)
             clearVisibleContent()
             if let activeAccount {
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
@@ -1421,15 +1404,18 @@ final class AppModel {
     }
 
     func checkInActiveAccount() async {
-        guard let activeAccountID,
-              activeAccountCheckInStatus.canCheckIn else {
+        guard let activeAccountID else {
             return
         }
+        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        refreshActiveAccountCheckInStatus(records: records)
+        guard activeAccountCheckInStatus.canCheckIn else { return }
         await checkInAccounts(force: true, limitedTo: [activeAccountID])
     }
 
     private func checkInAccounts(force: Bool, limitedTo accountIDs: Set<AccountID>?) async {
         let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        refreshActiveAccountCheckInStatus(records: records)
         var results: [String] = []
         var hasFailure = false
         for record in records where record.sessionState == .valid {
@@ -1439,7 +1425,7 @@ final class AppModel {
             guard let service = services[accountID] else { continue }
             checkingInAccountIDs.insert(accountID)
             checkInFailures[accountID] = nil
-            checkInRevision += 1
+            refreshActiveAccountCheckInStatus(records: records)
             do {
                 let result = try await service.checkIn()
                 record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
@@ -1455,10 +1441,10 @@ final class AppModel {
                 results.append("\(record.displayName)：\(message)")
             }
             checkingInAccountIDs.remove(accountID)
-            checkInRevision += 1
+            refreshActiveAccountCheckInStatus(records: records)
         }
         try? context.save()
-        checkInRevision += 1
+        refreshActiveAccountCheckInStatus(records: records)
         if !results.isEmpty {
             statusMessage = results.joined(separator: "\n")
             statusMessageIsError = hasFailure
@@ -1843,6 +1829,36 @@ final class AppModel {
             return "签到请求被 NGA 拒绝，请稍后重试"
         }
         return error.localizedDescription
+    }
+
+    private func refreshActiveAccountCheckInStatus(
+        records suppliedRecords: [AccountRecord]? = nil
+    ) {
+        guard let activeAccountID else {
+            activeAccountCheckInStatus = .failed(message: "尚未登录")
+            return
+        }
+        if checkingInAccountIDs.contains(activeAccountID) {
+            activeAccountCheckInStatus = .checkingIn
+            return
+        }
+        if let failure = checkInFailures[activeAccountID] {
+            activeAccountCheckInStatus = .failed(message: failure)
+            return
+        }
+        let records = suppliedRecords
+            ?? ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
+        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
+            activeAccountCheckInStatus = .failed(message: "无法读取签到状态")
+            return
+        }
+        if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
+            activeAccountCheckInStatus = .checkedIn(
+                message: record.lastCheckInMessage ?? "今日已签到"
+            )
+        } else {
+            activeAccountCheckInStatus = .notCheckedIn
+        }
     }
 
     private func markSessionRequiresLogin(accountID: AccountID) {

@@ -43,6 +43,7 @@ struct ToolboxMenuView: View {
 
 private struct ToolboxMenuRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let feed: ToolboxFeed
     let isSelected: Bool
     @State private var isHovered = false
@@ -99,8 +100,8 @@ private struct ToolboxMenuRow: View {
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.14), value: isHovered)
-        .animation(.easeOut(duration: 0.14), value: isSelected)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isSelected)
     }
 }
 
@@ -334,6 +335,7 @@ private struct ToolboxFeedHeader: View {
 
 private struct ToolboxArticleRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let article: ToolboxArticle
     let summaryLineLimit: Int?
     @State private var isHovered = false
@@ -396,7 +398,7 @@ private struct ToolboxArticleRow: View {
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovered)
     }
 }
 
@@ -434,7 +436,7 @@ private struct WorldBriefingView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(briefing.news.enumerated()), id: \.offset) { index, item in
+                    ForEach(briefing.news.enumerated(), id: \.offset) { index, item in
                         HStack(alignment: .top, spacing: 12) {
                             Text("\(index + 1)")
                                 .font(.caption.bold().monospacedDigit())

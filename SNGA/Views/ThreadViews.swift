@@ -8,6 +8,7 @@ private enum ThreadNavigationDirection {
 
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var replyTarget: Post?
     @State private var writesNewReply = false
     @State private var showsTopicLinkActions = false
@@ -107,14 +108,14 @@ struct ThreadView: View {
                         Task {
                             await model.loadThreadPage(topicID: topicID, page: page)
                             await Task.yield()
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
                         }
                     }
                 ) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
                         }
                     } label: {
@@ -236,22 +237,25 @@ struct ThreadView: View {
     }
 
     private var threadTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
         switch navigationDirection {
         case .forward:
-            .asymmetric(
+            return .asymmetric(
                 insertion: .move(edge: .trailing).combined(with: .opacity),
                 removal: .move(edge: .leading).combined(with: .opacity)
             )
         case .backward:
-            .asymmetric(
+            return .asymmetric(
                 insertion: .move(edge: .leading).combined(with: .opacity),
                 removal: .move(edge: .trailing).combined(with: .opacity)
             )
         }
     }
 
-    private var threadNavigationAnimation: Animation {
-        .spring(response: 0.38, dampingFraction: 0.86)
+    private var threadNavigationAnimation: Animation? {
+        motionAnimation(.spring(response: 0.38, dampingFraction: 0.86))
     }
 
     private func navigateBack() {
@@ -270,7 +274,7 @@ struct ThreadView: View {
         }
         Task { @MainActor in
             await Task.yield()
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
                 proxy.scrollTo(postID, anchor: .top)
             }
             pendingLinkedPostID = nil
@@ -290,7 +294,7 @@ struct ThreadView: View {
             }
             await Task.yield()
             if model.posts.contains(where: { $0.id == postID }) {
-                withAnimation(.easeInOut(duration: 0.25)) {
+                withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
                     proxy.scrollTo(postID, anchor: .top)
                 }
             } else {
@@ -317,7 +321,7 @@ struct ThreadView: View {
                     Task { @MainActor in
                         await model.loadThreadPage(topicID: topicID, page: page)
                         await Task.yield()
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
                         }
                     }
@@ -394,6 +398,10 @@ struct ThreadView: View {
             model.statusMessageIsError = true
         }
     }
+
+    private func motionAnimation(_ animation: Animation) -> Animation? {
+        reduceMotion ? nil : animation
+    }
 }
 
 private struct TopicLinkActionsPopover: View {
@@ -433,6 +441,7 @@ private struct TopicLinkActionsPopover: View {
 }
 
 private struct ThreadTitleHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let topic: Topic
     let previousTitle: String?
     let navigateBack: () -> Void
@@ -445,9 +454,11 @@ private struct ThreadTitleHeader: View {
                     action: navigateBack
                 )
                 .transition(
-                    .move(edge: .leading)
-                        .combined(with: .opacity)
-                        .combined(with: .scale(scale: 0.8))
+                    reduceMotion
+                        ? .opacity
+                        : .move(edge: .leading)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.8))
                 )
             }
 
@@ -663,7 +674,12 @@ private struct PostRow: View {
                     Button {
                         openAuthorProfile(uid: authorUID)
                     } label: {
-                        authorAvatar
+                        Label {
+                            Text("查看 \(authorDisplayName) 的用户信息")
+                        } icon: {
+                            authorAvatar
+                        }
+                        .labelStyle(.iconOnly)
                     }
                     .buttonStyle(.plain)
                     .contentShape(.circle)
@@ -741,6 +757,10 @@ private struct PostRow: View {
     private var authorUID: Int64? {
         guard let authorUID = post.authorUID, authorUID > 0 else { return nil }
         return authorUID
+    }
+
+    private var authorDisplayName: String {
+        post.author.isEmpty ? "未知用户" : post.author
     }
 
     private var authorAvatar: some View {
@@ -1076,11 +1096,10 @@ struct ReplyComposerView: View {
         systemImage: String,
         action: UBBEditorAction
     ) -> some View {
-        Button {
+        Button(help, systemImage: systemImage) {
             apply(action)
-        } label: {
-            Image(systemName: systemImage)
         }
+        .labelStyle(.iconOnly)
         .help(help)
     }
 
