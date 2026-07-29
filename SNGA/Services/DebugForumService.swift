@@ -71,9 +71,30 @@ actor DebugForumService: NGAForumService {
     }
 
     func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage {
-        let topic = Topic(id: topicID, forumID: forum.id, subject: "主题一：欢迎使用 SNGA", author: "测试用户", replyCount: 1)
+        let isPrimaryTopic = topicID == TopicID(rawValue: 9001)
+        let topic = Topic(
+            id: topicID,
+            forumID: forum.id,
+            subject: isPrimaryTopic
+                ? "主题一：欢迎使用 SNGA"
+                : "主题二：多账号与收藏测试",
+            author: "测试用户",
+            replyCount: 1
+        )
+        let firstPostHTML = isPrimaryTopic
+            ? """
+              <p>这是一条用于 UI 测试的帖子内容。</p>
+              <p><a href="https://bbs.nga.cn/read.php?tid=9002">打开站内关联主题</a></p>
+              """
+            : "<p>这是通过站内链接打开的关联主题。</p>"
         return ThreadPage(topic: topic, posts: [
-            Post(id: PostID(rawValue: 1), topicID: topicID, floor: 0, author: "测试用户", html: NGAParser().sanitizedPostHTML("<p>这是一条用于 UI 测试的帖子内容。</p>")),
+            Post(
+                id: PostID(rawValue: 1),
+                topicID: topicID,
+                floor: 0,
+                author: "测试用户",
+                html: NGAParser().sanitizedPostHTML(firstPostHTML)
+            ),
             Post(id: PostID(rawValue: 2), topicID: topicID, floor: 1, author: "回复用户", html: NGAParser().sanitizedPostHTML("<blockquote>引用内容</blockquote><p>回复成功。</p>"))
         ], page: page, hasMore: page < 3, totalPages: 3)
     }

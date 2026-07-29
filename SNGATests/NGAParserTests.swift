@@ -2,10 +2,27 @@ import CoreFoundation
 import Foundation
 import SwiftSoup
 import XCTest
+@preconcurrency import WebKit
 @testable import SNGA
 
 final class NGAParserTests: XCTestCase {
     private let parser = NGAParser()
+
+    @MainActor
+    func testPostWebViewCacheReusesOnlyMatchingRenderedContent() {
+        let cache = PostWebViewCache(countLimit: 2)
+        let webView = WKWebView(frame: .zero)
+
+        cache.store(webView, html: "first", height: 42, for: "post")
+        let cached = cache.take(for: "post", matching: "first")
+
+        XCTAssertTrue(cached?.webView === webView)
+        XCTAssertEqual(cached?.height, 42)
+        XCTAssertNil(cache.take(for: "post", matching: "first"))
+
+        cache.store(webView, html: "stale", height: 42, for: "post")
+        XCTAssertNil(cache.take(for: "post", matching: "updated"))
+    }
 
     func testParsesProfileDetailsAndReputation() throws {
         let payload = """
@@ -784,6 +801,54 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(url.absoluteString, "https://bbs.nga.cn/read.php?tid=47239680")
         XCTAssertFalse(url.absoluteString.contains("__output"))
+    }
+
+    func testRecognizesNGAInternalTopicAndPostLinks() throws {
+        let topicURL = try XCTUnwrap(URL(
+            string: "https://nga.178.com/read.php?pid=876078281&tid=47237166&page=3"
+        ))
+        let postURL = try XCTUnwrap(URL(
+            string: "https://bbs.ngacn.cc/read.php?pid=876078282&page=4"
+        ))
+
+        XCTAssertEqual(
+            NGAInternalLink.destination(for: topicURL),
+            .topic(
+                topicID: TopicID(rawValue: 47_237_166),
+                page: 3,
+                postID: PostID(rawValue: 876_078_281)
+            )
+        )
+        XCTAssertEqual(
+            NGAInternalLink.destination(for: postURL),
+            .post(postID: PostID(rawValue: 876_078_282), page: 4)
+        )
+    }
+
+    func testRecognizesNGAInternalForumAndUserLinks() throws {
+        let subforumURL = try XCTUnwrap(URL(
+            string: "https://bbs.nga.cn/thread.php?stid=18855745"
+        ))
+        let userURL = try XCTUnwrap(URL(
+            string: "https://ngabbs.com/nuke.php?func=ucp&uid=36379260"
+        ))
+
+        XCTAssertEqual(
+            NGAInternalLink.destination(for: subforumURL),
+            .forum(ForumID(stid: 18_855_745))
+        )
+        XCTAssertEqual(
+            NGAInternalLink.destination(for: userURL),
+            .user(uid: 36_379_260)
+        )
+    }
+
+    func testDoesNotTreatExternalLookalikeAsNGAInternalLink() throws {
+        let externalURL = try XCTUnwrap(URL(
+            string: "https://bbs.nga.cn.example.com/read.php?tid=47237166"
+        ))
+
+        XCTAssertNil(NGAInternalLink.destination(for: externalURL))
     }
 
     func testThreadHTMLEndpointDoesNotRequestStructuredOutput() {

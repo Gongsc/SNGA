@@ -167,19 +167,14 @@ struct ToolboxFeedView: View {
         .navigationTitle(feed.title)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("正在刷新\(feed.title)")
-                } else {
-                    Button {
-                        model.refreshToolbox()
-                    } label: {
-                        Label("刷新\(feed.title)", systemImage: "arrow.clockwise")
-                    }
-                    .help("刷新\(feed.title)")
-                    .accessibilityIdentifier("toolbox-refresh")
+                Button {
+                    model.refreshToolbox()
+                } label: {
+                    Label("刷新\(feed.title)", systemImage: "arrow.clockwise")
                 }
+                .help("刷新\(feed.title)")
+                .disabled(isLoading)
+                .accessibilityIdentifier("toolbox-refresh")
             }
         }
         .task(id: "\(feed.rawValue)-\(model.toolboxRefreshRevision)") {

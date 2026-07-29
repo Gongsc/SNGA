@@ -1,5 +1,88 @@
 import Foundation
 
+enum NGAInternalDestination: Hashable, Sendable {
+    case topic(topicID: TopicID, page: Int?, postID: PostID?)
+    case post(postID: PostID, page: Int?)
+    case forum(ForumID)
+    case user(uid: Int64)
+}
+
+enum NGAInternalLink {
+    private static let forumDomains = [
+        "nga.cn",
+        "ngacn.cc",
+        "ngabbs.com"
+    ]
+
+    static func destination(for url: URL) -> NGAInternalDestination? {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host?.lowercased(),
+              isForumHost(host),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
+            return nil
+        }
+
+        let path = url.path.lowercased()
+        let queryItems = components.queryItems ?? []
+        func value(named name: String) -> String? {
+            queryItems.first {
+                $0.name.compare(name, options: .caseInsensitive) == .orderedSame
+            }?.value
+        }
+        func int64(named name: String) -> Int64? {
+            value(named: name).flatMap(Int64.init)
+        }
+        func positivePage() -> Int? {
+            guard let page = value(named: "page").flatMap(Int.init), page > 0 else {
+                return nil
+            }
+            return page
+        }
+
+        if path.hasSuffix("/read.php") || path == "read.php" {
+            let page = positivePage()
+            let postID = int64(named: "pid").map(PostID.init(rawValue:))
+            if let topicID = int64(named: "tid").map(TopicID.init(rawValue:)) {
+                return .topic(topicID: topicID, page: page, postID: postID)
+            }
+            if let postID {
+                return .post(postID: postID, page: page)
+            }
+        }
+
+        if path.hasSuffix("/thread.php") || path == "thread.php" {
+            if let stid = int64(named: "stid"), stid >= 0 {
+                return .forum(ForumID(stid: stid))
+            }
+            if let fid = int64(named: "fid") {
+                return .forum(ForumID(rawValue: fid))
+            }
+        }
+
+        if path.hasSuffix("/nuke.php") || path == "nuke.php",
+           let uid = int64(named: "uid"),
+           uid > 0 {
+            let function = value(named: "func")?.lowercased()
+            let library = value(named: "__lib")?.lowercased()
+            if function == "ucp" || library == "ucp" {
+                return .user(uid: uid)
+            }
+        }
+
+        return nil
+    }
+
+    private static func isForumHost(_ host: String) -> Bool {
+        if host == "nga.178.com" || host.hasSuffix(".nga.178.com") {
+            return true
+        }
+        return forumDomains.contains { domain in
+            host == domain || host.hasSuffix(".\(domain)")
+        }
+    }
+}
+
 enum HTTPMethod: String, Sendable {
     case get = "GET"
     case post = "POST"

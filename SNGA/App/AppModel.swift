@@ -2,6 +2,15 @@ import Foundation
 import Observation
 import SwiftData
 
+private struct ThreadNavigationSnapshot: Sendable {
+    let topic: Topic
+    let posts: [Post]
+    let hotReplies: [Post]
+    let page: Int
+    let hasMore: Bool
+    let totalPages: Int
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -87,6 +96,7 @@ final class AppModel {
     @ObservationIgnored private var favoriteTopicRequestID: UUID?
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
     private var forumUserReturnSelection: SidebarSelection?
+    private var threadNavigationPath: [ThreadNavigationSnapshot] = []
     private var favoriteTopicIDs: Set<TopicID> = []
     private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
@@ -156,6 +166,14 @@ final class AppModel {
     var isCurrentTopicFavorite: Bool {
         guard let currentTopic else { return false }
         return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+    }
+
+    var canReturnToPreviousThread: Bool {
+        !threadNavigationPath.isEmpty
+    }
+
+    var previousThreadTitle: String? {
+        threadNavigationPath.last?.topic.subject
     }
 
     var selectedFavoriteTopicFolder: TopicFavoriteFolder? {
@@ -385,6 +403,7 @@ final class AppModel {
             forumUserReturnSelection = nil
             selectedTopicID = nil
             currentTopic = nil
+            resetThreadNavigationHistory()
         }
         sidebarSelection = .userCenter(uid)
         selectedMessageID = nil
@@ -512,6 +531,7 @@ final class AppModel {
         currentTopic = nil
         posts = []
         hotReplies = []
+        resetThreadNavigationHistory()
     }
 
     func openSubforum(_ forum: Forum) async {
@@ -538,6 +558,7 @@ final class AppModel {
         subforums = []
         includedSubforumIDs = []
         subforumSelectionForumID = nil
+        resetThreadNavigationHistory()
         await loadTopics(forumID: forum.id, reset: true)
     }
 
@@ -691,6 +712,7 @@ final class AppModel {
     }
 
     func openTopic(_ topic: Topic) async {
+        resetThreadNavigationHistory()
         if let mirroredForumID = topic.mirroredForumID {
             let mirroredForum = subforums.first { $0.id == mirroredForumID }
                 ?? forums.first { $0.id == mirroredForumID }
@@ -707,6 +729,48 @@ final class AppModel {
         threadPage = 1
         threadTotalPages = max(1, (topic.replyCount + 20) / 20)
         await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
+    }
+
+    @discardableResult
+    func beginLinkedTopicNavigation(to topicID: TopicID, page: Int) -> Bool {
+        guard selectedTopicID != topicID, let currentTopic else { return false }
+        threadNavigationPath.append(ThreadNavigationSnapshot(
+            topic: currentTopic,
+            posts: posts,
+            hotReplies: hotReplies,
+            page: threadPage,
+            hasMore: threadHasMore,
+            totalPages: threadTotalPages
+        ))
+        threadRequestID = UUID()
+        selectedTopicID = topicID
+        self.currentTopic = Topic(
+            id: topicID,
+            forumID: currentTopic.forumID,
+            subject: "主题 \(topicID.rawValue)",
+            author: "",
+            replyCount: 0
+        )
+        posts = []
+        hotReplies = []
+        threadPage = max(1, page)
+        threadHasMore = false
+        threadTotalPages = max(1, page)
+        return true
+    }
+
+    @discardableResult
+    func returnToPreviousThread() -> Bool {
+        guard let previous = threadNavigationPath.popLast() else { return false }
+        threadRequestID = UUID()
+        selectedTopicID = previous.topic.id
+        currentTopic = previous.topic
+        posts = previous.posts
+        hotReplies = previous.hotReplies
+        threadPage = previous.page
+        threadHasMore = previous.hasMore
+        threadTotalPages = previous.totalPages
+        return true
     }
 
     func loadThread(
@@ -854,6 +918,7 @@ final class AppModel {
     }
 
     func openMessage(_ message: ForumMessage) async {
+        resetThreadNavigationHistory()
         selectedTopicID = nil
         currentTopic = nil
         selectedMessageID = message.id
@@ -1687,6 +1752,7 @@ final class AppModel {
         userActivityTotalPages = 1
         selectedTopicID = nil
         selectedMessageID = nil
+        resetThreadNavigationHistory()
         previewImageURL = nil
         threadPage = 1
         threadHasMore = false
@@ -1700,6 +1766,10 @@ final class AppModel {
         unreadCount = 0
         messageUnreadCounts = [:]
         isRefreshingTopics = false
+    }
+
+    private func resetThreadNavigationHistory() {
+        threadNavigationPath = []
     }
 
     private func beginLoading() {
