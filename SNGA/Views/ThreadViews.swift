@@ -61,8 +61,13 @@ struct ThreadView: View {
                     ForEach(model.posts) { post in
                         PostRow(
                             post: post,
+                            topicRating: model.currentTopic?.rating,
                             reply: {
-                                replyTarget = post
+                                if post.floor == 0 {
+                                    writesNewReply = true
+                                } else {
+                                    replyTarget = post
+                                }
                             },
                             openPost: { postID, page in
                                 revealPost(
@@ -80,6 +85,7 @@ struct ThreadView: View {
                         if post.floor == 0, !model.hotReplies.isEmpty {
                             HotRepliesSection(
                                 posts: model.hotReplies,
+                                topicRating: model.currentTopic?.rating,
                                 reply: { replyTarget = $0 },
                                 openPost: { postID, page in
                                     revealPost(
@@ -662,6 +668,7 @@ private struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     let post: Post
+    let topicRating: TopicRating?
     var isHotReply = false
     var reply: () -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
@@ -735,6 +742,14 @@ private struct PostRow: View {
                     }
                 }
             )
+            if let poll = post.poll {
+                TopicPollView(poll: poll)
+            }
+            if post.floor == 0, let topicRating {
+                TopicRatingView(rating: topicRating, startReply: reply)
+            } else if let topicRating, !post.ratingScores.isEmpty {
+                PostRatingView(rating: topicRating, scores: post.ratingScores)
+            }
             HStack(spacing: 12) {
                 Spacer()
                 voteButton(direction: .up)
@@ -821,6 +836,7 @@ private struct PostRow: View {
 private struct HotRepliesSection: View {
     @Environment(\.sngaTheme) private var theme
     let posts: [Post]
+    let topicRating: TopicRating?
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
     var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
@@ -835,6 +851,7 @@ private struct HotRepliesSection: View {
             ForEach(posts) { post in
                 PostRow(
                     post: post,
+                    topicRating: topicRating,
                     isHotReply: true,
                     reply: { reply(post) },
                     openPost: openPost,
@@ -857,6 +874,7 @@ struct ReplyComposerView: View {
     let topic: Topic
     let replyTo: Post?
     @State private var content = ""
+    @State private var ratingSelections: [TopicRatingSelection]
     @State private var editorMode = ReplyEditorMode.visual
     @State private var editorCommand: UBBEditorCommand?
     @State private var showsEmoticons = false
@@ -864,6 +882,14 @@ struct ReplyComposerView: View {
     @State private var showsImageEditor = false
     @State private var loadedDraft = false
     @State private var submitted = false
+
+    init(topic: Topic, replyTo: Post?) {
+        self.topic = topic
+        self.replyTo = replyTo
+        _ratingSelections = State(initialValue: topic.rating?.dimensions.map {
+            TopicRatingSelection(id: $0.id, score: nil)
+        } ?? [])
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -880,7 +906,12 @@ struct ReplyComposerView: View {
                 Button {
                     model.clearError()
                     Task {
-                        if await model.submitReply(topicID: topic.id, content: content, replyTo: replyTo?.id) {
+                        if await model.submitReply(
+                            topicID: topic.id,
+                            content: content,
+                            replyTo: replyTo?.id,
+                            ratingScores: selectedRatingScores
+                        ) {
                             submitted = true
                             dismiss()
                         }
@@ -892,7 +923,7 @@ struct ReplyComposerView: View {
                             Text("发送中")
                         }
                     } else {
-                        Text("发送")
+                        Text(selectedRatingScores.isEmpty ? "发送" : "发送并评分")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -921,6 +952,16 @@ struct ReplyComposerView: View {
             }
             .padding(8)
             Divider()
+
+            if let rating = topic.rating,
+               rating.isAcceptingResponses(at: .now) {
+                TopicRatingEditorView(
+                    rating: rating,
+                    selections: $ratingSelections
+                )
+                .padding(10)
+                Divider()
+            }
 
             switch editorMode {
             case .visual:
@@ -974,6 +1015,14 @@ struct ReplyComposerView: View {
         .onDisappear {
             if !submitted { model.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
         }
+    }
+
+    private var selectedRatingScores: [String: Int] {
+        Dictionary(
+            uniqueKeysWithValues: ratingSelections.compactMap { selection in
+                selection.score.map { (selection.id, $0) }
+            }
+        )
     }
 
     @ViewBuilder

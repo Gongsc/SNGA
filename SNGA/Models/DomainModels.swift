@@ -73,6 +73,7 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var mirroredForumID: ForumID? = nil
     var isFavorite: Bool = false
     var subjectColor: TopicSubjectColor? = nil
+    var rating: TopicRating? = nil
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {
@@ -105,6 +106,8 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0
     var userVote: PostVoteDirection? = nil
+    var poll: TopicPoll? = nil
+    var ratingScores: [String: Int] = [:]
 }
 
 struct ThreadPage: Hashable, Codable, Sendable {
@@ -311,6 +314,7 @@ struct FavoriteSnapshot: Hashable, Codable, Sendable {
 struct ReplySubmission: Hashable, Codable, Sendable {
     var content: String
     var replyTo: PostID?
+    var ratingScores: [String: Int] = [:]
 }
 
 struct SessionCookie: Codable, Hashable, Sendable {

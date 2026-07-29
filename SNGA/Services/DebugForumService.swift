@@ -79,7 +79,24 @@ actor DebugForumService: NGAForumService {
                 ? "主题一：欢迎使用 SNGA"
                 : "主题二：多账号与收藏测试",
             author: "测试用户",
-            replyCount: 1
+            replyCount: 1,
+            rating: isPrimaryTopic
+                ? TopicRating(
+                    id: topicID,
+                    dimensions: [
+                        TopicRatingDimension(
+                            id: "100",
+                            title: "客户端体验",
+                            ratingCount: 30,
+                            totalScore: 234
+                        )
+                    ],
+                    minimumScore: 1,
+                    maximumScore: 10,
+                    endsAt: Date(timeIntervalSince1970: 1_893_427_200),
+                    participantCount: 30
+                )
+                : nil
         )
         let firstPostHTML = isPrimaryTopic
             ? """
@@ -93,9 +110,39 @@ actor DebugForumService: NGAForumService {
                 topicID: topicID,
                 floor: 0,
                 author: "测试用户",
-                html: NGAParser().sanitizedPostHTML(firstPostHTML)
+                html: NGAParser().sanitizedPostHTML(firstPostHTML),
+                poll: isPrimaryTopic
+                    ? TopicPoll(
+                        id: topicID,
+                        groups: [
+                            TopicPoll.Group(
+                                id: 0,
+                                title: nil,
+                                options: [
+                                    TopicPoll.Option(id: "1", title: "原生客户端", voteCount: 18),
+                                    TopicPoll.Option(id: "2", title: "网页端", voteCount: 7),
+                                    TopicPoll.Option(id: "3", title: "都在使用", voteCount: 5)
+                                ]
+                            )
+                        ],
+                        maximumSelectionsPerGroup: 1,
+                        endsAt: Date(timeIntervalSince1970: 1_893_427_200),
+                        hidesResultsUntilVoting: false,
+                        hidesResultsUntilEnd: false,
+                        participantCount: 30
+                    )
+                    : nil
             ),
-            Post(id: PostID(rawValue: 2), topicID: topicID, floor: 1, author: "回复用户", html: NGAParser().sanitizedPostHTML("<blockquote>引用内容</blockquote><p>回复成功。</p>"))
+            Post(
+                id: PostID(rawValue: 2),
+                topicID: topicID,
+                floor: 1,
+                author: "回复用户",
+                html: NGAParser().sanitizedPostHTML(
+                    "<blockquote>引用内容</blockquote><p>回复成功。</p>"
+                ),
+                ratingScores: isPrimaryTopic ? ["100": 8] : [:]
+            )
         ], page: page, hasMore: page < 3, totalPages: 3)
     }
 
@@ -110,6 +157,8 @@ actor DebugForumService: NGAForumService {
             userVote: direction
         )
     }
+
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {}
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
         let isNotification = folder == .notifications

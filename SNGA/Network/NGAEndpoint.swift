@@ -222,6 +222,23 @@ struct NGAEndpoint: Sendable {
         )
     }
 
+    static func topicPollVote(topicID: TopicID, optionIDs: [String]) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            method: .post,
+            form: [
+                "__lib": "vote",
+                "__act": "vote",
+                "tid": topicID.description,
+                "voteid": optionIDs.joined(separator: ","),
+                "raw": "3"
+            ],
+            referer: topicWebURL(topicID: topicID),
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
     static func messages(folder: MessageFolder, page: Int) -> NGAEndpoint {
         switch folder {
         case .privateMessages:

@@ -64,6 +64,7 @@ final class AppModel {
     var topicListScrollToTopRevision = 0
     var isSubmitting = false
     var votingPostIDs: Set<PostID> = []
+    var submittingPollTopicIDs: Set<TopicID> = []
     var updatingFavoriteTopicIDs: Set<TopicID> = []
     var isUpdatingFavoriteTopicFolders = false
     var showsLogin = false
@@ -858,6 +859,57 @@ final class AppModel {
         }
     }
 
+    func submitTopicPollVote(topicID: TopicID, selection: Set<String>) async -> Bool {
+        guard let service = activeService,
+              let poll = posts.lazy.compactMap(\.poll).first(where: { $0.id == topicID }),
+              !submittingPollTopicIDs.contains(topicID) else {
+            return false
+        }
+        guard poll.isAcceptingResponses(at: .now) else {
+            present(NGAServiceError.unsupported("该投票已经结束"))
+            return false
+        }
+        guard poll.containsValidSelection(selection) else {
+            present(NGAServiceError.unsupported("请选择有效的投票选项"))
+            return false
+        }
+
+        let optionIDs = poll.orderedOptionIDs(in: selection)
+        let requestAccountID = service.accountID
+        submittingPollTopicIDs.insert(topicID)
+        defer { submittingPollTopicIDs.remove(topicID) }
+
+        do {
+            try await service.submitTopicPollVote(
+                topicID: topicID,
+                optionIDs: optionIDs
+            )
+            guard activeAccountID == requestAccountID,
+                  selectedTopicID == topicID else {
+                return false
+            }
+            await loadThreadPage(topicID: topicID, page: threadPage)
+            statusMessage = "投票已提交"
+            statusMessageIsError = false
+            return true
+        } catch {
+            guard activeAccountID == requestAccountID,
+                  selectedTopicID == topicID else {
+                return false
+            }
+            if voteSubmissionMayHaveSucceeded(error) {
+                // 写请求不会自动重试。响应不明确时刷新主题，让服务器状态
+                // 决定后续显示，避免用户重复投票。
+                await loadThreadPage(topicID: topicID, page: threadPage)
+                statusMessage = "投票请求已提交，结果以刷新后的主题为准"
+                statusMessageIsError = false
+                return true
+            }
+            present(error)
+            return false
+        }
+    }
+
     func loadMessages(folder: MessageFolder, reset: Bool = true) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
@@ -992,14 +1044,44 @@ final class AppModel {
         try? context.save()
     }
 
-    func submitReply(topicID: TopicID, content: String, replyTo: PostID?) async -> Bool {
-        guard let service = activeService, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+    func submitReply(
+        topicID: TopicID,
+        content: String,
+        replyTo: PostID?,
+        ratingScores: [String: Int] = [:]
+    ) async -> Bool {
+        guard let service = activeService,
+              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if !ratingScores.isEmpty {
+            guard let rating = currentTopic?.rating,
+                  currentTopic?.id == topicID else {
+                present(NGAServiceError.unsupported("当前主题没有可用的评分"))
+                return false
+            }
+            guard rating.isAcceptingResponses(at: .now) else {
+                present(NGAServiceError.unsupported("该评分已经结束"))
+                return false
+            }
+            guard rating.containsValidScores(ratingScores) else {
+                present(NGAServiceError.unsupported("请选择有效的评分"))
+                return false
+            }
+        }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            _ = try await service.submitReply(topicID: topicID, submission: ReplySubmission(content: content, replyTo: replyTo))
+            _ = try await service.submitReply(
+                topicID: topicID,
+                submission: ReplySubmission(
+                    content: content,
+                    replyTo: replyTo,
+                    ratingScores: ratingScores
+                )
+            )
             deleteDraft(topicID: topicID)
-            statusMessage = "回复已发送"
+            statusMessage = ratingScores.isEmpty ? "回复已发送" : "回复和评分已发送"
             statusMessageIsError = false
             await loadThread(topicID: topicID, reset: true)
             return true

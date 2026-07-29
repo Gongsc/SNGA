@@ -59,7 +59,10 @@ actor LiveNGAForumService: NGAForumService {
         }
         result.posts = result.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            post.html = parser.sanitizedPostHTML(
+                post.html,
+                topicRating: post.floor == 0 ? result.topic.rating : nil
+            )
             return post
         }
         result.hotReplies = result.hotReplies.map { post in
@@ -79,6 +82,12 @@ actor LiveNGAForumService: NGAForumService {
         if let replyTo = submission.replyTo {
             form.fields["pid"] = form.fields["pid"] ?? replyTo.description
         }
+        for (dimensionID, score) in submission.ratingScores {
+            guard Int64(dimensionID).map({ $0 > 0 }) == true else {
+                throw NGAServiceError.unsupported("评分维度无效")
+            }
+            form.fields[dimensionID] = score.description
+        }
         let response = try await client.request(try postEndpoint(for: form, referer: preflight.url))
         return try parser.submissionSucceeded(from: response)
     }
@@ -89,6 +98,17 @@ actor LiveNGAForumService: NGAForumService {
             postID: postID,
             direction: direction
         )))
+    }
+
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
+        guard !optionIDs.isEmpty else {
+            throw NGAServiceError.unsupported("请至少选择一个投票选项")
+        }
+        let response = try await client.request(.topicPollVote(
+            topicID: topicID,
+            optionIDs: optionIDs
+        ))
+        try parser.actionSucceeded(from: response)
     }
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {

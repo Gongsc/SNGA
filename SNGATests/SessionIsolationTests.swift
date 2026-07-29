@@ -119,6 +119,80 @@ final class SessionIsolationTests: XCTestCase {
         XCTAssertTrue(requests[1].url?.query?.contains("pid=876078281") == true)
     }
 
+    func testTopicRatingUsesDimensionIDInReplyFormAndSubmitsExactlyOnce() async throws {
+        let transport = ReplySubmissionTransport()
+        let service = LiveNGAForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: transport
+        )
+
+        _ = try await service.submitReply(
+            topicID: TopicID(rawValue: 23_347_410),
+            submission: ReplySubmission(
+                content: "评分回复",
+                replyTo: nil,
+                ratingScores: ["52689": 8]
+            )
+        )
+
+        let requests = await transport.requests()
+        XCTAssertEqual(requests.count, 2)
+        let body = try XCTUnwrap(
+            requests[1].httpBody.flatMap { String(data: $0, encoding: .utf8) }
+        )
+        let fields = Dictionary(
+            uniqueKeysWithValues: (
+                URLComponents(string: "?\(body)")?.queryItems ?? []
+            ).compactMap { item in
+                item.value.map { (item.name, $0) }
+            }
+        )
+        XCTAssertEqual(fields["auth"], "reply-token")
+        XCTAssertEqual(fields["post_content"], "评分回复")
+        XCTAssertEqual(fields["52689"], "8")
+        XCTAssertEqual(fields["step"], "2")
+    }
+
+    func testTopicPollSubmitsOfficialFormExactlyOnce() async throws {
+        let transport = TopicPollSubmissionTransport()
+        let service = LiveNGAForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: transport
+        )
+
+        try await service.submitTopicPollVote(
+            topicID: TopicID(rawValue: 47_273_517),
+            optionIDs: ["207428", "207430"]
+        )
+
+        let requests = await transport.requests()
+        XCTAssertEqual(requests.count, 1)
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/nuke.php")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "X-User-Agent"),
+            "NGA_WP_JW/(;WINDOWS)"
+        )
+        let body = try XCTUnwrap(
+            request.httpBody.flatMap { String(data: $0, encoding: .utf8) }
+        )
+        let fields = Dictionary(
+            uniqueKeysWithValues: (
+                URLComponents(string: "?\(body)")?.queryItems ?? []
+            ).compactMap { item in
+                item.value.map { (item.name, $0) }
+            }
+        )
+        XCTAssertEqual(fields["__lib"], "vote")
+        XCTAssertEqual(fields["__act"], "vote")
+        XCTAssertEqual(fields["tid"], "47273517")
+        XCTAssertEqual(fields["voteid"], "207428,207430")
+        XCTAssertEqual(fields["raw"], "3")
+    }
+
     func testThreadFallsBackToWebHTMLWhenStructuredResponseHasNoPosts() async throws {
         let transport = ThreadFallbackTransport()
         let service = LiveNGAForumService(
@@ -315,6 +389,23 @@ private actor ReplySubmissionTransport: HTTPTransport {
             headerFields: ["Content-Type": "application/xml; charset=utf-8"]
         )!
         return (Data(body.utf8), response)
+    }
+
+    func requests() -> [URLRequest] { recordedRequests }
+}
+
+private actor TopicPollSubmissionTransport: HTTPTransport {
+    private var recordedRequests: [URLRequest] = []
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        recordedRequests.append(request)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json; charset=utf-8"]
+        )!
+        return (Data(#"{"data":["投票成功"]}"#.utf8), response)
     }
 
     func requests() -> [URLRequest] { recordedRequests }
