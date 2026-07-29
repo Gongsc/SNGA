@@ -117,6 +117,37 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
     }
 
+    func testInternalTopicLinkOpensInAppAndReturnsToPreviousThread() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+
+        let internalLink = app.links["打开站内关联主题"]
+        XCTAssertTrue(internalLink.waitForExistence(timeout: 5))
+        internalLink.click()
+
+        let backButton = app.buttons["thread-linked-topic-back"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["主题二：多账号与收藏测试"]
+                .waitForExistence(timeout: 5)
+        )
+        backButton.click()
+
+        XCTAssertTrue(
+            app.staticTexts["主题一：欢迎使用 SNGA"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(backButton.exists)
+    }
+
     func testForumDirectorySearchFiltersForums() {
         continueAfterFailure = false
         let app = XCUIApplication()

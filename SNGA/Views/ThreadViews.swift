@@ -1,15 +1,48 @@
 import AppKit
 import SwiftUI
 
+private enum ThreadNavigationDirection {
+    case forward
+    case backward
+}
+
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var replyTarget: Post?
     @State private var writesNewReply = false
     @State private var showsTopicLinkActions = false
     @State private var didCopyTopicLink = false
+    @State private var navigationDirection = ThreadNavigationDirection.forward
+    @State private var pendingLinkedPostID: PostID?
     private let topAnchor = "thread-page-top"
 
     var body: some View {
+        ZStack {
+            threadContent
+                .id(model.selectedTopicID)
+                .transition(threadTransition)
+        }
+        .clipped()
+        .sheet(item: $replyTarget) { post in
+            if let topic = model.currentTopic {
+                ReplyComposerView(topic: topic, replyTo: post)
+                    .environment(model)
+            }
+        }
+        .sheet(isPresented: $writesNewReply) {
+            if let topic = model.currentTopic {
+                ReplyComposerView(topic: topic, replyTo: nil)
+                    .environment(model)
+            }
+        }
+        .task {
+            await model.loadFavoriteTopicFolders()
+        }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var threadContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 // A thread page contains at most about 20 posts. Build every row
@@ -18,7 +51,11 @@ struct ThreadView: View {
                 // every newly reached floor.
                 VStack(spacing: 12) {
                     if let topic = model.currentTopic {
-                        ThreadTitleHeader(topic: topic)
+                        ThreadTitleHeader(
+                            topic: topic,
+                            previousTitle: model.previousThreadTitle,
+                            navigateBack: navigateBack
+                        )
                             .id(topAnchor)
                     }
                     ForEach(model.posts) { post in
@@ -28,21 +65,15 @@ struct ThreadView: View {
                                 replyTarget = post
                             },
                             openPost: { postID, page in
-                                Task { @MainActor in
-                                    if !model.posts.contains(where: { $0.id == postID }),
-                                       let page {
-                                        await model.loadThreadPage(topicID: post.topicID, page: page)
-                                    }
-                                    await Task.yield()
-                                    if model.posts.contains(where: { $0.id == postID }) {
-                                        withAnimation(.easeInOut(duration: 0.25)) {
-                                            proxy.scrollTo(postID, anchor: .top)
-                                        }
-                                    } else {
-                                        model.statusMessage = "未能在当前帖子页找到引用楼层"
-                                        model.statusMessageIsError = true
-                                    }
-                                }
+                                revealPost(
+                                    postID,
+                                    page: page,
+                                    topicID: post.topicID,
+                                    proxy: proxy
+                                )
+                            },
+                            openInternalLink: { destination in
+                                openInternalLink(destination, proxy: proxy)
                             }
                         )
                         .id(post.id)
@@ -51,21 +82,15 @@ struct ThreadView: View {
                                 posts: model.hotReplies,
                                 reply: { replyTarget = $0 },
                                 openPost: { postID, page in
-                                    Task { @MainActor in
-                                        if !model.posts.contains(where: { $0.id == postID }),
-                                           let page {
-                                            await model.loadThreadPage(topicID: post.topicID, page: page)
-                                        }
-                                        await Task.yield()
-                                        if model.posts.contains(where: { $0.id == postID }) {
-                                            withAnimation(.easeInOut(duration: 0.25)) {
-                                                proxy.scrollTo(postID, anchor: .top)
-                                            }
-                                        } else {
-                                            model.statusMessage = "未能在当前帖子页找到引用楼层"
-                                            model.statusMessageIsError = true
-                                        }
-                                    }
+                                    revealPost(
+                                        postID,
+                                        page: page,
+                                        topicID: post.topicID,
+                                        proxy: proxy
+                                    )
+                                },
+                                openInternalLink: { destination in
+                                    openInternalLink(destination, proxy: proxy)
                                 }
                             )
                         }
@@ -83,14 +108,14 @@ struct ThreadView: View {
                         Task {
                             await model.loadThreadPage(topicID: topicID, page: page)
                             await Task.yield()
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
                         }
                     }
                 ) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
                         }
                     } label: {
@@ -202,23 +227,143 @@ struct ThreadView: View {
                     .accessibilityIdentifier("thread-reply")
                 }
             }
-        }
-        .sheet(item: $replyTarget) { post in
-            if let topic = model.currentTopic {
-                ReplyComposerView(topic: topic, replyTo: post)
-                    .environment(model)
+            .onAppear {
+                scrollToPendingLinkedPost(proxy: proxy)
+            }
+            .onChange(of: model.posts.map(\.id)) {
+                scrollToPendingLinkedPost(proxy: proxy)
             }
         }
-        .sheet(isPresented: $writesNewReply) {
-            if let topic = model.currentTopic {
-                ReplyComposerView(topic: topic, replyTo: nil)
-                    .environment(model)
+    }
+
+    private var threadTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        switch navigationDirection {
+        case .forward:
+            return .asymmetric(
+                insertion: .move(edge: .trailing).combined(with: .opacity),
+                removal: .move(edge: .leading).combined(with: .opacity)
+            )
+        case .backward:
+            return .asymmetric(
+                insertion: .move(edge: .leading).combined(with: .opacity),
+                removal: .move(edge: .trailing).combined(with: .opacity)
+            )
+        }
+    }
+
+    private var threadNavigationAnimation: Animation? {
+        motionAnimation(.spring(response: 0.38, dampingFraction: 0.86))
+    }
+
+    private func navigateBack() {
+        guard model.canReturnToPreviousThread else { return }
+        withAnimation(threadNavigationAnimation) {
+            navigationDirection = .backward
+            pendingLinkedPostID = nil
+            model.returnToPreviousThread()
+        }
+    }
+
+    private func scrollToPendingLinkedPost(proxy: ScrollViewProxy) {
+        guard let postID = pendingLinkedPostID,
+              model.posts.contains(where: { $0.id == postID }) else {
+            return
+        }
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
+                proxy.scrollTo(postID, anchor: .top)
+            }
+            pendingLinkedPostID = nil
+        }
+    }
+
+    private func revealPost(
+        _ postID: PostID,
+        page: Int?,
+        topicID: TopicID,
+        proxy: ScrollViewProxy
+    ) {
+        Task { @MainActor in
+            if !model.posts.contains(where: { $0.id == postID }),
+               let page {
+                await model.loadThreadPage(topicID: topicID, page: page)
+            }
+            await Task.yield()
+            if model.posts.contains(where: { $0.id == postID }) {
+                withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
+                    proxy.scrollTo(postID, anchor: .top)
+                }
+            } else {
+                model.statusMessage = "未能在当前帖子页找到引用楼层"
+                model.statusMessageIsError = true
             }
         }
-        .task {
-            await model.loadFavoriteTopicFolders()
+    }
+
+    private func openInternalLink(
+        _ destination: NGAInternalDestination,
+        proxy: ScrollViewProxy
+    ) {
+        switch destination {
+        case let .post(postID, page):
+            guard let topicID = model.selectedTopicID else { return }
+            revealPost(postID, page: page, topicID: topicID, proxy: proxy)
+
+        case let .topic(topicID, page, postID):
+            if model.selectedTopicID == topicID {
+                if let postID {
+                    revealPost(postID, page: page, topicID: topicID, proxy: proxy)
+                } else if let page, page != model.threadPage {
+                    Task { @MainActor in
+                        await model.loadThreadPage(topicID: topicID, page: page)
+                        await Task.yield()
+                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                            proxy.scrollTo(topAnchor, anchor: .top)
+                        }
+                    }
+                }
+                return
+            }
+
+            let targetPage = page ?? 1
+            navigationDirection = .forward
+            pendingLinkedPostID = postID
+            let didBegin = withAnimation(threadNavigationAnimation) {
+                model.beginLinkedTopicNavigation(to: topicID, page: targetPage)
+            }
+            guard didBegin else { return }
+            Task { @MainActor in
+                await model.loadThreadPage(topicID: topicID, page: targetPage)
+                guard model.selectedTopicID == topicID else { return }
+                await Task.yield()
+                if postID == nil {
+                    proxy.scrollTo(topAnchor, anchor: .top)
+                } else if pendingLinkedPostID != nil,
+                          !model.posts.contains(where: { $0.id == postID }) {
+                    pendingLinkedPostID = nil
+                    model.statusMessage = "未能在目标帖子页找到引用楼层"
+                    model.statusMessageIsError = true
+                }
+            }
+
+        case let .forum(forumID):
+            let forum = model.subforums.first { $0.id == forumID }
+                ?? model.forums.first { $0.id == forumID }
+                ?? Forum(id: forumID, name: "版面 \(forumID.description)")
+            Task { await model.openForum(forum) }
+
+        case let .user(uid):
+            Task {
+                await model.openUserCenter(
+                    uid: uid,
+                    preservingForumContext: true
+                )
+            }
         }
-        .ignoresSafeArea(.container, edges: .top)
     }
 
     private var topicURL: URL? {
@@ -252,6 +397,10 @@ struct ThreadView: View {
             model.statusMessage = "无法打开默认浏览器"
             model.statusMessageIsError = true
         }
+    }
+
+    private func motionAnimation(_ animation: Animation) -> Animation? {
+        reduceMotion ? nil : animation
     }
 }
 
@@ -292,23 +441,42 @@ private struct TopicLinkActionsPopover: View {
 }
 
 private struct ThreadTitleHeader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let topic: Topic
+    let previousTitle: String?
+    let navigateBack: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(topic.subject)
-                .font(.title2.bold())
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 14) {
-                if !topic.author.isEmpty {
-                    Label(topic.author, systemImage: "person")
-                }
-                Label("\(topic.replyCount) 条回复", systemImage: "bubble.left")
+        HStack(alignment: .top, spacing: 12) {
+            if let previousTitle {
+                AnimatedThreadBackButton(
+                    previousTitle: previousTitle,
+                    action: navigateBack
+                )
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .move(edge: .leading)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.8))
+                )
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(topic.subject)
+                    .font(.title2.bold())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 14) {
+                    if !topic.author.isEmpty {
+                        Label(topic.author, systemImage: "person")
+                    }
+                    Label("\(topic.replyCount) 条回复", systemImage: "bubble.left")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -317,6 +485,43 @@ private struct ThreadTitleHeader: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(.separator.opacity(0.5))
         }
+    }
+}
+
+private struct AnimatedThreadBackButton: View {
+    @Environment(\.sngaTheme) private var theme
+    let previousTitle: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.accentColor)
+                .frame(width: 30, height: 30)
+                .background(
+                    theme.accentColor.opacity(isHovering ? 0.18 : 0.1),
+                    in: Circle()
+                )
+                .overlay {
+                    Circle()
+                        .stroke(theme.accentColor.opacity(isHovering ? 0.38 : 0.2))
+                }
+                .offset(x: isHovering ? -1.5 : 0)
+                .scaleEffect(isHovering ? 1.06 : 1)
+        }
+        .buttonStyle(.plain)
+        .help("返回：\(previousTitle)")
+        .accessibilityLabel("返回上一主题")
+        .accessibilityIdentifier("thread-linked-topic-back")
+        .onHover { hovering in
+            isHovering = hovering
+        }
+        .animation(
+            .spring(response: 0.28, dampingFraction: 0.72),
+            value: isHovering
+        )
     }
 }
 
@@ -460,6 +665,7 @@ private struct PostRow: View {
     var isHotReply = false
     var reply: () -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
+    var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -468,7 +674,12 @@ private struct PostRow: View {
                     Button {
                         openAuthorProfile(uid: authorUID)
                     } label: {
-                        authorAvatar
+                        Label {
+                            Text("查看 \(authorDisplayName) 的用户信息")
+                        } icon: {
+                            authorAvatar
+                        }
+                        .labelStyle(.iconOnly)
                     }
                     .buttonStyle(.plain)
                     .contentShape(.circle)
@@ -514,11 +725,13 @@ private struct PostRow: View {
             }
             PostBodyView(
                 html: post.html,
-                onOpenPost: openPost,
-                onOpenTopic: { topicID in
-                    Task {
-                        let topic = Topic(id: topicID, forumID: model.currentForum?.id ?? ForumID(rawValue: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0)
-                        await model.openTopic(topic)
+                cacheKey: "thread-\(post.topicID.rawValue)-post-\(post.id.rawValue)",
+                onOpenInternalLink: { destination in
+                    switch destination {
+                    case let .post(postID, page):
+                        openPost(postID, page)
+                    default:
+                        openInternalLink(destination)
                     }
                 }
             )
@@ -544,6 +757,10 @@ private struct PostRow: View {
     private var authorUID: Int64? {
         guard let authorUID = post.authorUID, authorUID > 0 else { return nil }
         return authorUID
+    }
+
+    private var authorDisplayName: String {
+        post.author.isEmpty ? "未知用户" : post.author
     }
 
     private var authorAvatar: some View {
@@ -606,6 +823,7 @@ private struct HotRepliesSection: View {
     let posts: [Post]
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
+    var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -619,7 +837,8 @@ private struct HotRepliesSection: View {
                     post: post,
                     isHotReply: true,
                     reply: { reply(post) },
-                    openPost: openPost
+                    openPost: openPost,
+                    openInternalLink: openInternalLink
                 )
             }
         }
@@ -877,11 +1096,10 @@ struct ReplyComposerView: View {
         systemImage: String,
         action: UBBEditorAction
     ) -> some View {
-        Button {
+        Button(help, systemImage: systemImage) {
             apply(action)
-        } label: {
-            Image(systemName: systemImage)
         }
+        .labelStyle(.iconOnly)
         .help(help)
     }
 

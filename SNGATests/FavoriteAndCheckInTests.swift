@@ -1,8 +1,96 @@
 import Foundation
+import SwiftData
 import XCTest
 @testable import SNGA
 
 final class FavoriteAndCheckInTests: XCTestCase {
+    @MainActor
+    func testLinkedTopicNavigationRestoresCompleteThreadHistory() throws {
+        let schema = Schema([
+            AccountRecord.self,
+            FavoriteRecord.self,
+            DraftRecord.self,
+            SubforumPreferenceRecord.self
+        ])
+        let configuration = ModelConfiguration(
+            "ThreadNavigationTests",
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let model = AppModel(container: container)
+        let forumID = ForumID(rawValue: -7)
+        let topicA = Topic(
+            id: TopicID(rawValue: 101),
+            forumID: forumID,
+            subject: "起始主题",
+            author: "Alice",
+            replyCount: 30
+        )
+        let postA = Post(
+            id: PostID(rawValue: 1),
+            topicID: topicA.id,
+            floor: 0,
+            author: "Alice",
+            html: "<p>A</p>"
+        )
+        model.selectedTopicID = topicA.id
+        model.currentTopic = topicA
+        model.posts = [postA]
+        model.threadPage = 2
+        model.threadHasMore = true
+        model.threadTotalPages = 4
+
+        XCTAssertTrue(
+            model.beginLinkedTopicNavigation(
+                to: TopicID(rawValue: 202),
+                page: 3
+            )
+        )
+        XCTAssertEqual(model.previousThreadTitle, "起始主题")
+
+        let topicB = Topic(
+            id: TopicID(rawValue: 202),
+            forumID: forumID,
+            subject: "第二个主题",
+            author: "Bob",
+            replyCount: 2
+        )
+        let postB = Post(
+            id: PostID(rawValue: 2),
+            topicID: topicB.id,
+            floor: 0,
+            author: "Bob",
+            html: "<p>B</p>"
+        )
+        model.currentTopic = topicB
+        model.posts = [postB]
+        model.threadPage = 3
+        model.threadHasMore = false
+        model.threadTotalPages = 3
+
+        XCTAssertTrue(
+            model.beginLinkedTopicNavigation(
+                to: TopicID(rawValue: 303),
+                page: 1
+            )
+        )
+        XCTAssertTrue(model.returnToPreviousThread())
+        XCTAssertEqual(model.currentTopic, topicB)
+        XCTAssertEqual(model.posts, [postB])
+        XCTAssertEqual(model.threadPage, 3)
+
+        XCTAssertTrue(model.returnToPreviousThread())
+        XCTAssertEqual(model.currentTopic, topicA)
+        XCTAssertEqual(model.posts, [postA])
+        XCTAssertEqual(model.threadPage, 2)
+        XCTAssertEqual(model.threadTotalPages, 4)
+        XCTAssertFalse(model.canReturnToPreviousThread)
+    }
+
     func testOptimisticVoteStateUpdatesCountsAndSelection() {
         let initial = PostVoteState(upvoteCount: 12, downvoteCount: 3, userVote: nil)
 

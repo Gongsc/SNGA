@@ -2,6 +2,15 @@ import Foundation
 import Observation
 import SwiftData
 
+private struct ThreadNavigationSnapshot: Sendable {
+    let topic: Topic
+    let posts: [Post]
+    let hotReplies: [Post]
+    let page: Int
+    let hasMore: Bool
+    let totalPages: Int
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -64,7 +73,9 @@ final class AppModel {
     var previewImageURL: URL?
     var checkingInAccountIDs: Set<AccountID> = []
     var checkInFailures: [AccountID: String] = [:]
-    private var checkInRevision = 0
+    private(set) var activeAccountCheckInStatus: DailyCheckInStatus = .failed(
+        message: "尚未登录"
+    )
 
     @ObservationIgnored private let container: ModelContainer
     @ObservationIgnored private let context: ModelContext
@@ -87,6 +98,7 @@ final class AppModel {
     @ObservationIgnored private var favoriteTopicRequestID: UUID?
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
     private var forumUserReturnSelection: SidebarSelection?
+    private var threadNavigationPath: [ThreadNavigationSnapshot] = []
     private var favoriteTopicIDs: Set<TopicID> = []
     private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
@@ -121,27 +133,6 @@ final class AppModel {
         return true
     }
 
-    var activeAccountCheckInStatus: DailyCheckInStatus {
-        _ = checkInRevision
-        guard let activeAccountID else {
-            return .failed(message: "尚未登录")
-        }
-        if checkingInAccountIDs.contains(activeAccountID) {
-            return .checkingIn
-        }
-        if let failure = checkInFailures[activeAccountID] {
-            return .failed(message: failure)
-        }
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
-            return .failed(message: "无法读取签到状态")
-        }
-        if record.lastCheckInDay == CheckInPolicy.dayKey(for: Date()) {
-            return .checkedIn(message: record.lastCheckInMessage ?? "今日已签到")
-        }
-        return .notCheckedIn
-    }
-
     var selectedForumID: ForumID? {
         guard let sidebarSelection else { return nil }
         guard case let .forum(id) = sidebarSelection else { return nil }
@@ -156,6 +147,14 @@ final class AppModel {
     var isCurrentTopicFavorite: Bool {
         guard let currentTopic else { return false }
         return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+    }
+
+    var canReturnToPreviousThread: Bool {
+        !threadNavigationPath.isEmpty
+    }
+
+    var previousThreadTitle: String? {
+        threadNavigationPath.last?.topic.subject
     }
 
     var selectedFavoriteTopicFolder: TopicFavoriteFolder? {
@@ -253,6 +252,7 @@ final class AppModel {
             try context.save()
             accounts = records.map { $0.summary() }
             activeAccountID = records.first(where: \.isCurrent)?.accountID ?? records.first?.accountID
+            refreshActiveAccountCheckInStatus(records: records)
         } catch {
             present(error)
         }
@@ -312,6 +312,7 @@ final class AppModel {
             try context.save()
             activeAccountID = accountID
             accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
+            refreshActiveAccountCheckInStatus(records: records)
             clearVisibleContent()
             if let activeAccount {
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
@@ -385,6 +386,7 @@ final class AppModel {
             forumUserReturnSelection = nil
             selectedTopicID = nil
             currentTopic = nil
+            resetThreadNavigationHistory()
         }
         sidebarSelection = .userCenter(uid)
         selectedMessageID = nil
@@ -512,6 +514,7 @@ final class AppModel {
         currentTopic = nil
         posts = []
         hotReplies = []
+        resetThreadNavigationHistory()
     }
 
     func openSubforum(_ forum: Forum) async {
@@ -538,6 +541,7 @@ final class AppModel {
         subforums = []
         includedSubforumIDs = []
         subforumSelectionForumID = nil
+        resetThreadNavigationHistory()
         await loadTopics(forumID: forum.id, reset: true)
     }
 
@@ -691,6 +695,7 @@ final class AppModel {
     }
 
     func openTopic(_ topic: Topic) async {
+        resetThreadNavigationHistory()
         if let mirroredForumID = topic.mirroredForumID {
             let mirroredForum = subforums.first { $0.id == mirroredForumID }
                 ?? forums.first { $0.id == mirroredForumID }
@@ -707,6 +712,48 @@ final class AppModel {
         threadPage = 1
         threadTotalPages = max(1, (topic.replyCount + 20) / 20)
         await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
+    }
+
+    @discardableResult
+    func beginLinkedTopicNavigation(to topicID: TopicID, page: Int) -> Bool {
+        guard selectedTopicID != topicID, let currentTopic else { return false }
+        threadNavigationPath.append(ThreadNavigationSnapshot(
+            topic: currentTopic,
+            posts: posts,
+            hotReplies: hotReplies,
+            page: threadPage,
+            hasMore: threadHasMore,
+            totalPages: threadTotalPages
+        ))
+        threadRequestID = UUID()
+        selectedTopicID = topicID
+        self.currentTopic = Topic(
+            id: topicID,
+            forumID: currentTopic.forumID,
+            subject: "主题 \(topicID.rawValue)",
+            author: "",
+            replyCount: 0
+        )
+        posts = []
+        hotReplies = []
+        threadPage = max(1, page)
+        threadHasMore = false
+        threadTotalPages = max(1, page)
+        return true
+    }
+
+    @discardableResult
+    func returnToPreviousThread() -> Bool {
+        guard let previous = threadNavigationPath.popLast() else { return false }
+        threadRequestID = UUID()
+        selectedTopicID = previous.topic.id
+        currentTopic = previous.topic
+        posts = previous.posts
+        hotReplies = previous.hotReplies
+        threadPage = previous.page
+        threadHasMore = previous.hasMore
+        threadTotalPages = previous.totalPages
+        return true
     }
 
     func loadThread(
@@ -854,6 +901,7 @@ final class AppModel {
     }
 
     func openMessage(_ message: ForumMessage) async {
+        resetThreadNavigationHistory()
         selectedTopicID = nil
         currentTopic = nil
         selectedMessageID = message.id
@@ -1356,15 +1404,18 @@ final class AppModel {
     }
 
     func checkInActiveAccount() async {
-        guard let activeAccountID,
-              activeAccountCheckInStatus.canCheckIn else {
+        guard let activeAccountID else {
             return
         }
+        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        refreshActiveAccountCheckInStatus(records: records)
+        guard activeAccountCheckInStatus.canCheckIn else { return }
         await checkInAccounts(force: true, limitedTo: [activeAccountID])
     }
 
     private func checkInAccounts(force: Bool, limitedTo accountIDs: Set<AccountID>?) async {
         let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        refreshActiveAccountCheckInStatus(records: records)
         var results: [String] = []
         var hasFailure = false
         for record in records where record.sessionState == .valid {
@@ -1374,7 +1425,7 @@ final class AppModel {
             guard let service = services[accountID] else { continue }
             checkingInAccountIDs.insert(accountID)
             checkInFailures[accountID] = nil
-            checkInRevision += 1
+            refreshActiveAccountCheckInStatus(records: records)
             do {
                 let result = try await service.checkIn()
                 record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
@@ -1390,10 +1441,10 @@ final class AppModel {
                 results.append("\(record.displayName)：\(message)")
             }
             checkingInAccountIDs.remove(accountID)
-            checkInRevision += 1
+            refreshActiveAccountCheckInStatus(records: records)
         }
         try? context.save()
-        checkInRevision += 1
+        refreshActiveAccountCheckInStatus(records: records)
         if !results.isEmpty {
             statusMessage = results.joined(separator: "\n")
             statusMessageIsError = hasFailure
@@ -1687,6 +1738,7 @@ final class AppModel {
         userActivityTotalPages = 1
         selectedTopicID = nil
         selectedMessageID = nil
+        resetThreadNavigationHistory()
         previewImageURL = nil
         threadPage = 1
         threadHasMore = false
@@ -1700,6 +1752,10 @@ final class AppModel {
         unreadCount = 0
         messageUnreadCounts = [:]
         isRefreshingTopics = false
+    }
+
+    private func resetThreadNavigationHistory() {
+        threadNavigationPath = []
     }
 
     private func beginLoading() {
@@ -1773,6 +1829,36 @@ final class AppModel {
             return "签到请求被 NGA 拒绝，请稍后重试"
         }
         return error.localizedDescription
+    }
+
+    private func refreshActiveAccountCheckInStatus(
+        records suppliedRecords: [AccountRecord]? = nil
+    ) {
+        guard let activeAccountID else {
+            activeAccountCheckInStatus = .failed(message: "尚未登录")
+            return
+        }
+        if checkingInAccountIDs.contains(activeAccountID) {
+            activeAccountCheckInStatus = .checkingIn
+            return
+        }
+        if let failure = checkInFailures[activeAccountID] {
+            activeAccountCheckInStatus = .failed(message: failure)
+            return
+        }
+        let records = suppliedRecords
+            ?? ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
+        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
+            activeAccountCheckInStatus = .failed(message: "无法读取签到状态")
+            return
+        }
+        if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
+            activeAccountCheckInStatus = .checkedIn(
+                message: record.lastCheckInMessage ?? "今日已签到"
+            )
+        } else {
+            activeAccountCheckInStatus = .notCheckedIn
+        }
     }
 
     private func markSessionRequiresLogin(accountID: AccountID) {

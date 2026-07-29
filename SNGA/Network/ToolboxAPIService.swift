@@ -348,10 +348,20 @@ enum ToolboxAPIParser {
     private static func hotValueDescription(_ value: Double?) -> String? {
         guard let value, value > 0 else { return nil }
         if value >= 100_000_000 {
-            return String(format: "热度 %.1f 亿", value / 100_000_000)
+            let amount = (value / 100_000_000).formatted(
+                .number
+                    .grouping(.never)
+                    .precision(.fractionLength(1))
+            )
+            return "热度 \(amount) 亿"
         }
         if value >= 10_000 {
-            return String(format: "热度 %.1f 万", value / 10_000)
+            let amount = (value / 10_000).formatted(
+                .number
+                    .grouping(.never)
+                    .precision(.fractionLength(1))
+            )
+            return "热度 \(amount) 万"
         }
         return "热度 \(Int(value))"
     }

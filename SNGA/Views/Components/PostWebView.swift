@@ -3,6 +3,51 @@ import SwiftUI
 import SwiftSoup
 @preconcurrency import WebKit
 
+@MainActor
+final class PostWebViewCache {
+    final class Entry {
+        let webView: WKWebView
+        let html: String
+        let height: CGFloat
+
+        init(webView: WKWebView, html: String, height: CGFloat) {
+            self.webView = webView
+            self.html = html
+            self.height = height
+        }
+    }
+
+    static let shared = PostWebViewCache()
+    private let entries = NSCache<NSString, Entry>()
+
+    init(countLimit: Int = 60) {
+        entries.countLimit = countLimit
+    }
+
+    func take(for key: String, matching html: String) -> Entry? {
+        let cacheKey = key as NSString
+        guard let entry = entries.object(forKey: cacheKey) else { return nil }
+        entries.removeObject(forKey: cacheKey)
+        return entry.html == html ? entry : nil
+    }
+
+    func store(
+        _ webView: WKWebView,
+        html: String,
+        height: CGFloat,
+        for key: String
+    ) {
+        entries.setObject(
+            Entry(webView: webView, html: html, height: height),
+            forKey: key as NSString
+        )
+    }
+
+    func removeAll() {
+        entries.removeAllObjects()
+    }
+}
+
 enum PostImagePolicy {
     static func applying(to html: String, hidesRemoteImages: Bool) -> String {
         guard hidesRemoteImages else { return html }
@@ -131,33 +176,52 @@ struct PostWebView: NSViewRepresentable {
     var html: String
     var theme: ResolvedAppTheme
     var imageFreeMode: Bool
+    var cacheKey: String?
     @Binding var contentHeight: CGFloat
-    var onOpenPost: @MainActor (PostID, Int?) -> Void = { _, _ in }
-    var onOpenTopic: @MainActor (TopicID) -> Void = { _ in }
+    var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
     var onOpenImage: @MainActor (URL) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             height: $contentHeight,
-            onOpenPost: onOpenPost,
-            onOpenTopic: onOpenTopic,
+            cacheKey: cacheKey,
+            onOpenInternalLink: onOpenInternalLink,
             onOpenImage: onOpenImage
         )
     }
 
     func makeNSView(context: Context) -> WKWebView {
         let themedHTML = renderedHTML
+        if let cacheKey,
+           let cached = PostWebViewCache.shared.take(
+               for: cacheKey,
+               matching: themedHTML
+           ) {
+            let webView = cached.webView
+            installMessageHandlers(
+                on: webView.configuration.userContentController,
+                coordinator: context.coordinator
+            )
+            configure(
+                webView,
+                coordinator: context.coordinator
+            )
+            context.coordinator.prepareForLoad(themedHTML)
+            context.coordinator.height = cached.height
+            context.coordinator.scheduleMeasurements(
+                webView,
+                delays: [0.05, 0.25]
+            )
+            return webView
+        }
+
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Self.sharedDataStore
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.mediaTypesRequiringUserActionForPlayback = .all
-        configuration.userContentController.add(
-            context.coordinator,
-            name: Self.heightMessageName
-        )
-        configuration.userContentController.add(
-            context.coordinator,
-            name: Self.imageMessageName
+        installMessageHandlers(
+            on: configuration.userContentController,
+            coordinator: context.coordinator
         )
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.heightObserverScript,
@@ -170,11 +234,7 @@ struct PostWebView: NSViewRepresentable {
             forMainFrameOnly: true
         ))
         let webView = PassthroughWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        webView.onContentMayResize = { [weak coordinator = context.coordinator, weak webView] in
-            guard let coordinator, let webView else { return }
-            coordinator.scheduleMeasurements(webView, delays: [0.05, 0.25])
-        }
+        configure(webView, coordinator: context.coordinator)
         webView.setValue(false, forKey: "drawsBackground")
         context.coordinator.prepareForLoad(themedHTML)
         webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
@@ -182,9 +242,10 @@ struct PostWebView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        let cachedHTML = coordinator.lastHTML
+        let cachedHeight = coordinator.height
         coordinator.invalidate()
         webView.navigationDelegate = nil
-        webView.stopLoading()
         (webView as? PassthroughWebView)?.onContentMayResize = nil
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: heightMessageName
@@ -192,7 +253,17 @@ struct PostWebView: NSViewRepresentable {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: imageMessageName
         )
-        webView.configuration.userContentController.removeAllUserScripts()
+        if let cacheKey = coordinator.cacheKey, !cachedHTML.isEmpty {
+            PostWebViewCache.shared.store(
+                webView,
+                html: cachedHTML,
+                height: cachedHeight,
+                for: cacheKey
+            )
+        } else {
+            webView.stopLoading()
+            webView.configuration.userContentController.removeAllUserScripts()
+        }
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
@@ -210,10 +281,36 @@ struct PostWebView: NSViewRepresentable {
         )
     }
 
+    private func installMessageHandlers(
+        on controller: WKUserContentController,
+        coordinator: Coordinator
+    ) {
+        controller.add(
+            coordinator,
+            name: Self.heightMessageName
+        )
+        controller.add(
+            coordinator,
+            name: Self.imageMessageName
+        )
+    }
+
+    private func configure(
+        _ webView: WKWebView,
+        coordinator: Coordinator
+    ) {
+        webView.navigationDelegate = coordinator
+        (webView as? PassthroughWebView)?.onContentMayResize = {
+            [weak coordinator, weak webView] in
+            guard let coordinator, let webView else { return }
+            coordinator.scheduleMeasurements(webView, delays: [0.05, 0.25])
+        }
+    }
+
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         @Binding var height: CGFloat
-        let onOpenPost: @MainActor (PostID, Int?) -> Void
-        let onOpenTopic: @MainActor (TopicID) -> Void
+        let cacheKey: String?
+        let onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void
         let onOpenImage: @MainActor (URL) -> Void
         var lastHTML = ""
         private var documentGeneration = 0
@@ -225,13 +322,13 @@ struct PostWebView: NSViewRepresentable {
 
         init(
             height: Binding<CGFloat>,
-            onOpenPost: @escaping @MainActor (PostID, Int?) -> Void,
-            onOpenTopic: @escaping @MainActor (TopicID) -> Void,
+            cacheKey: String?,
+            onOpenInternalLink: @escaping @MainActor (NGAInternalDestination) -> Void,
             onOpenImage: @escaping @MainActor (URL) -> Void
         ) {
             _height = height
-            self.onOpenPost = onOpenPost
-            self.onOpenTopic = onOpenTopic
+            self.cacheKey = cacheKey
+            self.onOpenInternalLink = onOpenInternalLink
             self.onOpenImage = onOpenImage
         }
 
@@ -374,20 +471,8 @@ struct PostWebView: NSViewRepresentable {
                 return
             }
             decisionHandler(.cancel)
-            let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: true)?.queryItems ?? []
-            if let host = url.host?.lowercased(),
-               (host == "nga.cn" || host.hasSuffix(".nga.cn")),
-               url.path.hasSuffix("read.php"),
-               let value = queryItems.first(where: { $0.name == "pid" })?.value,
-               let pid = Int64(value) {
-                let page = queryItems.first(where: { $0.name == "page" })?.value.flatMap(Int.init)
-                Task { @MainActor in onOpenPost(PostID(rawValue: pid), page) }
-            } else if let host = url.host?.lowercased(),
-               (host == "nga.cn" || host.hasSuffix(".nga.cn")),
-               url.path.hasSuffix("read.php"),
-               let value = queryItems.first(where: { $0.name == "tid" })?.value,
-               let tid = Int64(value) {
-                Task { @MainActor in onOpenTopic(TopicID(rawValue: tid)) }
+            if let destination = NGAInternalLink.destination(for: url) {
+                Task { @MainActor in onOpenInternalLink(destination) }
             } else {
                 NSWorkspace.shared.open(url)
             }
@@ -492,8 +577,8 @@ struct PostBodyView: View {
     @Environment(\.sngaTheme) private var theme
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     var html: String
-    var onOpenPost: @MainActor (PostID, Int?) -> Void = { _, _ in }
-    var onOpenTopic: @MainActor (TopicID) -> Void = { _ in }
+    var cacheKey: String? = nil
+    var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
     @State private var height: CGFloat = 24
 
     var body: some View {
@@ -501,9 +586,9 @@ struct PostBodyView: View {
             html: html,
             theme: theme,
             imageFreeMode: imageFreeMode,
+            cacheKey: cacheKey,
             contentHeight: $height,
-            onOpenPost: onOpenPost,
-            onOpenTopic: onOpenTopic,
+            onOpenInternalLink: onOpenInternalLink,
             onOpenImage: { url in
                 model.previewImageURL = url
             }
