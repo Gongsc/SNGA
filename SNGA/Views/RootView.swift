@@ -101,6 +101,7 @@ struct RootView: View {
                 WindowImagePreview(url: imageURL) {
                     model.previewImageURL = nil
                 }
+                .ignoresSafeArea(.container, edges: .top)
                 .transition(
                     reduceMotion
                         ? .opacity
@@ -130,6 +131,8 @@ private struct WindowImagePreview: View {
     @State private var imageData: Data?
     @State private var didFail = false
     @State private var imageActionError: String?
+    @State private var zoomScale: CGFloat = 1
+    @State private var magnificationStartScale: CGFloat = 1
 
     var body: some View {
         GeometryReader { proxy in
@@ -151,7 +154,19 @@ private struct WindowImagePreview: View {
                                 maxWidth: max(120, proxy.size.width - 80),
                                 maxHeight: max(120, proxy.size.height - 80)
                             )
+                            .scaleEffect(zoomScale)
                             .shadow(color: .black.opacity(0.5), radius: 20)
+                            .gesture(
+                                MagnifyGesture()
+                                    .onChanged { value in
+                                        zoomScale = clampedZoom(
+                                            magnificationStartScale * value.magnification
+                                        )
+                                    }
+                                    .onEnded { _ in
+                                        magnificationStartScale = zoomScale
+                                    }
+                            )
                             .contextMenu {
                                 Button("复制图片", systemImage: "doc.on.doc") {
                                     copyImage()
@@ -202,6 +217,12 @@ private struct WindowImagePreview: View {
                     .padding(18)
                     Spacer()
                 }
+
+                MouseWheelZoomMonitor { delta in
+                    zoom(withScrollDelta: delta)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
             }
         }
         .task(id: url) {
@@ -209,6 +230,7 @@ private struct WindowImagePreview: View {
         }
         .onExitCommand(perform: dismiss)
         .accessibilityLabel("图片预览")
+        .accessibilityValue("缩放 \(Int((zoomScale * 100).rounded()))%")
         .alert(
             "图片操作失败",
             isPresented: Binding(
@@ -225,6 +247,8 @@ private struct WindowImagePreview: View {
         image = nil
         imageData = nil
         didFail = false
+        zoomScale = 1
+        magnificationStartScale = 1
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard !Task.isCancelled,
@@ -278,6 +302,16 @@ private struct WindowImagePreview: View {
             imageActionError = "无法在默认浏览器中打开图片。"
             return
         }
+    }
+
+    private func zoom(withScrollDelta delta: CGFloat) {
+        guard image != nil, abs(delta) > 0.01 else { return }
+        zoomScale = clampedZoom(zoomScale * exp(delta * 0.018))
+        magnificationStartScale = zoomScale
+    }
+
+    private func clampedZoom(_ proposedScale: CGFloat) -> CGFloat {
+        min(max(proposedScale, 0.25), 5)
     }
 
     private var suggestedFilename: String {

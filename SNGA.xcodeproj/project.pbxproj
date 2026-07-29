@@ -31,6 +31,7 @@
 		A61B00000000000000000001 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000002 /* SettingsView.swift */; };
 		A61B00000000000000000003 /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000004 /* MessageDetailView.swift */; };
 		A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000006 /* NGAEmoticonPicker.swift */; };
+		A61B00000000000000000007 /* MouseWheelZoomMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61B00000000000000000008 /* MouseWheelZoomMonitor.swift */; };
 		B17FD659E2BB6E83D60552A6 /* ForumViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12618816A06AC96CE940A86 /* ForumViews.swift */; };
 		B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */; };
 		B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F28E6EC3AF398C4F536780 /* ForumService.swift */; };
@@ -83,6 +84,7 @@
 		A61B00000000000000000002 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A61B00000000000000000004 /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
 		A61B00000000000000000006 /* NGAEmoticonPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAEmoticonPicker.swift; sourceTree = "<group>"; };
+		A61B00000000000000000008 /* MouseWheelZoomMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseWheelZoomMonitor.swift; sourceTree = "<group>"; };
 		AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2A3630313FF101D2020A0A /* SNGATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2FE63519863D051826534B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -221,6 +223,7 @@
 			isa = PBXGroup;
 			children = (
 				2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */,
+				A61B00000000000000000008 /* MouseWheelZoomMonitor.swift */,
 				A61B00000000000000000006 /* NGAEmoticonPicker.swift */,
 				B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */,
 				AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */,
@@ -381,6 +384,7 @@
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
 				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
+				A61B00000000000000000007 /* MouseWheelZoomMonitor.swift in Sources */,
 				A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */,
 				189986D3BF5D6C041C9703FB /* UBBRichEditor.swift in Sources */,
 			);
