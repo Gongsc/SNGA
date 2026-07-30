@@ -112,9 +112,14 @@ final class SNGAUITests: XCTestCase {
 
         let copyLink = app.buttons["copy-topic-link"]
         XCTAssertTrue(copyLink.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["open-topic-in-browser"].exists)
+        let openInBrowser = app.buttons["open-topic-in-browser"]
+        XCTAssertTrue(openInBrowser.exists)
         copyLink.click()
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(
+            openInBrowser.frame.minX - copyLink.frame.maxX,
+            10
+        )
     }
 
     func testInternalTopicLinkOpensInAppAndReturnsToPreviousThread() {

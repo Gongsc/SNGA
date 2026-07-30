@@ -809,8 +809,38 @@ final class AppModel {
     }
 
     @discardableResult
-    func beginLinkedTopicNavigation(to topicID: TopicID, page: Int) -> Bool {
-        guard selectedTopicID != topicID, let currentTopic else { return false }
+    func prepareLinkedTopicPage(topicID: TopicID, page: Int) async -> ThreadPage? {
+        guard let service = activeService,
+              let sourceTopicID = selectedTopicID,
+              sourceTopicID != topicID else {
+            return nil
+        }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        let targetPage = max(1, page)
+        var loadedPage: ThreadPage?
+        threadRequestID = requestID
+        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: targetPage
+            )
+            guard activeAccountID == requestAccountID,
+                  threadRequestID == requestID,
+                  selectedTopicID == sourceTopicID,
+                  result.topic.id == topicID else {
+                return
+            }
+            loadedPage = result
+        }
+        return loadedPage
+    }
+
+    @discardableResult
+    func beginLinkedTopicNavigation(to destination: ThreadPage) -> Bool {
+        guard selectedTopicID != destination.topic.id, let currentTopic else {
+            return false
+        }
         threadNavigationPath.append(ThreadNavigationSnapshot(
             topic: currentTopic,
             posts: posts,
@@ -820,19 +850,16 @@ final class AppModel {
             totalPages: threadTotalPages
         ))
         threadRequestID = UUID()
-        selectedTopicID = topicID
-        self.currentTopic = Topic(
-            id: topicID,
-            forumID: currentTopic.forumID,
-            subject: "主题 \(topicID.rawValue)",
-            author: "",
-            replyCount: 0
-        )
-        posts = []
-        hotReplies = []
-        threadPage = max(1, page)
-        threadHasMore = false
-        threadTotalPages = max(1, page)
+        var loadedTopic = destination.topic
+        loadedTopic.isFavorite = loadedTopic.isFavorite
+            || favoriteTopicIDs.contains(loadedTopic.id)
+        selectedTopicID = loadedTopic.id
+        self.currentTopic = loadedTopic
+        posts = destination.posts
+        hotReplies = destination.hotReplies
+        threadPage = destination.page
+        threadHasMore = destination.hasMore
+        threadTotalPages = max(destination.totalPages, destination.page)
         return true
     }
 

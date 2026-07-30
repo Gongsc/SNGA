@@ -6,6 +6,15 @@ private enum ThreadNavigationDirection {
     case backward
 }
 
+private struct ThreadPresentation {
+    let topic: Topic
+    let posts: [Post]
+    let hotReplies: [Post]
+    let page: Int
+    let totalPages: Int
+    let previousTitle: String?
+}
+
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,9 +28,11 @@ struct ThreadView: View {
 
     var body: some View {
         ZStack {
-            threadContent
-                .id(model.selectedTopicID)
-                .transition(threadTransition)
+            if let presentation = currentPresentation {
+                threadContent(presentation)
+                    .id(presentation.topic.id)
+                    .transition(threadTransition)
+            }
         }
         .clipped()
         .sheet(item: $replyTarget) { post in
@@ -39,25 +50,29 @@ struct ThreadView: View {
         .task {
             await model.loadFavoriteTopicFolders()
         }
-        .toolbar {
-            if let previousTitle = model.previousThreadTitle {
-                ToolbarItem(placement: .navigation) {
-                    AnimatedThreadBackButton(
-                        previousTitle: previousTitle,
-                        action: navigateBack
-                    )
-                }
-            }
-        }
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    private var threadContent: some View {
+    private var currentPresentation: ThreadPresentation? {
+        guard let topic = model.currentTopic else { return nil }
+        return ThreadPresentation(
+            topic: topic,
+            posts: model.posts,
+            hotReplies: model.hotReplies,
+            page: model.threadPage,
+            totalPages: model.threadTotalPages,
+            previousTitle: model.previousThreadTitle
+        )
+    }
+
+    private func threadContent(_ presentation: ThreadPresentation) -> some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                if let topic = model.currentTopic {
-                    ThreadTitleHeader(topic: topic)
-                }
+                ThreadTitleHeader(
+                    topic: presentation.topic,
+                    previousTitle: presentation.previousTitle,
+                    navigateBack: navigateBack
+                )
 
                 ScrollView {
                     // A thread page contains at most about 20 posts. Build every row
@@ -69,10 +84,10 @@ struct ThreadView: View {
                             .frame(height: 0)
                             .id(topAnchor)
 
-                        ForEach(model.posts) { post in
+                        ForEach(presentation.posts) { post in
                             PostRow(
                                 post: post,
-                                topicRating: model.currentTopic?.rating,
+                                topicRating: presentation.topic.rating,
                                 reply: {
                                     if post.floor == 0 {
                                         writesNewReply = true
@@ -93,10 +108,10 @@ struct ThreadView: View {
                                 }
                             )
                             .id(post.id)
-                            if post.floor == 0, !model.hotReplies.isEmpty {
+                            if post.floor == 0, !presentation.hotReplies.isEmpty {
                                 HotRepliesSection(
-                                    posts: model.hotReplies,
-                                    topicRating: model.currentTopic?.rating,
+                                    posts: presentation.hotReplies,
+                                    topicRating: presentation.topic.rating,
                                     reply: { replyTarget = $0 },
                                     openPost: { postID, page in
                                         revealPost(
@@ -117,8 +132,8 @@ struct ThreadView: View {
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     ThreadPaginationBar(
-                        currentPage: model.threadPage,
-                        totalPages: model.threadTotalPages,
+                        currentPage: presentation.page,
+                        totalPages: presentation.totalPages,
                         isLoading: model.isLoading,
                         navigate: { page in
                             guard let topicID = model.selectedTopicID else { return }
@@ -247,7 +262,7 @@ struct ThreadView: View {
                 .onAppear {
                     scrollToPendingLinkedPost(proxy: proxy)
                 }
-                .onChange(of: model.posts.map(\.id)) {
+                .onChange(of: presentation.posts.map(\.id)) {
                     scrollToPendingLinkedPost(proxy: proxy)
                 }
             }
@@ -348,14 +363,22 @@ struct ThreadView: View {
             }
 
             let targetPage = page ?? 1
-            navigationDirection = .forward
-            pendingLinkedPostID = postID
-            let didBegin = withAnimation(threadNavigationAnimation) {
-                model.beginLinkedTopicNavigation(to: topicID, page: targetPage)
-            }
-            guard didBegin else { return }
             Task { @MainActor in
-                await model.loadThreadPage(topicID: topicID, page: targetPage)
+                guard let destination = await model.prepareLinkedTopicPage(
+                    topicID: topicID,
+                    page: targetPage
+                ) else {
+                    return
+                }
+                navigationDirection = .forward
+                pendingLinkedPostID = postID
+                let didBegin = withAnimation(threadNavigationAnimation) {
+                    model.beginLinkedTopicNavigation(to: destination)
+                }
+                guard didBegin else {
+                    pendingLinkedPostID = nil
+                    return
+                }
                 guard model.selectedTopicID == topicID else { return }
                 await Task.yield()
                 if postID == nil {
@@ -438,18 +461,21 @@ private struct TopicLinkActionsPopover: View {
                 .textSelection(.enabled)
                 .lineLimit(2)
 
-            HStack {
+            HStack(spacing: 14) {
                 Button(action: copy) {
                     Label(
                         didCopy ? "已复制" : "复制链接",
                         systemImage: didCopy ? "checkmark" : "doc.on.doc"
                     )
                 }
+                .buttonStyle(.bordered)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("copy-topic-link")
                 Button(action: openInBrowser) {
                     Label("在默认浏览器中打开", systemImage: "safari")
                 }
                 .buttonStyle(.borderedProminent)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("open-topic-in-browser")
             }
         }
@@ -461,17 +487,30 @@ private struct TopicLinkActionsPopover: View {
 private struct ThreadTitleHeader: View {
     @Environment(\.sngaTheme) private var theme
     let topic: Topic
+    let previousTitle: String?
+    let navigateBack: () -> Void
 
     var body: some View {
-        HStack {
-            Text(topic.subject)
-                .font(.title2.bold())
-                .lineLimit(1)
-                .textSelection(.enabled)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("thread-topic-title")
+        let title = ThreadTitleText(text: normalizedTitle)
+            .accessibilityLabel(normalizedTitle)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("thread-topic-title")
 
-            Spacer(minLength: 0)
+        Group {
+            if let previousTitle {
+                HStack(alignment: .top, spacing: 10) {
+                    AnimatedThreadBackButton(
+                        previousTitle: previousTitle,
+                        action: navigateBack
+                    )
+                    title
+                        .layoutPriority(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                title
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -483,6 +522,58 @@ private struct ThreadTitleHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
+    }
+
+    private var normalizedTitle: String {
+        topic.subject
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+}
+
+private struct ThreadTitleText: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField(wrappingLabelWithString: text)
+        configure(textField)
+        return textField
+    }
+
+    func updateNSView(_ textField: NSTextField, context: Context) {
+        textField.stringValue = text
+        configure(textField)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView textField: NSTextField,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width else {
+            return textField.fittingSize
+        }
+        textField.preferredMaxLayoutWidth = width
+        let size = textField.sizeThatFits(
+            NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        return CGSize(width: width, height: ceil(size.height))
+    }
+
+    private func configure(_ textField: NSTextField) {
+        textField.font = .systemFont(
+            ofSize: NSFont.preferredFont(forTextStyle: .title2).pointSize,
+            weight: .bold
+        )
+        textField.textColor = .labelColor
+        textField.isSelectable = true
+        textField.isEditable = false
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.maximumNumberOfLines = 0
+        textField.lineBreakMode = .byWordWrapping
+        textField.lineBreakStrategy = []
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 }
 
