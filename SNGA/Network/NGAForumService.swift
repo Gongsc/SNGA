@@ -33,6 +33,60 @@ actor LiveNGAForumService: NGAForumService {
         try parser.forums(from: await client.request(.forums))
     }
 
+    func search(
+        _ request: ForumSearchRequest,
+        page: Int
+    ) async throws -> ForumSearchPage {
+        switch request.kind {
+        case .topicSubject, .topicContent:
+            return try parser.forumSearchTopics(
+                from: await client.request(.searchTopics(
+                    request: request,
+                    page: page
+                )),
+                request: request,
+                page: page
+            )
+        case .forum:
+            return ForumSearchPage(
+                request: request,
+                forums: try parser.forumSearchResults(
+                    from: await client.request(.searchForums(query: request.query))
+                )
+            )
+        case .user:
+            let profile = try await searchedProfile(query: request.query)
+            return ForumSearchPage(
+                request: request,
+                users: profile.map { [$0] } ?? []
+            )
+        case .userTopics, .userContent:
+            guard let profile = try await searchedProfile(query: request.query),
+                  let activityKind = request.kind.userActivityKind else {
+                return ForumSearchPage(request: request)
+            }
+            let targetPage = max(1, page)
+            let activities = try parser.userActivities(
+                from: await client.request(.userActivities(
+                    uid: profile.uid,
+                    kind: activityKind,
+                    page: targetPage
+                )),
+                uid: profile.uid,
+                kind: activityKind,
+                page: targetPage
+            )
+            return ForumSearchPage(
+                request: request,
+                users: [profile],
+                activities: activities.activities,
+                page: activities.page,
+                hasMore: activities.hasMore,
+                totalPages: activities.totalPages
+            )
+        }
+    }
+
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
         try parser.forumPage(from: await client.request(.topics(forumID: forumID, page: page)), forumID: forumID, page: page)
     }
@@ -207,6 +261,21 @@ actor LiveNGAForumService: NGAForumService {
 
     func checkIn() async throws -> CheckInResult {
         try parser.checkIn(from: await client.request(.checkIn))
+    }
+
+    private func searchedProfile(query: String) async throws -> Profile? {
+        let endpoint: NGAEndpoint
+        if query.hasPrefix("\\") {
+            let username = String(query.dropFirst())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !username.isEmpty else { return nil }
+            endpoint = .profile(username: username)
+        } else if let uid = Int64(query), uid > 0 {
+            endpoint = .profile(uid: uid)
+        } else {
+            endpoint = .profile(username: query)
+        }
+        return try parser.searchedProfile(from: await client.request(endpoint))
     }
 
     private func getEndpoint(for url: URL) throws -> NGAEndpoint {

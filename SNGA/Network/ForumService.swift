@@ -4,6 +4,7 @@ enum NGAServiceError: LocalizedError, Equatable, Sendable {
     case invalidURL
     case invalidResponse
     case requiresLogin
+    case topicDeleted
     case restricted(String)
     case rateLimited
     case server(Int)
@@ -16,6 +17,7 @@ enum NGAServiceError: LocalizedError, Equatable, Sendable {
         case .invalidURL: "NGA 地址无效"
         case .invalidResponse: "NGA 返回了无法识别的响应"
         case .requiresLogin: "当前请求未通过 NGA 登录验证，请重试；如果持续出现，请重新登录"
+        case .topicDeleted: "帖子被删除"
         case let .restricted(message): message.isEmpty ? "当前账号无权访问" : message
         case .rateLimited: "请求过于频繁，请稍后重试"
         case let .server(status): "NGA 服务暂时不可用（HTTP \(status)）"
@@ -32,6 +34,7 @@ protocol NGAForumService: Sendable {
     func profile(uid: Int64) async throws -> Profile
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage
     func forums() async throws -> [Forum]
+    func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage
     func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID?

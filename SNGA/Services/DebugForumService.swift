@@ -55,6 +55,64 @@ actor DebugForumService: NGAForumService {
         ]
     }
 
+    func search(
+        _ request: ForumSearchRequest,
+        page: Int
+    ) async throws -> ForumSearchPage {
+        let targetPage = max(1, page)
+        switch request.kind {
+        case .topicSubject, .topicContent:
+            let resultForumID = request.forumID ?? forum.id
+            return ForumSearchPage(
+                request: request,
+                topics: [
+                    Topic(
+                        id: TopicID(rawValue: 9101),
+                        forumID: resultForumID,
+                        subject: "搜索结果：\(request.query)",
+                        author: "搜索测试用户",
+                        replyCount: 6,
+                        sourceForumName: request.forumID == nil ? forum.name : nil
+                    )
+                ],
+                page: targetPage,
+                hasMore: targetPage < 2,
+                totalPages: 2
+            )
+        case .forum:
+            return ForumSearchPage(
+                request: request,
+                forums: [
+                    Forum(
+                        id: forum.id,
+                        name: "\(request.query) · \(forum.name)",
+                        subtitle: forum.subtitle
+                    )
+                ]
+            )
+        case .user:
+            return ForumSearchPage(
+                request: request,
+                users: [try await profile(uid: 42)]
+            )
+        case .userTopics, .userContent:
+            let kind = request.kind.userActivityKind ?? .topics
+            let result = try await userActivities(
+                uid: 42,
+                kind: kind,
+                page: targetPage
+            )
+            return ForumSearchPage(
+                request: request,
+                users: [try await profile(uid: 42)],
+                activities: result.activities,
+                page: result.page,
+                hasMore: result.hasMore,
+                totalPages: result.totalPages
+            )
+        }
+    }
+
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
         // Keep the UI-test response pending long enough to verify refresh animations.
         try await Task.sleep(for: .seconds(2))

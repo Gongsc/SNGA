@@ -30,6 +30,7 @@ struct SidebarView: View {
                         selection: .userCenter(model.activeAccount?.ngaUID)
                     )
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
+                    sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
                     sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
                     sidebarButton(
@@ -107,6 +108,8 @@ struct SidebarView: View {
             switch selection {
             case .directory:
                 Task { await model.loadForums() }
+            case .search:
+                model.clearForumSearch()
             case .favorites, .toolbox:
                 break
             case let .userCenter(uid):

@@ -261,6 +261,46 @@ final class SessionIsolationTests: XCTestCase {
         }
     }
 
+    func testDeletedTopicHTTP403UsesDeletedTopicError() async {
+        let transport = FixedResponseTransport(
+            statusCode: 403,
+            body: #"{"error":["主题不存在或已被删除"]}"#
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.thread(
+                topicID: TopicID(rawValue: 404),
+                page: 1
+            ))
+            XCTFail("已删除主题应抛出专用错误")
+        } catch let error as NGAServiceError {
+            XCTAssertEqual(error, .topicDeleted)
+            XCTAssertEqual(error.localizedDescription, "帖子被删除")
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+    }
+
+    func testNonThreadHTTP403WithDeletedTextRemainsRestricted() async {
+        let transport = FixedResponseTransport(
+            statusCode: 403,
+            body: #"{"error":["主题不存在或已被删除"]}"#
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.forums)
+            XCTFail("HTTP 403 应抛出错误")
+        } catch let error as NGAServiceError {
+            guard case .restricted = error else {
+                return XCTFail("非主题接口不应映射成已删除主题：\(error)")
+            }
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+    }
+
     func testExplicitLoginHTTP403StillRequiresLogin() async {
         let transport = FixedResponseTransport(
             statusCode: 403,

@@ -26,6 +26,10 @@ final class AppModel {
     var userActivityPage = 1
     var userActivityHasMore = false
     var userActivityTotalPages = 1
+    var forumSearchRequest: ForumSearchRequest?
+    var forumSearchPage: ForumSearchPage?
+    var forumSearchErrorMessage: String?
+    var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
 
@@ -90,6 +94,7 @@ final class AppModel {
     @ObservationIgnored private var profileRequestID: UUID?
     @ObservationIgnored private var userActivityRequestID: UUID?
     @ObservationIgnored private var forumDirectoryRequestID: UUID?
+    @ObservationIgnored private var forumSearchRequestID: UUID?
     @ObservationIgnored private var topicListRequestID: UUID?
     @ObservationIgnored private var threadRequestID: UUID?
     @ObservationIgnored private var messageListRequestID: UUID?
@@ -199,6 +204,14 @@ final class AppModel {
             }
             return true
         }
+    }
+
+    var isCurrentForumSearchActive: Bool {
+        guard let forumSearchRequest,
+              let selectedForumID else {
+            return false
+        }
+        return forumSearchRequest.forumID == selectedForumID
     }
 
     func bootstrap() async {
@@ -502,6 +515,84 @@ final class AppModel {
         }
     }
 
+    func searchForum(_ request: ForumSearchRequest, page: Int = 1) async {
+        guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        let targetPage = max(1, page)
+        if forumSearchRequest != request {
+            forumSearchPage = nil
+        }
+        forumSearchRequestID = requestID
+        forumSearchRequest = request
+        forumSearchErrorMessage = nil
+        isSearchingForum = true
+        defer {
+            if forumSearchRequestID == requestID {
+                isSearchingForum = false
+            }
+        }
+
+        do {
+            var result = try await service.search(request, page: targetPage)
+            guard activeAccountID == requestAccountID,
+                  forumSearchRequestID == requestID,
+                  forumSearchRequest == request else {
+                return
+            }
+            result = enrichingSearchPage(result)
+            forumSearchPage = result
+        } catch is CancellationError {
+            return
+        } catch {
+            guard activeAccountID == requestAccountID,
+                  forumSearchRequestID == requestID,
+                  forumSearchRequest == request else {
+                return
+            }
+            forumSearchPage = nil
+            forumSearchErrorMessage = error.localizedDescription
+            if let serviceError = error as? NGAServiceError,
+               serviceError == .requiresLogin {
+                present(error)
+            } else {
+                Task {
+                    await RuntimeLogger.shared.log(
+                        .error,
+                        category: "search",
+                        error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    func loadForumSearchPage(_ page: Int) async {
+        guard let forumSearchRequest else { return }
+        await searchForum(forumSearchRequest, page: page)
+    }
+
+    func clearForumSearch() {
+        forumSearchRequestID = nil
+        forumSearchRequest = nil
+        forumSearchPage = nil
+        forumSearchErrorMessage = nil
+        isSearchingForum = false
+    }
+
+    func openForumSearchActivity(_ activity: UserActivity) async {
+        let topic = Topic(
+            id: activity.topicID,
+            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            subject: activity.subject,
+            author: forumSearchPage?.users.first?.displayName ?? "",
+            replyCount: 0,
+            publishedAt: activity.postedAt,
+            sourceForumName: activity.forumName
+        )
+        await openTopic(topic)
+    }
+
     func openForum(_ forum: Forum) async {
         forumNavigationPath = []
         topicListScrollToTopRevision &+= 1
@@ -509,6 +600,7 @@ final class AppModel {
     }
 
     func returnToForumDirectory() {
+        clearForumSearch()
         forumNavigationPath = []
         sidebarSelection = .directory
         selectedTopicID = nil
@@ -531,6 +623,7 @@ final class AppModel {
     }
 
     private func showForum(_ forum: Forum) async {
+        clearForumSearch()
         currentForum = forum
         sidebarSelection = .forum(forum.id)
         selectedTopicID = nil
@@ -1598,6 +1691,13 @@ final class AppModel {
         case let .forum(id): await loadTopics(forumID: id, reset: true)
         case let .messages(folder): await loadMessages(folder: folder)
         case .directory: await loadForums()
+        case .search:
+            if let forumSearchRequest {
+                await searchForum(
+                    forumSearchRequest,
+                    page: forumSearchPage?.page ?? 1
+                )
+            }
         case .favorites: await loadFavoriteTopics(page: favoriteTopicPage)
         case .toolbox: refreshToolbox()
         case let .userCenter(uid):
@@ -1703,6 +1803,27 @@ final class AppModel {
             enriched.forum = enrichingForumFromDirectory(snapshot.forum)
             return enriched
         }
+    }
+
+    private func enrichingSearchPage(_ page: ForumSearchPage) -> ForumSearchPage {
+        var page = page
+        page.forums = page.forums.map(enrichingForumFromDirectory)
+        if page.request.forumID == nil {
+            let knownForums = Dictionary(
+                (forums + page.forums).map { ($0.id, $0) },
+                uniquingKeysWith: { current, _ in current }
+            )
+            page.topics = page.topics.map { topic in
+                var topic = topic
+                if topic.sourceForumName?.isEmpty != false {
+                    topic.sourceForumID = topic.forumID
+                    topic.sourceForumName = knownForums[topic.forumID]?.name
+                        ?? "\(topic.forumID.queryName) \(topic.forumID.description)"
+                }
+                return topic
+            }
+        }
+        return page
     }
 
     private func applyFavoriteTopicFolders(
@@ -1818,6 +1939,7 @@ final class AppModel {
         userActivityPage = 1
         userActivityHasMore = false
         userActivityTotalPages = 1
+        clearForumSearch()
         selectedTopicID = nil
         selectedMessageID = nil
         resetThreadNavigationHistory()

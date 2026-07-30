@@ -14,26 +14,9 @@ struct NGAParser: Sendable {
             try throwJSONErrorIfPresent(in: root)
             for dictionary in dictionaries(in: root) {
                 let uid = int64(dictionary["uid"]) ?? int64(dictionary["id"])
-                let name = string(dictionary["username"]) ?? string(dictionary["name"])
-                if uid == expectedUID, let name, !name.isEmpty {
-                    let masked = name == "UID\(expectedUID)"
-                    return Profile(
-                        uid: expectedUID,
-                        displayName: masked ? "NGA \(expectedUID)" : plainText(name),
-                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
-                        userGroup: nonEmptyString(dictionary["group"]),
-                        title: nonEmptyString(dictionary["title"]),
-                        honor: nonEmptyString(dictionary["honor"]),
-                        registeredAt: date(dictionary["regdate"]),
-                        postCount: int(dictionary["posts"]),
-                        location: nonEmptyString(dictionary["ipLoc"]),
-                        signature: nonEmptyString(dictionary["sign"]).map(plainText),
-                        reputation: int(dictionary["rvrc"]).map { Double($0) / 10 },
-                        fame: int(dictionary["fame"]),
-                        money: int(dictionary["money"]),
-                        followerCount: int(dictionary["follow_by_num"]),
-                        isMasked: masked
-                    )
+                if uid == expectedUID,
+                   let profile = profile(from: dictionary, expectedUID: expectedUID) {
+                    return profile
                 }
             }
         }
@@ -45,6 +28,61 @@ struct NGAParser: Sendable {
             return Profile(uid: expectedUID, displayName: "NGA \(expectedUID)", avatarURL: nil)
         }
         return Profile(uid: expectedUID, displayName: candidate, avatarURL: nil)
+    }
+
+    func searchedProfile(from response: NGAHTTPResponse) throws -> Profile? {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.unexpectedPage("未找到用户搜索数据")
+        }
+        if let dictionary = root as? [String: Any],
+           let errorValue = dictionary["error"] ?? dictionary["__MESSAGE"] {
+            let message = concise(flattenedText(errorValue))
+            if message.contains("找不到用户") || message.contains("用户不存在") {
+                return nil
+            }
+        }
+        try throwJSONErrorIfPresent(in: root)
+        return dictionaries(in: root).lazy.compactMap {
+            profile(from: $0, expectedUID: nil)
+        }.first
+    }
+
+    func forumSearchTopics(
+        from response: NGAHTTPResponse,
+        request: ForumSearchRequest,
+        page: Int
+    ) throws -> ForumSearchPage {
+        let text = try response.decodedString()
+        try throwStructuredErrorIfPresent(in: text)
+        let topicValues = try structuredItemDictionaries(
+            in: text,
+            sectionName: "__T"
+        )
+        let fallbackForumID = request.forumID ?? ForumID(rawValue: 0)
+        let topics = unique(topicValues.compactMap {
+            parseTopic(from: $0, fallbackForumID: fallbackForumID)
+        })
+        let rowCount = structuredInteger(named: "__ROWS", in: text)
+        let rowsPerPage = structuredInteger(named: "__T__ROWS_PAGE", in: text)
+            ?? max(topics.count, 35)
+        let totalPages = rowCount.map {
+            max(1, Int(ceil(Double($0) / Double(max(1, rowsPerPage)))))
+        } ?? max(1, page, topics.count >= rowsPerPage ? page + 1 : page)
+        return ForumSearchPage(
+            request: request,
+            topics: topics,
+            page: max(1, page),
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
+    }
+
+    func forumSearchResults(from response: NGAHTTPResponse) throws -> [Forum] {
+        let text = try response.decodedString()
+        try throwStructuredErrorIfPresent(in: text)
+        let values = try structuredItemDictionaries(in: text)
+        return unique(values.compactMap { forum(from: $0) })
     }
 
     func userActivities(
@@ -1053,6 +1091,72 @@ struct NGAParser: Sendable {
         }
     }
 
+    private func throwStructuredErrorIfPresent(in source: String) throws {
+        let items = structuredMessageItems(in: source)
+        guard !items.isEmpty else { return }
+        let message = items.dropFirst().first(where: { !$0.isEmpty })
+            ?? items.first(where: { !$0.isEmpty })
+            ?? ""
+        guard !message.isEmpty else { return }
+        if explicitlyRequiresLogin(message) {
+            throw NGAServiceError.requiresLogin
+        }
+        throw NGAServiceError.restricted(concise(message))
+    }
+
+    private func structuredItemDictionaries(
+        in source: String,
+        sectionName: String? = nil
+    ) throws -> [[String: Any]] {
+        let fragment: String
+        if let sectionName {
+            guard let value = structuredSection(named: sectionName, in: source) else {
+                return []
+            }
+            fragment = value
+        } else {
+            fragment = structuredSection(named: "root", in: source) ?? source
+        }
+        let document = try SwiftSoup.parse(
+            "<root>\(fragment)</root>",
+            NGAEndpoint.baseURL.absoluteString,
+            Parser.xmlParser()
+        )
+        return try document.getElementsByTag("item").compactMap { item in
+            var dictionary: [String: Any] = [:]
+            for child in item.children() {
+                dictionary[child.tagName()] = try child.text()
+            }
+            return dictionary.isEmpty ? nil : dictionary
+        }
+    }
+
+    private func structuredSection(named name: String, in source: String) -> String? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"<\#(name)\b[^>]*>([\s\S]*?)</\#(name)>"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = expression.firstMatch(in: source, range: range),
+              let capture = Range(match.range(at: 1), in: source) else {
+            return nil
+        }
+        return String(source[capture])
+    }
+
+    private func structuredInteger(named name: String, in source: String) -> Int? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"<\#(name)\b[^>]*>\s*(-?\d+)\s*</\#(name)>"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = expression.firstMatch(in: source, range: range),
+              let capture = Range(match.range(at: 1), in: source) else {
+            return nil
+        }
+        return Int(source[capture])
+    }
+
     func sanitizedPostHTML(
         _ source: String,
         topicRating: TopicRating? = nil
@@ -1897,6 +2001,36 @@ struct NGAParser: Sendable {
             iconURL: iconURL,
             category: category ?? string(dictionary["group"]),
             isSelectedInParent: selectedSubforumState(from: dictionary)
+        )
+    }
+
+    private func profile(
+        from dictionary: [String: Any],
+        expectedUID: Int64?
+    ) -> Profile? {
+        guard let uid = int64(dictionary["uid"]) ?? int64(dictionary["id"]),
+              expectedUID == nil || uid == expectedUID,
+              let name = string(dictionary["username"]) ?? string(dictionary["name"]),
+              !name.isEmpty else {
+            return nil
+        }
+        let masked = name == "UID\(uid)"
+        return Profile(
+            uid: uid,
+            displayName: masked ? "NGA \(uid)" : plainText(name),
+            avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
+            userGroup: nonEmptyString(dictionary["group"]),
+            title: nonEmptyString(dictionary["title"]),
+            honor: nonEmptyString(dictionary["honor"]),
+            registeredAt: date(dictionary["regdate"]),
+            postCount: int(dictionary["posts"]),
+            location: nonEmptyString(dictionary["ipLoc"]),
+            signature: nonEmptyString(dictionary["sign"]).map(plainText),
+            reputation: int(dictionary["rvrc"]).map { Double($0) / 10 },
+            fame: int(dictionary["fame"]),
+            money: int(dictionary["money"]),
+            followerCount: int(dictionary["follow_by_num"]),
+            isMasked: masked
         )
     }
 

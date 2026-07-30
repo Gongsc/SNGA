@@ -448,6 +448,7 @@ enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
     case forum(ForumID)
     case directory
+    case search
     case favorites
     case messages(MessageFolder)
     case toolbox

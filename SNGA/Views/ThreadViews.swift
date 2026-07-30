@@ -555,15 +555,9 @@ private struct ThreadPaginationBar<Actions: View>: View {
     }
 
     var body: some View {
-        paginationContent
-            .buttonStyle(BottomActionBarButtonStyle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial)
-            .overlay(alignment: .top) {
-                Divider()
-            }
+        BottomActionBar {
+            paginationContent
+        }
             .onAppear {
                 pageText = String(currentPage)
             }

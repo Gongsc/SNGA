@@ -68,18 +68,37 @@ struct MessageListView: View {
         }
         .background(theme.backgroundColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .navigationTitle("")
-        .toolbar {
-            if folder == .notifications {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        model.markAllMessagesRead(in: folder)
-                    } label: {
-                        Label("全部已读", systemImage: "checkmark")
+        .navigationTitle(folder == .notifications ? "论坛消息" : folder.title)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BottomActionBar {
+                HStack {
+                    if folder == .notifications {
+                        Button {
+                            model.markAllMessagesRead(in: folder)
+                        } label: {
+                            Label("全部已读", systemImage: "checkmark")
+                        }
+                        .labelStyle(.iconOnly)
+                        .disabled(unreadMessages.isEmpty)
+                        .help(
+                            unreadMessages.isEmpty
+                                ? "当前没有未读通知"
+                                : "全部标为已读"
+                        )
+                        .accessibilityIdentifier("mark-all-messages-read")
                     }
-                    .disabled(unreadMessages.isEmpty)
-                    .help(unreadMessages.isEmpty ? "当前没有未读通知" : "全部标为已读")
-                    .accessibilityLabel("全部已读")
+
+                    Spacer()
+
+                    Button {
+                        Task { await model.loadMessages(folder: folder) }
+                    } label: {
+                        Label("刷新\(folder.title)", systemImage: "arrow.clockwise")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("刷新\(folder.title)")
+                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .accessibilityIdentifier("message-list-refresh")
                 }
             }
         }

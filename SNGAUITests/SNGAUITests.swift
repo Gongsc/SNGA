@@ -171,6 +171,148 @@ final class SNGAUITests: XCTestCase {
         XCTAssertFalse(app.buttons["directory-forum--7"].exists)
     }
 
+    func testBrowseModulesUseTitlesAndBottomRefreshBars() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["用户中心"].waitForExistence(timeout: 5))
+        assertModule(
+            "用户中心",
+            refreshIdentifier: "user-center-refresh",
+            in: app
+        )
+
+        app.buttons["全部版面"].click()
+        assertModule(
+            "全部版面",
+            refreshIdentifier: "directory-refresh",
+            in: app
+        )
+
+        app.buttons["收藏夹"].click()
+        assertModule(
+            "收藏夹",
+            refreshIdentifier: "favorite-topics-refresh",
+            in: app
+        )
+
+        XCTAssertTrue(app.buttons["favorite-forum--7"].waitForExistence(timeout: 5))
+        app.buttons["favorite-forum--7"].click()
+
+        let forumBack = app.buttons["返回全部版面"]
+        XCTAssertTrue(forumBack.waitForExistence(timeout: 5))
+        XCTAssertTrue(forumBack.isHittable)
+        XCTAssertFalse(
+            app.descendants(matching: .any)["browser-module-title"].exists
+        )
+        let forumTitle = app.staticTexts["topic-list-top"]
+        XCTAssertTrue(forumTitle.waitForExistence(timeout: 5))
+        forumBack.click()
+
+        assertModule(
+            "全部版面",
+            refreshIdentifier: "directory-refresh",
+            in: app
+        )
+        XCTAssertFalse(app.buttons["刷新"].exists)
+    }
+
+    func testForumMessagesUseTitleAndBottomRefreshBar() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        let messages = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "论坛消息")
+        ).firstMatch
+        XCTAssertTrue(messages.waitForExistence(timeout: 5))
+        messages.click()
+        assertModule(
+            "论坛消息",
+            refreshIdentifier: "message-list-refresh",
+            in: app
+        )
+        let moduleTitle = app.staticTexts["browser-module-title"]
+        let firstMessage = app.buttons["message-7001"]
+        XCTAssertTrue(firstMessage.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            moduleTitle.frame.minX,
+            firstMessage.frame.minX,
+            accuracy: 1
+        )
+        assertRefreshIsInBottomBar("mark-all-messages-read", in: app)
+    }
+
+    func testGlobalAndCurrentForumSearchEntrypoints() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["搜索"].waitForExistence(timeout: 5))
+        app.buttons["搜索"].click()
+        XCTAssertTrue(app.staticTexts["范围：全部版面"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["搜索"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["刷新"].exists)
+        XCTAssertFalse(app.staticTexts["勾选的版面"].exists)
+        XCTAssertFalse(app.staticTexts["选择一个子版面"].exists)
+
+        let globalField = app.textFields["global-search-field"]
+        XCTAssertTrue(globalField.waitForExistence(timeout: 5))
+        let globalKind = app.descendants(matching: .any)["global-search-kind"]
+        let globalSubmit = app.buttons["global-search-submit"]
+        assertSearchControlsStayInOneRow(
+            field: globalField,
+            kindPicker: globalKind,
+            submitButton: globalSubmit
+        )
+        XCTAssertFalse(app.staticTexts["搜索类型"].exists)
+        XCTAssertLessThan(
+            globalField.frame.minY - app.windows.firstMatch.frame.minY,
+            180
+        )
+        let emptyGlobalFieldFrame = globalField.frame
+        globalField.click()
+        globalField.typeText("全局")
+        XCTAssertEqual(globalField.frame, emptyGlobalFieldFrame)
+        globalField.typeText("关键词")
+        XCTAssertEqual(globalField.value as? String, "全局关键词")
+        globalSubmit.click()
+        XCTAssertTrue(app.buttons["search-topic-9101"].waitForExistence(timeout: 5))
+        assertRefreshIsInBottomBar("global-search-refresh", in: app)
+
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        let currentField = app.textFields["current-forum-search-field"]
+        XCTAssertTrue(currentField.waitForExistence(timeout: 5))
+        let currentKind = app.descendants(matching: .any)["current-forum-search-kind"]
+        let currentSubmit = app.buttons["current-forum-search-submit"]
+        assertSearchControlsStayInOneRow(
+            field: currentField,
+            kindPicker: currentKind,
+            submitButton: currentSubmit
+        )
+        XCTAssertFalse(app.staticTexts["搜索类型"].exists)
+        XCTAssertTrue(app.staticTexts["范围：当前版面"].waitForExistence(timeout: 5))
+        let emptyCurrentFieldFrame = currentField.frame
+        currentField.click()
+        currentField.typeText("当前版面")
+        XCTAssertEqual(currentField.frame, emptyCurrentFieldFrame)
+        currentField.typeText("关键词")
+        XCTAssertEqual(currentField.value as? String, "当前版面关键词")
+        currentSubmit.click()
+
+        XCTAssertTrue(app.buttons["topic-9101"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.buttons["current-forum-search-clear"].waitForExistence(timeout: 5)
+        )
+    }
+
     func testToolboxNavigationShowsAllFeeds() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -180,6 +322,11 @@ final class SNGAUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["小工具"].waitForExistence(timeout: 5))
         app.buttons["小工具"].click()
+        assertModule(
+            "小工具",
+            refreshIdentifier: "toolbox-refresh",
+            in: app
+        )
 
         XCTAssertTrue(app.buttons["toolbox-feed-worldBriefing"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["toolbox-feed-aiNews"].exists)
@@ -256,5 +403,83 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(newWindow.waitForExistence(timeout: 2))
         newWindow.click()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    private func assertModule(
+        _ expectedTitle: String,
+        refreshIdentifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let title = app.descendants(matching: .any)["browser-module-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertEqual(title.label, expectedTitle, file: file, line: line)
+        XCTAssertEqual(title.elementType, .staticText, file: file, line: line)
+        XCTAssertFalse(
+            app.buttons["browser-module-title"].exists,
+            file: file,
+            line: line
+        )
+        let window = app.windows.firstMatch
+        XCTAssertLessThan(
+            title.frame.midY,
+            window.frame.midY,
+            file: file,
+            line: line
+        )
+        assertRefreshIsInBottomBar(
+            refreshIdentifier,
+            in: app,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertRefreshIsInBottomBar(
+        _ identifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let refresh = app.buttons[identifier]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertGreaterThan(
+            refresh.frame.midY,
+            app.windows.firstMatch.frame.midY,
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertSearchControlsStayInOneRow(
+        field: XCUIElement,
+        kindPicker: XCUIElement,
+        submitButton: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(kindPicker.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertTrue(submitButton.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertEqual(
+            field.frame.midY,
+            kindPicker.frame.midY,
+            accuracy: 2,
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            field.frame.midY,
+            submitButton.frame.midY,
+            accuracy: 2,
+            file: file,
+            line: line
+        )
+        XCTAssertLessThan(
+            submitButton.frame.width,
+            60,
+            file: file,
+            line: line
+        )
     }
 }

@@ -9,15 +9,11 @@ struct ToolboxMenuView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("小工具")
-                        .font(.title2.bold())
-                    Text("每日简报、科技资讯与热门榜单")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 4)
-                .padding(.bottom, 4)
+                Text("每日简报、科技资讯与热门榜单")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 4)
 
                 ForEach(ToolboxFeed.allCases) { feed in
                     Button {
@@ -166,23 +162,27 @@ struct ToolboxFeedView: View {
             }
         }
         .navigationTitle(feed.title)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.refreshToolbox()
-                } label: {
-                    Label("刷新\(feed.title)", systemImage: "arrow.clockwise")
-                }
-                .help("刷新\(feed.title)")
-                .disabled(isLoading)
-                .accessibilityIdentifier("toolbox-refresh")
-            }
-        }
         .task(id: "\(feed.rawValue)-\(model.toolboxRefreshRevision)") {
             await load()
         }
         .accessibilityIdentifier("toolbox-feed-detail-\(feed.rawValue)")
         .ignoresSafeArea(.container, edges: .top)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BottomActionBar {
+                HStack {
+                    Spacer()
+                    Button {
+                        model.refreshToolbox()
+                    } label: {
+                        Label("刷新\(feed.title)", systemImage: "arrow.clockwise")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("刷新\(feed.title)")
+                    .disabled(isLoading)
+                    .accessibilityIdentifier("toolbox-refresh")
+                }
+            }
+        }
     }
 
     @ViewBuilder
