@@ -354,6 +354,8 @@ struct SNGAApp: App {
         .defaultSize(width: 1180, height: 780)
         .windowStyle(.hiddenTitleBar)
         .commands {
+            AboutCommands()
+
             CommandGroup(after: .sidebar) {
                 Button(model.selectedTopicID == nil ? "刷新" : "刷新主题内容") {
                     Task { await model.refreshCurrentSelection() }
@@ -367,6 +369,15 @@ struct SNGAApp: App {
                 .disabled(model.selectedForumID == nil)
             }
         }
+
+        Window("关于 SNGA", id: AboutView.windowID) {
+            AboutView()
+                .environment(\.sngaTheme, selectedTheme)
+                .preferredColorScheme(selectedTheme.preferredColorScheme)
+                .tint(selectedTheme.accentColor)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         Settings {
             SettingsView()
