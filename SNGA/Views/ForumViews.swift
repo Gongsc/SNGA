@@ -1,92 +1,59 @@
 import SwiftUI
 
-struct BottomActionBarButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        BottomActionBarButton(configuration: configuration)
-    }
-
-    private struct BottomActionBarButton: View {
-        @Environment(\.isEnabled) private var isEnabled
-        @Environment(\.sngaTheme) private var theme
-        @Environment(\.accessibilityReduceMotion) private var reduceMotion
-        let configuration: Configuration
-        @State private var isHovered = false
-
-        var body: some View {
-            configuration.label
-                .padding(.horizontal, 4)
-                .frame(minWidth: 26, minHeight: 26)
-                .background(backgroundColor, in: RoundedRectangle(cornerRadius: 5))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(borderColor)
-                }
-                .contentShape(.rect)
-                .scaleEffect(
-                    configuration.isPressed && isEnabled && !reduceMotion ? 0.96 : 1
-                )
-                .opacity(isEnabled ? 1 : 0.45)
-                .onHover { isHovered = $0 }
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isHovered)
-                .animation(
-                    reduceMotion ? nil : .easeOut(duration: 0.08),
-                    value: configuration.isPressed
-                )
-        }
-
-        private var backgroundColor: Color {
-            guard isEnabled else { return .clear }
-            if configuration.isPressed {
-                return theme.accentColor.opacity(0.25)
-            }
-            if isHovered {
-                return theme.accentColor.opacity(0.14)
-            }
-            return .clear
-        }
-
-        private var borderColor: Color {
-            guard isEnabled, isHovered || configuration.isPressed else { return .clear }
-            return theme.accentColor.opacity(configuration.isPressed ? 0.55 : 0.32)
-        }
-    }
-}
-
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     let uid: Int64?
 
     var body: some View {
-        if model.activeAccountID == nil {
-            ContentUnavailableView {
-                Label("欢迎使用 SNGA", systemImage: "bubble.left.and.bubble.right")
-            } description: {
-                Text("添加 NGA 账号后即可浏览论坛。")
-            } actions: {
-                Button("登录 NGA") { model.showsLogin = true }
-                    .buttonStyle(.borderedProminent)
-            }
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    profileHeader
+        Group {
+            if model.activeAccountID == nil {
+                ContentUnavailableView {
+                    Label("欢迎使用 SNGA", systemImage: "bubble.left.and.bubble.right")
+                } description: {
+                    Text("添加 NGA 账号后即可浏览论坛。")
+                } actions: {
+                    Button("登录 NGA") { model.showsLogin = true }
+                        .buttonStyle(.borderedProminent)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        profileHeader
 
-                    if model.isDisplayingActiveAccount {
-                        checkInContent
+                        if model.isDisplayingActiveAccount {
+                            checkInContent
+                        }
+
+                        basicInformation
+                        reputationContent
+                        activityContent
                     }
-
-                    basicInformation
-                    reputationContent
-                    activityContent
+                    .padding(24)
                 }
-                .padding(24)
             }
-            .navigationTitle("用户中心")
-            .task(id: targetUID) {
-                if let targetUID {
-                    await model.ensureUserCenterLoaded(uid: targetUID)
+        }
+        .navigationTitle("用户中心")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BottomActionBar {
+                HStack {
+                    Spacer()
+                    Button {
+                        guard let targetUID else { return }
+                        Task { await model.openUserCenter(uid: targetUID) }
+                    } label: {
+                        Label("刷新用户中心", systemImage: "arrow.clockwise")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("刷新用户中心")
+                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .accessibilityIdentifier("user-center-refresh")
                 }
+            }
+        }
+        .task(id: targetUID) {
+            if let targetUID {
+                await model.ensureUserCenterLoaded(uid: targetUID)
             }
         }
     }
@@ -583,6 +550,22 @@ struct ForumDirectoryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("全部版面")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BottomActionBar {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await model.loadForums() }
+                    } label: {
+                        Label("刷新全部版面", systemImage: "arrow.clockwise")
+                    }
+                    .labelStyle(.iconOnly)
+                    .help("刷新全部版面")
+                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .accessibilityIdentifier("directory-refresh")
+                }
+            }
+        }
         .task {
             if model.forums.isEmpty { await model.loadForums() }
         }
@@ -833,33 +816,33 @@ struct FavoritesView: View {
                         }
                     }
                     .scrollContentBackground(.hidden)
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        TopicListPaginationBar(
-                            currentPage: model.favoriteTopicPage,
-                            totalPages: model.favoriteTopicTotalPages,
-                            isLoading: model.isLoading,
-                            navigate: { page in
-                                Task { await model.loadFavoriteTopics(page: page) }
-                            }
-                        ) {
-                            Button {
-                                Task {
-                                    await model.loadFavoriteTopicFolders(force: true)
-                                    await model.loadFavoriteTopics(page: model.favoriteTopicPage)
-                                }
-                            } label: {
-                                Label("刷新收藏夹", systemImage: "arrow.clockwise")
-                            }
-                            .labelStyle(.iconOnly)
-                            .help("刷新收藏目录与主题")
-                            .disabled(model.isLoading)
-                            .accessibilityIdentifier("favorite-topics-refresh")
-                        }
-                    }
                 }
             }
         }
         .navigationTitle("收藏夹")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            TopicListPaginationBar(
+                currentPage: model.favoriteTopicPage,
+                totalPages: model.favoriteTopicTotalPages,
+                isLoading: model.isLoading,
+                navigate: { page in
+                    Task { await model.loadFavoriteTopics(page: page) }
+                }
+            ) {
+                Button {
+                    Task {
+                        await model.loadFavoriteTopicFolders(force: true)
+                        await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+                    }
+                } label: {
+                    Label("刷新收藏夹", systemImage: "arrow.clockwise")
+                }
+                .labelStyle(.iconOnly)
+                .help("刷新收藏目录与主题")
+                .disabled(model.isLoading)
+                .accessibilityIdentifier("favorite-topics-refresh")
+            }
+        }
         .task {
             await model.loadFavoriteTopicFolders(force: true)
             await model.loadFavoriteTopics(page: model.favoriteTopicPage)
@@ -1102,6 +1085,8 @@ struct TopicListView: View {
     let forumID: ForumID
     var reservesSidebarToggleSpace = false
     @State private var isSubforumsExpanded = false
+    @State private var forumSearchQuery = ""
+    @State private var forumSearchKind = ForumSearchKind.topicSubject
     private let topAnchor = "topic-list-top"
     private let hiddenSidebarTitleClearance: CGFloat = 140
 
@@ -1111,7 +1096,17 @@ struct TopicListView: View {
                 forumTitleRow
                     .id(topAnchor)
 
-                if !model.subforums.isEmpty {
+                CurrentForumSearchBar(
+                    query: $forumSearchQuery,
+                    kind: $forumSearchKind,
+                    isSearching: model.isSearchingForum,
+                    isActive: model.isCurrentForumSearchActive,
+                    search: performForumSearch,
+                    clear: clearForumSearch
+                )
+
+                if !model.isCurrentForumSearchActive,
+                   !model.subforums.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
                             Button {
@@ -1186,11 +1181,15 @@ struct TopicListView: View {
                     .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
                 }
 
-                if model.subforums.isEmpty {
-                    topicRows
+                if showsTopicListSkeleton {
+                    TopicListSkeletonView()
+                } else if model.isCurrentForumSearchActive {
+                    currentForumSearchRows
+                } else if model.subforums.isEmpty {
+                    topicRows(model.displayedTopics)
                 } else {
                     topicListHeader
-                    topicRows
+                    topicRows(model.displayedTopics)
                 }
             }
             .listStyle(.plain)
@@ -1198,12 +1197,13 @@ struct TopicListView: View {
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 TopicListPaginationBar(
-                    currentPage: model.topicPage,
-                    totalPages: model.topicTotalPages,
-                    isLoading: model.isLoading,
+                    currentPage: visiblePage,
+                    totalPages: visibleTotalPages,
+                    isLoading: visibleIsLoading,
+                    showsLoadingIndicator: !showsTopicListSkeleton,
                     navigate: { page in
                         Task {
-                            await model.loadTopicPage(forumID: forumID, page: page)
+                            await loadVisiblePage(page)
                             await Task.yield()
                             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
@@ -1238,56 +1238,28 @@ struct TopicListView: View {
 
                     Button {
                         Task {
-                            await model.refreshTopicList()
+                            if model.isCurrentForumSearchActive {
+                                await model.loadForumSearchPage(visiblePage)
+                            } else {
+                                await model.refreshTopicList()
+                            }
                             await Task.yield()
                             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
                         }
                     } label: {
-                        if model.isRefreshingTopics {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "list.bullet.rectangle")
-                        }
+                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
                     }
+                    .labelStyle(.iconOnly)
                     .accessibilityLabel(
-                        model.isRefreshingTopics ? "正在刷新主题列表" : "刷新主题列表"
+                        visibleIsLoading ? "正在刷新主题列表" : "刷新主题列表"
                     )
                     .help("刷新主题列表")
-                    .disabled(model.isLoading)
+                    .disabled(visibleIsLoading)
                     .accessibilityIdentifier("forum-refresh")
                 }
             }
-            .overlay(alignment: .top) {
-                if model.isRefreshingTopics, model.selectedForumID == forumID {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("正在刷新主题列表…")
-                            .font(.callout.weight(.medium))
-                    }
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay {
-                        Capsule()
-                            .stroke(.separator.opacity(0.5))
-                    }
-                    .padding(.top, 10)
-                    .transition(
-                        reduceMotion
-                            ? .opacity
-                            : .move(edge: .top).combined(with: .opacity)
-                    )
-                    .accessibilityIdentifier("topic-list-refreshing")
-                }
-            }
-            .animation(
-                motionAnimation(.easeInOut(duration: 0.18)),
-                value: model.isRefreshingTopics
-            )
             .onChange(of: model.topicListScrollToTopRevision) {
                 Task { @MainActor in
                     await Task.yield()
@@ -1304,6 +1276,9 @@ struct TopicListView: View {
         }
         .onChange(of: forumID) {
             isSubforumsExpanded = false
+            forumSearchQuery = ""
+            forumSearchKind = .topicSubject
+            model.clearForumSearch()
         }
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -1366,8 +1341,8 @@ struct TopicListView: View {
     }
 
     @ViewBuilder
-    private var topicRows: some View {
-        ForEach(model.displayedTopics) { topic in
+    private func topicRows(_ topics: [Topic]) -> some View {
+        ForEach(topics) { topic in
             Button {
                 Task { await model.openTopic(topic) }
             } label: {
@@ -1386,6 +1361,92 @@ struct TopicListView: View {
                 dimensions[.trailing] - 8
             }
             .accessibilityIdentifier("topic-\(topic.id.rawValue)")
+        }
+    }
+
+    @ViewBuilder
+    private var currentForumSearchRows: some View {
+        if model.isSearchingForum,
+           model.forumSearchPage == nil {
+            searchStateRow {
+                ProgressView("正在当前版面中搜索…")
+            }
+        } else if let errorMessage = model.forumSearchErrorMessage {
+            searchStateRow {
+                ContentUnavailableView {
+                    Label("搜索失败", systemImage: "exclamationmark.magnifyingglass")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("重试", action: performForumSearch)
+                }
+            }
+        } else if let page = model.forumSearchPage,
+                  page.request.forumID == forumID {
+            if page.topics.isEmpty {
+                searchStateRow {
+                    ContentUnavailableView.search(text: page.request.query)
+                }
+            } else {
+                topicRows(page.topics)
+            }
+        }
+    }
+
+    private func searchStateRow<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, minHeight: 220)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+
+    private var visiblePage: Int {
+        model.isCurrentForumSearchActive
+            ? model.forumSearchPage?.page ?? 1
+            : model.topicPage
+    }
+
+    private var showsTopicListSkeleton: Bool {
+        !model.isCurrentForumSearchActive
+            && model.isRefreshingTopics
+            && model.selectedForumID == forumID
+    }
+
+    private var visibleTotalPages: Int {
+        model.isCurrentForumSearchActive
+            ? model.forumSearchPage?.totalPages ?? 1
+            : model.topicTotalPages
+    }
+
+    private var visibleIsLoading: Bool {
+        model.isCurrentForumSearchActive
+            ? model.isSearchingForum
+            : model.isLoading
+    }
+
+    private func performForumSearch() {
+        guard let request = ForumSearchRequest(
+            query: forumSearchQuery,
+            kind: forumSearchKind,
+            forumID: forumID
+        ) else {
+            return
+        }
+        Task { await model.searchForum(request) }
+    }
+
+    private func clearForumSearch() {
+        forumSearchQuery = ""
+        model.clearForumSearch()
+    }
+
+    private func loadVisiblePage(_ page: Int) async {
+        if model.isCurrentForumSearchActive {
+            await model.loadForumSearchPage(page)
+        } else {
+            await model.loadTopicPage(forumID: forumID, page: page)
         }
     }
 
@@ -1442,6 +1503,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
     let currentPage: Int
     let totalPages: Int
     let isLoading: Bool
+    let showsLoadingIndicator: Bool
     var navigate: (Int) -> Void
     let actions: Actions
 
@@ -1451,26 +1513,22 @@ private struct TopicListPaginationBar<Actions: View>: View {
         currentPage: Int,
         totalPages: Int,
         isLoading: Bool,
+        showsLoadingIndicator: Bool = true,
         navigate: @escaping (Int) -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
         self.currentPage = currentPage
         self.totalPages = totalPages
         self.isLoading = isLoading
+        self.showsLoadingIndicator = showsLoadingIndicator
         self.navigate = navigate
         self.actions = actions()
     }
 
     var body: some View {
-        paginationContent
-            .buttonStyle(BottomActionBarButtonStyle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial)
-            .overlay(alignment: .top) {
-                Divider()
-            }
+        BottomActionBar {
+            paginationContent
+        }
             .onAppear {
                 pageText = String(currentPage)
             }
@@ -1491,7 +1549,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                 paginationControls(isCompact: true)
             }
 
-            if isLoading {
+            if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -1645,7 +1703,7 @@ private struct SubforumTile: View {
     }
 }
 
-private struct TopicInteractiveRow: View {
+struct TopicInteractiveRow: View {
     @Environment(\.sngaTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let topic: Topic

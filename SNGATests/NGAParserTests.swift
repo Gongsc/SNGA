@@ -140,6 +140,243 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(thread.hasMore)
     }
 
+    func testParsesStructuredTopicPollAndBuildsSubmissionEndpoint() throws {
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47273517,
+              "fid": 853,
+              "subject": "投票主题",
+              "author": "Alice",
+              "replies": 0
+            },
+            "__R": [{
+              "pid": 0,
+              "tid": 47273517,
+              "lou": 0,
+              "author": "Alice",
+              "content": "主题正文",
+              "vote": "207428~原皮白~207429~剧情黑~207430~泳装白~207431~只想看结果~max_select~1~end~1793076441~opt~1~_207428~0,0,0~_207429~0,0,0~_207430~0,0,0~_207431~0,0,0"
+            }]
+          }
+        }
+        """
+
+        let page = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_273_517),
+            page: 1
+        )
+        let poll = try XCTUnwrap(page.posts.first?.poll)
+
+        XCTAssertEqual(poll.id, TopicID(rawValue: 47_273_517))
+        XCTAssertEqual(poll.maximumSelectionsPerGroup, 1)
+        XCTAssertEqual(poll.groups.count, 1)
+        XCTAssertEqual(
+            poll.groups[0].options.map(\.id),
+            ["207428", "207429", "207430", "207431"]
+        )
+        XCTAssertEqual(
+            poll.groups[0].options.map(\.title),
+            ["原皮白", "剧情黑", "泳装白", "只想看结果"]
+        )
+        XCTAssertEqual(
+            poll.endsAt,
+            Date(timeIntervalSince1970: 1_793_076_441)
+        )
+        XCTAssertTrue(poll.hidesResultsUntilVoting)
+        XCTAssertFalse(poll.hidesResultsUntilEnd)
+        XCTAssertFalse(poll.showsResults(at: Date(timeIntervalSince1970: 1_790_000_000)))
+
+        let endpoint = NGAEndpoint.topicPollVote(
+            topicID: poll.id,
+            optionIDs: ["207429"]
+        )
+        XCTAssertEqual(endpoint.path, "/nuke.php")
+        XCTAssertEqual(endpoint.method, .post)
+        XCTAssertTrue(endpoint.isWrite)
+        XCTAssertEqual(endpoint.form["__lib"], "vote")
+        XCTAssertEqual(endpoint.form["__act"], "vote")
+        XCTAssertEqual(endpoint.form["tid"], "47273517")
+        XCTAssertEqual(endpoint.form["voteid"], "207429")
+        XCTAssertEqual(endpoint.form["raw"], "3")
+        XCTAssertEqual(
+            endpoint.referer,
+            NGAEndpoint.topicWebURL(topicID: poll.id)
+        )
+    }
+
+    func testParsesGroupedMultiSelectPollResults() throws {
+        let payload = """
+        {
+          "data": {
+            "__T": {"tid": 47273518, "fid": 853, "subject": "分组投票", "replies": 0},
+            "__R": [{
+              "pid": 0,
+              "tid": 47273518,
+              "lou": 0,
+              "author": "Alice",
+              "content": "主题正文",
+              "vote": "100~第一组甲~101~第一组乙~102~=== 第二组~103~第二组甲~104~第二组乙~max_select~2~opt~0~_100~3,0,8~_101~5,0,8~_102~0,0,0~_103~4,0,7~_104~3,0,7"
+            }]
+          }
+        }
+        """
+
+        let page = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_273_518),
+            page: 1
+        )
+        let poll = try XCTUnwrap(page.posts.first?.poll)
+
+        XCTAssertEqual(poll.groups.count, 2)
+        XCTAssertNil(poll.groups[0].title)
+        XCTAssertEqual(poll.groups[0].options.map(\.id), ["100", "101"])
+        XCTAssertEqual(poll.groups[1].title, "第二组")
+        XCTAssertEqual(poll.groups[1].options.map(\.id), ["103", "104"])
+        XCTAssertEqual(poll.maximumSelectionsPerGroup, 2)
+        XCTAssertEqual(poll.participantCount, 8)
+        XCTAssertEqual(poll.totalVoteCount, 15)
+        XCTAssertTrue(poll.showsResults(at: .now))
+        XCTAssertTrue(poll.containsValidSelection(["100", "101", "103"]))
+        XCTAssertFalse(poll.containsValidSelection(["100", "101", "103", "missing"]))
+        XCTAssertEqual(
+            poll.orderedOptionIDs(in: ["104", "100", "103"]),
+            ["100", "103", "104"]
+        )
+    }
+
+    func testParsesTopicPollFromHTMLFallback() throws {
+        let html = """
+        <html>
+          <head><title>网页投票 - NGA玩家社区</title></head>
+          <body>
+            <table>
+              <tr class="postrow">
+                <td>
+                  <a name="l0"></a>
+                  <div id="postcontent0"><p>网页正文</p></div>
+                </td>
+              </tr>
+            </table>
+            <script>
+              commonui.vote($('votec0'),105,'1~选项一~2~选项二~max_select~1~opt~2~_1~6,0,10~_2~4,0,10')
+            </script>
+          </body>
+        </html>
+        """
+
+        let page = try parser.threadPage(
+            from: response(html, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 105),
+            page: 1
+        )
+        let poll = try XCTUnwrap(page.posts.first?.poll)
+
+        XCTAssertEqual(poll.groups[0].options.map(\.title), ["选项一", "选项二"])
+        XCTAssertEqual(poll.groups[0].options.map(\.voteCount), [6, 4])
+        XCTAssertEqual(poll.participantCount, 10)
+        XCTAssertTrue(poll.hidesResultsUntilEnd)
+    }
+
+    func testParsesStructuredTopicRatingAndReplyScore() throws {
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 23347410,
+              "fid": 571,
+              "subject": "[评分] 《原神》",
+              "author": "Alice",
+              "replies": 5537,
+              "post_misc_var": {
+                "vote": "52689~《原神》游戏评分：~max_select~1~type~2~min~1~max~10~52689s5~773~52689s1~2957~52689s4~351~52689s3~282~52689s2~417~_52689~4787,16561,4784"
+              }
+            },
+            "__R": [{
+              "pid": 876262889,
+              "tid": 23347410,
+              "lou": 5,
+              "author": "Bob",
+              "content": "打个10分。",
+              "vote": "52689~10~type~3"
+            }]
+          }
+        }
+        """
+
+        let page = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 23_347_410),
+            page: 1
+        )
+        let rating = try XCTUnwrap(page.topic.rating)
+        let dimension = try XCTUnwrap(rating.dimensions.first)
+
+        XCTAssertEqual(rating.id, TopicID(rawValue: 23_347_410))
+        XCTAssertEqual(rating.minimumScore, 1)
+        XCTAssertEqual(rating.maximumScore, 10)
+        XCTAssertEqual(rating.participantCount, 4_784)
+        XCTAssertEqual(dimension.id, "52689")
+        XCTAssertEqual(dimension.title, "《原神》游戏评分：")
+        XCTAssertEqual(dimension.ratingCount, 4_787)
+        XCTAssertEqual(dimension.totalScore, 16_561)
+        XCTAssertEqual(dimension.averageScore, 3.45, accuracy: 0.001)
+        XCTAssertTrue(rating.containsValidScores([:]))
+        XCTAssertTrue(rating.containsValidScores(["52689": 8]))
+        XCTAssertFalse(rating.containsValidScores(["52689": 11]))
+        XCTAssertFalse(rating.containsValidScores(["missing": 8]))
+        XCTAssertEqual(page.posts.first?.ratingScores, ["52689": 10])
+    }
+
+    func testParsesTopicRatingAndMultipleReplyScoresFromHTMLFallback() throws {
+        let html = """
+        <html>
+          <head><title>网页评分 - NGA玩家社区</title></head>
+          <body>
+            <table>
+              <tr class="postrow">
+                <td>
+                  <a name="l0"></a>
+                  <div id="postcontent0"><p>评分主题正文</p></div>
+                </td>
+              </tr>
+              <tr class="postrow">
+                <td>
+                  <a name="l1"></a>
+                  <div id="postcontent1"><p>评分回复</p></div>
+                </td>
+              </tr>
+            </table>
+            <script>
+              commonui.vote(
+                $('votec0'),
+                105,
+                '11~剧情~12~画面~type~2~min~1~max~5~_11~2,7,2~_12~2,9,2'
+              )
+              commonui.vote($('votec1'),105,'11~3~12~5~type~3')
+            </script>
+          </body>
+        </html>
+        """
+
+        let page = try parser.threadPage(
+            from: response(html, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 105),
+            page: 1
+        )
+        let rating = try XCTUnwrap(page.topic.rating)
+        let reply = try XCTUnwrap(page.posts.first { $0.floor == 1 })
+
+        XCTAssertEqual(rating.dimensions.map(\.id), ["11", "12"])
+        XCTAssertEqual(rating.dimensions.map(\.title), ["剧情", "画面"])
+        XCTAssertEqual(rating.dimensions.map(\.averageScore), [3.5, 4.5])
+        XCTAssertEqual(rating.participantCount, 2)
+        XCTAssertEqual(reply.ratingScores, ["11": 3, "12": 5])
+    }
+
     func testParsesTopicSubjectColorsFromTopicMiscAndTitlefont() throws {
         func encodedFontBits(_ bits: UInt32) -> String {
             Data([
@@ -1164,14 +1401,74 @@ final class NGAParserTests: XCTestCase {
             """
         )
 
-        XCTAssertTrue(html.contains("nga-rich-card"))
+        XCTAssertTrue(html.contains("nga-game-card"))
         XCTAssertTrue(html.contains("鸣潮3.5版本剧情评分"))
         XCTAssertTrue(html.contains("https://img.nga.178.com/attachments/mon_202607/09/cover.webp"))
         XCTAssertTrue(html.contains(#"class="ubb-color-teal""#))
+        XCTAssertFalse(html.contains("—"))
         XCTAssertFalse(html.contains("[randomblock]"))
         XCTAssertFalse(html.contains("[fixsize"))
         XCTAssertFalse(html.contains("[style"))
         XCTAssertFalse(html.contains("votedata_voteavgvalue"))
+    }
+
+    func testRendersResponsiveGameRatingCardWithStructuredMetadata() throws {
+        let rating = TopicRating(
+            id: TopicID(rawValue: 23_347_410),
+            dimensions: [
+                TopicRatingDimension(
+                    id: "52689",
+                    title: "《原神》游戏评分：",
+                    ratingCount: 4_787,
+                    totalScore: 16_561
+                )
+            ],
+            minimumScore: 1,
+            maximumScore: 10,
+            endsAt: nil,
+            participantCount: 4_784
+        )
+        let html = parser.sanitizedPostHTML(
+            """
+            [randomblock][fixsize height 52 width 50 90]
+            [style innerHTML &#36;votedata_voteavgvalue][/style]
+            [style innerHTML &#36;votedata_usernum][/style]
+            [comment game_title_cn]《原神》[/comment game_title_cn]
+            [comment game_title]Genshin Impact[/comment game_title]
+            [comment game_release][stripbr]
+            [style color #fff background #0c7da8]客户端游戏[/style] 2020-09-15
+            [stripbr][style color #fff background #0c7da8]Android[/style] 2020-09-28
+            [/comment game_release]
+            [comment game_title_image][style width 50 src ./mon_202009/15/cover.jpg][/style][/comment game_title_image]
+            [comment game_type]动作 角色扮演 养成[/comment game_type]
+            [comment game_devloper]米哈游[/comment game_devloper]
+            [comment game_publisher]米哈游[/comment game_publisher]
+            [comment game_website][url=https://ys.mihoyo.com/main/][/comment game_website]
+            [style color #b22222]ys.mihoyo.com/main [symbol link][/style][/url]
+            [/randomblock]
+            """,
+            topicRating: rating
+        )
+        let document = try SwiftSoup.parse(html)
+
+        XCTAssertEqual(try document.select(".nga-game-card").count, 1)
+        XCTAssertEqual(try document.select(".nga-game-score-value").text(), "3.4")
+        XCTAssertEqual(try document.select(".nga-game-score-count").text(), "4784 人评分")
+        XCTAssertEqual(try document.select(".nga-game-title").text(), "《原神》")
+        XCTAssertEqual(try document.select(".nga-game-subtitle").text(), "Genshin Impact")
+        XCTAssertEqual(try document.select(".nga-game-release-item").count, 2)
+        XCTAssertEqual(try document.select(".nga-game-platform").first?.text(), "客户端游戏")
+        XCTAssertEqual(try document.select(".nga-game-field").count, 4)
+        XCTAssertEqual(
+            try document.select(".nga-game-cover img").attr("src"),
+            "https://img.nga.178.com/attachments/mon_202009/15/cover.jpg"
+        )
+        XCTAssertEqual(
+            try document.select(".nga-game-website a").attr("href"),
+            "https://ys.mihoyo.com/main/"
+        )
+        XCTAssertFalse(html.contains("[style"))
+        XCTAssertFalse(html.contains("votedata_"))
     }
 
     func testRendersNGAListItemsAndStandaloneEqualsSeparator() throws {

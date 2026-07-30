@@ -33,6 +33,60 @@ actor LiveNGAForumService: NGAForumService {
         try parser.forums(from: await client.request(.forums))
     }
 
+    func search(
+        _ request: ForumSearchRequest,
+        page: Int
+    ) async throws -> ForumSearchPage {
+        switch request.kind {
+        case .topicSubject, .topicContent:
+            return try parser.forumSearchTopics(
+                from: await client.request(.searchTopics(
+                    request: request,
+                    page: page
+                )),
+                request: request,
+                page: page
+            )
+        case .forum:
+            return ForumSearchPage(
+                request: request,
+                forums: try parser.forumSearchResults(
+                    from: await client.request(.searchForums(query: request.query))
+                )
+            )
+        case .user:
+            let profile = try await searchedProfile(query: request.query)
+            return ForumSearchPage(
+                request: request,
+                users: profile.map { [$0] } ?? []
+            )
+        case .userTopics, .userContent:
+            guard let profile = try await searchedProfile(query: request.query),
+                  let activityKind = request.kind.userActivityKind else {
+                return ForumSearchPage(request: request)
+            }
+            let targetPage = max(1, page)
+            let activities = try parser.userActivities(
+                from: await client.request(.userActivities(
+                    uid: profile.uid,
+                    kind: activityKind,
+                    page: targetPage
+                )),
+                uid: profile.uid,
+                kind: activityKind,
+                page: targetPage
+            )
+            return ForumSearchPage(
+                request: request,
+                users: [profile],
+                activities: activities.activities,
+                page: activities.page,
+                hasMore: activities.hasMore,
+                totalPages: activities.totalPages
+            )
+        }
+    }
+
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
         try parser.forumPage(from: await client.request(.topics(forumID: forumID, page: page)), forumID: forumID, page: page)
     }
@@ -59,7 +113,10 @@ actor LiveNGAForumService: NGAForumService {
         }
         result.posts = result.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            post.html = parser.sanitizedPostHTML(
+                post.html,
+                topicRating: post.floor == 0 ? result.topic.rating : nil
+            )
             return post
         }
         result.hotReplies = result.hotReplies.map { post in
@@ -79,6 +136,12 @@ actor LiveNGAForumService: NGAForumService {
         if let replyTo = submission.replyTo {
             form.fields["pid"] = form.fields["pid"] ?? replyTo.description
         }
+        for (dimensionID, score) in submission.ratingScores {
+            guard Int64(dimensionID).map({ $0 > 0 }) == true else {
+                throw NGAServiceError.unsupported("评分维度无效")
+            }
+            form.fields[dimensionID] = score.description
+        }
         let response = try await client.request(try postEndpoint(for: form, referer: preflight.url))
         return try parser.submissionSucceeded(from: response)
     }
@@ -89,6 +152,17 @@ actor LiveNGAForumService: NGAForumService {
             postID: postID,
             direction: direction
         )))
+    }
+
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
+        guard !optionIDs.isEmpty else {
+            throw NGAServiceError.unsupported("请至少选择一个投票选项")
+        }
+        let response = try await client.request(.topicPollVote(
+            topicID: topicID,
+            optionIDs: optionIDs
+        ))
+        try parser.actionSucceeded(from: response)
     }
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
@@ -187,6 +261,21 @@ actor LiveNGAForumService: NGAForumService {
 
     func checkIn() async throws -> CheckInResult {
         try parser.checkIn(from: await client.request(.checkIn))
+    }
+
+    private func searchedProfile(query: String) async throws -> Profile? {
+        let endpoint: NGAEndpoint
+        if query.hasPrefix("\\") {
+            let username = String(query.dropFirst())
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !username.isEmpty else { return nil }
+            endpoint = .profile(username: username)
+        } else if let uid = Int64(query), uid > 0 {
+            endpoint = .profile(uid: uid)
+        } else {
+            endpoint = .profile(username: query)
+        }
+        return try parser.searchedProfile(from: await client.request(endpoint))
     }
 
     private func getEndpoint(for url: URL) throws -> NGAEndpoint {

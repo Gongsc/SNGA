@@ -114,6 +114,15 @@ struct NGAEndpoint: Sendable {
         ])
     }
 
+    static func profile(username: String) -> NGAEndpoint {
+        NGAEndpoint(path: "/nuke.php", queryItems: [
+            .init(name: "__lib", value: "ucp"),
+            .init(name: "__act", value: "get"),
+            .init(name: "username", value: username),
+            .init(name: "__output", value: "11")
+        ])
+    }
+
     static func userActivities(uid: Int64, kind: UserActivityKind, page: Int) -> NGAEndpoint {
         var items = [
             URLQueryItem(name: "authorid", value: String(uid)),
@@ -149,6 +158,46 @@ struct NGAEndpoint: Sendable {
             .init(name: "page", value: String(max(1, page))),
             .init(name: "__output", value: "11")
         ])
+    }
+
+    static func searchTopics(
+        request: ForumSearchRequest,
+        page: Int
+    ) -> NGAEndpoint {
+        var items = [
+            URLQueryItem(name: "key", value: request.query),
+            URLQueryItem(
+                name: "content",
+                value: request.kind == .topicContent ? "1" : "0"
+            ),
+            URLQueryItem(name: "page", value: String(max(1, page))),
+            URLQueryItem(name: "lite", value: "xml")
+        ]
+        if let forumID = request.forumID {
+            items.insert(
+                URLQueryItem(
+                    name: forumID.queryName,
+                    value: forumID.description
+                ),
+                at: 0
+            )
+        }
+        return NGAEndpoint(
+            path: "/thread.php",
+            queryItems: items,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func searchForums(query: String) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/forum.php",
+            queryItems: [
+                .init(name: "key", value: query),
+                .init(name: "lite", value: "xml")
+            ],
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
     }
 
     static func thread(topicID: TopicID, page: Int) -> NGAEndpoint {
@@ -217,6 +266,23 @@ struct NGAEndpoint: Sendable {
                 "pid": postID.description,
                 "value": direction.requestValue
             ],
+            isWrite: true,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
+    }
+
+    static func topicPollVote(topicID: TopicID, optionIDs: [String]) -> NGAEndpoint {
+        NGAEndpoint(
+            path: "/nuke.php",
+            method: .post,
+            form: [
+                "__lib": "vote",
+                "__act": "vote",
+                "tid": topicID.description,
+                "voteid": optionIDs.joined(separator: ","),
+                "raw": "3"
+            ],
+            referer: topicWebURL(topicID: topicID),
             isWrite: true,
             userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
         )

@@ -111,6 +111,10 @@ actor NGANetworkClient {
                 try validate(payload)
                 return payload
             } catch {
+                if error is CancellationError ||
+                    (error as? URLError)?.code == .cancelled {
+                    throw CancellationError()
+                }
                 lastError = error
                 await RuntimeLogger.shared.log(
                     .warning,
@@ -149,6 +153,9 @@ actor NGANetworkClient {
             if explicitlyRequiresLogin {
                 throw NGAServiceError.requiresLogin
             }
+            if responseIndicatesDeletedTopic(response) {
+                throw NGAServiceError.topicDeleted
+            }
             throw NGAServiceError.restricted("NGA 暂时拒绝了本次访问（HTTP 403），请稍后重试")
         case 429:
             throw NGAServiceError.rateLimited
@@ -173,6 +180,32 @@ actor NGANetworkClient {
             text.contains("你必须登录") ||
             text.contains("必须登录后") ||
             text.contains("请先登录")
+    }
+
+    private func responseIndicatesDeletedTopic(_ response: NGAHTTPResponse) -> Bool {
+        guard response.url.lastPathComponent == "read.php",
+              let text = try? response.decodedString() else {
+            return false
+        }
+
+        var searchableText = text
+        if let payload = try? JSONSerialization.jsonObject(
+            with: response.data,
+            options: [.fragmentsAllowed]
+        ) {
+            searchableText += String(describing: payload)
+        }
+
+        return [
+            "帖子被删除",
+            "帖子已被删除",
+            "帖子不存在",
+            "主题被删除",
+            "主题已被删除",
+            "主题不存在",
+            "找不到该主题",
+            "找不到主题"
+        ].contains { searchableText.contains($0) }
     }
 
     private func isRetryable(_ error: Error) -> Bool {

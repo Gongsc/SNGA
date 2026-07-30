@@ -14,26 +14,9 @@ struct NGAParser: Sendable {
             try throwJSONErrorIfPresent(in: root)
             for dictionary in dictionaries(in: root) {
                 let uid = int64(dictionary["uid"]) ?? int64(dictionary["id"])
-                let name = string(dictionary["username"]) ?? string(dictionary["name"])
-                if uid == expectedUID, let name, !name.isEmpty {
-                    let masked = name == "UID\(expectedUID)"
-                    return Profile(
-                        uid: expectedUID,
-                        displayName: masked ? "NGA \(expectedUID)" : plainText(name),
-                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
-                        userGroup: nonEmptyString(dictionary["group"]),
-                        title: nonEmptyString(dictionary["title"]),
-                        honor: nonEmptyString(dictionary["honor"]),
-                        registeredAt: date(dictionary["regdate"]),
-                        postCount: int(dictionary["posts"]),
-                        location: nonEmptyString(dictionary["ipLoc"]),
-                        signature: nonEmptyString(dictionary["sign"]).map(plainText),
-                        reputation: int(dictionary["rvrc"]).map { Double($0) / 10 },
-                        fame: int(dictionary["fame"]),
-                        money: int(dictionary["money"]),
-                        followerCount: int(dictionary["follow_by_num"]),
-                        isMasked: masked
-                    )
+                if uid == expectedUID,
+                   let profile = profile(from: dictionary, expectedUID: expectedUID) {
+                    return profile
                 }
             }
         }
@@ -45,6 +28,61 @@ struct NGAParser: Sendable {
             return Profile(uid: expectedUID, displayName: "NGA \(expectedUID)", avatarURL: nil)
         }
         return Profile(uid: expectedUID, displayName: candidate, avatarURL: nil)
+    }
+
+    func searchedProfile(from response: NGAHTTPResponse) throws -> Profile? {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.unexpectedPage("未找到用户搜索数据")
+        }
+        if let dictionary = root as? [String: Any],
+           let errorValue = dictionary["error"] ?? dictionary["__MESSAGE"] {
+            let message = concise(flattenedText(errorValue))
+            if message.contains("找不到用户") || message.contains("用户不存在") {
+                return nil
+            }
+        }
+        try throwJSONErrorIfPresent(in: root)
+        return dictionaries(in: root).lazy.compactMap {
+            profile(from: $0, expectedUID: nil)
+        }.first
+    }
+
+    func forumSearchTopics(
+        from response: NGAHTTPResponse,
+        request: ForumSearchRequest,
+        page: Int
+    ) throws -> ForumSearchPage {
+        let text = try response.decodedString()
+        try throwStructuredErrorIfPresent(in: text)
+        let topicValues = try structuredItemDictionaries(
+            in: text,
+            sectionName: "__T"
+        )
+        let fallbackForumID = request.forumID ?? ForumID(rawValue: 0)
+        let topics = unique(topicValues.compactMap {
+            parseTopic(from: $0, fallbackForumID: fallbackForumID)
+        })
+        let rowCount = structuredInteger(named: "__ROWS", in: text)
+        let rowsPerPage = structuredInteger(named: "__T__ROWS_PAGE", in: text)
+            ?? max(topics.count, 35)
+        let totalPages = rowCount.map {
+            max(1, Int(ceil(Double($0) / Double(max(1, rowsPerPage)))))
+        } ?? max(1, page, topics.count >= rowsPerPage ? page + 1 : page)
+        return ForumSearchPage(
+            request: request,
+            topics: topics,
+            page: max(1, page),
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
+    }
+
+    func forumSearchResults(from response: NGAHTTPResponse) throws -> [Forum] {
+        let text = try response.decodedString()
+        try throwStructuredErrorIfPresent(in: text)
+        let values = try structuredItemDictionaries(in: text)
+        return unique(values.compactMap { forum(from: $0) })
     }
 
     func userActivities(
@@ -498,7 +536,7 @@ struct NGAParser: Sendable {
             } else {
                 topicMetadata = nil
             }
-            let topic = topicMetadata.flatMap {
+            var topic = topicMetadata.flatMap {
                 parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
             }
                 ?? dictionaries(in: root)
@@ -515,7 +553,16 @@ struct NGAParser: Sendable {
                 let existingAvatar = users[authorUID]?.avatarURL
                 users[authorUID] = PostUser(name: author, avatarURL: existingAvatar)
             }
-            let posts = postDictionaries(in: root, payload: payload).compactMap { dictionary in
+            let postValues = postDictionaries(in: root, payload: payload)
+            topic.rating = topicMetadata
+                .flatMap(topicVoteValue)
+                .flatMap { topicRating(from: $0, topicID: topicID) }
+                ?? postValues.lazy.compactMap {
+                    string($0["vote"]).flatMap {
+                        topicRating(from: $0, topicID: topicID)
+                    }
+                }.first
+            let posts = postValues.compactMap { dictionary in
                 post(
                     from: dictionary,
                     topicID: topicID,
@@ -552,6 +599,8 @@ struct NGAParser: Sendable {
         let title = headingTitle.flatMap { $0.isEmpty ? nil : $0 } ?? pageTitle
         let htmlUsers = htmlUserMap(in: text)
         let htmlPostMetadata = htmlPostMetadata(in: text)
+        let htmlTopicPoll = htmlTopicPoll(in: text, topicID: topicID)
+        let htmlRatings = htmlRatings(in: text, topicID: topicID)
         var posts: [Post] = []
         let rows = try document.select("tr.postrow, .postrow, .post-row")
         if !rows.isEmpty {
@@ -580,7 +629,9 @@ struct NGAParser: Sendable {
                     postedAt: metadata?.postedAt,
                     html: contentHTML,
                     upvoteCount: metadata?.upvoteCount ?? 0,
-                    downvoteCount: metadata?.downvoteCount ?? 0
+                    downvoteCount: metadata?.downvoteCount ?? 0,
+                    poll: floor == 0 ? htmlTopicPoll : nil,
+                    ratingScores: htmlRatings.postScores[floor] ?? [:]
                 ))
             }
         } else {
@@ -603,7 +654,9 @@ struct NGAParser: Sendable {
                     floor: floor,
                     author: normalizedUsername(author) ?? "",
                     postedAt: nil,
-                    html: try element.html()
+                    html: try element.html(),
+                    poll: floor == 0 ? htmlTopicPoll : nil,
+                    ratingScores: htmlRatings.postScores[floor] ?? [:]
                 ))
             }
         }
@@ -616,7 +669,8 @@ struct NGAParser: Sendable {
             author: posts.first(where: { $0.floor == 0 })?.author ?? "",
             replyCount: max(0, posts.map(\.floor).max() ?? 0),
             isPinned: false,
-            isLocked: false
+            isLocked: false,
+            rating: htmlRatings.topicRating
         )
         let linkedPages = try document.select("a[href*='page=']").compactMap { element -> Int? in
             guard let href = try? element.attr("href"),
@@ -1037,8 +1091,77 @@ struct NGAParser: Sendable {
         }
     }
 
-    func sanitizedPostHTML(_ source: String) -> String {
-        let rendered = renderBBCode(source)
+    private func throwStructuredErrorIfPresent(in source: String) throws {
+        let items = structuredMessageItems(in: source)
+        guard !items.isEmpty else { return }
+        let message = items.dropFirst().first(where: { !$0.isEmpty })
+            ?? items.first(where: { !$0.isEmpty })
+            ?? ""
+        guard !message.isEmpty else { return }
+        if explicitlyRequiresLogin(message) {
+            throw NGAServiceError.requiresLogin
+        }
+        throw NGAServiceError.restricted(concise(message))
+    }
+
+    private func structuredItemDictionaries(
+        in source: String,
+        sectionName: String? = nil
+    ) throws -> [[String: Any]] {
+        let fragment: String
+        if let sectionName {
+            guard let value = structuredSection(named: sectionName, in: source) else {
+                return []
+            }
+            fragment = value
+        } else {
+            fragment = structuredSection(named: "root", in: source) ?? source
+        }
+        let document = try SwiftSoup.parse(
+            "<root>\(fragment)</root>",
+            NGAEndpoint.baseURL.absoluteString,
+            Parser.xmlParser()
+        )
+        return try document.getElementsByTag("item").compactMap { item in
+            var dictionary: [String: Any] = [:]
+            for child in item.children() {
+                dictionary[child.tagName()] = try child.text()
+            }
+            return dictionary.isEmpty ? nil : dictionary
+        }
+    }
+
+    private func structuredSection(named name: String, in source: String) -> String? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"<\#(name)\b[^>]*>([\s\S]*?)</\#(name)>"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = expression.firstMatch(in: source, range: range),
+              let capture = Range(match.range(at: 1), in: source) else {
+            return nil
+        }
+        return String(source[capture])
+    }
+
+    private func structuredInteger(named name: String, in source: String) -> Int? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"<\#(name)\b[^>]*>\s*(-?\d+)\s*</\#(name)>"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = expression.firstMatch(in: source, range: range),
+              let capture = Range(match.range(at: 1), in: source) else {
+            return nil
+        }
+        return Int(source[capture])
+    }
+
+    func sanitizedPostHTML(
+        _ source: String,
+        topicRating: TopicRating? = nil
+    ) -> String {
+        let rendered = renderBBCode(source, topicRating: topicRating)
         var clean: String
         do {
             let document = try SwiftSoup.parseBodyFragment(rendered, NGAEndpoint.baseURL.absoluteString)
@@ -1108,6 +1231,12 @@ struct NGAParser: Sendable {
         details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
         .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
         .nga-rich-card-title{margin:0 0 8px;font-size:1.15em}.nga-rich-card-image{margin:6px 0}.nga-rich-card-image img{display:block;border-radius:7px}
+        .nga-game-card{display:grid;grid-template-columns:minmax(88px,9rem) minmax(0,1fr);gap:12px;margin:8px 0 12px;padding:14px;box-sizing:border-box;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;color:CanvasText;background:color-mix(in srgb,var(--snga-highlight) 9%,transparent)}.nga-game-card-no-score{grid-template-columns:minmax(0,1fr)}
+        .nga-game-score{display:flex;min-height:88px;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:center;padding:8px;border-radius:7px;color:#fff;background:#b22222;text-align:center}.nga-game-score-value{font-size:2.75em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.nga-game-score-count{margin-top:7px;font-size:.9em;font-weight:600}
+        .nga-game-heading{align-self:center;min-width:0}.nga-game-title{margin:0;font-size:1.8em;line-height:1.2;overflow-wrap:anywhere}.nga-game-subtitle{margin-top:5px;font-size:1.05em}.nga-game-release{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:9px}.nga-game-release-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.nga-game-platform{padding:1px 7px;border-radius:4px;color:#fff;background:#0c7da8;font-weight:600}
+        .nga-game-cover{grid-column:1/-1;overflow:hidden;border-radius:7px;background:color-mix(in srgb,CanvasText 6%,transparent)}.nga-game-cover img{display:block;width:100%;height:auto}.nga-game-cover .snga-image-placeholder{display:flex;width:100%}
+        .nga-game-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 20px}.nga-game-field{min-width:0}.nga-game-label{font-size:1.05em;font-weight:650}.nga-game-value{margin-top:3px;color:#b22222;font-size:1.05em;overflow-wrap:anywhere}.nga-game-website{grid-column:1/-1}.nga-game-website a{display:inline-flex;align-items:center;gap:5px;color:#b22222;font-size:1.05em;font-weight:600}.nga-game-extra{grid-column:1/-1}
+        @media(max-width:520px){.nga-game-card{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px}.nga-game-card-no-score{grid-template-columns:1fr}.nga-game-score{min-height:76px}.nga-game-score-value{font-size:2.2em}.nga-game-score-count{font-size:.72em}.nga-game-title{font-size:1.4em}.nga-game-details{grid-template-columns:repeat(2,minmax(0,1fr))}.nga-game-website{grid-column:1/-1}}@media(max-width:360px){.nga-game-card{grid-template-columns:1fr}.nga-game-score{width:112px;min-height:72px}.nga-game-cover,.nga-game-details{grid-column:1}.nga-game-details{grid-template-columns:1fr}}
         .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}
         .ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}
         .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
@@ -1144,8 +1273,269 @@ struct NGAParser: Sendable {
         case avatar
     }
 
-    private func renderBBCode(_ source: String) -> String {
-        var output = source
+    private func renderGameCards(
+        in source: String,
+        topicRating: TopicRating?
+    ) -> String {
+        replacingMatches(
+            in: source,
+            pattern: #"\[randomblock\](.*?)\[/randomblock\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) { captures in
+            let body = captures.first ?? ""
+            return renderGameCard(body, topicRating: topicRating)
+                ?? "[randomblock]\(body)[/randomblock]"
+        }
+    }
+
+    private func renderGameCard(
+        _ source: String,
+        topicRating: TopicRating?
+    ) -> String? {
+        let title = gameCardComment("game_title_cn", in: source)
+            .map(gameCardText)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let imageURL = gameCardComment("game_title_image", in: source)
+            .flatMap(gameCardImageURL)
+        guard title != nil || imageURL != nil else { return nil }
+
+        let subtitle = gameCardComment("game_title", in: source)
+            .map(gameCardText)
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let releaseItems = gameCardComment("game_release", in: source)
+            .map(gameCardReleaseItems)
+            ?? []
+        let fields: [(label: String, value: String)] = [
+            ("游戏类型", gameCardComment("game_type", in: source)),
+            (
+                "开发商",
+                gameCardComment("game_devloper", in: source)
+                    ?? gameCardComment("game_developer", in: source)
+            ),
+            ("发行商", gameCardComment("game_publisher", in: source))
+        ].compactMap { label, rawValue in
+            guard let rawValue else { return nil }
+            let value = gameCardText(rawValue)
+            return value.isEmpty ? nil : (label, value)
+        }
+        let website = gameCardWebsite(in: source)
+        let ratingDimension = topicRating?.dimensions.first
+        let cardClass = ratingDimension == nil
+            ? "nga-game-card nga-game-card-no-score"
+            : "nga-game-card"
+        var parts = [#"<section class="\#(cardClass)">"#]
+
+        if let ratingDimension, let topicRating {
+            let oneDecimalAverage = (
+                ratingDimension.averageScore * 10
+            ).rounded(.down) / 10
+            parts.append(
+                #"<div class="nga-game-score"><span class="nga-game-score-value">\#(String(format: "%.1f", oneDecimalAverage))</span><span class="nga-game-score-count">\#(topicRating.participantCount) 人评分</span></div>"#
+            )
+        }
+
+        parts.append(#"<div class="nga-game-heading">"#)
+        if let title {
+            parts.append(#"<h3 class="nga-game-title">\#(htmlEscaped(title))</h3>"#)
+        }
+        if let subtitle {
+            parts.append(#"<div class="nga-game-subtitle">\#(htmlEscaped(subtitle))</div>"#)
+        }
+        if !releaseItems.isEmpty {
+            parts.append(#"<div class="nga-game-release">"#)
+            for item in releaseItems {
+                parts.append(
+                    #"<span class="nga-game-release-item"><span class="nga-game-platform">\#(htmlEscaped(item.platform))</span><span>\#(htmlEscaped(item.date))</span></span>"#
+                )
+            }
+            parts.append("</div>")
+        }
+        parts.append("</div>")
+
+        if let imageURL {
+            parts.append(
+                #"<div class="nga-game-cover"><img src="\#(htmlAttributeEscaped(imageURL.absoluteString))" alt="\#(htmlAttributeEscaped(title ?? "游戏封面"))"></div>"#
+            )
+        }
+
+        if !fields.isEmpty || website != nil {
+            parts.append(#"<div class="nga-game-details">"#)
+            for field in fields {
+                parts.append(
+                    #"<div class="nga-game-field"><div class="nga-game-label">\#(field.label)</div><div class="nga-game-value">\#(htmlEscaped(field.value))</div></div>"#
+                )
+            }
+            if let website {
+                parts.append(
+                    #"<div class="nga-game-field nga-game-website"><div class="nga-game-label">官方网站</div><div class="nga-game-value"><a href="\#(htmlAttributeEscaped(website.url.absoluteString))">\#(htmlEscaped(website.label)) <span aria-hidden="true">↗</span></a></div></div>"#
+                )
+            }
+            parts.append("</div>")
+        }
+
+        if let supplementaryContent = gameCardSupplementaryContent(in: source) {
+            parts.append(
+                #"<div class="nga-game-extra">\#(supplementaryContent)</div>"#
+            )
+        }
+
+        parts.append("</section>")
+        return parts.joined()
+    }
+
+    private func gameCardComment(
+        _ name: String,
+        in source: String
+    ) -> String? {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[comment\s+\#(escapedName)\](.*?)\[/comment\s+\#(escapedName)\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return nil
+        }
+        let original = source as NSString
+        guard let match = expression.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ), match.numberOfRanges > 1 else {
+            return nil
+        }
+        return original.substring(with: match.range(at: 1))
+    }
+
+    private func gameCardText(_ source: String) -> String {
+        var value = source
+        value = value.replacingOccurrences(
+            of: #"<br\s*/?>"#,
+            with: " ",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        value = value.replacingOccurrences(
+            of: #"\[[^\]]+\]"#,
+            with: " ",
+            options: .regularExpression
+        )
+        return plainText(value)
+            .replacingOccurrences(
+                of: #"\s+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func gameCardImageURL(_ source: String) -> URL? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[style\b[^\]]*\bsrc\s+([^\s\]]+)"#,
+            options: .caseInsensitive
+        ) else {
+            return nil
+        }
+        let original = source as NSString
+        guard let match = expression.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ), match.numberOfRanges > 1 else {
+            return nil
+        }
+        return remoteResourceURL(
+            original.substring(with: match.range(at: 1)),
+            kind: .attachment
+        )
+    }
+
+    private func gameCardReleaseItems(
+        _ source: String
+    ) -> [(platform: String, date: String)] {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[style\b[^\]]*\](.*?)\[/style\]\s*([12]\d{3}-\d{2}-\d{2})"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return []
+        }
+        let original = source as NSString
+        return expression.matches(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ).compactMap { match in
+            guard match.numberOfRanges > 2 else { return nil }
+            let platform = gameCardText(
+                original.substring(with: match.range(at: 1))
+            )
+            let date = original.substring(with: match.range(at: 2))
+            return platform.isEmpty ? nil : (platform, date)
+        }
+    }
+
+    private func gameCardWebsite(
+        in source: String
+    ) -> (url: URL, label: String)? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[url=([^\]]+)\](.*?)\[/url\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return nil
+        }
+        let original = source as NSString
+        guard let match = expression.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ), match.numberOfRanges > 2,
+        let url = absoluteURL(
+            original.substring(with: match.range(at: 1))
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            relativeTo: NGAEndpoint.baseURL
+        ),
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        let securedURL = secureURL(url) ?? url
+        let rawLabel = gameCardText(
+            original.substring(with: match.range(at: 2))
+        )
+        let label = rawLabel.isEmpty
+            ? securedURL.host ?? securedURL.absoluteString
+            : rawLabel
+        return (securedURL, label)
+    }
+
+    private func gameCardSupplementaryContent(in source: String) -> String? {
+        var remaining = source
+        let commentNames = [
+            "game_title_cn", "game_title", "game_release", "game_title_image",
+            "game_type", "game_devloper", "game_developer", "game_publisher",
+            "game_website"
+        ]
+        for name in commentNames {
+            let escapedName = NSRegularExpression.escapedPattern(for: name)
+            remaining = remaining.replacingOccurrences(
+                of: #"\[comment\s+\#(escapedName)\][\s\S]*?\[/comment\s+\#(escapedName)\]"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[color=[^\]]+\].*?\[/color\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else {
+            return nil
+        }
+        let original = remaining as NSString
+        let content = expression.matches(
+            in: remaining,
+            range: NSRange(location: 0, length: original.length)
+        ).map {
+            original.substring(with: $0.range)
+        }.joined(separator: " ")
+        return content.isEmpty ? nil : content
+    }
+
+    private func renderBBCode(
+        _ source: String,
+        topicRating: TopicRating?
+    ) -> String {
+        var output = renderGameCards(in: source, topicRating: topicRating)
 
         output = output.replacingOccurrences(
             of: "[randomblock]",
@@ -1614,6 +2004,36 @@ struct NGAParser: Sendable {
         )
     }
 
+    private func profile(
+        from dictionary: [String: Any],
+        expectedUID: Int64?
+    ) -> Profile? {
+        guard let uid = int64(dictionary["uid"]) ?? int64(dictionary["id"]),
+              expectedUID == nil || uid == expectedUID,
+              let name = string(dictionary["username"]) ?? string(dictionary["name"]),
+              !name.isEmpty else {
+            return nil
+        }
+        let masked = name == "UID\(uid)"
+        return Profile(
+            uid: uid,
+            displayName: masked ? "NGA \(uid)" : plainText(name),
+            avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
+            userGroup: nonEmptyString(dictionary["group"]),
+            title: nonEmptyString(dictionary["title"]),
+            honor: nonEmptyString(dictionary["honor"]),
+            registeredAt: date(dictionary["regdate"]),
+            postCount: int(dictionary["posts"]),
+            location: nonEmptyString(dictionary["ipLoc"]),
+            signature: nonEmptyString(dictionary["sign"]).map(plainText),
+            reputation: int(dictionary["rvrc"]).map { Double($0) / 10 },
+            fame: int(dictionary["fame"]),
+            money: int(dictionary["money"]),
+            followerCount: int(dictionary["follow_by_num"]),
+            isMasked: masked
+        )
+    }
+
     private func resolvedForumIcon(
         dictionary: [String: Any],
         forumID: ForumID,
@@ -1894,6 +2314,47 @@ struct NGAParser: Sendable {
         return result
     }
 
+    private func htmlTopicPoll(in source: String, topicID: TopicID) -> TopicPoll? {
+        for call in javaScriptCallArguments(in: source, marker: "commonui.vote(") {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count >= 3,
+                  Int64(normalizedJavaScriptLiteral(arguments[1])) == topicID.rawValue else {
+                continue
+            }
+            let rawValue = normalizedJavaScriptLiteral(arguments[2])
+            if let poll = topicPoll(from: rawValue, topicID: topicID) {
+                return poll
+            }
+        }
+        return nil
+    }
+
+    private func htmlRatings(
+        in source: String,
+        topicID: TopicID
+    ) -> (topicRating: TopicRating?, postScores: [Int: [String: Int]]) {
+        var rating: TopicRating?
+        var postScores: [Int: [String: Int]] = [:]
+
+        for call in javaScriptCallArguments(in: source, marker: "commonui.vote(") {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count >= 3,
+                  Int64(normalizedJavaScriptLiteral(arguments[1])) == topicID.rawValue else {
+                continue
+            }
+            let rawValue = normalizedJavaScriptLiteral(arguments[2])
+            if rating == nil,
+               let parsedRating = topicRating(from: rawValue, topicID: topicID) {
+                rating = parsedRating
+            }
+            if let scores = postRatingScores(from: rawValue),
+               let floor = digits(in: arguments[0]).flatMap(Int.init) {
+                postScores[floor] = scores
+            }
+        }
+        return (rating, postScores)
+    }
+
     private func javaScriptCallArguments(in source: String, marker: String) -> [String] {
         var result: [String] = []
         var searchStart = source.startIndex
@@ -2044,9 +2505,11 @@ struct NGAParser: Sendable {
             author = "未知用户"
         }
         let inlineAvatar = remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
+        let postTopicID = TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue)
+        let rawVote = string(dictionary["vote"])
         return Post(
             id: PostID(rawValue: pid),
-            topicID: TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue),
+            topicID: postTopicID,
             floor: floor,
             author: author,
             authorUID: authorUID,
@@ -2071,8 +2534,182 @@ struct NGAParser: Sendable {
                     ?? int(dictionary["down"])
                     ?? 0
             ),
-            userVote: int(dictionary["user_vote"]).flatMap(voteDirection)
+            userVote: int(dictionary["user_vote"]).flatMap(voteDirection),
+            poll: rawVote.flatMap {
+                topicPoll(from: $0, topicID: postTopicID)
+            },
+            ratingScores: rawVote.flatMap(postRatingScores) ?? [:]
         )
+    }
+
+    private func topicVoteValue(in dictionary: [String: Any]) -> String? {
+        if let value = string(dictionary["vote"]) {
+            return value
+        }
+        for key in ["post_misc_var", "topic_misc_var"] {
+            if let nested = dictionary[key] as? [String: Any],
+               let value = string(nested["vote"]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private func votePairs(from rawValue: String) -> [(key: String, value: String)] {
+        let components = rawValue.components(separatedBy: "~")
+        guard components.count >= 2 else { return [] }
+
+        var pairs: [(key: String, value: String)] = []
+        for index in stride(from: 0, to: components.count - 1, by: 2) {
+            pairs.append((components[index], components[index + 1]))
+        }
+        return pairs
+    }
+
+    private func voteValues(
+        from pairs: [(key: String, value: String)]
+    ) -> [String: String] {
+        Dictionary(
+            pairs.map { ($0.key, $0.value) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+    }
+
+    private func topicPoll(from rawValue: String, topicID: TopicID) -> TopicPoll? {
+        let orderedPairs = votePairs(from: rawValue)
+        guard !orderedPairs.isEmpty else { return nil }
+        let values = voteValues(from: orderedPairs)
+
+        // The same field also carries betting and score widgets. Only type 0 is
+        // a regular forum poll that can be represented by this model.
+        guard Int(values["type"] ?? "0") == 0 else { return nil }
+
+        var groups: [TopicPoll.Group] = []
+        var currentGroup = TopicPoll.Group(id: 0, title: nil, options: [])
+        var nextGroupID = 0
+        var participantCount = 0
+
+        for pair in orderedPairs where Int64(pair.key) != nil {
+            let title = plainText(pair.value)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if topicID.rawValue > 38_056_407, title.hasPrefix("===") {
+                if !currentGroup.options.isEmpty {
+                    groups.append(currentGroup)
+                }
+                nextGroupID += 1
+                let groupTitle = String(title.dropFirst(3))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                currentGroup = TopicPoll.Group(
+                    id: nextGroupID,
+                    title: groupTitle.isEmpty ? nil : groupTitle,
+                    options: []
+                )
+                continue
+            }
+
+            let counts = values["_\(pair.key)"]?
+                .split(separator: ",", omittingEmptySubsequences: false)
+                .map { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
+                ?? []
+            let voteCount = max(0, counts.first ?? 0)
+            if counts.count > 2 {
+                participantCount = max(participantCount, counts[2])
+            }
+            currentGroup.options.append(TopicPoll.Option(
+                id: pair.key,
+                title: title,
+                voteCount: voteCount
+            ))
+        }
+        if !currentGroup.options.isEmpty {
+            groups.append(currentGroup)
+        }
+        guard !groups.isEmpty else { return nil }
+
+        let options = Int(values["opt"] ?? "0") ?? 0
+        let endTimestamp = Int64(values["end"] ?? "").flatMap { timestamp in
+            timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
+        }
+        return TopicPoll(
+            id: topicID,
+            groups: groups,
+            maximumSelectionsPerGroup: max(1, Int(values["max_select"] ?? "1") ?? 1),
+            endsAt: endTimestamp,
+            hidesResultsUntilVoting: options & 1 != 0,
+            hidesResultsUntilEnd: options & 2 != 0,
+            participantCount: max(0, participantCount)
+        )
+    }
+
+    private func topicRating(from rawValue: String, topicID: TopicID) -> TopicRating? {
+        let orderedPairs = votePairs(from: rawValue)
+        guard !orderedPairs.isEmpty else { return nil }
+        let values = voteValues(from: orderedPairs)
+        guard Int(values["type"] ?? "") == 2,
+              let minimumScore = Int(values["min"] ?? ""),
+              let maximumScore = Int(values["max"] ?? ""),
+              minimumScore <= maximumScore,
+              maximumScore > 0 else {
+            return nil
+        }
+        let (scoreSpan, scoreSpanOverflow) = maximumScore
+            .subtractingReportingOverflow(minimumScore)
+        guard !scoreSpanOverflow, scoreSpan <= 100 else { return nil }
+
+        var dimensions: [TopicRatingDimension] = []
+        var participantCount = 0
+        for pair in orderedPairs
+        where Int64(pair.key).map({ $0 > 0 }) == true {
+            let title = plainText(pair.value)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let counts = values["_\(pair.key)"]?
+                .split(separator: ",", omittingEmptySubsequences: false)
+                .map { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
+                ?? []
+            let ratingCount = max(0, counts.first ?? 0)
+            let totalScore = max(0, counts.count > 1 ? counts[1] : 0)
+            if counts.count > 2 {
+                participantCount = max(participantCount, counts[2])
+            }
+            dimensions.append(TopicRatingDimension(
+                id: pair.key,
+                title: title,
+                ratingCount: ratingCount,
+                totalScore: totalScore
+            ))
+        }
+        guard !dimensions.isEmpty else { return nil }
+
+        let endTimestamp = Int64(values["end"] ?? "").flatMap { timestamp in
+            timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
+        }
+        return TopicRating(
+            id: topicID,
+            dimensions: dimensions,
+            minimumScore: minimumScore,
+            maximumScore: maximumScore,
+            endsAt: endTimestamp,
+            participantCount: max(0, participantCount)
+        )
+    }
+
+    private func postRatingScores(from rawValue: String) -> [String: Int]? {
+        let pairs = votePairs(from: rawValue)
+        guard !pairs.isEmpty else { return nil }
+        let values = voteValues(from: pairs)
+        guard Int(values["type"] ?? "") == 3 else { return nil }
+
+        let scores: [String: Int] = Dictionary(
+            pairs.compactMap { pair -> (String, Int)? in
+                guard Int64(pair.key).map({ $0 > 0 }) == true,
+                      let score = Int(pair.value) else {
+                    return nil
+                }
+                return (pair.key, score)
+            },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return scores.isEmpty ? nil : scores
     }
 
     private func referencedPostID(in content: String) -> Int64? {

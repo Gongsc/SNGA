@@ -6,6 +6,15 @@ private enum ThreadNavigationDirection {
     case backward
 }
 
+private struct ThreadPresentation {
+    let topic: Topic
+    let posts: [Post]
+    let hotReplies: [Post]
+    let page: Int
+    let totalPages: Int
+    let previousTitle: String?
+}
+
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -15,13 +24,16 @@ struct ThreadView: View {
     @State private var didCopyTopicLink = false
     @State private var navigationDirection = ThreadNavigationDirection.forward
     @State private var pendingLinkedPostID: PostID?
+    @State private var isLinkedThreadTransitioning = false
     private let topAnchor = "thread-page-top"
 
     var body: some View {
         ZStack {
-            threadContent
-                .id(model.selectedTopicID)
-                .transition(threadTransition)
+            if let presentation = currentPresentation {
+                threadContent(presentation)
+                    .id(presentation.topic.id)
+                    .transition(threadTransition)
+            }
         }
         .clipped()
         .sheet(item: $replyTarget) { post in
@@ -42,196 +54,231 @@ struct ThreadView: View {
         .ignoresSafeArea(.container, edges: .top)
     }
 
-    private var threadContent: some View {
+    private var currentPresentation: ThreadPresentation? {
+        guard let topic = model.currentTopic else { return nil }
+        return ThreadPresentation(
+            topic: topic,
+            posts: model.posts,
+            hotReplies: model.hotReplies,
+            page: model.threadPage,
+            totalPages: model.threadTotalPages,
+            previousTitle: model.previousThreadTitle
+        )
+    }
+
+    private func threadContent(_ presentation: ThreadPresentation) -> some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                // A thread page contains at most about 20 posts. Build every row
-                // up front so each embedded WKWebView can load and measure before
-                // the user scrolls to it; lazy creation caused visible stalls at
-                // every newly reached floor.
-                VStack(spacing: 12) {
-                    if let topic = model.currentTopic {
-                        ThreadTitleHeader(
-                            topic: topic,
-                            previousTitle: model.previousThreadTitle,
-                            navigateBack: navigateBack
-                        )
-                            .id(topAnchor)
-                    }
-                    ForEach(model.posts) { post in
-                        PostRow(
-                            post: post,
-                            reply: {
-                                replyTarget = post
-                            },
-                            openPost: { postID, page in
-                                revealPost(
-                                    postID,
-                                    page: page,
-                                    topicID: post.topicID,
-                                    proxy: proxy
-                                )
-                            },
-                            openInternalLink: { destination in
-                                openInternalLink(destination, proxy: proxy)
-                            }
-                        )
-                        .id(post.id)
-                        if post.floor == 0, !model.hotReplies.isEmpty {
-                            HotRepliesSection(
-                                posts: model.hotReplies,
-                                reply: { replyTarget = $0 },
-                                openPost: { postID, page in
-                                    revealPost(
-                                        postID,
-                                        page: page,
-                                        topicID: post.topicID,
-                                        proxy: proxy
+            VStack(spacing: 0) {
+                ThreadTitleHeader(
+                    topic: presentation.topic,
+                    previousTitle: presentation.previousTitle,
+                    isNavigationEnabled: !isLinkedThreadTransitioning,
+                    navigateBack: navigateBack
+                )
+
+                ScrollView {
+                    Group {
+                        if showsThreadContentSkeleton {
+                            ThreadContentSkeletonView()
+                                .transition(.opacity)
+                        } else {
+                            // A thread page contains at most about 20 posts. Build every row
+                            // up front so each embedded WKWebView can load and measure before
+                            // the user scrolls to it; lazy creation caused visible stalls at
+                            // every newly reached floor.
+                            VStack(spacing: 12) {
+                                Color.clear
+                                    .frame(height: 0)
+                                    .id(topAnchor)
+
+                                ForEach(presentation.posts) { post in
+                                    PostRow(
+                                        post: post,
+                                        topicRating: presentation.topic.rating,
+                                        reply: {
+                                            if post.floor == 0 {
+                                                writesNewReply = true
+                                            } else {
+                                                replyTarget = post
+                                            }
+                                        },
+                                        openPost: { postID, page in
+                                            revealPost(
+                                                postID,
+                                                page: page,
+                                                topicID: post.topicID,
+                                                proxy: proxy
+                                            )
+                                        },
+                                        openInternalLink: { destination in
+                                            openInternalLink(destination, proxy: proxy)
+                                        }
                                     )
-                                },
-                                openInternalLink: { destination in
-                                    openInternalLink(destination, proxy: proxy)
+                                    .id(post.id)
+                                    if post.floor == 0, !presentation.hotReplies.isEmpty {
+                                        HotRepliesSection(
+                                            posts: presentation.hotReplies,
+                                            topicRating: presentation.topic.rating,
+                                            reply: { replyTarget = $0 },
+                                            openPost: { postID, page in
+                                                revealPost(
+                                                    postID,
+                                                    page: page,
+                                                    topicID: post.topicID,
+                                                    proxy: proxy
+                                                )
+                                            },
+                                            openInternalLink: { destination in
+                                                openInternalLink(destination, proxy: proxy)
+                                            }
+                                        )
+                                    }
                                 }
-                            )
+                            }
                         }
                     }
+                    .padding()
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: 0.18),
+                        value: showsThreadContentSkeleton
+                    )
                 }
-                .padding()
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                ThreadPaginationBar(
-                    currentPage: model.threadPage,
-                    totalPages: model.threadTotalPages,
-                    isLoading: model.isLoading,
-                    navigate: { page in
-                        guard let topicID = model.selectedTopicID else { return }
-                        Task {
-                            await model.loadThreadPage(topicID: topicID, page: page)
-                            await Task.yield()
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ThreadPaginationBar(
+                        currentPage: presentation.page,
+                        totalPages: presentation.totalPages,
+                        isLoading: isThreadLoading,
+                        showsLoadingIndicator: !showsThreadContentSkeleton,
+                        navigate: { page in
+                            guard let topicID = model.selectedTopicID else { return }
+                            Task {
+                                await model.loadThreadPage(topicID: topicID, page: page)
+                                await Task.yield()
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                                    proxy.scrollTo(topAnchor, anchor: .top)
+                                }
+                            }
+                        }
+                    ) {
+                        Button {
                             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
+                        } label: {
+                            Label("回到顶部", systemImage: "arrow.up.to.line")
                         }
-                    }
-                ) {
-                    Button {
-                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                            proxy.scrollTo(topAnchor, anchor: .top)
-                        }
-                    } label: {
-                        Label("回到顶部", systemImage: "arrow.up.to.line")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("回到主题内容顶部")
-                    .disabled(model.currentTopic == nil)
-                    .accessibilityIdentifier("thread-scroll-to-top")
+                        .labelStyle(.iconOnly)
+                        .help("回到主题内容顶部")
+                        .disabled(model.currentTopic == nil)
+                        .accessibilityIdentifier("thread-scroll-to-top")
 
-                    Button {
-                        showsTopicLinkActions = true
-                    } label: {
-                        Label("分享主题", systemImage: "square.and.arrow.up")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("复制主题链接或在浏览器中打开")
-                    .disabled(model.selectedTopicID == nil)
-                    .accessibilityIdentifier("thread-share")
-                    .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
-                        if let topicURL {
-                            TopicLinkActionsPopover(
-                                url: topicURL,
-                                didCopy: didCopyTopicLink,
-                                copy: copyTopicLink,
-                                openInBrowser: openTopicInBrowser
-                            )
+                        Button {
+                            showsTopicLinkActions = true
+                        } label: {
+                            Label("分享主题", systemImage: "square.and.arrow.up")
                         }
-                    }
-
-                    Menu {
-                        if let topic = model.currentTopic {
-                            if model.favoriteTopicFolders.isEmpty {
-                                Text("正在加载收藏目录…")
-                            } else {
-                                ForEach(model.sortedFavoriteTopicFolders) { folder in
-                                    Toggle(
-                                        isOn: Binding(
-                                            get: {
-                                                model.isTopicFavorite(topic, in: folder)
-                                            },
-                                            set: { isFavorite in
-                                                Task {
-                                                    await model.setTopicFavorite(
-                                                        topic,
-                                                        in: folder,
-                                                        isFavorite: isFavorite
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    ) {
-                                        Text(folder.name)
-                                        if folder.isDefault {
-                                            Text("默认收藏夹")
-                                        }
-                                    }
-                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
-                                }
-                                Divider()
-                                if model.isCurrentTopicFavorite {
-                                    Button(role: .destructive) {
-                                        Task {
-                                            await model.cancelTopicFavorite(topic)
-                                        }
-                                    } label: {
-                                        Label("取消收藏", systemImage: "star.slash")
-                                    }
-                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
-                                    .accessibilityIdentifier("thread-topic-unfavorite")
-                                    Divider()
-                                }
-                                Button {
-                                    model.sidebarSelection = .favorites
-                                } label: {
-                                    Label("管理收藏夹", systemImage: "folder")
-                                }
+                        .labelStyle(.iconOnly)
+                        .help("复制主题链接或在浏览器中打开")
+                        .disabled(model.selectedTopicID == nil)
+                        .accessibilityIdentifier("thread-share")
+                        .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
+                            if let topicURL {
+                                TopicLinkActionsPopover(
+                                    url: topicURL,
+                                    didCopy: didCopyTopicLink,
+                                    copy: copyTopicLink,
+                                    openInBrowser: openTopicInBrowser
+                                )
                             }
                         }
-                    } label: {
-                        Label(
-                            model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
-                            systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
-                        )
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("选择主题收藏夹")
-                    .disabled(model.currentTopic == nil)
-                    .accessibilityIdentifier("thread-topic-favorite")
 
-                    Button {
-                        Task { await model.refreshThreadContent() }
-                    } label: {
-                        Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("刷新当前主题内容")
-                    .disabled(model.isLoading)
-                    .accessibilityIdentifier("thread-refresh")
+                        Menu {
+                            if let topic = model.currentTopic {
+                                if model.favoriteTopicFolders.isEmpty {
+                                    Text("正在加载收藏目录…")
+                                } else {
+                                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                                        Toggle(
+                                            isOn: Binding(
+                                                get: {
+                                                    model.isTopicFavorite(topic, in: folder)
+                                                },
+                                                set: { isFavorite in
+                                                    Task {
+                                                        await model.setTopicFavorite(
+                                                            topic,
+                                                            in: folder,
+                                                            isFavorite: isFavorite
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        ) {
+                                            Text(folder.name)
+                                            if folder.isDefault {
+                                                Text("默认收藏夹")
+                                            }
+                                        }
+                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                    }
+                                    Divider()
+                                    if model.isCurrentTopicFavorite {
+                                        Button(role: .destructive) {
+                                            Task {
+                                                await model.cancelTopicFavorite(topic)
+                                            }
+                                        } label: {
+                                            Label("取消收藏", systemImage: "star.slash")
+                                        }
+                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                        .accessibilityIdentifier("thread-topic-unfavorite")
+                                        Divider()
+                                    }
+                                    Button {
+                                        model.sidebarSelection = .favorites
+                                    } label: {
+                                        Label("管理收藏夹", systemImage: "folder")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(
+                                model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
+                                systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                            )
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("选择主题收藏夹")
+                        .disabled(model.currentTopic == nil)
+                        .accessibilityIdentifier("thread-topic-favorite")
 
-                    Button {
-                        writesNewReply = true
-                    } label: {
-                        Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                        Button {
+                            Task { await model.refreshThreadContent() }
+                        } label: {
+                            Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("刷新当前主题内容")
+                        .disabled(isThreadLoading)
+                        .accessibilityIdentifier("thread-refresh")
+
+                        Button {
+                            writesNewReply = true
+                        } label: {
+                            Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("回复当前主题")
+                        .disabled(model.selectedTopicID == nil)
+                        .accessibilityIdentifier("thread-reply")
                     }
-                    .labelStyle(.iconOnly)
-                    .help("回复当前主题")
-                    .disabled(model.selectedTopicID == nil)
-                    .accessibilityIdentifier("thread-reply")
                 }
-            }
-            .onAppear {
-                scrollToPendingLinkedPost(proxy: proxy)
-            }
-            .onChange(of: model.posts.map(\.id)) {
-                scrollToPendingLinkedPost(proxy: proxy)
+                .onAppear {
+                    scrollToPendingLinkedPost(proxy: proxy)
+                }
+                .onChange(of: presentation.posts.map(\.id)) {
+                    scrollToPendingLinkedPost(proxy: proxy)
+                }
             }
         }
     }
@@ -254,16 +301,31 @@ struct ThreadView: View {
         }
     }
 
+    private var showsThreadContentSkeleton: Bool {
+        model.isLoadingThreadContent || isLinkedThreadTransitioning
+    }
+
+    private var isThreadLoading: Bool {
+        model.isLoading || model.isLoadingThreadContent || isLinkedThreadTransitioning
+    }
+
     private var threadNavigationAnimation: Animation? {
         motionAnimation(.spring(response: 0.38, dampingFraction: 0.86))
     }
 
     private func navigateBack() {
-        guard model.canReturnToPreviousThread else { return }
+        guard model.canReturnToPreviousThread, !isLinkedThreadTransitioning else { return }
+        navigationDirection = .backward
+        pendingLinkedPostID = nil
+        var didReturn = false
         withAnimation(threadNavigationAnimation) {
-            navigationDirection = .backward
-            pendingLinkedPostID = nil
-            model.returnToPreviousThread()
+            isLinkedThreadTransitioning = true
+            didReturn = model.returnToPreviousThread()
+        } completion: {
+            finishLinkedThreadTransition()
+        }
+        if !didReturn {
+            finishLinkedThreadTransition()
         }
     }
 
@@ -314,6 +376,7 @@ struct ThreadView: View {
             revealPost(postID, page: page, topicID: topicID, proxy: proxy)
 
         case let .topic(topicID, page, postID):
+            guard !isLinkedThreadTransitioning else { return }
             if model.selectedTopicID == topicID {
                 if let postID {
                     revealPost(postID, page: page, topicID: topicID, proxy: proxy)
@@ -330,14 +393,31 @@ struct ThreadView: View {
             }
 
             let targetPage = page ?? 1
-            navigationDirection = .forward
-            pendingLinkedPostID = postID
-            let didBegin = withAnimation(threadNavigationAnimation) {
-                model.beginLinkedTopicNavigation(to: topicID, page: targetPage)
-            }
-            guard didBegin else { return }
             Task { @MainActor in
-                await model.loadThreadPage(topicID: topicID, page: targetPage)
+                navigationDirection = .forward
+                pendingLinkedPostID = postID
+                withAnimation(motionAnimation(.easeOut(duration: 0.16))) {
+                    isLinkedThreadTransitioning = true
+                }
+                guard let destination = await model.prepareLinkedTopicPage(
+                    topicID: topicID,
+                    page: targetPage
+                ) else {
+                    pendingLinkedPostID = nil
+                    finishLinkedThreadTransition()
+                    return
+                }
+                var didBegin = false
+                withAnimation(threadNavigationAnimation) {
+                    didBegin = model.beginLinkedTopicNavigation(to: destination)
+                } completion: {
+                    finishLinkedThreadTransition()
+                }
+                guard didBegin else {
+                    pendingLinkedPostID = nil
+                    finishLinkedThreadTransition()
+                    return
+                }
                 guard model.selectedTopicID == topicID else { return }
                 await Task.yield()
                 if postID == nil {
@@ -363,6 +443,12 @@ struct ThreadView: View {
                     preservingForumContext: true
                 )
             }
+        }
+    }
+
+    private func finishLinkedThreadTransition() {
+        withAnimation(motionAnimation(.easeOut(duration: 0.18))) {
+            isLinkedThreadTransitioning = false
         }
     }
 
@@ -420,18 +506,21 @@ private struct TopicLinkActionsPopover: View {
                 .textSelection(.enabled)
                 .lineLimit(2)
 
-            HStack {
+            HStack(spacing: 14) {
                 Button(action: copy) {
                     Label(
                         didCopy ? "已复制" : "复制链接",
                         systemImage: didCopy ? "checkmark" : "doc.on.doc"
                     )
                 }
+                .buttonStyle(.bordered)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("copy-topic-link")
                 Button(action: openInBrowser) {
                     Label("在默认浏览器中打开", systemImage: "safari")
                 }
                 .buttonStyle(.borderedProminent)
+                .fixedSize(horizontal: true, vertical: false)
                 .accessibilityIdentifier("open-topic-in-browser")
             }
         }
@@ -441,56 +530,104 @@ private struct TopicLinkActionsPopover: View {
 }
 
 private struct ThreadTitleHeader: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
     let previousTitle: String?
+    let isNavigationEnabled: Bool
     let navigateBack: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        let title = ThreadTitleText(text: normalizedTitle)
+            .accessibilityLabel(normalizedTitle)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("thread-topic-title")
+
+        Group {
             if let previousTitle {
-                AnimatedThreadBackButton(
-                    previousTitle: previousTitle,
-                    action: navigateBack
-                )
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .move(edge: .leading)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.8))
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text(topic.subject)
-                    .font(.title2.bold())
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 14) {
-                    if !topic.author.isEmpty {
-                        Label(topic.author, systemImage: "person")
-                    }
-                    Label("\(topic.replyCount) 条回复", systemImage: "bubble.left")
+                HStack(alignment: .top, spacing: 10) {
+                    AnimatedThreadBackButton(
+                        previousTitle: previousTitle,
+                        isEnabled: isNavigationEnabled,
+                        action: navigateBack
+                    )
+                    title
+                        .layoutPriority(1)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                title
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(.separator.opacity(0.5))
+                .stroke(Color(nsColor: .separatorColor).opacity(0.5))
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+    }
+
+    private var normalizedTitle: String {
+        topic.subject
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+}
+
+private struct ThreadTitleText: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField(wrappingLabelWithString: text)
+        configure(textField)
+        return textField
+    }
+
+    func updateNSView(_ textField: NSTextField, context: Context) {
+        textField.stringValue = text
+        configure(textField)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView textField: NSTextField,
+        context: Context
+    ) -> CGSize? {
+        guard let width = proposal.width else {
+            return textField.fittingSize
+        }
+        textField.preferredMaxLayoutWidth = width
+        let size = textField.sizeThatFits(
+            NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        )
+        return CGSize(width: width, height: ceil(size.height))
+    }
+
+    private func configure(_ textField: NSTextField) {
+        textField.font = .systemFont(
+            ofSize: NSFont.preferredFont(forTextStyle: .title2).pointSize,
+            weight: .bold
+        )
+        textField.textColor = .labelColor
+        textField.isSelectable = true
+        textField.isEditable = false
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.maximumNumberOfLines = 0
+        textField.lineBreakMode = .byWordWrapping
+        textField.lineBreakStrategy = []
+        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 }
 
 private struct AnimatedThreadBackButton: View {
     @Environment(\.sngaTheme) private var theme
     let previousTitle: String
+    let isEnabled: Bool
     let action: () -> Void
     @State private var isHovering = false
 
@@ -511,7 +648,8 @@ private struct AnimatedThreadBackButton: View {
                 .offset(x: isHovering ? -1.5 : 0)
                 .scaleEffect(isHovering ? 1.06 : 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
+        .disabled(!isEnabled)
         .help("返回：\(previousTitle)")
         .accessibilityLabel("返回上一主题")
         .accessibilityIdentifier("thread-linked-topic-back")
@@ -529,6 +667,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
     let currentPage: Int
     let totalPages: Int
     let isLoading: Bool
+    let showsLoadingIndicator: Bool
     var navigate: (Int) -> Void
     let actions: Actions
 
@@ -538,26 +677,22 @@ private struct ThreadPaginationBar<Actions: View>: View {
         currentPage: Int,
         totalPages: Int,
         isLoading: Bool,
+        showsLoadingIndicator: Bool = true,
         navigate: @escaping (Int) -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
         self.currentPage = currentPage
         self.totalPages = totalPages
         self.isLoading = isLoading
+        self.showsLoadingIndicator = showsLoadingIndicator
         self.navigate = navigate
         self.actions = actions()
     }
 
     var body: some View {
-        paginationContent
-            .buttonStyle(BottomActionBarButtonStyle())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial)
-            .overlay(alignment: .top) {
-                Divider()
-            }
+        BottomActionBar {
+            paginationContent
+        }
             .onAppear {
                 pageText = String(currentPage)
             }
@@ -578,7 +713,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
                 paginationControls(isCompact: true)
             }
 
-            if isLoading {
+            if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
             }
@@ -662,6 +797,7 @@ private struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     let post: Post
+    let topicRating: TopicRating?
     var isHotReply = false
     var reply: () -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
@@ -735,6 +871,14 @@ private struct PostRow: View {
                     }
                 }
             )
+            if let poll = post.poll {
+                TopicPollView(poll: poll)
+            }
+            if post.floor == 0, let topicRating {
+                TopicRatingView(rating: topicRating, startReply: reply)
+            } else if let topicRating, !post.ratingScores.isEmpty {
+                PostRatingView(rating: topicRating, scores: post.ratingScores)
+            }
             HStack(spacing: 12) {
                 Spacer()
                 voteButton(direction: .up)
@@ -821,6 +965,7 @@ private struct PostRow: View {
 private struct HotRepliesSection: View {
     @Environment(\.sngaTheme) private var theme
     let posts: [Post]
+    let topicRating: TopicRating?
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
     var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
@@ -835,6 +980,7 @@ private struct HotRepliesSection: View {
             ForEach(posts) { post in
                 PostRow(
                     post: post,
+                    topicRating: topicRating,
                     isHotReply: true,
                     reply: { reply(post) },
                     openPost: openPost,
@@ -857,6 +1003,7 @@ struct ReplyComposerView: View {
     let topic: Topic
     let replyTo: Post?
     @State private var content = ""
+    @State private var ratingSelections: [TopicRatingSelection]
     @State private var editorMode = ReplyEditorMode.visual
     @State private var editorCommand: UBBEditorCommand?
     @State private var showsEmoticons = false
@@ -864,6 +1011,14 @@ struct ReplyComposerView: View {
     @State private var showsImageEditor = false
     @State private var loadedDraft = false
     @State private var submitted = false
+
+    init(topic: Topic, replyTo: Post?) {
+        self.topic = topic
+        self.replyTo = replyTo
+        _ratingSelections = State(initialValue: topic.rating?.dimensions.map {
+            TopicRatingSelection(id: $0.id, score: nil)
+        } ?? [])
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -880,7 +1035,12 @@ struct ReplyComposerView: View {
                 Button {
                     model.clearError()
                     Task {
-                        if await model.submitReply(topicID: topic.id, content: content, replyTo: replyTo?.id) {
+                        if await model.submitReply(
+                            topicID: topic.id,
+                            content: content,
+                            replyTo: replyTo?.id,
+                            ratingScores: selectedRatingScores
+                        ) {
                             submitted = true
                             dismiss()
                         }
@@ -892,7 +1052,7 @@ struct ReplyComposerView: View {
                             Text("发送中")
                         }
                     } else {
-                        Text("发送")
+                        Text(selectedRatingScores.isEmpty ? "发送" : "发送并评分")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -921,6 +1081,16 @@ struct ReplyComposerView: View {
             }
             .padding(8)
             Divider()
+
+            if let rating = topic.rating,
+               rating.isAcceptingResponses(at: .now) {
+                TopicRatingEditorView(
+                    rating: rating,
+                    selections: $ratingSelections
+                )
+                .padding(10)
+                Divider()
+            }
 
             switch editorMode {
             case .visual:
@@ -974,6 +1144,14 @@ struct ReplyComposerView: View {
         .onDisappear {
             if !submitted { model.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
         }
+    }
+
+    private var selectedRatingScores: [String: Int] {
+        Dictionary(
+            uniqueKeysWithValues: ratingSelections.compactMap { selection in
+                selection.score.map { (selection.id, $0) }
+            }
+        )
     }
 
     @ViewBuilder

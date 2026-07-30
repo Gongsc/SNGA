@@ -55,6 +55,64 @@ actor DebugForumService: NGAForumService {
         ]
     }
 
+    func search(
+        _ request: ForumSearchRequest,
+        page: Int
+    ) async throws -> ForumSearchPage {
+        let targetPage = max(1, page)
+        switch request.kind {
+        case .topicSubject, .topicContent:
+            let resultForumID = request.forumID ?? forum.id
+            return ForumSearchPage(
+                request: request,
+                topics: [
+                    Topic(
+                        id: TopicID(rawValue: 9101),
+                        forumID: resultForumID,
+                        subject: "搜索结果：\(request.query)",
+                        author: "搜索测试用户",
+                        replyCount: 6,
+                        sourceForumName: request.forumID == nil ? forum.name : nil
+                    )
+                ],
+                page: targetPage,
+                hasMore: targetPage < 2,
+                totalPages: 2
+            )
+        case .forum:
+            return ForumSearchPage(
+                request: request,
+                forums: [
+                    Forum(
+                        id: forum.id,
+                        name: "\(request.query) · \(forum.name)",
+                        subtitle: forum.subtitle
+                    )
+                ]
+            )
+        case .user:
+            return ForumSearchPage(
+                request: request,
+                users: [try await profile(uid: 42)]
+            )
+        case .userTopics, .userContent:
+            let kind = request.kind.userActivityKind ?? .topics
+            let result = try await userActivities(
+                uid: 42,
+                kind: kind,
+                page: targetPage
+            )
+            return ForumSearchPage(
+                request: request,
+                users: [try await profile(uid: 42)],
+                activities: result.activities,
+                page: result.page,
+                hasMore: result.hasMore,
+                totalPages: result.totalPages
+            )
+        }
+    }
+
     func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
         // Keep the UI-test response pending long enough to verify refresh animations.
         try await Task.sleep(for: .seconds(2))
@@ -71,6 +129,8 @@ actor DebugForumService: NGAForumService {
     }
 
     func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage {
+        // Keep UI-test responses pending long enough to observe thread skeleton transitions.
+        try await Task.sleep(for: .seconds(1))
         let isPrimaryTopic = topicID == TopicID(rawValue: 9001)
         let topic = Topic(
             id: topicID,
@@ -79,7 +139,24 @@ actor DebugForumService: NGAForumService {
                 ? "主题一：欢迎使用 SNGA"
                 : "主题二：多账号与收藏测试",
             author: "测试用户",
-            replyCount: 1
+            replyCount: 1,
+            rating: isPrimaryTopic
+                ? TopicRating(
+                    id: topicID,
+                    dimensions: [
+                        TopicRatingDimension(
+                            id: "100",
+                            title: "客户端体验",
+                            ratingCount: 30,
+                            totalScore: 234
+                        )
+                    ],
+                    minimumScore: 1,
+                    maximumScore: 10,
+                    endsAt: Date(timeIntervalSince1970: 1_893_427_200),
+                    participantCount: 30
+                )
+                : nil
         )
         let firstPostHTML = isPrimaryTopic
             ? """
@@ -93,9 +170,39 @@ actor DebugForumService: NGAForumService {
                 topicID: topicID,
                 floor: 0,
                 author: "测试用户",
-                html: NGAParser().sanitizedPostHTML(firstPostHTML)
+                html: NGAParser().sanitizedPostHTML(firstPostHTML),
+                poll: isPrimaryTopic
+                    ? TopicPoll(
+                        id: topicID,
+                        groups: [
+                            TopicPoll.Group(
+                                id: 0,
+                                title: nil,
+                                options: [
+                                    TopicPoll.Option(id: "1", title: "原生客户端", voteCount: 18),
+                                    TopicPoll.Option(id: "2", title: "网页端", voteCount: 7),
+                                    TopicPoll.Option(id: "3", title: "都在使用", voteCount: 5)
+                                ]
+                            )
+                        ],
+                        maximumSelectionsPerGroup: 1,
+                        endsAt: Date(timeIntervalSince1970: 1_893_427_200),
+                        hidesResultsUntilVoting: false,
+                        hidesResultsUntilEnd: false,
+                        participantCount: 30
+                    )
+                    : nil
             ),
-            Post(id: PostID(rawValue: 2), topicID: topicID, floor: 1, author: "回复用户", html: NGAParser().sanitizedPostHTML("<blockquote>引用内容</blockquote><p>回复成功。</p>"))
+            Post(
+                id: PostID(rawValue: 2),
+                topicID: topicID,
+                floor: 1,
+                author: "回复用户",
+                html: NGAParser().sanitizedPostHTML(
+                    "<blockquote>引用内容</blockquote><p>回复成功。</p>"
+                ),
+                ratingScores: isPrimaryTopic ? ["100": 8] : [:]
+            )
         ], page: page, hasMore: page < 3, totalPages: 3)
     }
 
@@ -110,6 +217,8 @@ actor DebugForumService: NGAForumService {
             userVote: direction
         )
     }
+
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {}
 
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
         let isNotification = folder == .notifications

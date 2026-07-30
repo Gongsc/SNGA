@@ -44,14 +44,6 @@ final class FavoriteAndCheckInTests: XCTestCase {
         model.threadHasMore = true
         model.threadTotalPages = 4
 
-        XCTAssertTrue(
-            model.beginLinkedTopicNavigation(
-                to: TopicID(rawValue: 202),
-                page: 3
-            )
-        )
-        XCTAssertEqual(model.previousThreadTitle, "起始主题")
-
         let topicB = Topic(
             id: TopicID(rawValue: 202),
             forumID: forumID,
@@ -66,18 +58,31 @@ final class FavoriteAndCheckInTests: XCTestCase {
             author: "Bob",
             html: "<p>B</p>"
         )
-        model.currentTopic = topicB
-        model.posts = [postB]
-        model.threadPage = 3
-        model.threadHasMore = false
-        model.threadTotalPages = 3
-
         XCTAssertTrue(
-            model.beginLinkedTopicNavigation(
-                to: TopicID(rawValue: 303),
-                page: 1
-            )
+            model.beginLinkedTopicNavigation(to: ThreadPage(
+                topic: topicB,
+                posts: [postB],
+                page: 3,
+                hasMore: false,
+                totalPages: 3
+            ))
         )
+        XCTAssertEqual(model.previousThreadTitle, "起始主题")
+
+        let topicC = Topic(
+            id: TopicID(rawValue: 303),
+            forumID: forumID,
+            subject: "第三个主题",
+            author: "Carol",
+            replyCount: 0
+        )
+        XCTAssertTrue(model.beginLinkedTopicNavigation(to: ThreadPage(
+            topic: topicC,
+            posts: [],
+            page: 1,
+            hasMore: false,
+            totalPages: 1
+        )))
         XCTAssertTrue(model.returnToPreviousThread())
         XCTAssertEqual(model.currentTopic, topicB)
         XCTAssertEqual(model.posts, [postB])

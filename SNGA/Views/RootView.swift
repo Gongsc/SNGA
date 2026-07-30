@@ -5,7 +5,6 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.sngaTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
@@ -28,8 +27,8 @@ struct RootView: View {
         .background(theme.backgroundColor)
         .tint(theme.accentColor)
         .toolbar {
-            ToolbarItemGroup {
-                if model.canReturnFromUserCenterToTopicList {
+            if model.canReturnFromUserCenterToTopicList {
+                ToolbarItem(placement: .navigation) {
                     Button {
                         model.returnFromUserCenterToTopicList()
                     } label: {
@@ -38,15 +37,18 @@ struct RootView: View {
                     .help("返回主题列表")
                     .accessibilityIdentifier("user-center-back-to-topics")
                 }
-                if model.selectedForumID == nil,
-                   model.sidebarSelection != .toolbox {
-                    Button {
-                        Task { await model.refreshCurrentSelection() }
-                    } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+            }
+
+            if let browserModuleTitle {
+                ToolbarItem(placement: .navigation) {
+                    Text(browserModuleTitle)
+                        .font(.title2.bold())
+                        .lineLimit(1)
+                        .padding(.leading, browserModuleTitleLeadingInset)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("browser-module-title")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .toolbarVisibility(
@@ -102,18 +104,9 @@ struct RootView: View {
                     model.previewImageURL = nil
                 }
                 .ignoresSafeArea(.container, edges: .top)
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .opacity.combined(with: .scale(scale: 0.98))
-                )
                 .zIndex(100)
             }
         }
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.16),
-            value: model.previewImageURL
-        )
     }
 
     private func clearToolbarFocus() {
@@ -121,6 +114,29 @@ struct RootView: View {
             await Task.yield()
             NSApp.keyWindow?.makeFirstResponder(nil)
         }
+    }
+
+    private var browserModuleTitle: String? {
+        switch model.sidebarSelection {
+        case .userCenter, .none:
+            "用户中心"
+        case .directory:
+            "全部版面"
+        case .search:
+            "搜索"
+        case .favorites:
+            "收藏夹"
+        case .toolbox:
+            "小工具"
+        case .forum:
+            nil
+        case let .messages(folder):
+            folder == .notifications ? "论坛消息" : folder.title
+        }
+    }
+
+    private var browserModuleTitleLeadingInset: CGFloat {
+        model.canReturnFromUserCenterToTopicList ? 0 : 10
     }
 }
 
@@ -333,6 +349,8 @@ private struct ContentColumnView: View {
                 UserCenterView(uid: nil)
             case .directory:
                 ForumDirectoryView()
+            case .search:
+                GlobalForumSearchView()
             case .favorites:
                 FavoritesView()
             case .toolbox:

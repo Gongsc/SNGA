@@ -26,6 +26,10 @@ final class AppModel {
     var userActivityPage = 1
     var userActivityHasMore = false
     var userActivityTotalPages = 1
+    var forumSearchRequest: ForumSearchRequest?
+    var forumSearchPage: ForumSearchPage?
+    var forumSearchErrorMessage: String?
+    var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
 
@@ -61,9 +65,11 @@ final class AppModel {
 
     var isLoading = false
     var isRefreshingTopics = false
+    var isLoadingThreadContent = false
     var topicListScrollToTopRevision = 0
     var isSubmitting = false
     var votingPostIDs: Set<PostID> = []
+    var submittingPollTopicIDs: Set<TopicID> = []
     var updatingFavoriteTopicIDs: Set<TopicID> = []
     var isUpdatingFavoriteTopicFolders = false
     var showsLogin = false
@@ -89,6 +95,7 @@ final class AppModel {
     @ObservationIgnored private var profileRequestID: UUID?
     @ObservationIgnored private var userActivityRequestID: UUID?
     @ObservationIgnored private var forumDirectoryRequestID: UUID?
+    @ObservationIgnored private var forumSearchRequestID: UUID?
     @ObservationIgnored private var topicListRequestID: UUID?
     @ObservationIgnored private var threadRequestID: UUID?
     @ObservationIgnored private var messageListRequestID: UUID?
@@ -198,6 +205,14 @@ final class AppModel {
             }
             return true
         }
+    }
+
+    var isCurrentForumSearchActive: Bool {
+        guard let forumSearchRequest,
+              let selectedForumID else {
+            return false
+        }
+        return forumSearchRequest.forumID == selectedForumID
     }
 
     func bootstrap() async {
@@ -501,6 +516,84 @@ final class AppModel {
         }
     }
 
+    func searchForum(_ request: ForumSearchRequest, page: Int = 1) async {
+        guard let service = activeService else { return }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        let targetPage = max(1, page)
+        if forumSearchRequest != request {
+            forumSearchPage = nil
+        }
+        forumSearchRequestID = requestID
+        forumSearchRequest = request
+        forumSearchErrorMessage = nil
+        isSearchingForum = true
+        defer {
+            if forumSearchRequestID == requestID {
+                isSearchingForum = false
+            }
+        }
+
+        do {
+            var result = try await service.search(request, page: targetPage)
+            guard activeAccountID == requestAccountID,
+                  forumSearchRequestID == requestID,
+                  forumSearchRequest == request else {
+                return
+            }
+            result = enrichingSearchPage(result)
+            forumSearchPage = result
+        } catch is CancellationError {
+            return
+        } catch {
+            guard activeAccountID == requestAccountID,
+                  forumSearchRequestID == requestID,
+                  forumSearchRequest == request else {
+                return
+            }
+            forumSearchPage = nil
+            forumSearchErrorMessage = error.localizedDescription
+            if let serviceError = error as? NGAServiceError,
+               serviceError == .requiresLogin {
+                present(error)
+            } else {
+                Task {
+                    await RuntimeLogger.shared.log(
+                        .error,
+                        category: "search",
+                        error.localizedDescription
+                    )
+                }
+            }
+        }
+    }
+
+    func loadForumSearchPage(_ page: Int) async {
+        guard let forumSearchRequest else { return }
+        await searchForum(forumSearchRequest, page: page)
+    }
+
+    func clearForumSearch() {
+        forumSearchRequestID = nil
+        forumSearchRequest = nil
+        forumSearchPage = nil
+        forumSearchErrorMessage = nil
+        isSearchingForum = false
+    }
+
+    func openForumSearchActivity(_ activity: UserActivity) async {
+        let topic = Topic(
+            id: activity.topicID,
+            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            subject: activity.subject,
+            author: forumSearchPage?.users.first?.displayName ?? "",
+            replyCount: 0,
+            publishedAt: activity.postedAt,
+            sourceForumName: activity.forumName
+        )
+        await openTopic(topic)
+    }
+
     func openForum(_ forum: Forum) async {
         forumNavigationPath = []
         topicListScrollToTopRevision &+= 1
@@ -508,6 +601,7 @@ final class AppModel {
     }
 
     func returnToForumDirectory() {
+        clearForumSearch()
         forumNavigationPath = []
         sidebarSelection = .directory
         selectedTopicID = nil
@@ -530,6 +624,7 @@ final class AppModel {
     }
 
     private func showForum(_ forum: Forum) async {
+        clearForumSearch()
         currentForum = forum
         sidebarSelection = .forum(forum.id)
         selectedTopicID = nil
@@ -715,8 +810,38 @@ final class AppModel {
     }
 
     @discardableResult
-    func beginLinkedTopicNavigation(to topicID: TopicID, page: Int) -> Bool {
-        guard selectedTopicID != topicID, let currentTopic else { return false }
+    func prepareLinkedTopicPage(topicID: TopicID, page: Int) async -> ThreadPage? {
+        guard let service = activeService,
+              let sourceTopicID = selectedTopicID,
+              sourceTopicID != topicID else {
+            return nil
+        }
+        let requestAccountID = service.accountID
+        let requestID = UUID()
+        let targetPage = max(1, page)
+        var loadedPage: ThreadPage?
+        threadRequestID = requestID
+        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: targetPage
+            )
+            guard activeAccountID == requestAccountID,
+                  threadRequestID == requestID,
+                  selectedTopicID == sourceTopicID,
+                  result.topic.id == topicID else {
+                return
+            }
+            loadedPage = result
+        }
+        return loadedPage
+    }
+
+    @discardableResult
+    func beginLinkedTopicNavigation(to destination: ThreadPage) -> Bool {
+        guard selectedTopicID != destination.topic.id, let currentTopic else {
+            return false
+        }
         threadNavigationPath.append(ThreadNavigationSnapshot(
             topic: currentTopic,
             posts: posts,
@@ -726,19 +851,16 @@ final class AppModel {
             totalPages: threadTotalPages
         ))
         threadRequestID = UUID()
-        selectedTopicID = topicID
-        self.currentTopic = Topic(
-            id: topicID,
-            forumID: currentTopic.forumID,
-            subject: "主题 \(topicID.rawValue)",
-            author: "",
-            replyCount: 0
-        )
-        posts = []
-        hotReplies = []
-        threadPage = max(1, page)
-        threadHasMore = false
-        threadTotalPages = max(1, page)
+        var loadedTopic = destination.topic
+        loadedTopic.isFavorite = loadedTopic.isFavorite
+            || favoriteTopicIDs.contains(loadedTopic.id)
+        selectedTopicID = loadedTopic.id
+        self.currentTopic = loadedTopic
+        posts = destination.posts
+        hotReplies = destination.hotReplies
+        threadPage = destination.page
+        threadHasMore = destination.hasMore
+        threadTotalPages = max(destination.totalPages, destination.page)
         return true
     }
 
@@ -766,6 +888,15 @@ final class AppModel {
         let requestID = UUID()
         threadRequestID = requestID
         let page = reset ? 1 : threadPage + 1
+        let showsSkeleton = reset
+        if showsSkeleton {
+            isLoadingThreadContent = true
+        }
+        defer {
+            if threadRequestID == requestID {
+                isLoadingThreadContent = false
+            }
+        }
         await withLoading(
             showsIndicator: showsLoadingIndicator,
             isCurrent: { self.threadRequestID == requestID }
@@ -796,6 +927,12 @@ final class AppModel {
         let requestID = UUID()
         threadRequestID = requestID
         let targetPage = max(1, page)
+        isLoadingThreadContent = true
+        defer {
+            if threadRequestID == requestID {
+                isLoadingThreadContent = false
+            }
+        }
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(topicID: topicID, page: targetPage)
             guard activeAccountID == requestAccountID,
@@ -855,6 +992,57 @@ final class AppModel {
             updateVoteState(originalState, postID: postID, in: &posts)
             updateVoteState(originalState, postID: postID, in: &hotReplies)
             present(error)
+        }
+    }
+
+    func submitTopicPollVote(topicID: TopicID, selection: Set<String>) async -> Bool {
+        guard let service = activeService,
+              let poll = posts.lazy.compactMap(\.poll).first(where: { $0.id == topicID }),
+              !submittingPollTopicIDs.contains(topicID) else {
+            return false
+        }
+        guard poll.isAcceptingResponses(at: .now) else {
+            present(NGAServiceError.unsupported("该投票已经结束"))
+            return false
+        }
+        guard poll.containsValidSelection(selection) else {
+            present(NGAServiceError.unsupported("请选择有效的投票选项"))
+            return false
+        }
+
+        let optionIDs = poll.orderedOptionIDs(in: selection)
+        let requestAccountID = service.accountID
+        submittingPollTopicIDs.insert(topicID)
+        defer { submittingPollTopicIDs.remove(topicID) }
+
+        do {
+            try await service.submitTopicPollVote(
+                topicID: topicID,
+                optionIDs: optionIDs
+            )
+            guard activeAccountID == requestAccountID,
+                  selectedTopicID == topicID else {
+                return false
+            }
+            await loadThreadPage(topicID: topicID, page: threadPage)
+            statusMessage = "投票已提交"
+            statusMessageIsError = false
+            return true
+        } catch {
+            guard activeAccountID == requestAccountID,
+                  selectedTopicID == topicID else {
+                return false
+            }
+            if voteSubmissionMayHaveSucceeded(error) {
+                // 写请求不会自动重试。响应不明确时刷新主题，让服务器状态
+                // 决定后续显示，避免用户重复投票。
+                await loadThreadPage(topicID: topicID, page: threadPage)
+                statusMessage = "投票请求已提交，结果以刷新后的主题为准"
+                statusMessageIsError = false
+                return true
+            }
+            present(error)
+            return false
         }
     }
 
@@ -992,14 +1180,44 @@ final class AppModel {
         try? context.save()
     }
 
-    func submitReply(topicID: TopicID, content: String, replyTo: PostID?) async -> Bool {
-        guard let service = activeService, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+    func submitReply(
+        topicID: TopicID,
+        content: String,
+        replyTo: PostID?,
+        ratingScores: [String: Int] = [:]
+    ) async -> Bool {
+        guard let service = activeService,
+              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if !ratingScores.isEmpty {
+            guard let rating = currentTopic?.rating,
+                  currentTopic?.id == topicID else {
+                present(NGAServiceError.unsupported("当前主题没有可用的评分"))
+                return false
+            }
+            guard rating.isAcceptingResponses(at: .now) else {
+                present(NGAServiceError.unsupported("该评分已经结束"))
+                return false
+            }
+            guard rating.containsValidScores(ratingScores) else {
+                present(NGAServiceError.unsupported("请选择有效的评分"))
+                return false
+            }
+        }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            _ = try await service.submitReply(topicID: topicID, submission: ReplySubmission(content: content, replyTo: replyTo))
+            _ = try await service.submitReply(
+                topicID: topicID,
+                submission: ReplySubmission(
+                    content: content,
+                    replyTo: replyTo,
+                    ratingScores: ratingScores
+                )
+            )
             deleteDraft(topicID: topicID)
-            statusMessage = "回复已发送"
+            statusMessage = ratingScores.isEmpty ? "回复已发送" : "回复和评分已发送"
             statusMessageIsError = false
             await loadThread(topicID: topicID, reset: true)
             return true
@@ -1516,6 +1734,13 @@ final class AppModel {
         case let .forum(id): await loadTopics(forumID: id, reset: true)
         case let .messages(folder): await loadMessages(folder: folder)
         case .directory: await loadForums()
+        case .search:
+            if let forumSearchRequest {
+                await searchForum(
+                    forumSearchRequest,
+                    page: forumSearchPage?.page ?? 1
+                )
+            }
         case .favorites: await loadFavoriteTopics(page: favoriteTopicPage)
         case .toolbox: refreshToolbox()
         case let .userCenter(uid):
@@ -1621,6 +1846,27 @@ final class AppModel {
             enriched.forum = enrichingForumFromDirectory(snapshot.forum)
             return enriched
         }
+    }
+
+    private func enrichingSearchPage(_ page: ForumSearchPage) -> ForumSearchPage {
+        var page = page
+        page.forums = page.forums.map(enrichingForumFromDirectory)
+        if page.request.forumID == nil {
+            let knownForums = Dictionary(
+                (forums + page.forums).map { ($0.id, $0) },
+                uniquingKeysWith: { current, _ in current }
+            )
+            page.topics = page.topics.map { topic in
+                var topic = topic
+                if topic.sourceForumName?.isEmpty != false {
+                    topic.sourceForumID = topic.forumID
+                    topic.sourceForumName = knownForums[topic.forumID]?.name
+                        ?? "\(topic.forumID.queryName) \(topic.forumID.description)"
+                }
+                return topic
+            }
+        }
+        return page
     }
 
     private func applyFavoriteTopicFolders(
@@ -1736,6 +1982,7 @@ final class AppModel {
         userActivityPage = 1
         userActivityHasMore = false
         userActivityTotalPages = 1
+        clearForumSearch()
         selectedTopicID = nil
         selectedMessageID = nil
         resetThreadNavigationHistory()
@@ -1752,6 +1999,7 @@ final class AppModel {
         unreadCount = 0
         messageUnreadCounts = [:]
         isRefreshingTopics = false
+        isLoadingThreadContent = false
     }
 
     private func resetThreadNavigationHistory() {
