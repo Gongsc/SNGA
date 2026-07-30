@@ -89,8 +89,8 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(favoriteForum.waitForExistence(timeout: 5))
         favoriteForum.click()
 
-        let refreshing = app.descendants(matching: .any)["topic-list-refreshing"]
-        XCTAssertTrue(refreshing.waitForExistence(timeout: 2))
+        let skeleton = app.descendants(matching: .any)["topic-list-skeleton"]
+        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
         let returnedToFirstPage = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "1"),
             object: pageField
@@ -104,9 +104,15 @@ final class SNGAUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
 
+        let windowWidthBeforeOpeningTopic = app.windows.firstMatch.frame.width
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
         XCTAssertTrue(app.buttons["thread-scroll-to-top"].waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            app.windows.firstMatch.frame.width,
+            windowWidthBeforeOpeningTopic,
+            accuracy: 2
+        )
         XCTAssertTrue(app.buttons["分享主题"].waitForExistence(timeout: 5))
         app.buttons["分享主题"].click()
 
@@ -138,8 +144,11 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(internalLink.waitForExistence(timeout: 5))
         internalLink.click()
 
+        let skeleton = app.descendants(matching: .any)["thread-content-skeleton"]
+        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
         let backButton = app.buttons["thread-linked-topic-back"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let topicTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(topicTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(topicTitle.label, "主题二：多账号与收藏测试")
@@ -147,6 +156,7 @@ final class SNGAUITests: XCTestCase {
         backButton.click()
 
         XCTAssertTrue(backButton.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let restoredTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(restoredTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(restoredTitle.label, "主题一：欢迎使用 SNGA")

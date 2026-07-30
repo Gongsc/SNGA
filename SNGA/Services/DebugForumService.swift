@@ -129,6 +129,8 @@ actor DebugForumService: NGAForumService {
     }
 
     func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage {
+        // Keep UI-test responses pending long enough to observe thread skeleton transitions.
+        try await Task.sleep(for: .seconds(1))
         let isPrimaryTopic = topicID == TopicID(rawValue: 9001)
         let topic = Topic(
             id: topicID,

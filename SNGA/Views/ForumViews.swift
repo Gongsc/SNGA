@@ -1181,7 +1181,9 @@ struct TopicListView: View {
                     .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
                 }
 
-                if model.isCurrentForumSearchActive {
+                if showsTopicListSkeleton {
+                    TopicListSkeletonView()
+                } else if model.isCurrentForumSearchActive {
                     currentForumSearchRows
                 } else if model.subforums.isEmpty {
                     topicRows(model.displayedTopics)
@@ -1198,6 +1200,7 @@ struct TopicListView: View {
                     currentPage: visiblePage,
                     totalPages: visibleTotalPages,
                     isLoading: visibleIsLoading,
+                    showsLoadingIndicator: !showsTopicListSkeleton,
                     navigate: { page in
                         Task {
                             await loadVisiblePage(page)
@@ -1246,13 +1249,9 @@ struct TopicListView: View {
                             }
                         }
                     } label: {
-                        if model.isRefreshingTopics {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "list.bullet.rectangle")
-                        }
+                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
                     }
+                    .labelStyle(.iconOnly)
                     .accessibilityLabel(
                         visibleIsLoading ? "正在刷新主题列表" : "刷新主题列表"
                     )
@@ -1261,36 +1260,6 @@ struct TopicListView: View {
                     .accessibilityIdentifier("forum-refresh")
                 }
             }
-            .overlay(alignment: .top) {
-                if model.isRefreshingTopics,
-                   !model.isCurrentForumSearchActive,
-                   model.selectedForumID == forumID {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("正在刷新主题列表…")
-                            .font(.callout.weight(.medium))
-                    }
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay {
-                        Capsule()
-                            .stroke(.separator.opacity(0.5))
-                    }
-                    .padding(.top, 10)
-                    .transition(
-                        reduceMotion
-                            ? .opacity
-                            : .move(edge: .top).combined(with: .opacity)
-                    )
-                    .accessibilityIdentifier("topic-list-refreshing")
-                }
-            }
-            .animation(
-                motionAnimation(.easeInOut(duration: 0.18)),
-                value: model.isRefreshingTopics
-            )
             .onChange(of: model.topicListScrollToTopRevision) {
                 Task { @MainActor in
                     await Task.yield()
@@ -1439,6 +1408,12 @@ struct TopicListView: View {
             : model.topicPage
     }
 
+    private var showsTopicListSkeleton: Bool {
+        !model.isCurrentForumSearchActive
+            && model.isRefreshingTopics
+            && model.selectedForumID == forumID
+    }
+
     private var visibleTotalPages: Int {
         model.isCurrentForumSearchActive
             ? model.forumSearchPage?.totalPages ?? 1
@@ -1528,6 +1503,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
     let currentPage: Int
     let totalPages: Int
     let isLoading: Bool
+    let showsLoadingIndicator: Bool
     var navigate: (Int) -> Void
     let actions: Actions
 
@@ -1537,12 +1513,14 @@ private struct TopicListPaginationBar<Actions: View>: View {
         currentPage: Int,
         totalPages: Int,
         isLoading: Bool,
+        showsLoadingIndicator: Bool = true,
         navigate: @escaping (Int) -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
         self.currentPage = currentPage
         self.totalPages = totalPages
         self.isLoading = isLoading
+        self.showsLoadingIndicator = showsLoadingIndicator
         self.navigate = navigate
         self.actions = actions()
     }
@@ -1571,7 +1549,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                 paginationControls(isCompact: true)
             }
 
-            if isLoading {
+            if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
             }

@@ -24,6 +24,7 @@ struct ThreadView: View {
     @State private var didCopyTopicLink = false
     @State private var navigationDirection = ThreadNavigationDirection.forward
     @State private var pendingLinkedPostID: PostID?
+    @State private var isLinkedThreadTransitioning = false
     private let topAnchor = "thread-page-top"
 
     var body: some View {
@@ -71,70 +72,83 @@ struct ThreadView: View {
                 ThreadTitleHeader(
                     topic: presentation.topic,
                     previousTitle: presentation.previousTitle,
+                    isNavigationEnabled: !isLinkedThreadTransitioning,
                     navigateBack: navigateBack
                 )
 
                 ScrollView {
-                    // A thread page contains at most about 20 posts. Build every row
-                    // up front so each embedded WKWebView can load and measure before
-                    // the user scrolls to it; lazy creation caused visible stalls at
-                    // every newly reached floor.
-                    VStack(spacing: 12) {
-                        Color.clear
-                            .frame(height: 0)
-                            .id(topAnchor)
+                    Group {
+                        if showsThreadContentSkeleton {
+                            ThreadContentSkeletonView()
+                                .transition(.opacity)
+                        } else {
+                            // A thread page contains at most about 20 posts. Build every row
+                            // up front so each embedded WKWebView can load and measure before
+                            // the user scrolls to it; lazy creation caused visible stalls at
+                            // every newly reached floor.
+                            VStack(spacing: 12) {
+                                Color.clear
+                                    .frame(height: 0)
+                                    .id(topAnchor)
 
-                        ForEach(presentation.posts) { post in
-                            PostRow(
-                                post: post,
-                                topicRating: presentation.topic.rating,
-                                reply: {
-                                    if post.floor == 0 {
-                                        writesNewReply = true
-                                    } else {
-                                        replyTarget = post
-                                    }
-                                },
-                                openPost: { postID, page in
-                                    revealPost(
-                                        postID,
-                                        page: page,
-                                        topicID: post.topicID,
-                                        proxy: proxy
+                                ForEach(presentation.posts) { post in
+                                    PostRow(
+                                        post: post,
+                                        topicRating: presentation.topic.rating,
+                                        reply: {
+                                            if post.floor == 0 {
+                                                writesNewReply = true
+                                            } else {
+                                                replyTarget = post
+                                            }
+                                        },
+                                        openPost: { postID, page in
+                                            revealPost(
+                                                postID,
+                                                page: page,
+                                                topicID: post.topicID,
+                                                proxy: proxy
+                                            )
+                                        },
+                                        openInternalLink: { destination in
+                                            openInternalLink(destination, proxy: proxy)
+                                        }
                                     )
-                                },
-                                openInternalLink: { destination in
-                                    openInternalLink(destination, proxy: proxy)
-                                }
-                            )
-                            .id(post.id)
-                            if post.floor == 0, !presentation.hotReplies.isEmpty {
-                                HotRepliesSection(
-                                    posts: presentation.hotReplies,
-                                    topicRating: presentation.topic.rating,
-                                    reply: { replyTarget = $0 },
-                                    openPost: { postID, page in
-                                        revealPost(
-                                            postID,
-                                            page: page,
-                                            topicID: post.topicID,
-                                            proxy: proxy
+                                    .id(post.id)
+                                    if post.floor == 0, !presentation.hotReplies.isEmpty {
+                                        HotRepliesSection(
+                                            posts: presentation.hotReplies,
+                                            topicRating: presentation.topic.rating,
+                                            reply: { replyTarget = $0 },
+                                            openPost: { postID, page in
+                                                revealPost(
+                                                    postID,
+                                                    page: page,
+                                                    topicID: post.topicID,
+                                                    proxy: proxy
+                                                )
+                                            },
+                                            openInternalLink: { destination in
+                                                openInternalLink(destination, proxy: proxy)
+                                            }
                                         )
-                                    },
-                                    openInternalLink: { destination in
-                                        openInternalLink(destination, proxy: proxy)
                                     }
-                                )
+                                }
                             }
                         }
                     }
                     .padding()
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: 0.18),
+                        value: showsThreadContentSkeleton
+                    )
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     ThreadPaginationBar(
                         currentPage: presentation.page,
                         totalPages: presentation.totalPages,
-                        isLoading: model.isLoading,
+                        isLoading: isThreadLoading,
+                        showsLoadingIndicator: !showsThreadContentSkeleton,
                         navigate: { page in
                             guard let topicID = model.selectedTopicID else { return }
                             Task {
@@ -245,7 +259,7 @@ struct ThreadView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help("刷新当前主题内容")
-                        .disabled(model.isLoading)
+                        .disabled(isThreadLoading)
                         .accessibilityIdentifier("thread-refresh")
 
                         Button {
@@ -287,16 +301,31 @@ struct ThreadView: View {
         }
     }
 
+    private var showsThreadContentSkeleton: Bool {
+        model.isLoadingThreadContent || isLinkedThreadTransitioning
+    }
+
+    private var isThreadLoading: Bool {
+        model.isLoading || model.isLoadingThreadContent || isLinkedThreadTransitioning
+    }
+
     private var threadNavigationAnimation: Animation? {
         motionAnimation(.spring(response: 0.38, dampingFraction: 0.86))
     }
 
     private func navigateBack() {
-        guard model.canReturnToPreviousThread else { return }
+        guard model.canReturnToPreviousThread, !isLinkedThreadTransitioning else { return }
+        navigationDirection = .backward
+        pendingLinkedPostID = nil
+        var didReturn = false
         withAnimation(threadNavigationAnimation) {
-            navigationDirection = .backward
-            pendingLinkedPostID = nil
-            model.returnToPreviousThread()
+            isLinkedThreadTransitioning = true
+            didReturn = model.returnToPreviousThread()
+        } completion: {
+            finishLinkedThreadTransition()
+        }
+        if !didReturn {
+            finishLinkedThreadTransition()
         }
     }
 
@@ -347,6 +376,7 @@ struct ThreadView: View {
             revealPost(postID, page: page, topicID: topicID, proxy: proxy)
 
         case let .topic(topicID, page, postID):
+            guard !isLinkedThreadTransitioning else { return }
             if model.selectedTopicID == topicID {
                 if let postID {
                     revealPost(postID, page: page, topicID: topicID, proxy: proxy)
@@ -364,19 +394,28 @@ struct ThreadView: View {
 
             let targetPage = page ?? 1
             Task { @MainActor in
+                navigationDirection = .forward
+                pendingLinkedPostID = postID
+                withAnimation(motionAnimation(.easeOut(duration: 0.16))) {
+                    isLinkedThreadTransitioning = true
+                }
                 guard let destination = await model.prepareLinkedTopicPage(
                     topicID: topicID,
                     page: targetPage
                 ) else {
+                    pendingLinkedPostID = nil
+                    finishLinkedThreadTransition()
                     return
                 }
-                navigationDirection = .forward
-                pendingLinkedPostID = postID
-                let didBegin = withAnimation(threadNavigationAnimation) {
-                    model.beginLinkedTopicNavigation(to: destination)
+                var didBegin = false
+                withAnimation(threadNavigationAnimation) {
+                    didBegin = model.beginLinkedTopicNavigation(to: destination)
+                } completion: {
+                    finishLinkedThreadTransition()
                 }
                 guard didBegin else {
                     pendingLinkedPostID = nil
+                    finishLinkedThreadTransition()
                     return
                 }
                 guard model.selectedTopicID == topicID else { return }
@@ -404,6 +443,12 @@ struct ThreadView: View {
                     preservingForumContext: true
                 )
             }
+        }
+    }
+
+    private func finishLinkedThreadTransition() {
+        withAnimation(motionAnimation(.easeOut(duration: 0.18))) {
+            isLinkedThreadTransitioning = false
         }
     }
 
@@ -488,6 +533,7 @@ private struct ThreadTitleHeader: View {
     @Environment(\.sngaTheme) private var theme
     let topic: Topic
     let previousTitle: String?
+    let isNavigationEnabled: Bool
     let navigateBack: () -> Void
 
     var body: some View {
@@ -501,6 +547,7 @@ private struct ThreadTitleHeader: View {
                 HStack(alignment: .top, spacing: 10) {
                     AnimatedThreadBackButton(
                         previousTitle: previousTitle,
+                        isEnabled: isNavigationEnabled,
                         action: navigateBack
                     )
                     title
@@ -580,6 +627,7 @@ private struct ThreadTitleText: NSViewRepresentable {
 private struct AnimatedThreadBackButton: View {
     @Environment(\.sngaTheme) private var theme
     let previousTitle: String
+    let isEnabled: Bool
     let action: () -> Void
     @State private var isHovering = false
 
@@ -601,6 +649,7 @@ private struct AnimatedThreadBackButton: View {
                 .scaleEffect(isHovering ? 1.06 : 1)
         }
         .buttonStyle(.borderless)
+        .disabled(!isEnabled)
         .help("返回：\(previousTitle)")
         .accessibilityLabel("返回上一主题")
         .accessibilityIdentifier("thread-linked-topic-back")
@@ -618,6 +667,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
     let currentPage: Int
     let totalPages: Int
     let isLoading: Bool
+    let showsLoadingIndicator: Bool
     var navigate: (Int) -> Void
     let actions: Actions
 
@@ -627,12 +677,14 @@ private struct ThreadPaginationBar<Actions: View>: View {
         currentPage: Int,
         totalPages: Int,
         isLoading: Bool,
+        showsLoadingIndicator: Bool = true,
         navigate: @escaping (Int) -> Void,
         @ViewBuilder actions: () -> Actions
     ) {
         self.currentPage = currentPage
         self.totalPages = totalPages
         self.isLoading = isLoading
+        self.showsLoadingIndicator = showsLoadingIndicator
         self.navigate = navigate
         self.actions = actions()
     }
@@ -661,7 +713,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
                 paginationControls(isCompact: true)
             }
 
-            if isLoading {
+            if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
             }

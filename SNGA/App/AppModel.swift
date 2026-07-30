@@ -65,6 +65,7 @@ final class AppModel {
 
     var isLoading = false
     var isRefreshingTopics = false
+    var isLoadingThreadContent = false
     var topicListScrollToTopRevision = 0
     var isSubmitting = false
     var votingPostIDs: Set<PostID> = []
@@ -887,6 +888,15 @@ final class AppModel {
         let requestID = UUID()
         threadRequestID = requestID
         let page = reset ? 1 : threadPage + 1
+        let showsSkeleton = reset
+        if showsSkeleton {
+            isLoadingThreadContent = true
+        }
+        defer {
+            if threadRequestID == requestID {
+                isLoadingThreadContent = false
+            }
+        }
         await withLoading(
             showsIndicator: showsLoadingIndicator,
             isCurrent: { self.threadRequestID == requestID }
@@ -917,6 +927,12 @@ final class AppModel {
         let requestID = UUID()
         threadRequestID = requestID
         let targetPage = max(1, page)
+        isLoadingThreadContent = true
+        defer {
+            if threadRequestID == requestID {
+                isLoadingThreadContent = false
+            }
+        }
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(topicID: topicID, page: targetPage)
             guard activeAccountID == requestAccountID,
@@ -1983,6 +1999,7 @@ final class AppModel {
         unreadCount = 0
         messageUnreadCounts = [:]
         isRefreshingTopics = false
+        isLoadingThreadContent = false
     }
 
     private func resetThreadNavigationHistory() {

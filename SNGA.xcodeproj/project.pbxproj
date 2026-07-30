@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A64E00000000000000000001 /* SkeletonShimmerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E00000000000000000002 /* SkeletonShimmerView.swift */; };
+		A64E00000000000000000003 /* TopicListSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E00000000000000000004 /* TopicListSkeletonView.swift */; };
+		A64E00000000000000000005 /* ThreadContentSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64E00000000000000000006 /* ThreadContentSkeletonView.swift */; };
 		A63E00000000000000000001 /* BottomActionBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A63E00000000000000000002 /* BottomActionBar.swift */; };
 		0246EC521B336CF50CC0FCD7 /* NGAParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */; };
 		1081D471D274B56291188892 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB00A3D61556F1889A61F1E /* SwiftSoup */; };
@@ -80,6 +83,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A64E00000000000000000002 /* SkeletonShimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonShimmerView.swift; sourceTree = "<group>"; };
+		A64E00000000000000000004 /* TopicListSkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListSkeletonView.swift; sourceTree = "<group>"; };
+		A64E00000000000000000006 /* ThreadContentSkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadContentSkeletonView.swift; sourceTree = "<group>"; };
 		A63E00000000000000000002 /* BottomActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomActionBar.swift; sourceTree = "<group>"; };
 		031E35758A35B9D8662A49B2 /* ForumSearchPaginationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchPaginationBar.swift; sourceTree = "<group>"; };
 		04583C294B1E0994FAB7581D /* CheckInScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScheduler.swift; sourceTree = "<group>"; };
@@ -273,7 +279,10 @@
 				A61B00000000000000000006 /* NGAEmoticonPicker.swift */,
 				B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */,
 				A62D0000000000000000000A /* PostRatingView.swift */,
+				A64E00000000000000000002 /* SkeletonShimmerView.swift */,
+				A64E00000000000000000006 /* ThreadContentSkeletonView.swift */,
 				A62C00000000000000000004 /* TopicPollView.swift */,
+				A64E00000000000000000004 /* TopicListSkeletonView.swift */,
 				A62D0000000000000000000C /* TopicRatingEditorView.swift */,
 				A62D00000000000000000008 /* TopicRatingView.swift */,
 				AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */,
@@ -445,8 +454,11 @@
 				A62D00000000000000000007 /* TopicRatingView.swift in Sources */,
 				F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */,
 				A61B00000000000000000001 /* SettingsView.swift in Sources */,
+				A64E00000000000000000001 /* SkeletonShimmerView.swift in Sources */,
+				A64E00000000000000000005 /* ThreadContentSkeletonView.swift in Sources */,
 				A60A00000000000000000001 /* ToolboxAPIService.swift in Sources */,
 				A60A00000000000000000003 /* ToolboxViews.swift in Sources */,
+				A64E00000000000000000003 /* TopicListSkeletonView.swift in Sources */,
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
@@ -561,7 +573,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.6.0;
 
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;
@@ -604,7 +616,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.5.1;
+				MARKETING_VERSION = 1.6.0;
 
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;
