@@ -2,6 +2,26 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testAboutWindowShowsProjectLinks() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        let appMenu = app.menuBars.menuBarItems["SNGA"]
+        appMenu.click()
+        let about = appMenu.menus.menuItems["关于 SNGA"]
+        XCTAssertTrue(about.waitForExistence(timeout: 2))
+        about.click()
+
+        XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["版本 1.6.0（1）"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
+        XCTAssertTrue(app.links["gongsc@live.cn"].exists)
+    }
+
     func testOfficialLoginFormDisplaysJavaScriptValidation() {
         continueAfterFailure = false
         let app = XCUIApplication()
