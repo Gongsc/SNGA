@@ -39,54 +39,47 @@ struct ThreadView: View {
         .task {
             await model.loadFavoriteTopicFolders()
         }
+        .toolbar {
+            if let previousTitle = model.previousThreadTitle {
+                ToolbarItem(placement: .navigation) {
+                    AnimatedThreadBackButton(
+                        previousTitle: previousTitle,
+                        action: navigateBack
+                    )
+                }
+            }
+        }
         .ignoresSafeArea(.container, edges: .top)
     }
 
     private var threadContent: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                // A thread page contains at most about 20 posts. Build every row
-                // up front so each embedded WKWebView can load and measure before
-                // the user scrolls to it; lazy creation caused visible stalls at
-                // every newly reached floor.
-                VStack(spacing: 12) {
-                    if let topic = model.currentTopic {
-                        ThreadTitleHeader(
-                            topic: topic,
-                            previousTitle: model.previousThreadTitle,
-                            navigateBack: navigateBack
-                        )
+            VStack(spacing: 0) {
+                if let topic = model.currentTopic {
+                    ThreadTitleHeader(topic: topic)
+                }
+
+                ScrollView {
+                    // A thread page contains at most about 20 posts. Build every row
+                    // up front so each embedded WKWebView can load and measure before
+                    // the user scrolls to it; lazy creation caused visible stalls at
+                    // every newly reached floor.
+                    VStack(spacing: 12) {
+                        Color.clear
+                            .frame(height: 0)
                             .id(topAnchor)
-                    }
-                    ForEach(model.posts) { post in
-                        PostRow(
-                            post: post,
-                            topicRating: model.currentTopic?.rating,
-                            reply: {
-                                if post.floor == 0 {
-                                    writesNewReply = true
-                                } else {
-                                    replyTarget = post
-                                }
-                            },
-                            openPost: { postID, page in
-                                revealPost(
-                                    postID,
-                                    page: page,
-                                    topicID: post.topicID,
-                                    proxy: proxy
-                                )
-                            },
-                            openInternalLink: { destination in
-                                openInternalLink(destination, proxy: proxy)
-                            }
-                        )
-                        .id(post.id)
-                        if post.floor == 0, !model.hotReplies.isEmpty {
-                            HotRepliesSection(
-                                posts: model.hotReplies,
+
+                        ForEach(model.posts) { post in
+                            PostRow(
+                                post: post,
                                 topicRating: model.currentTopic?.rating,
-                                reply: { replyTarget = $0 },
+                                reply: {
+                                    if post.floor == 0 {
+                                        writesNewReply = true
+                                    } else {
+                                        replyTarget = post
+                                    }
+                                },
                                 openPost: { postID, page in
                                     revealPost(
                                         postID,
@@ -99,145 +92,164 @@ struct ThreadView: View {
                                     openInternalLink(destination, proxy: proxy)
                                 }
                             )
+                            .id(post.id)
+                            if post.floor == 0, !model.hotReplies.isEmpty {
+                                HotRepliesSection(
+                                    posts: model.hotReplies,
+                                    topicRating: model.currentTopic?.rating,
+                                    reply: { replyTarget = $0 },
+                                    openPost: { postID, page in
+                                        revealPost(
+                                            postID,
+                                            page: page,
+                                            topicID: post.topicID,
+                                            proxy: proxy
+                                        )
+                                    },
+                                    openInternalLink: { destination in
+                                        openInternalLink(destination, proxy: proxy)
+                                    }
+                                )
+                            }
                         }
                     }
+                    .padding()
                 }
-                .padding()
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                ThreadPaginationBar(
-                    currentPage: model.threadPage,
-                    totalPages: model.threadTotalPages,
-                    isLoading: model.isLoading,
-                    navigate: { page in
-                        guard let topicID = model.selectedTopicID else { return }
-                        Task {
-                            await model.loadThreadPage(topicID: topicID, page: page)
-                            await Task.yield()
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ThreadPaginationBar(
+                        currentPage: model.threadPage,
+                        totalPages: model.threadTotalPages,
+                        isLoading: model.isLoading,
+                        navigate: { page in
+                            guard let topicID = model.selectedTopicID else { return }
+                            Task {
+                                await model.loadThreadPage(topicID: topicID, page: page)
+                                await Task.yield()
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                                    proxy.scrollTo(topAnchor, anchor: .top)
+                                }
+                            }
+                        }
+                    ) {
+                        Button {
                             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                                 proxy.scrollTo(topAnchor, anchor: .top)
                             }
+                        } label: {
+                            Label("回到顶部", systemImage: "arrow.up.to.line")
                         }
-                    }
-                ) {
-                    Button {
-                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                            proxy.scrollTo(topAnchor, anchor: .top)
-                        }
-                    } label: {
-                        Label("回到顶部", systemImage: "arrow.up.to.line")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("回到主题内容顶部")
-                    .disabled(model.currentTopic == nil)
-                    .accessibilityIdentifier("thread-scroll-to-top")
+                        .labelStyle(.iconOnly)
+                        .help("回到主题内容顶部")
+                        .disabled(model.currentTopic == nil)
+                        .accessibilityIdentifier("thread-scroll-to-top")
 
-                    Button {
-                        showsTopicLinkActions = true
-                    } label: {
-                        Label("分享主题", systemImage: "square.and.arrow.up")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("复制主题链接或在浏览器中打开")
-                    .disabled(model.selectedTopicID == nil)
-                    .accessibilityIdentifier("thread-share")
-                    .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
-                        if let topicURL {
-                            TopicLinkActionsPopover(
-                                url: topicURL,
-                                didCopy: didCopyTopicLink,
-                                copy: copyTopicLink,
-                                openInBrowser: openTopicInBrowser
-                            )
+                        Button {
+                            showsTopicLinkActions = true
+                        } label: {
+                            Label("分享主题", systemImage: "square.and.arrow.up")
                         }
-                    }
-
-                    Menu {
-                        if let topic = model.currentTopic {
-                            if model.favoriteTopicFolders.isEmpty {
-                                Text("正在加载收藏目录…")
-                            } else {
-                                ForEach(model.sortedFavoriteTopicFolders) { folder in
-                                    Toggle(
-                                        isOn: Binding(
-                                            get: {
-                                                model.isTopicFavorite(topic, in: folder)
-                                            },
-                                            set: { isFavorite in
-                                                Task {
-                                                    await model.setTopicFavorite(
-                                                        topic,
-                                                        in: folder,
-                                                        isFavorite: isFavorite
-                                                    )
-                                                }
-                                            }
-                                        )
-                                    ) {
-                                        Text(folder.name)
-                                        if folder.isDefault {
-                                            Text("默认收藏夹")
-                                        }
-                                    }
-                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
-                                }
-                                Divider()
-                                if model.isCurrentTopicFavorite {
-                                    Button(role: .destructive) {
-                                        Task {
-                                            await model.cancelTopicFavorite(topic)
-                                        }
-                                    } label: {
-                                        Label("取消收藏", systemImage: "star.slash")
-                                    }
-                                    .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
-                                    .accessibilityIdentifier("thread-topic-unfavorite")
-                                    Divider()
-                                }
-                                Button {
-                                    model.sidebarSelection = .favorites
-                                } label: {
-                                    Label("管理收藏夹", systemImage: "folder")
-                                }
+                        .labelStyle(.iconOnly)
+                        .help("复制主题链接或在浏览器中打开")
+                        .disabled(model.selectedTopicID == nil)
+                        .accessibilityIdentifier("thread-share")
+                        .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
+                            if let topicURL {
+                                TopicLinkActionsPopover(
+                                    url: topicURL,
+                                    didCopy: didCopyTopicLink,
+                                    copy: copyTopicLink,
+                                    openInBrowser: openTopicInBrowser
+                                )
                             }
                         }
-                    } label: {
-                        Label(
-                            model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
-                            systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
-                        )
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("选择主题收藏夹")
-                    .disabled(model.currentTopic == nil)
-                    .accessibilityIdentifier("thread-topic-favorite")
 
-                    Button {
-                        Task { await model.refreshThreadContent() }
-                    } label: {
-                        Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("刷新当前主题内容")
-                    .disabled(model.isLoading)
-                    .accessibilityIdentifier("thread-refresh")
+                        Menu {
+                            if let topic = model.currentTopic {
+                                if model.favoriteTopicFolders.isEmpty {
+                                    Text("正在加载收藏目录…")
+                                } else {
+                                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                                        Toggle(
+                                            isOn: Binding(
+                                                get: {
+                                                    model.isTopicFavorite(topic, in: folder)
+                                                },
+                                                set: { isFavorite in
+                                                    Task {
+                                                        await model.setTopicFavorite(
+                                                            topic,
+                                                            in: folder,
+                                                            isFavorite: isFavorite
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        ) {
+                                            Text(folder.name)
+                                            if folder.isDefault {
+                                                Text("默认收藏夹")
+                                            }
+                                        }
+                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                    }
+                                    Divider()
+                                    if model.isCurrentTopicFavorite {
+                                        Button(role: .destructive) {
+                                            Task {
+                                                await model.cancelTopicFavorite(topic)
+                                            }
+                                        } label: {
+                                            Label("取消收藏", systemImage: "star.slash")
+                                        }
+                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                        .accessibilityIdentifier("thread-topic-unfavorite")
+                                        Divider()
+                                    }
+                                    Button {
+                                        model.sidebarSelection = .favorites
+                                    } label: {
+                                        Label("管理收藏夹", systemImage: "folder")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label(
+                                model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
+                                systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                            )
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("选择主题收藏夹")
+                        .disabled(model.currentTopic == nil)
+                        .accessibilityIdentifier("thread-topic-favorite")
 
-                    Button {
-                        writesNewReply = true
-                    } label: {
-                        Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                        Button {
+                            Task { await model.refreshThreadContent() }
+                        } label: {
+                            Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("刷新当前主题内容")
+                        .disabled(model.isLoading)
+                        .accessibilityIdentifier("thread-refresh")
+
+                        Button {
+                            writesNewReply = true
+                        } label: {
+                            Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("回复当前主题")
+                        .disabled(model.selectedTopicID == nil)
+                        .accessibilityIdentifier("thread-reply")
                     }
-                    .labelStyle(.iconOnly)
-                    .help("回复当前主题")
-                    .disabled(model.selectedTopicID == nil)
-                    .accessibilityIdentifier("thread-reply")
                 }
-            }
-            .onAppear {
-                scrollToPendingLinkedPost(proxy: proxy)
-            }
-            .onChange(of: model.posts.map(\.id)) {
-                scrollToPendingLinkedPost(proxy: proxy)
+                .onAppear {
+                    scrollToPendingLinkedPost(proxy: proxy)
+                }
+                .onChange(of: model.posts.map(\.id)) {
+                    scrollToPendingLinkedPost(proxy: proxy)
+                }
             }
         }
     }
@@ -447,50 +459,30 @@ private struct TopicLinkActionsPopover: View {
 }
 
 private struct ThreadTitleHeader: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.sngaTheme) private var theme
     let topic: Topic
-    let previousTitle: String?
-    let navigateBack: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if let previousTitle {
-                AnimatedThreadBackButton(
-                    previousTitle: previousTitle,
-                    action: navigateBack
-                )
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .move(edge: .leading)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.8))
-                )
-            }
+        HStack {
+            Text(topic.subject)
+                .font(.title2.bold())
+                .lineLimit(1)
+                .textSelection(.enabled)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("thread-topic-title")
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(topic.subject)
-                    .font(.title2.bold())
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 14) {
-                    if !topic.author.isEmpty {
-                        Label(topic.author, systemImage: "person")
-                    }
-                    Label("\(topic.replyCount) 条回复", systemImage: "bubble.left")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
+            Spacer(minLength: 0)
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(.separator.opacity(0.5))
+                .stroke(Color(nsColor: .separatorColor).opacity(0.5))
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
     }
 }
 
@@ -517,7 +509,7 @@ private struct AnimatedThreadBackButton: View {
                 .offset(x: isHovering ? -1.5 : 0)
                 .scaleEffect(isHovering ? 1.06 : 1)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .help("返回：\(previousTitle)")
         .accessibilityLabel("返回上一主题")
         .accessibilityIdentifier("thread-linked-topic-back")

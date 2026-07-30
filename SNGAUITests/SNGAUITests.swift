@@ -135,17 +135,17 @@ final class SNGAUITests: XCTestCase {
 
         let backButton = app.buttons["thread-linked-topic-back"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(
-            app.staticTexts["主题二：多账号与收藏测试"]
-                .waitForExistence(timeout: 5)
-        )
+        let topicTitle = app.staticTexts["thread-topic-title"]
+        XCTAssertTrue(topicTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(topicTitle.label, "主题二：多账号与收藏测试")
+        XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
         backButton.click()
 
-        XCTAssertTrue(
-            app.staticTexts["主题一：欢迎使用 SNGA"]
-                .waitForExistence(timeout: 5)
-        )
-        XCTAssertFalse(backButton.exists)
+        XCTAssertTrue(backButton.waitForNonExistence(timeout: 5))
+        let restoredTitle = app.staticTexts["thread-topic-title"]
+        XCTAssertTrue(restoredTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(restoredTitle.label, "主题一：欢迎使用 SNGA")
+        XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
     }
 
     func testForumDirectorySearchFiltersForums() {
