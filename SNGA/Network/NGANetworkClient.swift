@@ -153,6 +153,9 @@ actor NGANetworkClient {
             if explicitlyRequiresLogin {
                 throw NGAServiceError.requiresLogin
             }
+            if responseIndicatesLockedTopic(response) {
+                throw NGAServiceError.topicLocked
+            }
             if responseIndicatesDeletedTopic(response) {
                 throw NGAServiceError.topicDeleted
             }
@@ -184,18 +187,9 @@ actor NGANetworkClient {
 
     private func responseIndicatesDeletedTopic(_ response: NGAHTTPResponse) -> Bool {
         guard response.url.lastPathComponent == "read.php",
-              let text = try? response.decodedString() else {
+              let searchableText = searchableText(in: response) else {
             return false
         }
-
-        var searchableText = text
-        if let payload = try? JSONSerialization.jsonObject(
-            with: response.data,
-            options: [.fragmentsAllowed]
-        ) {
-            searchableText += String(describing: payload)
-        }
-
         return [
             "帖子被删除",
             "帖子已被删除",
@@ -206,6 +200,45 @@ actor NGANetworkClient {
             "找不到该主题",
             "找不到主题"
         ].contains { searchableText.contains($0) }
+    }
+
+    private func responseIndicatesLockedTopic(_ response: NGAHTTPResponse) -> Bool {
+        guard let searchableText = searchableText(in: response) else {
+            return false
+        }
+        return [
+            "此帖子被锁定",
+            "帖子被锁定",
+            "帖子已锁定",
+            "此主题被锁定",
+            "主题被锁定",
+            "主题已锁定"
+        ].contains { searchableText.contains($0) }
+    }
+
+    private func searchableText(in response: NGAHTTPResponse) -> String? {
+        guard var text = try? response.decodedString() else { return nil }
+        if let payload = try? JSONSerialization.jsonObject(
+            with: response.data,
+            options: [.fragmentsAllowed]
+        ) {
+            // NGA 的结构化错误通常使用 Unicode 转义；反序列化后再匹配中文错误语义。
+            text += responseStrings(in: payload).joined(separator: " ")
+        }
+        return text
+    }
+
+    private func responseStrings(in value: Any) -> [String] {
+        if let value = value as? String {
+            return [value]
+        }
+        if let value = value as? [String: Any] {
+            return value.values.flatMap(responseStrings(in:))
+        }
+        if let value = value as? [Any] {
+            return value.flatMap(responseStrings(in:))
+        }
+        return []
     }
 
     private func isRetryable(_ error: Error) -> Bool {

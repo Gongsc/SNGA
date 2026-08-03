@@ -301,6 +301,7 @@ final class NGAParserTests: XCTestCase {
               "lou": 5,
               "author": "Bob",
               "content": "打个10分。",
+              "from_client": "8 Android",
               "vote": "52689~10~type~3"
             }]
           }
@@ -328,6 +329,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(rating.containsValidScores(["52689": 8]))
         XCTAssertFalse(rating.containsValidScores(["52689": 11]))
         XCTAssertFalse(rating.containsValidScores(["missing": 8]))
+        XCTAssertEqual(page.posts.first?.device, .android)
         XCTAssertEqual(page.posts.first?.ratingScores, ["52689": 10])
     }
 
@@ -496,6 +498,18 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(thread.hasMore)
     }
 
+    func testLockedTopicJSONErrorUsesLockedTopicError() throws {
+        let payload = #"{"error":["11:\u6b64\u5e16\u5b50\u88ab\u9501\u5b9a"],"data":{"__MESSAGE":[11,"\u6b64\u5e16\u5b50\u88ab\u9501\u5b9a",null,403]}}"#
+
+        XCTAssertThrowsError(try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_305_779),
+            page: 1
+        )) { error in
+            XCTAssertEqual(error as? NGAServiceError, .topicLocked)
+        }
+    }
+
     func testComputesForumPageCountFromStructuredRowMetadata() throws {
         let payload = """
         {
@@ -595,6 +609,7 @@ final class NGAParserTests: XCTestCase {
             thread.posts.first?.avatarURL?.absoluteString,
             "https://img.nga.178.com/avatars/2020/12/62810712.jpg"
         )
+        XCTAssertEqual(thread.posts.map(\.device), [.apple, .desktop])
         XCTAssertEqual(thread.posts.map(\.upvoteCount), [4, 2])
     }
 
@@ -1732,6 +1747,25 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(page.messages.first?.preview, "Alice 发来一条短消息")
         XCTAssertEqual(page.messages.first?.isUnread, true)
         XCTAssertNil(page.messages.first?.sentAt)
+    }
+
+    func testParsesNotificationsEmbeddedInCurrentScriptPayload() throws {
+        let notifications = response(
+            #"{"data":["__NOTI__{0:[{0:1,1:90,2:\"Carol\",5:\"有人回复了你\",6:100,7:190,8:191,9:1700000100,10:1}],\"unread\":1,\"lasttime\":1700000200}"]}"#
+        )
+
+        let page = try parser.messages(
+            from: notifications,
+            folder: .notifications,
+            page: 1
+        )
+
+        XCTAssertEqual(page.messages.count, 1)
+        XCTAssertEqual(page.messages.first?.kind, .reply)
+        XCTAssertEqual(page.messages.first?.sender, "Carol")
+        XCTAssertEqual(page.messages.first?.subject, "有人回复了你")
+        XCTAssertEqual(page.messages.first?.topicID, TopicID(rawValue: 100))
+        XCTAssertEqual(page.messages.first?.isUnread, true)
     }
 
     func testParsesShortMessageDetailsWithAuthorAndTimePerPost() throws {

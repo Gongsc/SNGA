@@ -632,6 +632,7 @@ struct NGAParser: Sendable {
                     authorUID: authorUID,
                     avatarURL: user?.avatarURL,
                     postedAt: metadata?.postedAt,
+                    device: metadata?.device ?? .desktop,
                     html: contentHTML,
                     upvoteCount: metadata?.upvoteCount ?? 0,
                     downvoteCount: metadata?.downvoteCount ?? 0,
@@ -659,6 +660,7 @@ struct NGAParser: Sendable {
                     floor: floor,
                     author: normalizedUsername(author) ?? "",
                     postedAt: nil,
+                    device: .desktop,
                     html: try element.html(),
                     poll: floor == 0 ? htmlTopicPoll : nil,
                     ratingScores: htmlRatings.postScores[floor] ?? [:]
@@ -738,7 +740,10 @@ struct NGAParser: Sendable {
     func messages(from response: NGAHTTPResponse, folder: MessageFolder, page: Int) throws -> MessagePage {
         if let root = jsonRoot(response.data) {
             try throwJSONErrorIfPresent(in: root)
-            let payload = jsonPayload(in: root)
+            let rawPayload = jsonPayload(in: root)
+            let payload = folder == .notifications
+                ? notificationPayload(in: rawPayload)
+                : rawPayload
             var values: [ForumMessage]
             if folder == .notifications {
                 values = dictionaries(in: payload)
@@ -2273,6 +2278,7 @@ struct NGAParser: Sendable {
         var pid: Int64?
         var authorUID: Int64?
         var postedAt: Date?
+        var device: PostDevice
         var upvoteCount: Int
         var downvoteCount: Int
     }
@@ -2332,12 +2338,16 @@ struct NGAParser: Sendable {
                     .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
                 : []
             let score = scoreValues.count > 1 ? scoreValues[1] : 0
+            let rawDevice = arguments.count > 19
+                ? normalizedJavaScriptLiteral(arguments[19])
+                : nil
             result[floor] = HTMLPostMetadata(
                 pid: Int64(normalizedJavaScriptLiteral(arguments[10])),
                 authorUID: Int64(normalizedJavaScriptLiteral(arguments[13])),
                 postedAt: timestamp.flatMap {
                     $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
                 },
+                device: postDevice(from: rawDevice),
                 upvoteCount: max(0, score),
                 downvoteCount: max(0, -score)
             )
@@ -2538,6 +2548,10 @@ struct NGAParser: Sendable {
         let inlineAvatar = remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
         let postTopicID = TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue)
         let rawVote = string(dictionary["vote"])
+        let rawDevice = ["from_client", "fromClient", "client", "device"]
+            .lazy
+            .compactMap { string(dictionary[$0]) }
+            .first
         return Post(
             id: PostID(rawValue: pid),
             topicID: postTopicID,
@@ -2546,6 +2560,7 @@ struct NGAParser: Sendable {
             authorUID: authorUID,
             avatarURL: inlineAvatar ?? user?.avatarURL,
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
+            device: postDevice(from: rawDevice),
             html: content,
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
@@ -2571,6 +2586,17 @@ struct NGAParser: Sendable {
             },
             ratingScores: rawVote.flatMap(postRatingScores) ?? [:]
         )
+    }
+
+    private func postDevice(from rawValue: String?) -> PostDevice {
+        let value = rawValue?.lowercased() ?? ""
+        if value.contains("android") {
+            return .android
+        }
+        if value.contains("ios") || value.contains("iphone") || value.contains("ipad") {
+            return .apple
+        }
+        return .desktop
     }
 
     private func topicVoteValue(in dictionary: [String: Any]) -> String? {
@@ -3045,6 +3071,29 @@ struct NGAParser: Sendable {
             .first
     }
 
+    private func notificationPayload(in value: Any) -> Any {
+        // NGA 会把提醒对象作为 JavaScript 字符串放进 data[0]，且数字键没有引号；
+        // 先解开这一层，再沿用普通 JSON 提醒解析。
+        for source in strings(in: value) {
+            guard let openingBrace = source.firstIndex(of: "{"),
+                  let closingBrace = source.lastIndex(of: "}"),
+                  openingBrace < closingBrace else {
+                continue
+            }
+            let object = String(source[openingBrace...closingBrace])
+            let normalized = replacingMatches(
+                in: object,
+                pattern: #"([,{]\s*)(\d+)\s*:"#
+            ) { captures in
+                "\(captures[0])\"\(captures[1])\":"
+            }
+            if let payload = jsonRoot(normalized) {
+                return payload
+            }
+        }
+        return value
+    }
+
     private func normalizedUsername(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
         let value = plainText(rawValue).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3258,7 +3307,21 @@ struct NGAParser: Sendable {
         if explicitlyRequiresLogin(message) {
             throw NGAServiceError.requiresLogin
         }
+        if indicatesLockedTopic(message) {
+            throw NGAServiceError.topicLocked
+        }
         throw NGAServiceError.restricted(message)
+    }
+
+    private func indicatesLockedTopic(_ message: String) -> Bool {
+        [
+            "此帖子被锁定",
+            "帖子被锁定",
+            "帖子已锁定",
+            "此主题被锁定",
+            "主题被锁定",
+            "主题已锁定"
+        ].contains { message.contains($0) }
     }
 
     private func explicitlyRequiresLogin(_ message: String) -> Bool {
@@ -3288,6 +3351,19 @@ struct NGAParser: Sendable {
         }
         if let array = value as? [Any] {
             return array.flatMap(dictionaries(in:))
+        }
+        return []
+    }
+
+    private func strings(in value: Any) -> [String] {
+        if let string = value as? String {
+            return [string]
+        }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.values.flatMap(strings(in:))
+        }
+        if let array = value as? [Any] {
+            return array.flatMap(strings(in:))
         }
         return []
     }

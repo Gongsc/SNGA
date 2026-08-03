@@ -5,6 +5,7 @@ enum NGAServiceError: LocalizedError, Equatable, Sendable {
     case invalidResponse
     case requiresLogin
     case topicDeleted
+    case topicLocked
     case restricted(String)
     case rateLimited
     case server(Int)
@@ -18,6 +19,7 @@ enum NGAServiceError: LocalizedError, Equatable, Sendable {
         case .invalidResponse: "NGA 返回了无法识别的响应"
         case .requiresLogin: "当前请求未通过 NGA 登录验证，请重试；如果持续出现，请重新登录"
         case .topicDeleted: "帖子被删除"
+        case .topicLocked: "帖子已锁定，无法查看或回复"
         case let .restricted(message): message.isEmpty ? "当前账号无权访问" : message
         case .rateLimited: "请求过于频繁，请稍后重试"
         case let .server(status): "NGA 服务暂时不可用（HTTP \(status)）"

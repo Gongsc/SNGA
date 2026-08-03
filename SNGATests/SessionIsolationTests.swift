@@ -289,6 +289,28 @@ final class SessionIsolationTests: XCTestCase {
         }
     }
 
+    func testLockedTopicHTTP403UsesLockedTopicError() async {
+        let transport = FixedResponseTransport(
+            statusCode: 403,
+            body: #"{"error":["11:\u6b64\u5e16\u5b50\u88ab\u9501\u5b9a"],"data":{"__MESSAGE":[11,"\u6b64\u5e16\u5b50\u88ab\u9501\u5b9a",null,403]}}"#
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.thread(
+                topicID: TopicID(rawValue: 47_305_779),
+                page: 1,
+                authorUID: nil
+            ))
+            XCTFail("锁定主题应抛出专用错误")
+        } catch let error as NGAServiceError {
+            XCTAssertEqual(error, .topicLocked)
+            XCTAssertEqual(error.localizedDescription, "帖子已锁定，无法查看或回复")
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+    }
+
     func testNonThreadHTTP403WithDeletedTextRemainsRestricted() async {
         let transport = FixedResponseTransport(
             statusCode: 403,

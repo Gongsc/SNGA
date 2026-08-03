@@ -94,6 +94,20 @@ struct ForumPage: Hashable, Codable, Sendable {
     var subforums: [Forum] = []
 }
 
+enum PostDevice: String, Hashable, Codable, Sendable {
+    case apple
+    case android
+    case desktop
+
+    var title: String {
+        switch self {
+        case .apple: "Apple 设备"
+        case .android: "Android 设备"
+        case .desktop: "桌面设备"
+        }
+    }
+}
+
 struct Post: Identifiable, Hashable, Codable, Sendable {
     let id: PostID
     var topicID: TopicID
@@ -102,6 +116,7 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var authorUID: Int64? = nil
     var avatarURL: URL? = nil
     var postedAt: Date? = nil
+    var device: PostDevice? = nil
     var html: String
     var quotedPostID: PostID? = nil
     var upvoteCount: Int = 0

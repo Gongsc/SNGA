@@ -20,6 +20,7 @@ struct ThreadView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var replyTarget: Post?
     @State private var writesNewReply = false
+    @State private var showsLockedTopicAlert = false
     @State private var showsTopicLinkActions = false
     @State private var didCopyTopicLink = false
     @State private var navigationDirection = ThreadNavigationDirection.forward
@@ -50,6 +51,11 @@ struct ThreadView: View {
         }
         .task {
             await model.loadFavoriteTopicFolders()
+        }
+        .alert("帖子已锁定", isPresented: $showsLockedTopicAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("该主题已锁定，无法回复。")
         }
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -95,13 +101,7 @@ struct ThreadView: View {
                                     PostRow(
                                         post: post,
                                         topicRating: presentation.topic.rating,
-                                        reply: {
-                                            if post.floor == 0 {
-                                                writesNewReply = true
-                                            } else {
-                                                replyTarget = post
-                                            }
-                                        },
+                                        reply: { startReply(to: post) },
                                         openPost: { postID, page in
                                             revealPost(
                                                 postID,
@@ -119,7 +119,7 @@ struct ThreadView: View {
                                         HotRepliesSection(
                                             posts: presentation.hotReplies,
                                             topicRating: presentation.topic.rating,
-                                            reply: { replyTarget = $0 },
+                                            reply: startReply,
                                             openPost: { postID, page in
                                                 revealPost(
                                                     postID,
@@ -289,12 +289,17 @@ struct ThreadView: View {
                         .accessibilityIdentifier("thread-refresh")
 
                         Button {
-                            writesNewReply = true
+                            startNewReply()
                         } label: {
-                            Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                            Label(
+                                presentation.topic.isLocked ? "主题已锁定" : "回复主题",
+                                systemImage: presentation.topic.isLocked
+                                    ? "lock.fill"
+                                    : "arrowshape.turn.up.left"
+                            )
                         }
                         .labelStyle(.iconOnly)
-                        .help("回复当前主题")
+                        .help(presentation.topic.isLocked ? "主题已锁定" : "回复当前主题")
                         .disabled(model.selectedTopicID == nil)
                         .accessibilityIdentifier("thread-reply")
                     }
@@ -324,6 +329,26 @@ struct ThreadView: View {
                 insertion: .move(edge: .leading).combined(with: .opacity),
                 removal: .move(edge: .trailing).combined(with: .opacity)
             )
+        }
+    }
+
+    private func startNewReply() {
+        guard model.currentTopic?.isLocked != true else {
+            showsLockedTopicAlert = true
+            return
+        }
+        writesNewReply = true
+    }
+
+    private func startReply(to post: Post) {
+        guard model.currentTopic?.isLocked != true else {
+            showsLockedTopicAlert = true
+            return
+        }
+        if post.floor == 0 {
+            writesNewReply = true
+        } else {
+            replyTarget = post
         }
     }
 
@@ -906,6 +931,13 @@ private struct PostRow: View {
                 PostRatingView(rating: topicRating, scores: post.ratingScores)
             }
             HStack(spacing: 12) {
+                Label(postDevice.title, systemImage: deviceSystemImage)
+                    .labelStyle(.iconOnly)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("发自 \(postDevice.title)")
+                    .accessibilityLabel("发自 \(postDevice.title)")
+                    .accessibilityIdentifier("post-device-\(post.id.rawValue)")
                 Spacer()
                 voteButton(direction: .up)
                 voteButton(direction: .down)
@@ -963,6 +995,18 @@ private struct PostRow: View {
         isHotReply
             ? theme.accentColor.opacity(0.11)
             : theme.surfaceColor
+    }
+
+    private var postDevice: PostDevice {
+        post.device ?? .desktop
+    }
+
+    private var deviceSystemImage: String {
+        switch postDevice {
+        case .apple: "apple.logo"
+        case .android: "rectangle.portrait"
+        case .desktop: "desktopcomputer"
+        }
     }
 
     private func voteButton(direction: PostVoteDirection) -> some View {

@@ -1233,6 +1233,10 @@ final class AppModel {
               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        if currentTopic?.id == topicID, currentTopic?.isLocked == true {
+            present(NGAServiceError.topicLocked)
+            return false
+        }
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
@@ -2103,6 +2107,11 @@ final class AppModel {
                 category: "app",
                 error.localizedDescription
             )
+        }
+        if let serviceError = error as? NGAServiceError,
+           serviceError == .topicLocked,
+           currentTopic?.id == selectedTopicID {
+            currentTopic?.isLocked = true
         }
         guard let serviceError = error as? NGAServiceError,
               serviceError == .requiresLogin,
