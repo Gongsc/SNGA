@@ -113,22 +113,37 @@ actor DebugForumService: NGAForumService {
         }
     }
 
-    func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
+    func topics(
+        forumID: ForumID,
+        page: Int,
+        sortOrder: TopicListSortOrder,
+        featuredOnly: Bool
+    ) async throws -> ForumPage {
         // Keep the UI-test response pending long enough to verify refresh animations.
         try await Task.sleep(for: .seconds(2))
+        let topics = [
+            Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "主题一：欢迎使用 SNGA", author: "测试用户", authorUID: 1001, replyCount: 2),
+            Topic(id: TopicID(rawValue: 9002), forumID: forumID, subject: "主题二：多账号与收藏测试", author: "另一位用户", authorUID: 1002, replyCount: 8)
+        ]
+        let sortedTopics = sortOrder == .latestReply
+            ? topics
+            : Array(topics.reversed())
         return ForumPage(
             forum: forum,
-            topics: [
-                Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "主题一：欢迎使用 SNGA", author: "测试用户", replyCount: 2),
-                Topic(id: TopicID(rawValue: 9002), forumID: forumID, subject: "主题二：多账号与收藏测试", author: "另一位用户", replyCount: 8)
-            ],
+            topics: featuredOnly
+                ? sortedTopics.filter { $0.id == TopicID(rawValue: 9002) }
+                : sortedTopics,
             page: page,
-            hasMore: page < 3,
-            totalPages: 3
+            hasMore: featuredOnly ? false : page < 3,
+            totalPages: featuredOnly ? 1 : 3
         )
     }
 
-    func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage {
+    func threadPage(
+        topicID: TopicID,
+        page: Int,
+        authorUID: Int64?
+    ) async throws -> ThreadPage {
         // Keep UI-test responses pending long enough to observe thread skeleton transitions.
         try await Task.sleep(for: .seconds(1))
         let isPrimaryTopic = topicID == TopicID(rawValue: 9001)
@@ -139,6 +154,7 @@ actor DebugForumService: NGAForumService {
                 ? "主题一：欢迎使用 SNGA"
                 : "主题二：多账号与收藏测试",
             author: "测试用户",
+            authorUID: isPrimaryTopic ? 1001 : 1002,
             replyCount: 1,
             rating: isPrimaryTopic
                 ? TopicRating(
@@ -164,12 +180,13 @@ actor DebugForumService: NGAForumService {
               <p><a href="https://bbs.nga.cn/read.php?tid=9002">打开站内关联主题</a></p>
               """
             : "<p>这是通过站内链接打开的关联主题。</p>"
-        return ThreadPage(topic: topic, posts: [
+        let allPosts = [
             Post(
                 id: PostID(rawValue: 1),
                 topicID: topicID,
                 floor: 0,
                 author: "测试用户",
+                authorUID: isPrimaryTopic ? 1001 : 1002,
                 html: NGAParser().sanitizedPostHTML(firstPostHTML),
                 poll: isPrimaryTopic
                     ? TopicPoll(
@@ -198,12 +215,24 @@ actor DebugForumService: NGAForumService {
                 topicID: topicID,
                 floor: 1,
                 author: "回复用户",
+                authorUID: 2001,
                 html: NGAParser().sanitizedPostHTML(
                     "<blockquote>引用内容</blockquote><p>回复成功。</p>"
                 ),
                 ratingScores: isPrimaryTopic ? ["100": 8] : [:]
             )
-        ], page: page, hasMore: page < 3, totalPages: 3)
+        ]
+        let visiblePosts = authorUID.map { targetUID in
+            allPosts.filter { $0.authorUID == targetUID }
+        } ?? allPosts
+        let totalPages = authorUID == nil ? 3 : 1
+        return ThreadPage(
+            topic: topic,
+            posts: visiblePosts,
+            page: page,
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
     }
 
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {

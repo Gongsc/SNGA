@@ -201,7 +201,11 @@ final class SessionIsolationTests: XCTestCase {
             transport: transport
         )
 
-        let page = try await service.threadPage(topicID: TopicID(rawValue: 47239680), page: 1)
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 47239680),
+            page: 1,
+            authorUID: 88
+        )
 
         XCTAssertEqual(page.topic.subject, "兼容主题")
         XCTAssertEqual(page.posts.first?.author, "网页用户")
@@ -210,6 +214,8 @@ final class SessionIsolationTests: XCTestCase {
         XCTAssertEqual(requests.count, 2)
         XCTAssertTrue(requests[0].url?.query?.contains("__output=11") == true)
         XCTAssertFalse(requests[1].url?.query?.contains("__output") == true)
+        XCTAssertTrue(requests[0].url?.query?.contains("authorid=88") == true)
+        XCTAssertTrue(requests[1].url?.query?.contains("authorid=88") == true)
         XCTAssertEqual(requests[0].value(forHTTPHeaderField: "User-Agent"), "NGA_WP_JW/(;WINDOWS)")
     }
 
@@ -271,7 +277,8 @@ final class SessionIsolationTests: XCTestCase {
         do {
             _ = try await client.request(.thread(
                 topicID: TopicID(rawValue: 404),
-                page: 1
+                page: 1,
+                authorUID: nil
             ))
             XCTFail("已删除主题应抛出专用错误")
         } catch let error as NGAServiceError {

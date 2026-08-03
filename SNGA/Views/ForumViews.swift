@@ -1211,6 +1211,36 @@ struct TopicListView: View {
                         }
                     }
                 ) {
+                    Menu("排序方式", systemImage: "arrow.up.arrow.down") {
+                        ForEach(TopicListSortOrder.allCases) { sortOrder in
+                            Button {
+                                selectSortOrder(sortOrder)
+                            } label: {
+                                if model.topicListSortOrder == sortOrder {
+                                    Label(sortOrder.title, systemImage: "checkmark")
+                                } else {
+                                    Text(sortOrder.title)
+                                }
+                            }
+                        }
+                    }
+                    .menuIndicator(.hidden)
+                    .labelStyle(.iconOnly)
+                    .help("排序方式：\(model.topicListSortOrder.title)")
+                    .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
+                    .accessibilityIdentifier("topic-list-sort-order")
+
+                    Button(action: toggleFeaturedTopics) {
+                        Label(
+                            model.isShowingFeaturedTopics ? "退出精华区" : "精华区",
+                            systemImage: model.isShowingFeaturedTopics ? "medal.fill" : "medal"
+                        )
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(model.isShowingFeaturedTopics ? "显示全部主题" : "只显示精华主题")
+                    .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
+                    .accessibilityIdentifier("topic-list-featured")
+
                     Button {
                         withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
@@ -1249,7 +1279,7 @@ struct TopicListView: View {
                             }
                         }
                     } label: {
-                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
+                        Label("刷新主题列表", systemImage: "arrow.clockwise.circle")
                     }
                     .labelStyle(.iconOnly)
                     .accessibilityLabel(
@@ -1267,6 +1297,12 @@ struct TopicListView: View {
                         proxy.scrollTo(topAnchor, anchor: .top)
                     }
                 }
+            }
+            .onChange(of: model.topicListSortOrder) {
+                reloadTopics(proxy: proxy)
+            }
+            .onChange(of: model.isShowingFeaturedTopics) {
+                reloadTopics(proxy: proxy)
             }
         }
         .task(id: forumID) {
@@ -1447,6 +1483,25 @@ struct TopicListView: View {
             await model.loadForumSearchPage(page)
         } else {
             await model.loadTopicPage(forumID: forumID, page: page)
+        }
+    }
+
+    private func selectSortOrder(_ sortOrder: TopicListSortOrder) {
+        model.topicListSortOrder = sortOrder
+    }
+
+    private func toggleFeaturedTopics() {
+        model.isShowingFeaturedTopics.toggle()
+    }
+
+    private func reloadTopics(proxy: ScrollViewProxy) {
+        guard !model.isCurrentForumSearchActive else { return }
+        Task {
+            await model.loadTopics(forumID: forumID, reset: true)
+            await Task.yield()
+            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                proxy.scrollTo(topAnchor, anchor: .top)
+            }
         }
     }
 

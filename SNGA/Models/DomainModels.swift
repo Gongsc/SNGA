@@ -62,6 +62,7 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var forumID: ForumID
     var subject: String
     var author: String
+    var authorUID: Int64? = nil
     var replyCount: Int
     var publishedAt: Date? = nil
     var lastReplyAt: Date? = nil

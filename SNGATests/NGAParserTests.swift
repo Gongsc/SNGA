@@ -651,6 +651,7 @@ final class NGAParserTests: XCTestCase {
         )
 
         XCTAssertEqual(thread.topic.author, "楼主用户")
+        XCTAssertEqual(thread.topic.authorUID, 100)
         XCTAssertEqual(thread.topic.replyCount, 21)
         XCTAssertEqual(thread.posts.map(\.id), [PostID(rawValue: 0), PostID(rawValue: 301)])
         XCTAssertEqual(thread.posts.map(\.floor), [0, 1])
@@ -660,6 +661,42 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.hotReplies.map(\.author), ["热门回复用户"])
         XCTAssertEqual(thread.hotReplies.map(\.html), ["嵌套热门回复"])
         XCTAssertEqual(thread.totalPages, 2)
+    }
+
+    func testThreadPaginationUsesFilteredResponseRowCount() throws {
+        let payload = """
+        {
+          "data": {
+            "__ROWS": 8,
+            "__R__ROWS_PAGE": 20,
+            "__T": {
+              "tid": 47300693,
+              "fid": 510381,
+              "subject": "只看作者分页",
+              "authorid": 64994774,
+              "author": "主题作者",
+              "replies": 51
+            },
+            "__R": [{
+              "pid": 0,
+              "tid": 47300693,
+              "lou": 0,
+              "authorid": 64994774,
+              "content": "主题首帖"
+            }]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47300693),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.topic.authorUID, 64_994_774)
+        XCTAssertEqual(thread.totalPages, 1)
+        XCTAssertFalse(thread.hasMore)
     }
 
     func testKeepsObjectShapedReplyMapInFloorOrderAndResolvesUsers() throws {
@@ -1089,7 +1126,11 @@ final class NGAParserTests: XCTestCase {
     }
 
     func testThreadHTMLEndpointDoesNotRequestStructuredOutput() {
-        let endpoint = NGAEndpoint.threadHTML(topicID: TopicID(rawValue: 47239680), page: 3)
+        let endpoint = NGAEndpoint.threadHTML(
+            topicID: TopicID(rawValue: 47239680),
+            page: 3,
+            authorUID: nil
+        )
 
         XCTAssertEqual(endpoint.path, "/read.php")
         XCTAssertEqual(endpoint.queryItems.first(where: { $0.name == "tid" })?.value, "47239680")

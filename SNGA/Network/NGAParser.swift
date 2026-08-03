@@ -580,7 +580,12 @@ struct NGAParser: Sendable {
                         topicAuthor: topic.author
                     )
                 }
-                let totalPages = threadPageCount(topic: topic, currentPage: page, postCount: posts.count)
+                let totalPages = threadPageCount(
+                    in: root,
+                    topic: topic,
+                    currentPage: page,
+                    postCount: posts.count
+                )
                 return ThreadPage(
                     topic: topic,
                     posts: unique(posts),
@@ -667,6 +672,7 @@ struct NGAParser: Sendable {
             forumID: ForumID(rawValue: 0),
             subject: title,
             author: posts.first(where: { $0.floor == 0 })?.author ?? "",
+            authorUID: posts.first(where: { $0.floor == 0 })?.authorUID,
             replyCount: max(0, posts.map(\.floor).max() ?? 0),
             isPinned: false,
             isLocked: false,
@@ -682,10 +688,15 @@ struct NGAParser: Sendable {
                 .value
                 .flatMap(Int.init)
         }
-        let totalPages = max(
-            threadPageCount(topic: topic, currentPage: page, postCount: posts.count),
-            linkedPages.max() ?? 1
-        )
+        let filtersByAuthor = URLComponents(url: response.url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "authorid" }) == true
+        let totalPages = filtersByAuthor
+            ? max(page, linkedPages.max() ?? page)
+            : max(
+                threadPageCount(topic: topic, currentPage: page, postCount: posts.count),
+                linkedPages.max() ?? 1
+            )
         return ThreadPage(
             topic: topic,
             posts: unique(posts),
@@ -703,6 +714,25 @@ struct NGAParser: Sendable {
         }
         // 结构化响应缺少主题元数据时，只能用满页结果保守探测下一页。
         return currentPage + 1
+    }
+
+    private func threadPageCount(
+        in root: Any,
+        topic: Topic,
+        currentPage: Int,
+        postCount: Int
+    ) -> Int {
+        if let metadata = dictionaries(in: root).first(where: {
+            $0["__ROWS"] != nil && $0["__R__ROWS_PAGE"] != nil
+        }),
+           let totalRows = int(metadata["__ROWS"]),
+           let rowsPerPage = int(metadata["__R__ROWS_PAGE"]),
+           totalRows >= 0,
+           rowsPerPage > 0 {
+            let totalPages = max(1, (totalRows + rowsPerPage - 1) / rowsPerPage)
+            return max(currentPage, totalPages)
+        }
+        return threadPageCount(topic: topic, currentPage: currentPage, postCount: postCount)
     }
 
     func messages(from response: NGAHTTPResponse, folder: MessageFolder, page: Int) throws -> MessagePage {
@@ -2075,6 +2105,7 @@ struct NGAParser: Sendable {
             forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
             subject: subject,
             author: normalizedUsername(string(dictionary["author"])) ?? "",
+            authorUID: postAuthorID(in: dictionary),
             replyCount: int(dictionary["replies"]) ?? int(dictionary["replyCount"]) ?? 0,
             publishedAt: date(dictionary["postdate"]),
             lastReplyAt: date(dictionary["lastpost"]),

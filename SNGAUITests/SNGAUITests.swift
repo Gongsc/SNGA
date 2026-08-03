@@ -89,6 +89,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
         XCTAssertTrue(app.buttons["topic-list-scroll-to-top"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["topic-list-featured"].exists)
 
         let nextPage = app.buttons["topic-list-next-page"]
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
@@ -105,9 +106,12 @@ final class SNGAUITests: XCTestCase {
             .completed
         )
 
-        let favoriteForum = app.buttons["favorite-forum--7"]
-        XCTAssertTrue(favoriteForum.waitForExistence(timeout: 5))
-        favoriteForum.click()
+        let sortOrder = app.descendants(matching: .any)["topic-list-sort-order"]
+        XCTAssertTrue(sortOrder.waitForExistence(timeout: 5))
+        sortOrder.click()
+        let latestTopic = app.menuItems["最新话题"]
+        XCTAssertTrue(latestTopic.waitForExistence(timeout: 5))
+        latestTopic.click()
 
         let skeleton = app.descendants(matching: .any)["topic-list-skeleton"]
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
@@ -119,9 +123,14 @@ final class SNGAUITests: XCTestCase {
             XCTWaiter.wait(for: [returnedToFirstPage], timeout: 5),
             .completed
         )
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         XCTAssertTrue(
             app.descendants(matching: .any)["topic-list-top"]
                 .waitForExistence(timeout: 5)
+        )
+        XCTAssertLessThan(
+            app.buttons["topic-9002"].frame.minY,
+            app.buttons["topic-9001"].frame.minY
         )
 
         let windowWidthBeforeOpeningTopic = app.windows.firstMatch.frame.width
@@ -133,6 +142,22 @@ final class SNGAUITests: XCTestCase {
             windowWidthBeforeOpeningTopic,
             accuracy: 2
         )
+        let onlyAuthor = app.descendants(matching: .any)["thread-only-author"]
+        XCTAssertTrue(onlyAuthor.waitForExistence(timeout: 5))
+        XCTAssertEqual(onlyAuthor.value as? String, "已关闭")
+        let replyAuthor = app.buttons["回复用户"]
+        XCTAssertTrue(replyAuthor.waitForExistence(timeout: 5))
+        onlyAuthor.click()
+        let onlyAuthorEnabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "已开启"),
+            object: onlyAuthor
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [onlyAuthorEnabled], timeout: 5),
+            .completed
+        )
+        XCTAssertTrue(replyAuthor.waitForNonExistence(timeout: 5))
+
         XCTAssertTrue(app.buttons["分享主题"].waitForExistence(timeout: 5))
         app.buttons["分享主题"].click()
 

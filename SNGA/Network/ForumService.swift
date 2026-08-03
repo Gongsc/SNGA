@@ -35,8 +35,17 @@ protocol NGAForumService: Sendable {
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage
     func forums() async throws -> [Forum]
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage
-    func topics(forumID: ForumID, page: Int) async throws -> ForumPage
-    func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage
+    func topics(
+        forumID: ForumID,
+        page: Int,
+        sortOrder: TopicListSortOrder,
+        featuredOnly: Bool
+    ) async throws -> ForumPage
+    func threadPage(
+        topicID: TopicID,
+        page: Int,
+        authorUID: Int64?
+    ) async throws -> ThreadPage
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID?
     func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws

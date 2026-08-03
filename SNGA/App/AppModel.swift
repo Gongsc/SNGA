@@ -9,6 +9,7 @@ private struct ThreadNavigationSnapshot: Sendable {
     let page: Int
     let hasMore: Bool
     let totalPages: Int
+    let showsOnlyTopicAuthor: Bool
 }
 
 @MainActor
@@ -32,6 +33,9 @@ final class AppModel {
     var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
+    var topicListSortOrder: TopicListSortOrder = .latestReply
+    var isShowingFeaturedTopics = false
+    var isShowingOnlyTopicAuthor = false
 
     var forums: [Forum] = []
     var favorites: [FavoriteSnapshot] = []
@@ -154,6 +158,17 @@ final class AppModel {
     var isCurrentTopicFavorite: Bool {
         guard let currentTopic else { return false }
         return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+    }
+
+    var currentTopicAuthorUID: Int64? {
+        if let authorUID = currentTopic?.authorUID, authorUID != 0 {
+            return authorUID
+        }
+        if let authorUID = posts.first(where: { $0.floor == 0 })?.authorUID,
+           authorUID != 0 {
+            return authorUID
+        }
+        return nil
     }
 
     var canReturnToPreviousThread: Bool {
@@ -653,7 +668,12 @@ final class AppModel {
         }
         let page = reset ? 1 : topicPage + 1
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
-            let result = try await service.topics(forumID: forumID, page: page)
+            let result = try await service.topics(
+                forumID: forumID,
+                page: page,
+                sortOrder: topicListSortOrder,
+                featuredOnly: isShowingFeaturedTopics
+            )
             guard activeAccountID == requestAccountID,
                   topicListRequestID == requestID,
                   selectedForumID == forumID else {
@@ -676,7 +696,12 @@ final class AppModel {
         }
         let targetPage = max(1, min(page, topicTotalPages))
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
-            let result = try await service.topics(forumID: forumID, page: targetPage)
+            let result = try await service.topics(
+                forumID: forumID,
+                page: targetPage,
+                sortOrder: topicListSortOrder,
+                featuredOnly: isShowingFeaturedTopics
+            )
             guard activeAccountID == requestAccountID,
                   topicListRequestID == requestID,
                   selectedForumID == forumID else {
@@ -824,7 +849,8 @@ final class AppModel {
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(
                 topicID: topicID,
-                page: targetPage
+                page: targetPage,
+                authorUID: nil
             )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
@@ -848,7 +874,8 @@ final class AppModel {
             hotReplies: hotReplies,
             page: threadPage,
             hasMore: threadHasMore,
-            totalPages: threadTotalPages
+            totalPages: threadTotalPages,
+            showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
         ))
         threadRequestID = UUID()
         var loadedTopic = destination.topic
@@ -861,6 +888,7 @@ final class AppModel {
         threadPage = destination.page
         threadHasMore = destination.hasMore
         threadTotalPages = max(destination.totalPages, destination.page)
+        isShowingOnlyTopicAuthor = false
         return true
     }
 
@@ -875,6 +903,7 @@ final class AppModel {
         threadPage = previous.page
         threadHasMore = previous.hasMore
         threadTotalPages = previous.totalPages
+        isShowingOnlyTopicAuthor = previous.showsOnlyTopicAuthor
         return true
     }
 
@@ -901,7 +930,11 @@ final class AppModel {
             showsIndicator: showsLoadingIndicator,
             isCurrent: { self.threadRequestID == requestID }
         ) {
-            let result = try await service.threadPage(topicID: topicID, page: page)
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: page,
+                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
+            )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
                   selectedTopicID == topicID else {
@@ -910,6 +943,7 @@ final class AppModel {
             var loadedTopic = result.topic
             loadedTopic.isFavorite = loadedTopic.isFavorite
                 || favoriteTopicIDs.contains(loadedTopic.id)
+            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
             currentTopic = loadedTopic
             posts = reset ? result.posts : merged(posts, result.posts)
             if reset || !result.hotReplies.isEmpty {
@@ -921,12 +955,14 @@ final class AppModel {
         }
     }
 
-    func loadThreadPage(topicID: TopicID, page: Int) async {
-        guard let service = activeService else { return }
+    @discardableResult
+    func loadThreadPage(topicID: TopicID, page: Int) async -> Bool {
+        guard let service = activeService else { return false }
         let requestAccountID = service.accountID
         let requestID = UUID()
         threadRequestID = requestID
         let targetPage = max(1, page)
+        var didLoad = false
         isLoadingThreadContent = true
         defer {
             if threadRequestID == requestID {
@@ -934,7 +970,11 @@ final class AppModel {
             }
         }
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
-            let result = try await service.threadPage(topicID: topicID, page: targetPage)
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: targetPage,
+                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
+            )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
                   selectedTopicID == topicID else {
@@ -943,13 +983,16 @@ final class AppModel {
             var loadedTopic = result.topic
             loadedTopic.isFavorite = loadedTopic.isFavorite
                 || favoriteTopicIDs.contains(loadedTopic.id)
+            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
             currentTopic = loadedTopic
             posts = result.posts
             hotReplies = result.hotReplies
             threadPage = result.page
             threadHasMore = result.hasMore
             threadTotalPages = max(result.totalPages, result.page)
+            didLoad = true
         }
+        return didLoad
     }
 
     func vote(on postID: PostID, direction: PostVoteDirection) async {
@@ -1771,6 +1814,19 @@ final class AppModel {
         await loadThreadPage(topicID: selectedTopicID, page: threadPage)
     }
 
+    func toggleOnlyTopicAuthor() async {
+        guard let selectedTopicID,
+              isShowingOnlyTopicAuthor || currentTopicAuthorUID != nil else {
+            return
+        }
+        let previousValue = isShowingOnlyTopicAuthor
+        isShowingOnlyTopicAuthor.toggle()
+        let didLoad = await loadThreadPage(topicID: selectedTopicID, page: 1)
+        if !didLoad, self.selectedTopicID == selectedTopicID {
+            isShowingOnlyTopicAuthor = previousValue
+        }
+    }
+
     func handleNotification(
         accountIDString: String,
         messageIDString: String,
@@ -2004,6 +2060,7 @@ final class AppModel {
 
     private func resetThreadNavigationHistory() {
         threadNavigationPath = []
+        isShowingOnlyTopicAuthor = false
     }
 
     private func beginLoading() {

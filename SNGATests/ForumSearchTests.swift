@@ -34,6 +34,70 @@ final class ForumSearchTests: XCTestCase {
         XCTAssertNil(ForumSearchRequest(query: " \n ", kind: .topicContent))
     }
 
+    func testTopicListEndpointUsesSelectedSortOrder() {
+        let forumID = ForumID(rawValue: 414)
+        let latestReply = NGAEndpoint.topics(
+            forumID: forumID,
+            page: 2,
+            sortOrder: .latestReply,
+            featuredOnly: false
+        )
+        let latestTopic = NGAEndpoint.topics(
+            forumID: forumID,
+            page: 3,
+            sortOrder: .latestTopic,
+            featuredOnly: true
+        )
+
+        XCTAssertEqual(
+            latestReply.queryItems.first { $0.name == "order_by" }?.value,
+            "lastpostdesc"
+        )
+        XCTAssertEqual(
+            latestTopic.queryItems.first { $0.name == "order_by" }?.value,
+            "postdatedesc"
+        )
+        XCTAssertNil(
+            latestReply.queryItems.first { $0.name == "recommend" }
+        )
+        XCTAssertEqual(
+            latestTopic.queryItems.first { $0.name == "recommend" }?.value,
+            "1"
+        )
+        XCTAssertEqual(
+            TopicListSortOrder.allCases.map(\.title),
+            ["最新回复", "最新话题"]
+        )
+    }
+
+    func testThreadEndpointUsesSelectedAuthorFilter() {
+        let topicID = TopicID(rawValue: 47_300_693)
+        let structured = NGAEndpoint.thread(
+            topicID: topicID,
+            page: 2,
+            authorUID: 64_994_774
+        )
+        let html = NGAEndpoint.threadHTML(
+            topicID: topicID,
+            page: 3,
+            authorUID: 64_994_774
+        )
+
+        XCTAssertEqual(
+            structured.queryItems.first { $0.name == "authorid" }?.value,
+            "64994774"
+        )
+        XCTAssertEqual(
+            html.queryItems.first { $0.name == "authorid" }?.value,
+            "64994774"
+        )
+        XCTAssertEqual(
+            structured.queryItems.first { $0.name == "page" }?.value,
+            "2"
+        )
+        XCTAssertNil(html.queryItems.first { $0.name == "__output" })
+    }
+
     func testTopicSearchEndpointUsesExplicitScopeAndContentMode() throws {
         let globalRequest = try XCTUnwrap(
             ForumSearchRequest(query: "Swift", kind: .topicSubject)

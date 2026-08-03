@@ -253,6 +253,32 @@ struct ThreadView: View {
                         .accessibilityIdentifier("thread-topic-favorite")
 
                         Button {
+                            Task {
+                                await model.toggleOnlyTopicAuthor()
+                                await Task.yield()
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                                    proxy.scrollTo(topAnchor, anchor: .top)
+                                }
+                            }
+                        } label: {
+                            Label(
+                                model.isShowingOnlyTopicAuthor ? "查看全部回复" : "只看作者",
+                                systemImage: model.isShowingOnlyTopicAuthor
+                                    ? "person.crop.circle.fill"
+                                    : "person.crop.circle"
+                            )
+                        }
+                        .labelStyle(.iconOnly)
+                        .help(
+                            model.isShowingOnlyTopicAuthor
+                                ? "显示主题中的全部回复"
+                                : "只显示主题作者的回复"
+                        )
+                        .disabled(model.currentTopicAuthorUID == nil || isThreadLoading)
+                        .accessibilityValue(model.isShowingOnlyTopicAuthor ? "已开启" : "已关闭")
+                        .accessibilityIdentifier("thread-only-author")
+
+                        Button {
                             Task { await model.refreshThreadContent() }
                         } label: {
                             Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
