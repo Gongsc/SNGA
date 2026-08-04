@@ -1813,8 +1813,9 @@ final class AppModel {
                 record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
                 switch result {
                 case let .success(message), let .alreadyCheckedIn(message):
-                    record.lastCheckInMessage = message
-                    results.append("\(record.displayName)：\(message)")
+                    let displayMessage = CheckInPolicy.userFacingSuccessMessage(from: message)
+                    record.lastCheckInMessage = displayMessage
+                    results.append("\(record.displayName)：\(displayMessage)")
                 }
             } catch {
                 hasFailure = true
@@ -2306,7 +2307,9 @@ final class AppModel {
         }
         if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
             activeAccountCheckInStatus = .checkedIn(
-                message: record.lastCheckInMessage ?? "今日已签到"
+                message: CheckInPolicy.userFacingSuccessMessage(
+                    from: record.lastCheckInMessage
+                )
             )
         } else {
             activeAccountCheckInStatus = .notCheckedIn

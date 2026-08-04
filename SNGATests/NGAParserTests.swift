@@ -2252,7 +2252,15 @@ final class NGAParserTests: XCTestCase {
         guard case let .success(message) = success else {
             return XCTFail("应识别为签到成功")
         }
-        XCTAssertTrue(message.contains("签到成功"))
+        XCTAssertEqual(message, "签到成功，获得声望")
+
+        let taskProgressSuccess = try parser.checkIn(from: response(
+            #"{"data":[36379260,12,2324,20669,14,20669,14,20669,3,1785774438,"签到成功 (任务进度更新)",1785774438]}"#
+        ))
+        guard case let .success(taskProgressMessage) = taskProgressSuccess else {
+            return XCTFail("带任务进度数据的响应应识别为签到成功")
+        }
+        XCTAssertEqual(taskProgressMessage, "签到成功（任务进度已更新）")
 
         let emptySuccess = try parser.checkIn(from: response(#"{"data":null,"time":1700000000}"#))
         guard case .success = emptySuccess else {

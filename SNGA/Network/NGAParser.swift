@@ -903,7 +903,7 @@ struct NGAParser: Sendable {
     func checkIn(from response: NGAHTTPResponse) throws -> CheckInResult {
         let text = try response.decodedString()
         if let root = jsonRoot(response.data) ?? jsonRoot(text) {
-            let message = flattenedText(root)
+            let message = flattenedStringText(root)
             if message.contains("已签到") || message.contains("已经签到") || message.contains("今天已经签到") {
                 return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
             }
@@ -912,7 +912,7 @@ struct NGAParser: Sendable {
             }
             try throwJSONErrorIfPresent(in: root)
             if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
-                return .success(message: concise(message))
+                return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
             }
             // 当前签到接口成功时可能只返回 {"data": null, "time": ...}，
             // 没有文案；只要结构化响应中存在 data 且没有 error 即可确认成功。
@@ -925,7 +925,7 @@ struct NGAParser: Sendable {
             return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
         }
         if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
-            return .success(message: concise(message))
+            return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
         }
         throw NGAServiceError.unexpectedPage("无法确认签到结果")
     }
@@ -4418,6 +4418,17 @@ struct NGAParser: Sendable {
         if let number = value as? NSNumber { return number.stringValue }
         if let dictionary = value as? [String: Any] { return dictionary.values.map(flattenedText).joined(separator: " ") }
         if let array = value as? [Any] { return array.map(flattenedText).joined(separator: " ") }
+        return ""
+    }
+
+    private func flattenedStringText(_ value: Any) -> String {
+        if let string = value as? String { return string }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.values.map(flattenedStringText).filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        if let array = value as? [Any] {
+            return array.map(flattenedStringText).filter { !$0.isEmpty }.joined(separator: " ")
+        }
         return ""
     }
 

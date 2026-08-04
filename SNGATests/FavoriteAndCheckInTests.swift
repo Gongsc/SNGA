@@ -304,6 +304,21 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertTrue(CheckInPolicy.shouldCheckIn(lastSuccessfulDay: "2026-07-22", now: afterMidnightUTC))
     }
 
+    func testCheckInSuccessMessageHidesInternalTaskProgressValues() {
+        XCTAssertEqual(
+            CheckInPolicy.userFacingSuccessMessage(
+                from: "36379260 12 2324 20669 14 20669 14 20669 3 1785774438 签到成功 (任务进度更新) 1785774438"
+            ),
+            "签到成功（任务进度已更新）"
+        )
+        XCTAssertEqual(
+            CheckInPolicy.userFacingSuccessMessage(
+                from: "今日已签到（服务器时间 2026-07-24 09:23:50）"
+            ),
+            "今日已签到（服务器时间 2026-07-24 09:23:50）"
+        )
+    }
+
     func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {
         let accountID = AccountID(rawValue: UUID())
         let parentForumID = ForumID(rawValue: 414)
