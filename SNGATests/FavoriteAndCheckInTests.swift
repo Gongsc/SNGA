@@ -5,12 +5,60 @@ import XCTest
 
 final class FavoriteAndCheckInTests: XCTestCase {
     @MainActor
+    func testRecentForumsAreOrderedDeduplicatedPersistedAndAccountScoped() async throws {
+        let schema = Schema([
+            AccountRecord.self,
+            FavoriteRecord.self,
+            DraftRecord.self,
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
+        ])
+        let configuration = ModelConfiguration(
+            "RecentForumTests",
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let firstAccountID = AccountID(rawValue: UUID())
+        let secondAccountID = AccountID(rawValue: UUID())
+        let firstForum = Forum(
+            id: ForumID(rawValue: 414),
+            name: "综合游戏讨论区"
+        )
+        let secondForum = Forum(
+            id: ForumID(stid: 35_925_536),
+            name: "幻兽帕鲁"
+        )
+        let model = AppModel(container: container)
+        model.activeAccountID = firstAccountID
+
+        await model.openForum(firstForum)
+        await model.openForum(secondForum)
+        await model.openForum(firstForum)
+
+        XCTAssertEqual(model.recentForums.map(\.id), [firstForum.id, secondForum.id])
+
+        let restoredModel = AppModel(container: container)
+        restoredModel.activeAccountID = firstAccountID
+        restoredModel.loadRecentForums()
+        XCTAssertEqual(restoredModel.recentForums.map(\.id), [firstForum.id, secondForum.id])
+
+        restoredModel.activeAccountID = secondAccountID
+        restoredModel.loadRecentForums()
+        XCTAssertTrue(restoredModel.recentForums.isEmpty)
+    }
+
+    @MainActor
     func testLinkedTopicNavigationRestoresCompleteThreadHistory() throws {
         let schema = Schema([
             AccountRecord.self,
             FavoriteRecord.self,
             DraftRecord.self,
-            SubforumPreferenceRecord.self
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
         ])
         let configuration = ModelConfiguration(
             "ThreadNavigationTests",

@@ -38,6 +38,7 @@ final class AppModel {
     var isShowingOnlyTopicAuthor = false
 
     var forums: [Forum] = []
+    var recentForums: [Forum] = []
     var favorites: [FavoriteSnapshot] = []
     var favoriteTopicFolders: [TopicFavoriteFolder] = []
     var selectedFavoriteTopicFolderID: String?
@@ -155,6 +156,10 @@ final class AppModel {
         return favorites.contains { $0.forum.id == currentForum.id && $0.state != .pendingRemove }
     }
 
+    var currentPinnedTopicID: TopicID? {
+        currentForum?.pinnedTopicID
+    }
+
     var isCurrentTopicFavorite: Bool {
         guard let currentTopic else { return false }
         return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
@@ -241,6 +246,7 @@ final class AppModel {
 #endif
         await reloadAccountsAndServices()
         if let activeAccount {
+            loadRecentForums()
             sidebarSelection = .userCenter(activeAccount.ngaUID)
             currentProfile = Profile(
                 uid: activeAccount.ngaUID,
@@ -312,6 +318,7 @@ final class AppModel {
             showsLogin = false
             await reloadAccountsAndServices()
             if let activeAccount {
+                loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
                     uid: activeAccount.ngaUID,
@@ -344,6 +351,7 @@ final class AppModel {
             accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
             refreshActiveAccountCheckInStatus(records: records)
             clearVisibleContent()
+            loadRecentForums()
             if let activeAccount {
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
@@ -374,10 +382,16 @@ final class AppModel {
             let subforumPreferences = try context.fetch(
                 FetchDescriptor<SubforumPreferenceRecord>()
             )
+            let recentForums = try context.fetch(
+                FetchDescriptor<RecentForumRecord>()
+            )
             accounts.filter { $0.accountID == accountID }.forEach(context.delete)
             favorites.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
             drafts.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
             subforumPreferences
+                .filter { $0.accountIDString == accountID.description }
+                .forEach(context.delete)
+            recentForums
                 .filter { $0.accountIDString == accountID.description }
                 .forEach(context.delete)
             try await sessionStore.remove(accountID: accountID)
@@ -386,6 +400,7 @@ final class AppModel {
             await reloadAccountsAndServices()
             clearVisibleContent()
             if let activeAccount {
+                loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
                     uid: activeAccount.ngaUID,
@@ -527,7 +542,28 @@ final class AppModel {
                 return
             }
             forums = result
+            recentForums = recentForums.map(enrichingForumFromDirectory)
             favorites = enrichingFavoriteForums(favorites)
+        }
+    }
+
+    func loadRecentForums() {
+        guard let activeAccountID else {
+            recentForums = []
+            return
+        }
+        do {
+            recentForums = try recentForumRecords(accountID: activeAccountID)
+                .sorted { left, right in
+                    if left.lastVisitedAt != right.lastVisitedAt {
+                        return left.lastVisitedAt > right.lastVisitedAt
+                    }
+                    return left.id < right.id
+                }
+                .map(\.forum)
+        } catch {
+            recentForums = []
+            present(error)
         }
     }
 
@@ -641,6 +677,7 @@ final class AppModel {
     private func showForum(_ forum: Forum) async {
         clearForumSearch()
         currentForum = forum
+        recordRecentForum(forum)
         sidebarSelection = .forum(forum.id)
         selectedTopicID = nil
         currentTopic = nil
@@ -653,6 +690,35 @@ final class AppModel {
         subforumSelectionForumID = nil
         resetThreadNavigationHistory()
         await loadTopics(forumID: forum.id, reset: true)
+    }
+
+    private func recordRecentForum(
+        _ forum: Forum,
+        updatesVisitOrder: Bool = true
+    ) {
+        guard let activeAccountID else { return }
+        do {
+            let recordID = RecentForumRecord.recordID(
+                accountID: activeAccountID,
+                forumID: forum.id
+            )
+            let records = try recentForumRecords(accountID: activeAccountID)
+            if let record = records.first(where: { $0.id == recordID }) {
+                record.update(
+                    forum: forum,
+                    visitedAt: updatesVisitOrder ? .now : nil
+                )
+            } else {
+                context.insert(RecentForumRecord(
+                    accountID: activeAccountID,
+                    forum: forum
+                ))
+            }
+            try context.save()
+            loadRecentForums()
+        } catch {
+            present(error)
+        }
     }
 
     func loadTopics(forumID: ForumID, reset: Bool) async {
@@ -717,6 +783,9 @@ final class AppModel {
         replaceTopics: Bool
     ) {
         currentForum = result.forum ?? currentForum ?? forums.first { $0.id == forumID }
+        if let currentForum {
+            recordRecentForum(currentForum, updatesVisitOrder: false)
+        }
         topics = replaceTopics ? result.topics : merged(topics, result.topics)
         if result.page == 1 || !result.subforums.isEmpty || subforums.isEmpty {
             let previousSubforumIDs = Set(subforums.map(\.id))
@@ -732,6 +801,7 @@ final class AppModel {
                     subtitle: forum.subtitle ?? known.subtitle,
                     iconURL: forum.iconURL ?? known.iconURL,
                     category: forum.category ?? known.category,
+                    pinnedTopicID: forum.pinnedTopicID ?? known.pinnedTopicID,
                     isSelectedInParent: forum.isSelectedInParent
                 )
             }
@@ -832,6 +902,23 @@ final class AppModel {
         threadPage = 1
         threadTotalPages = max(1, (topic.replyCount + 20) / 20)
         await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
+    }
+
+    func openPinnedTopic() async {
+        guard let currentForum, let topicID = currentForum.pinnedTopicID else {
+            return
+        }
+        let topic = topics.first {
+            $0.id == topicID && $0.mirroredForumID == nil
+        } ?? Topic(
+            id: topicID,
+            forumID: currentForum.id,
+            subject: "置顶话题",
+            author: "",
+            replyCount: 0,
+            isPinned: true
+        )
+        await openTopic(topic)
     }
 
     @discardableResult
@@ -1887,6 +1974,11 @@ final class AppModel {
             .sorted { $0.order < $1.order }
     }
 
+    private func recentForumRecords(accountID: AccountID) throws -> [RecentForumRecord] {
+        try context.fetch(FetchDescriptor<RecentForumRecord>())
+            .filter { $0.accountIDString == accountID.description }
+    }
+
     private func enrichingForumFromDirectory(_ forum: Forum) -> Forum {
         guard let directoryForum = forums.first(where: { $0.id == forum.id }) else {
             return forum
@@ -2018,6 +2110,7 @@ final class AppModel {
 
     private func clearVisibleContent() {
         favorites = []
+        recentForums = []
         favoriteTopicFolders = []
         selectedFavoriteTopicFolderID = nil
         favoriteTopics = []

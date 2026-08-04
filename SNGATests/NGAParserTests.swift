@@ -876,6 +876,7 @@ final class NGAParserTests: XCTestCase {
             "__F": {
               "fid": 414,
               "name": "游戏综合讨论",
+              "topped_topic": 8984969,
               "sub_forums": {
                 "614": [614, "PS游戏综合讨论", null, 15743992, 2606],
                 "489": [489, "怪物猎人(Capcom)", "Monster Hunter", 18431266, 40],
@@ -927,6 +928,7 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(page.forum?.id, ForumID(rawValue: 414))
         XCTAssertEqual(page.forum?.name, "游戏综合讨论")
+        XCTAssertEqual(page.forum?.pinnedTopicID, TopicID(rawValue: 8984969))
         XCTAssertEqual(
             Set(page.subforums.map(\.id)),
             Set([
@@ -938,6 +940,14 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(
             page.subforums.first(where: { $0.id == ForumID(rawValue: 489) })?.subtitle,
             "Monster Hunter"
+        )
+        XCTAssertEqual(
+            page.subforums.first(where: { $0.id == ForumID(rawValue: 614) })?.pinnedTopicID,
+            TopicID(rawValue: 15743992)
+        )
+        XCTAssertEqual(
+            page.subforums.first(where: { $0.id == ForumID(stid: 35925536) })?.pinnedTopicID,
+            TopicID(rawValue: 35925536)
         )
         XCTAssertEqual(
             Set(
@@ -1468,6 +1478,219 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("votedata_voteavgvalue"))
     }
 
+    func testRendersFixedNGAHeaderCanvasWithSafeGeneratedStyles() throws {
+        let source = """
+            [randomblock][fixsize width 90 216 height 18 background #000000 #DDDDDD]
+            [style width 90 height 18 left 63 top 0]
+            [style width 13.5 height 13.5 left 2.25 top 2.25 dybg 100%;50%;50%;0%;0%;./mon_202603/03/header.webp filter-drop-shadow #00000044;0;0;0.225]
+            [style width 8.55 height 1 left 4.5 top 3.15 line-height 1]
+            [align=right][style font 1 color #999999][b]版规[/b][/style][/align]
+            [/style]
+            [style width 8.55 height 3.6 left 4.5 top 0.45 line-height 0.9]
+            [align=left][style font 0.85 color #AAAAAA]严禁发布敏感内容[/style][/align]
+            [/style]
+            [/style][/style]
+            [/randomblock]
+            """
+        let html = parser.sanitizedPostHTML(source)
+        let document = try SwiftSoup.parse(html)
+
+        XCTAssertEqual(html, parser.sanitizedPostHTML(source))
+        XCTAssertEqual(try document.select(".nga-fixed-block").count, 1)
+        XCTAssertEqual(try document.select(".nga-fixed-block-canvas").count, 1)
+        XCTAssertEqual(try document.select("[style]").count, 0)
+        XCTAssertEqual(try document.select("main").text(), "版规 严禁发布敏感内容")
+        XCTAssertTrue(html.contains("height:18em"))
+        XCTAssertTrue(html.contains("min-width:90em"))
+        XCTAssertTrue(html.contains("max-width:216em"))
+        XCTAssertTrue(html.contains("position:absolute"))
+        XCTAssertTrue(html.contains("font-size:0.85em"))
+        XCTAssertTrue(html.contains("color:#aaaaaa"))
+        XCTAssertTrue(html.contains("filter:drop-shadow(0em 0em 0.225em #00000044)"))
+        XCTAssertTrue(
+            html.contains(
+                #"background-image:url(&quot;https://img.nga.178.com/attachments/mon_202603/03/header.webp&quot;)"#
+            ) || html.contains(
+                #"background-image:url("https://img.nga.178.com/attachments/mon_202603/03/header.webp")"#
+            )
+        )
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[randomblock]"))
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[fixsize"))
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[style"))
+    }
+
+    func testKeepsFixedHeaderInlineImagesInsideCanvas() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            [randomblock][fixsize height 19.3 width 90 153 background #212121 #212121]
+            [style width 50% height 100% left 0 top 0]
+            [style width 192.2929 height 100% right -98 top 0 dybg 100%;0%;0%;0%;0%;./mon_202607/28/background.webp][/style]
+            [/style][/style]
+            [style parentfitwidth right 32 top 1]
+            [style padding 0 1][url=https://example.com/one]
+            [style width 10.1915 height 17.2102 src ./mon_202607/28/character-one.png][/style]
+            [/url][/style]
+            [style padding 0 0][url=https://example.com/two]
+            [style width 10.1915 height 17.2102 src ./mon_202607/28/character-two.png][/style]
+            [/url][/style]
+            [/style]
+            [/randomblock]
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+        let images = try document.select(".nga-fixed-block-canvas img")
+        let firstImage = try XCTUnwrap(images.first())
+        let generatedClass = try XCTUnwrap(
+            try firstImage.attr("class").split(separator: " ")
+                .map(String.init)
+                .first { $0.hasPrefix("snga-fixed-") }
+        )
+
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(
+            try firstImage.attr("src"),
+            "https://img.nga.178.com/attachments/mon_202607/28/character-one.png"
+        )
+        XCTAssertTrue(html.contains("padding:0em 1em"))
+        XCTAssertTrue(html.contains("right:32em;top:1em;position:absolute"))
+        XCTAssertTrue(
+            html.contains(
+                ".\(generatedClass){display:inline-block;width:10.1915em;height:17.2102em;}"
+            )
+        )
+        XCTAssertEqual(try document.select(".nga-fixed-block-canvas br").count, 0)
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[style"))
+    }
+
+    func testSuppressesStripBreakMarkersInFixedHeaders() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            [randomblock][fixsize height 19.3 width 60 153 background transparent transparent]
+            [style width 100% align center extendtop 1 src ./mon_202606/29/background.webp][stripbr][comment // 背景图][stripbr]<br/>
+            [/style][stripbr]<br/><br/>
+            [style right 7 top 1][stripbr]<br/>
+            [style width 33 padding 0 0][stripbr]<br/>
+            [style padding 0.5 0.4][url=/read.php?tid=47069214][img]./mon_202606/29/banner.png[/img][/url][stripbr][comment // 活动banner]<br/>
+            [/style][stripbr]<br/>
+            [/style][stripbr]<br/>
+            [/style][stripbr]<br/>
+            [/randomblock]
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+        let canvas = try XCTUnwrap(document.select(".nga-fixed-block-canvas").first())
+        let images = try canvas.select("img")
+
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(
+            try images.first?.attr("src"),
+            "https://img.nga.178.com/attachments/mon_202606/29/background.webp"
+        )
+        XCTAssertEqual(
+            try images.last?.attr("src"),
+            "https://img.nga.178.com/attachments/mon_202606/29/banner.png"
+        )
+        XCTAssertEqual(try canvas.select("br").count, 0)
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[stripbr]"))
+    }
+
+    func testRendersControlsForConsecutiveRandomFixedHeaderAlternatives() throws {
+        let source = """
+            [randomblock][fixsize height 19.3 width 90 153]
+            [style width 100% src ./mon_202607/15/header-one.webp][/style]
+            [/randomblock][randomblock][fixsize height 19.3 width 90 153]
+            [style width 100% src ./mon_202607/15/header-two.webp][/style]
+            [/randomblock][randomblock][fixsize height 19.3 width 90 153]
+            [style width 100% src ./mon_202607/15/header-three.webp][/style]
+            [/randomblock]
+            [b]版头下方正文[/b]
+            """
+        let html = parser.sanitizedPostHTML(source)
+        let document = try SwiftSoup.parse(html)
+        let images = try document.select(".nga-fixed-block-canvas img")
+        let panels = try document.select(".nga-random-block-panel")
+        let buttons = try document.select(".nga-random-block-button")
+
+        XCTAssertEqual(html, parser.sanitizedPostHTML(source))
+        XCTAssertEqual(try document.select(".nga-random-block-carousel").count, 1)
+        XCTAssertEqual(panels.count, 3)
+        XCTAssertEqual(buttons.count, 3)
+        XCTAssertEqual(try document.select(".nga-fixed-block").count, 3)
+        XCTAssertEqual(images.count, 3)
+        XCTAssertEqual(
+            try document.select(".nga-random-block-panel.snga-is-active").count,
+            1
+        )
+        XCTAssertEqual(
+            try document.select(".nga-random-block-button.snga-is-active").count,
+            1
+        )
+        XCTAssertEqual(try buttons.select(#"[aria-pressed="true"]"#).count, 1)
+        XCTAssertEqual(try buttons.select(#"[aria-pressed="false"]"#).count, 2)
+        XCTAssertEqual(try buttons.first?.attr("aria-label"), "显示版头 1，共 3 个")
+        XCTAssertTrue(try document.select("main").text().contains("版头下方正文"))
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[randomblock]"))
+    }
+
+    @MainActor
+    func testRandomFixedHeaderControlsSwitchVisiblePanel() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            [randomblock][fixsize height 10 width 40 80]第一个版头[/randomblock]
+            [randomblock][fixsize height 10 width 40 80]第二个版头[/randomblock]
+            [randomblock][fixsize height 10 width 40 80]第三个版头[/randomblock]
+            """
+        )
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: PostWebView.randomBlockCarouselScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let loaded = expectation(description: "版头页面完成加载")
+        let navigationDelegate = TestWebViewNavigationDelegate {
+            loaded.fulfill()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(html, baseURL: NGAEndpoint.baseURL)
+        wait(for: [loaded], timeout: 3)
+
+        let switched = expectation(description: "版头切换完成")
+        var state: [Int]?
+        var evaluationError: Error?
+        webView.evaluateJavaScript(
+            """
+            (() => {
+                const buttons = Array.from(document.querySelectorAll('.nga-random-block-button'));
+                const previous = buttons.findIndex((button) => button.getAttribute('aria-pressed') === 'true');
+                const target = (previous + 1) % buttons.length;
+                buttons[target].click();
+                const panels = Array.from(document.querySelectorAll('.nga-random-block-panel'));
+                return [
+                    previous,
+                    buttons.findIndex((button) => button.getAttribute('aria-pressed') === 'true'),
+                    panels.filter((panel) => panel.classList.contains('snga-is-active')).length,
+                    buttons.filter((button) => button.getAttribute('aria-pressed') === 'true').length
+                ];
+            })()
+            """
+        ) { result, error in
+            state = (result as? [NSNumber])?.map(\.intValue)
+            evaluationError = error
+            switched.fulfill()
+        }
+        wait(for: [switched], timeout: 3)
+
+        XCTAssertNil(evaluationError)
+        let values = try XCTUnwrap(state)
+        XCTAssertNotEqual(values[0], values[1])
+        XCTAssertEqual(values[2], 1)
+        XCTAssertEqual(values[3], 1)
+        withExtendedLifetime(navigationDelegate) {}
+    }
+
     func testRendersResponsiveGameRatingCardWithStructuredMetadata() throws {
         let rating = TopicRating(
             id: TopicID(rawValue: 23_347_410),
@@ -1583,6 +1806,55 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try enemyCells?.get(2).attr("width"), "17%")
         XCTAssertEqual(try enemyCells?.get(3).attr("width"), "60%")
         XCTAssertEqual(try tables.first?.select("ul li").first?.text(), "失衡值提升")
+    }
+
+    func testRendersLegacyPinnedTopicTableResponsively() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            [table][tr]
+            [td colspan=2 rowspan=2 width32]
+            [l][b][list][*]版规说明[*]加分申请[/list][/b][/l]
+            [/td]
+            [td][align=center]
+            [img]http://img.ngacn.cc/attachments/mon_201804/26/biQ5-ku98K5ToS5k-23.png[/img]
+            [color=silver]早上好，锄宗除外[/color]
+            [size=0%]用于消除间距的隐藏文字[/size]
+            [url=/thread.php?fid=609][b][size=120%][color=red]&gt; 堡垒之夜 &lt;[/color][/size][/b][/url]
+            [l][url=/read.php?tid=13896461][b][color=blue]新手入门教程[/color][/b][/url][/l]
+            [r][url=/read.php?tid=13923858][b][color=blue]枪械数据一览[/color][/b][/url][/r]
+            [/align][/td]
+            [/tr][/table]
+            [table][tr][td20]一[/td][td20]二[/td][td20]三[/td][td20]四[/td][td20]五[/td][/tr][/table]
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+        let tables = try document.select("main table")
+        let pinnedCells = try tables.first?.select("td")
+        let weightedCells = try tables.last?.select("td")
+
+        XCTAssertEqual(tables.count, 2)
+        XCTAssertEqual(pinnedCells?.count, 2)
+        XCTAssertEqual(try pinnedCells?.first?.attr("colspan"), "2")
+        XCTAssertEqual(try pinnedCells?.first?.attr("rowspan"), "2")
+        XCTAssertEqual(try pinnedCells?.first?.attr("width"), "")
+        XCTAssertEqual(weightedCells?.count, 5)
+        XCTAssertEqual(
+            try weightedCells?.map { try $0.attr("width") },
+            Array(repeating: "20%", count: 5)
+        )
+        XCTAssertEqual(try document.select(".ubb-split-row").count, 1)
+        XCTAssertEqual(try document.select(".ubb-split-left").text(), "新手入门教程")
+        XCTAssertEqual(try document.select(".ubb-split-right").text(), "枪械数据一览")
+        XCTAssertEqual(try document.select(".ubb-color-silver").text(), "早上好，锄宗除外")
+        XCTAssertEqual(
+            try document.select("main img").attr("src"),
+            "https://img.nga.178.com/attachments/mon_201804/26/biQ5-ku98K5ToS5k-23.png"
+        )
+        XCTAssertFalse(try document.body()?.text().contains("用于消除间距的隐藏文字") == true)
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[td20]"))
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[l]"))
+        XCTAssertFalse(html.localizedCaseInsensitiveContains("[/r]"))
+        XCTAssertTrue(html.contains("@media(max-width:700px)"))
     }
 
     func testLocalizesPostImageContextMenuTitles() {
@@ -1956,5 +2228,17 @@ final class NGAParserTests: XCTestCase {
             headers: ["Content-Type": contentType],
             url: URL(string: "https://bbs.nga.cn/")!
         )
+    }
+}
+
+private final class TestWebViewNavigationDelegate: NSObject, WKNavigationDelegate {
+    private let onFinish: () -> Void
+
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        onFinish()
     }
 }

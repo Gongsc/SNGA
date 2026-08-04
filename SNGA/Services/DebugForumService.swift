@@ -3,7 +3,12 @@ import Foundation
 
 actor DebugForumService: NGAForumService {
     nonisolated let accountID: AccountID
-    private let forum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
+    private let forum = Forum(
+        id: ForumID(rawValue: -7),
+        name: "艾泽拉斯国家地理",
+        subtitle: "UI 测试版面",
+        pinnedTopicID: TopicID(rawValue: 9003)
+    )
 
     init(accountID: AccountID) {
         self.accountID = accountID
@@ -50,7 +55,13 @@ actor DebugForumService: NGAForumService {
 
     func forums() async throws -> [Forum] {
         [
-            Forum(id: forum.id, name: forum.name, subtitle: forum.subtitle, category: "网事杂谈"),
+            Forum(
+                id: forum.id,
+                name: forum.name,
+                subtitle: forum.subtitle,
+                category: "网事杂谈",
+                pinnedTopicID: forum.pinnedTopicID
+            ),
             Forum(id: ForumID(rawValue: 510381), name: "晴风村", category: "手机游戏")
         ]
     }
@@ -147,15 +158,23 @@ actor DebugForumService: NGAForumService {
         // Keep UI-test responses pending long enough to observe thread skeleton transitions.
         try await Task.sleep(for: .seconds(1))
         let isPrimaryTopic = topicID == TopicID(rawValue: 9001)
+        let isPinnedTopic = topicID == forum.pinnedTopicID
+        let subject: String
+        if isPrimaryTopic {
+            subject = "主题一：欢迎使用 SNGA"
+        } else if isPinnedTopic {
+            subject = "版面置顶话题"
+        } else {
+            subject = "主题二：多账号与收藏测试"
+        }
         let topic = Topic(
             id: topicID,
             forumID: forum.id,
-            subject: isPrimaryTopic
-                ? "主题一：欢迎使用 SNGA"
-                : "主题二：多账号与收藏测试",
+            subject: subject,
             author: "测试用户",
             authorUID: isPrimaryTopic ? 1001 : 1002,
             replyCount: 1,
+            isPinned: isPinnedTopic,
             rating: isPrimaryTopic
                 ? TopicRating(
                     id: topicID,

@@ -2,6 +2,29 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testRecentlyVisitedForumsAppearInVisitOrder() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.staticTexts["最近访问"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["暂无最近访问"].exists)
+
+        app.buttons["favorite-forum--7"].click()
+        XCTAssertTrue(app.buttons["recent-forum--7"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["暂无最近访问"].exists)
+
+        app.buttons["全部版面"].click()
+        app.buttons["directory-forum-510381"].click()
+        XCTAssertTrue(app.buttons["recent-forum-510381"].waitForExistence(timeout: 5))
+        XCTAssertLessThan(
+            app.buttons["recent-forum-510381"].frame.minY,
+            app.buttons["recent-forum--7"].frame.minY
+        )
+    }
+
     func testAboutWindowShowsProjectLinks() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -16,7 +39,7 @@ final class SNGAUITests: XCTestCase {
         about.click()
 
         XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.6.0（1）"].exists)
+        XCTAssertTrue(app.staticTexts["版本 1.6.1（1）"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(app.links["gongsc@live.cn"].exists)
@@ -90,6 +113,22 @@ final class SNGAUITests: XCTestCase {
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
         XCTAssertTrue(app.buttons["topic-list-scroll-to-top"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["topic-list-featured"].exists)
+
+        let pinnedTopic = app.buttons["topic-list-pinned-topic"]
+        XCTAssertTrue(pinnedTopic.waitForExistence(timeout: 5))
+        pinnedTopic.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["thread-topic-title"]
+                .waitForExistence(timeout: 5)
+        )
+        let loadedPinnedTopic = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "版面置顶话题"),
+            object: app.descendants(matching: .any)["thread-topic-title"]
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [loadedPinnedTopic], timeout: 5),
+            .completed
+        )
 
         let nextPage = app.buttons["topic-list-next-page"]
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))

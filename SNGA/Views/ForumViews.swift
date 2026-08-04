@@ -1241,6 +1241,16 @@ struct TopicListView: View {
                     .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
                     .accessibilityIdentifier("topic-list-featured")
 
+                    if model.currentPinnedTopicID != nil {
+                        Button(action: openPinnedTopic) {
+                            Label("置顶话题", systemImage: "pin.fill")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("查看置顶话题")
+                        .disabled(visibleIsLoading)
+                        .accessibilityIdentifier("topic-list-pinned-topic")
+                    }
+
                     Button {
                         withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
@@ -1492,6 +1502,10 @@ struct TopicListView: View {
 
     private func toggleFeaturedTopics() {
         model.isShowingFeaturedTopics.toggle()
+    }
+
+    private func openPinnedTopic() {
+        Task { await model.openPinnedTopic() }
     }
 
     private func reloadTopics(proxy: ScrollViewProxy) {

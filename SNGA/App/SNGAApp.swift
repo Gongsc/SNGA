@@ -326,7 +326,8 @@ struct SNGAApp: App {
             AccountRecord.self,
             FavoriteRecord.self,
             DraftRecord.self,
-            SubforumPreferenceRecord.self
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
         ])
         let configuration = ModelConfiguration(
             "SNGA",
