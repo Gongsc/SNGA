@@ -54,16 +54,7 @@ struct SidebarView: View {
                                 isSelected: model.sidebarSelection == .forum(forum.id)
                             ) {
                                 HStack(spacing: 8) {
-                                    AsyncImage(url: forum.iconURL) { image in
-                                        image
-                                            .resizable()
-                                            .scaledToFit()
-                                    } placeholder: {
-                                        Image(systemName: "clock.arrow.circlepath")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(width: 24, height: 24)
-                                    .accessibilityHidden(true)
+                                    SidebarForumIcon(forum: forum)
 
                                     Text(forum.name)
                                         .lineLimit(1)
@@ -98,16 +89,7 @@ struct SidebarView: View {
                                 isSelected: model.sidebarSelection == .forum(favorite.forum.id)
                             ) {
                                 HStack(spacing: 8) {
-                                    AsyncImage(url: favorite.forum.iconURL) { image in
-                                        image
-                                            .resizable()
-                                            .scaledToFit()
-                                    } placeholder: {
-                                        Image(systemName: "bubble.left.and.bubble.right")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(width: 24, height: 24)
-                                    .accessibilityHidden(true)
+                                    SidebarForumIcon(forum: favorite.forum)
 
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
@@ -192,6 +174,26 @@ struct SidebarView: View {
             return (displayedUID ?? activeUID) == activeUID
         }
         return model.sidebarSelection == selection
+    }
+}
+
+private struct SidebarForumIcon: View {
+    let forum: Forum
+
+    var body: some View {
+        AsyncImage(url: forum.iconURL) { image in
+            image
+                .resizable()
+                .scaledToFit()
+        } placeholder: {
+            Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .padding(3)
+        }
+        .frame(width: 24, height: 24)
+        .accessibilityHidden(true)
     }
 }
 

@@ -553,16 +553,45 @@ final class AppModel {
             return
         }
         do {
-            recentForums = try recentForumRecords(accountID: activeAccountID)
-                .sorted { left, right in
-                    if left.lastVisitedAt != right.lastVisitedAt {
-                        return left.lastVisitedAt > right.lastVisitedAt
-                    }
-                    return left.id < right.id
-                }
+            let maximumCount = RecentForumSettings.maximumCount
+            let records = try sortedRecentForumRecords(accountID: activeAccountID)
+            let discardedRecords = records.dropFirst(maximumCount)
+            discardedRecords.forEach(context.delete)
+            if !discardedRecords.isEmpty {
+                try context.save()
+            }
+            recentForums = records
+                .prefix(maximumCount)
                 .map(\.forum)
+                .map(enrichingForumFromDirectory)
         } catch {
             recentForums = []
+            present(error)
+        }
+    }
+
+    func updateRecentForumLimit(_ maximumCount: Int) {
+        do {
+            let maximumCount = RecentForumSettings.normalizedMaximumCount(maximumCount)
+            UserDefaults.standard.set(
+                maximumCount,
+                forKey: RecentForumSettings.maximumCountKey
+            )
+            let records = try context.fetch(FetchDescriptor<RecentForumRecord>())
+            let groupedRecords = Dictionary(grouping: records, by: \.accountIDString)
+            var removedAnyRecord = false
+            for accountRecords in groupedRecords.values {
+                let sortedRecords = accountRecords.sorted(by: recentForumRecordComesFirst)
+                for record in sortedRecords.dropFirst(maximumCount) {
+                    context.delete(record)
+                    removedAnyRecord = true
+                }
+            }
+            if removedAnyRecord {
+                try context.save()
+            }
+            loadRecentForums()
+        } catch {
             present(error)
         }
     }
@@ -698,6 +727,7 @@ final class AppModel {
     ) {
         guard let activeAccountID else { return }
         do {
+            let forum = enrichingForumFromDirectory(forum)
             let recordID = RecentForumRecord.recordID(
                 accountID: activeAccountID,
                 forumID: forum.id
@@ -1979,6 +2009,21 @@ final class AppModel {
             .filter { $0.accountIDString == accountID.description }
     }
 
+    private func sortedRecentForumRecords(accountID: AccountID) throws -> [RecentForumRecord] {
+        try recentForumRecords(accountID: accountID)
+            .sorted(by: recentForumRecordComesFirst)
+    }
+
+    private func recentForumRecordComesFirst(
+        _ left: RecentForumRecord,
+        _ right: RecentForumRecord
+    ) -> Bool {
+        if left.lastVisitedAt != right.lastVisitedAt {
+            return left.lastVisitedAt > right.lastVisitedAt
+        }
+        return left.id < right.id
+    }
+
     private func enrichingForumFromDirectory(_ forum: Forum) -> Forum {
         guard let directoryForum = forums.first(where: { $0.id == forum.id }) else {
             return forum
@@ -2430,6 +2475,10 @@ final class AppModel {
 
 #if DEBUG
     private func seedUITestData() {
+        UserDefaults.standard.set(
+            RecentForumSettings.defaultMaximumCount,
+            forKey: RecentForumSettings.maximumCountKey
+        )
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         context.insert(accountA)

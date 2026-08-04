@@ -219,7 +219,9 @@ final class RecentForumRecord {
     func update(forum: Forum, visitedAt: Date?) {
         forumName = forum.name
         forumSubtitle = forum.subtitle
-        forumIconURLString = forum.iconURL?.absoluteString
+        if let iconURL = forum.iconURL {
+            forumIconURLString = iconURL.absoluteString
+        }
         forumCategory = forum.category
         pinnedTopicID = forum.pinnedTopicID?.rawValue
         if let visitedAt {

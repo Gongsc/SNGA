@@ -7,6 +7,24 @@ enum BrowsingSettings {
     static let imageFreeModeKey = "browsing.imageFreeMode"
 }
 
+enum RecentForumSettings {
+    static let maximumCountKey = "browsing.recentForums.maximumCount"
+    static let defaultMaximumCount = 10
+    static let allowedRange = 1...30
+
+    static var maximumCount: Int {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: maximumCountKey) != nil else {
+            return defaultMaximumCount
+        }
+        return normalizedMaximumCount(defaults.integer(forKey: maximumCountKey))
+    }
+
+    static func normalizedMaximumCount(_ value: Int) -> Int {
+        min(max(value, allowedRange.lowerBound), allowedRange.upperBound)
+    }
+}
+
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     case system
     case light
