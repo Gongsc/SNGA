@@ -387,7 +387,7 @@ struct NGAParser: Sendable {
                 isLocked: containerText.contains("锁定")
             ))
         }
-        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到主题列表") }
+        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
         let paginationPages = try document.select("a[href*='page=']").compactMap { link -> Int? in
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else {
                 return nil
@@ -543,15 +543,21 @@ struct NGAParser: Sendable {
                     .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0)) }
                     .first { $0.id == topicID }
                 ?? Topic(id: topicID, forumID: ForumID(rawValue: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
+            let customLevelSource = (payload?["__F"] as? [String: Any])
+                .flatMap { string($0["custom_level"]) }
             var users = payload
                 .flatMap { $0["__U"] }
-                .map { userMap(in: $0) }
+                .map { userMap(in: $0, customLevelSource: customLevelSource) }
                 ?? postUsers(in: root)
             if let topicMetadata,
                let authorUID = postAuthorID(in: topicMetadata),
                let author = normalizedUsername(string(topicMetadata["author"])) {
-                let existingAvatar = users[authorUID]?.avatarURL
-                users[authorUID] = PostUser(name: author, avatarURL: existingAvatar)
+                if var existing = users[authorUID] {
+                    existing.name = author
+                    users[authorUID] = existing
+                } else {
+                    users[authorUID] = PostUser(name: author, avatarURL: nil, authorInfo: nil)
+                }
             }
             let postValues = postDictionaries(in: root, payload: payload)
             topic.rating = topicMetadata
@@ -631,6 +637,7 @@ struct NGAParser: Sendable {
                     author: user?.name ?? normalizedUsername(inlineAuthor) ?? "",
                     authorUID: authorUID,
                     avatarURL: user?.avatarURL,
+                    authorInfo: user?.authorInfo,
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
@@ -709,12 +716,12 @@ struct NGAParser: Sendable {
     }
 
     private func threadPageCount(topic: Topic, currentPage: Int, postCount: Int) -> Int {
-        // NGA 每页最多显示 20 个楼层；replyCount 不包含主题首帖。
+        // NGA 每页最多显示 20 个楼层；replyCount 不包含话题首帖。
         let countFromReplies = max(1, (topic.replyCount + 20) / 20)
         if topic.replyCount > 0 || postCount < 20 {
             return max(currentPage, countFromReplies)
         }
-        // 结构化响应缺少主题元数据时，只能用满页结果保守探测下一页。
+        // 结构化响应缺少话题元数据时，只能用满页结果保守探测下一页。
         return currentPage + 1
     }
 
@@ -2848,6 +2855,18 @@ struct NGAParser: Sendable {
     private struct PostUser {
         var name: String
         var avatarURL: URL?
+        var authorInfo: PostAuthorInfo?
+    }
+
+    private struct ForumLevelRule {
+        var threshold: Int
+        var title: String
+    }
+
+    private struct MedalDefinition {
+        var filename: String
+        var name: String
+        var detail: String?
     }
 
     private struct HTMLPostMetadata {
@@ -3097,7 +3116,7 @@ struct NGAParser: Sendable {
         guard let content = postContent(in: dictionary) else { return nil }
         let rawPID = int64(dictionary["pid"]) ?? int64(dictionary["postid"])
         let rawFloor = int(dictionary["lou"]) ?? int(dictionary["floor"]) ?? 0
-        // NGA 的结构化响应以 pid=0 表示主题首帖。少数页面变体会把 lou
+        // NGA 的结构化响应以 pid=0 表示话题首帖。少数页面变体会把 lou
         // 写成 1；首帖身份应以 pid 为准，避免在界面上误标为 #1。
         let floor = rawPID == 0 ? 0 : rawFloor
         let pid = rawPID
@@ -3135,6 +3154,7 @@ struct NGAParser: Sendable {
             author: author,
             authorUID: authorUID,
             avatarURL: inlineAvatar ?? user?.avatarURL,
+            authorInfo: user?.authorInfo,
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
             device: postDevice(from: rawDevice),
             html: content,
@@ -3464,15 +3484,26 @@ struct NGAParser: Sendable {
     }
 
     private func postUsers(in root: Any) -> [Int64: PostUser] {
-        guard let value = dictionaries(in: root).first(where: { $0["__U"] != nil })?["__U"] else {
+        guard let container = dictionaries(in: root).first(where: { $0["__U"] != nil }),
+              let value = container["__U"] else {
             return [:]
         }
-        return userMap(in: value)
+        let customLevelSource = (container["__F"] as? [String: Any])
+            .flatMap { string($0["custom_level"]) }
+        return userMap(in: value, customLevelSource: customLevelSource)
     }
 
-    private func userMap(in value: Any) -> [Int64: PostUser] {
+    private func userMap(
+        in value: Any,
+        customLevelSource: String? = nil
+    ) -> [Int64: PostUser] {
         var result: [Int64: PostUser] = [:]
         var nextAnonymousUID: Int64 = -1
+        let container = value as? [String: Any]
+        let groupNames = userGroupNames(in: container?["__GROUPS"])
+        let medalDefinitions = medalDefinitions(in: container?["__MEDALS"])
+        let reputationScores = userReputationScores(in: container?["__REPUTATIONS"])
+        let levelRules = forumLevelRules(from: customLevelSource)
 
         func visit(_ value: Any, keyHint: Int64? = nil) {
             if let array = value as? [Any] {
@@ -3506,9 +3537,32 @@ struct NGAParser: Sendable {
                     resolvedUID = uid ?? keyHint
                 }
                 if let resolvedUID {
+                    let reputation = reputationScores[resolvedUID]
+                    let matchedLevelIndex = reputation.flatMap { score in
+                        levelRules.lastIndex { $0.threshold <= score }
+                    }
+                    let levelOffset = (levelRules.first?.threshold ?? 0) < 0 ? 1 : 0
+                    let medals = userMedals(
+                        from: dictionary["medal"],
+                        definitions: medalDefinitions
+                    )
+                    let authorInfo = PostAuthorInfo(
+                        levelTitle: matchedLevelIndex.map { levelRules[$0].title },
+                        reputation: reputation,
+                        reputationLevel: matchedLevelIndex.map { max(0, $0 - levelOffset) },
+                        userGroup: (int(dictionary["groupid"]) ?? int(dictionary["memberid"]))
+                            .flatMap { groupNames[$0] }
+                            ?? nonEmptyString(dictionary["group"]),
+                        registeredAt: date(dictionary["regdate"]),
+                        prestige: int(dictionary["rvrc"]).map { Double($0) / 10 },
+                        medals: medals,
+                        honor: normalizedUserHonor(string(dictionary["honor"])),
+                        site: nonEmptyString(dictionary["site"])
+                    )
                     result[resolvedUID] = PostUser(
                         name: name,
-                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
+                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
+                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil
                     )
                 }
                 return
@@ -3534,6 +3588,145 @@ struct NGAParser: Sendable {
 
         visit(value)
         return result
+    }
+
+    private func userGroupNames(in value: Any?) -> [Int: String] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        return dictionary.reduce(into: [:]) { result, entry in
+            guard let groupID = Int(entry.key) else { return }
+            let name: String?
+            if let values = entry.value as? [Any] {
+                name = values.first.flatMap(string)
+            } else if let group = entry.value as? [String: Any] {
+                name = string(group["name"]) ?? string(group["title"]) ?? string(group["0"])
+            } else {
+                name = string(entry.value)
+            }
+            if let name = name.map(plainText)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !name.isEmpty {
+                result[groupID] = name
+            }
+        }
+    }
+
+    private func medalDefinitions(in value: Any?) -> [Int: MedalDefinition] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        return dictionary.reduce(into: [:]) { result, entry in
+            guard let medalID = Int(entry.key) else { return }
+            let filename: String?
+            let name: String?
+            let detail: String?
+            if let values = entry.value as? [Any] {
+                filename = values.indices.contains(0) ? string(values[0]) : nil
+                name = values.indices.contains(1) ? string(values[1]) : nil
+                detail = values.indices.contains(2) ? string(values[2]) : nil
+            } else if let medal = entry.value as? [String: Any] {
+                filename = string(medal["image"]) ?? string(medal["filename"]) ?? string(medal["0"])
+                name = string(medal["name"]) ?? string(medal["title"]) ?? string(medal["1"])
+                detail = string(medal["description"]) ?? string(medal["detail"]) ?? string(medal["2"])
+            } else {
+                return
+            }
+            guard let filename = filename?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !filename.isEmpty else {
+                return
+            }
+            let normalizedName = name.map(plainText)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let normalizedDetail = detail.map(plainText)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            result[medalID] = MedalDefinition(
+                filename: filename,
+                name: normalizedName.isEmpty ? "徽章 \(medalID)" : normalizedName,
+                detail: normalizedDetail.isEmpty ? nil : normalizedDetail
+            )
+        }
+    }
+
+    private func userReputationScores(in value: Any?) -> [Int64: Int] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        var result: [Int64: Int] = [:]
+        let reputations = dictionary.sorted {
+            (Int($0.key) ?? .max) < (Int($1.key) ?? .max)
+        }
+        for reputation in reputations {
+            guard let scores = reputation.value as? [String: Any] else { continue }
+            for (rawUID, rawScore) in scores {
+                guard let uid = Int64(rawUID), uid > 0, result[uid] == nil,
+                      let score = int(rawScore) else {
+                    continue
+                }
+                result[uid] = score
+            }
+        }
+        return result
+    }
+
+    private func forumLevelRules(from source: String?) -> [ForumLevelRule] {
+        guard let source,
+              let expression = try? NSRegularExpression(
+                pattern: #"\{\s*r\s*:\s*(-?\d+)\s*,\s*n\s*:\s*[\"']([^\"']+)[\"']\s*\}"#
+              ) else {
+            return []
+        }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        return expression.matches(in: source, range: range).compactMap { match in
+            guard match.numberOfRanges == 3,
+                  let thresholdRange = Range(match.range(at: 1), in: source),
+                  let titleRange = Range(match.range(at: 2), in: source),
+                  let threshold = Int(source[thresholdRange]) else {
+                return nil
+            }
+            return ForumLevelRule(
+                threshold: threshold,
+                title: plainText(String(source[titleRange]))
+            )
+        }
+        .sorted { $0.threshold < $1.threshold }
+    }
+
+    private func userMedals(
+        from value: Any?,
+        definitions: [Int: MedalDefinition]
+    ) -> [UserMedal] {
+        guard let rawValue = string(value) else { return [] }
+        let baseURL = URL(string: "https://img4.nga.cn/ngabbs/medal/")
+        return rawValue.split(separator: ",").compactMap { rawID in
+            guard let id = Int(rawID.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let definition = definitions[id] else {
+                return nil
+            }
+            return UserMedal(
+                id: id,
+                name: definition.name,
+                detail: definition.detail,
+                imageURL: URL(string: definition.filename, relativeTo: baseURL)?.absoluteURL
+            )
+        }
+    }
+
+    private func normalizedUserHonor(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let honor = plainText(value)
+            .replacingOccurrences(
+                of: #"^\s*\d{9,}\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "$notitle$", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return honor.isEmpty ? nil : honor
+    }
+
+    private func hasVisibleAuthorInfo(_ info: PostAuthorInfo) -> Bool {
+        info.levelTitle != nil ||
+            info.reputation != nil ||
+            info.userGroup != nil ||
+            info.registeredAt != nil ||
+            info.prestige != nil ||
+            !info.medals.isEmpty ||
+            info.honor != nil ||
+            info.site != nil
     }
 
     private func message(from dictionary: [String: Any], folder: MessageFolder) -> ForumMessage? {
@@ -3622,11 +3815,11 @@ struct NGAParser: Sendable {
     private func notificationPreview(rawType: Int, sender: String) -> String {
         let actor = sender.isEmpty ? "有用户" : sender
         switch rawType {
-        case 1: return "\(actor) 回复了你的主题"
+        case 1: return "\(actor) 回复了你的话题"
         case 2: return "\(actor) 回复了你的回复"
-        case 3: return "\(actor) 评价了你的主题"
+        case 3: return "\(actor) 评价了你的话题"
         case 4: return "\(actor) 评价了你的回复"
-        case 7: return "\(actor) 在主题中提到了你"
+        case 7: return "\(actor) 在话题中提到了你"
         case 8: return "\(actor) 在回复中提到了你"
         case 10, 11: return sender.isEmpty ? "收到一条短消息" : "\(sender) 发来一条短消息"
         default: return "收到一条论坛通知"

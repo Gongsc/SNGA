@@ -65,7 +65,7 @@ struct SettingsView: View {
             }
             Section("浏览") {
                 Toggle("无图模式", isOn: $imageFreeMode)
-                Text("开启后，主题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                Text("开启后，话题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

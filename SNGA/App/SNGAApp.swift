@@ -358,12 +358,12 @@ struct SNGAApp: App {
             AboutCommands()
 
             CommandGroup(after: .sidebar) {
-                Button(model.selectedTopicID == nil ? "刷新" : "刷新主题内容") {
+                Button(model.selectedTopicID == nil ? "刷新" : "刷新话题内容") {
                     Task { await model.refreshCurrentSelection() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
-                Button("刷新主题列表") {
+                Button("刷新话题列表") {
                     Task { await model.refreshTopicList() }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])

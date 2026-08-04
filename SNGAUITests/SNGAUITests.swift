@@ -2,6 +2,39 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testPostAuthorInformationAppearsInThread() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+
+        let authorName = app.descendants(matching: .any)["post-author-name-1"]
+        let replyDate = app.descendants(matching: .any)["post-author-date-1"]
+        let avatar = app.descendants(matching: .any)["post-author-avatar-1"].firstMatch
+        let level = app.descendants(matching: .any)["post-author-level-1"]
+        let medals = app.descendants(matching: .any)["post-author-medals-1"].firstMatch
+        XCTAssertTrue(authorName.waitForExistence(timeout: 5))
+        XCTAssertTrue(replyDate.exists)
+        XCTAssertTrue(avatar.exists)
+        XCTAssertTrue(level.exists)
+        XCTAssertTrue(medals.exists)
+        XCTAssertGreaterThan(authorName.frame.width, 20)
+        XCTAssertGreaterThan(replyDate.frame.width, 20)
+        XCTAssertEqual(authorName.frame.midY, level.frame.midY, accuracy: 3)
+        XCTAssertEqual(replyDate.frame.midY, medals.frame.midY, accuracy: 3)
+        XCTAssertLessThanOrEqual(avatar.frame.minY, authorName.frame.minY + 2)
+        XCTAssertGreaterThanOrEqual(avatar.frame.maxY, replyDate.frame.maxY - 2)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-reputation-1"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-registered-1"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-prestige-1"].exists)
+    }
+
     func testRecentlyVisitedForumsAppearInVisitOrder() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -84,7 +117,7 @@ final class SNGAUITests: XCTestCase {
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
-        XCTAssertTrue(app.buttons["回复主题"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["回复话题"].waitForExistence(timeout: 5))
 
         app.buttons["测试账号 B"].click()
         XCTAssertTrue(app.buttons["论坛消息"].waitForExistence(timeout: 5))
@@ -197,8 +230,8 @@ final class SNGAUITests: XCTestCase {
         )
         XCTAssertTrue(replyAuthor.waitForNonExistence(timeout: 5))
 
-        XCTAssertTrue(app.buttons["分享主题"].waitForExistence(timeout: 5))
-        app.buttons["分享主题"].click()
+        XCTAssertTrue(app.buttons["分享话题"].waitForExistence(timeout: 5))
+        app.buttons["分享话题"].click()
 
         let copyLink = app.buttons["copy-topic-link"]
         XCTAssertTrue(copyLink.waitForExistence(timeout: 5))
@@ -224,7 +257,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
 
-        let internalLink = app.links["打开站内关联主题"]
+        let internalLink = app.links["打开站内关联话题"]
         XCTAssertTrue(internalLink.waitForExistence(timeout: 5))
         internalLink.click()
 
@@ -235,7 +268,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let topicTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(topicTitle.waitForExistence(timeout: 5))
-        XCTAssertEqual(topicTitle.label, "主题二：多账号与收藏测试")
+        XCTAssertEqual(topicTitle.label, "话题二：多账号与收藏测试")
         XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
         backButton.click()
 
@@ -243,7 +276,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let restoredTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(restoredTitle.waitForExistence(timeout: 5))
-        XCTAssertEqual(restoredTitle.label, "主题一：欢迎使用 SNGA")
+        XCTAssertEqual(restoredTitle.label, "话题一：欢迎使用 SNGA")
         XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
     }
 

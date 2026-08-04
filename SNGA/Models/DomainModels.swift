@@ -109,6 +109,25 @@ enum PostDevice: String, Hashable, Codable, Sendable {
     }
 }
 
+struct UserMedal: Identifiable, Hashable, Codable, Sendable {
+    let id: Int
+    var name: String
+    var detail: String? = nil
+    var imageURL: URL? = nil
+}
+
+struct PostAuthorInfo: Hashable, Codable, Sendable {
+    var levelTitle: String? = nil
+    var reputation: Int? = nil
+    var reputationLevel: Int? = nil
+    var userGroup: String? = nil
+    var registeredAt: Date? = nil
+    var prestige: Double? = nil
+    var medals: [UserMedal] = []
+    var honor: String? = nil
+    var site: String? = nil
+}
+
 struct Post: Identifiable, Hashable, Codable, Sendable {
     let id: PostID
     var topicID: TopicID
@@ -116,6 +135,7 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var author: String
     var authorUID: Int64? = nil
     var avatarURL: URL? = nil
+    var authorInfo: PostAuthorInfo? = nil
     var postedAt: Date? = nil
     var device: PostDevice? = nil
     var html: String
@@ -296,7 +316,7 @@ enum UserActivityKind: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var title: String {
         switch self {
-        case .topics: "主题"
+        case .topics: "话题"
         case .replies: "回复"
         }
     }

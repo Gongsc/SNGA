@@ -9,11 +9,11 @@ final class ForumSearchTests: XCTestCase {
         XCTAssertEqual(
             ForumSearchKind.allCases.map(\.title),
             [
-                "主题标题",
-                "主题标题和内容",
+                "话题标题",
+                "话题标题和内容",
                 "版面或版主",
                 "用户",
-                "用户发布的主题",
+                "用户发布的话题",
                 "用户发布的内容"
             ]
         )

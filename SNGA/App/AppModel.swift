@@ -1164,10 +1164,10 @@ final class AppModel {
                 return false
             }
             if voteSubmissionMayHaveSucceeded(error) {
-                // 写请求不会自动重试。响应不明确时刷新主题，让服务器状态
+                // 写请求不会自动重试。响应不明确时刷新话题，让服务器状态
                 // 决定后续显示，避免用户重复投票。
                 await loadThreadPage(topicID: topicID, page: threadPage)
-                statusMessage = "投票请求已提交，结果以刷新后的主题为准"
+                statusMessage = "投票请求已提交，结果以刷新后的话题为准"
                 statusMessageIsError = false
                 return true
             }
@@ -1327,7 +1327,7 @@ final class AppModel {
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
-                present(NGAServiceError.unsupported("当前主题没有可用的评分"))
+                present(NGAServiceError.unsupported("当前话题没有可用的评分"))
                 return false
             }
             guard rating.isAcceptingResponses(at: .now) else {
@@ -1651,7 +1651,7 @@ final class AppModel {
                     topics[index].isFavorite = false
                 }
             }
-            statusMessage = "已取消主题收藏"
+            statusMessage = "已取消话题收藏"
             statusMessageIsError = false
         } catch {
             present(error)

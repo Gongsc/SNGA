@@ -140,6 +140,84 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(thread.hasMore)
     }
 
+    func testParsesPostAuthorLevelReputationRegistrationPrestigeAndMedals() throws {
+        let payload = #"""
+        {
+          "data": {
+            "__F": {
+              "fid": -7,
+              "custom_level": "[{r:-21000,n:\"草飘浮灵\"},{r:0,n:\"忍里之貉\"},{r:30,n:\"渡来介者\"},{r:60,n:\"戎犬锵锵\"},{r:110,n:\"烦恼刈除\"},{r:200,n:\"花坂豪快\"},{r:400,n:\"红叶逐荒波\"},{r:600,n:\"琉焰华舞\"},{r:900,n:\"真珠之智\"},{r:1200,n:\"白鹭霜华\"},{r:1500,n:\"磐祭叶守\"},{r:1800,n:\"浮世笑百姿\"},{r:2000,n:\"一心净土\"}]"
+            },
+            "__T": {
+              "tid": 33684916,
+              "fid": -7,
+              "subject": "版头",
+              "authorid": 40615142,
+              "author": "Nekiri",
+              "replies": 0
+            },
+            "__U": {
+              "40615142": {
+                "uid": 40615142,
+                "username": "UID:40615142",
+                "groupid": 5,
+                "memberid": 5,
+                "medal": "386,45",
+                "site": "星辰驰骋终幕蔷薇",
+                "honor": " 1763083820 $notitle$ 于明日落下，静寂与月光",
+                "regdate": 1487143790,
+                "rvrc": 297
+              },
+              "__GROUPS": {
+                "5": ["Warden", 1411060, 5]
+              },
+              "__MEDALS": {
+                "386": ["386.gif", "流浪地球", "……", 386],
+                "45": ["ngag.gif", "金质国家地理荣誉徽章", "授予为 NGA 作出贡献的会员", 45]
+              },
+              "__REPUTATIONS": {
+                "130": {"40615142": 2030, "0": "原神Project"}
+              }
+            },
+            "__R": [{
+              "pid": 0,
+              "tid": 33684916,
+              "lou": 0,
+              "authorid": 40615142,
+              "content": "版头正文"
+            }]
+          }
+        }
+        """#
+
+        let page = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 33_684_916),
+            page: 1
+        )
+        let post = try XCTUnwrap(page.posts.first)
+        let authorInfo = try XCTUnwrap(post.authorInfo)
+
+        XCTAssertEqual(post.author, "Nekiri")
+        XCTAssertEqual(authorInfo.levelTitle, "一心净土")
+        XCTAssertEqual(authorInfo.reputation, 2030)
+        XCTAssertEqual(authorInfo.reputationLevel, 11)
+        XCTAssertEqual(authorInfo.userGroup, "Warden")
+        XCTAssertEqual(authorInfo.registeredAt, Date(timeIntervalSince1970: 1_487_143_790))
+        XCTAssertEqual(authorInfo.prestige, 29.7)
+        XCTAssertEqual(authorInfo.honor, "于明日落下，静寂与月光")
+        XCTAssertEqual(authorInfo.site, "星辰驰骋终幕蔷薇")
+        XCTAssertEqual(authorInfo.medals.map(\.id), [386, 45])
+        XCTAssertEqual(authorInfo.medals.map(\.name), ["流浪地球", "金质国家地理荣誉徽章"])
+        XCTAssertEqual(
+            authorInfo.medals.map { $0.imageURL?.absoluteString },
+            [
+                "https://img4.nga.cn/ngabbs/medal/386.gif",
+                "https://img4.nga.cn/ngabbs/medal/ngag.gif"
+            ]
+        )
+    }
+
     func testParsesStructuredTopicPollAndBuildsSubmissionEndpoint() throws {
         let payload = """
         {

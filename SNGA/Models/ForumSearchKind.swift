@@ -12,11 +12,11 @@ enum ForumSearchKind: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     var title: String {
         switch self {
-        case .topicSubject: "主题标题"
-        case .topicContent: "主题标题和内容"
+        case .topicSubject: "话题标题"
+        case .topicContent: "话题标题和内容"
         case .forum: "版面或版主"
         case .user: "用户"
-        case .userTopics: "用户发布的主题"
+        case .userTopics: "用户发布的话题"
         case .userContent: "用户发布的内容"
         }
     }

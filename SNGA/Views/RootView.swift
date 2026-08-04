@@ -32,9 +32,9 @@ struct RootView: View {
                     Button {
                         model.returnFromUserCenterToTopicList()
                     } label: {
-                        Label("返回主题列表", systemImage: "chevron.left")
+                        Label("返回话题列表", systemImage: "chevron.left")
                     }
-                    .help("返回主题列表")
+                    .help("返回话题列表")
                     .accessibilityIdentifier("user-center-back-to-topics")
                 }
             }
@@ -381,7 +381,7 @@ private struct DetailColumnView: View {
             ContentUnavailableView(
                 "选择内容",
                 systemImage: "text.bubble",
-                description: Text("从左侧选择版面或消息，再打开一个主题。")
+                description: Text("从左侧选择版面或消息，再打开一个话题。")
             )
         }
     }

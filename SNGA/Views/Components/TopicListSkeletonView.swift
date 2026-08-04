@@ -49,7 +49,7 @@ struct TopicListSkeletonView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("正在加载主题列表")
+        .accessibilityLabel("正在加载话题列表")
         .accessibilityIdentifier("topic-list-skeleton")
     }
 

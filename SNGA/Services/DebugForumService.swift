@@ -39,7 +39,7 @@ actor DebugForumService: NGAForumService {
                 topicID: TopicID(rawValue: 9001),
                 forumID: forum.id,
                 forumName: forum.name,
-                subject: "主题一：欢迎使用 SNGA",
+                subject: "话题一：欢迎使用 SNGA",
                 excerpt: kind == .replies ? "这是一条用于 UI 测试的用户回复摘要。" : nil,
                 postedAt: Date(timeIntervalSince1970: 1_785_000_000)
             )
@@ -133,8 +133,8 @@ actor DebugForumService: NGAForumService {
         // Keep the UI-test response pending long enough to verify refresh animations.
         try await Task.sleep(for: .seconds(2))
         let topics = [
-            Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "主题一：欢迎使用 SNGA", author: "测试用户", authorUID: 1001, replyCount: 2),
-            Topic(id: TopicID(rawValue: 9002), forumID: forumID, subject: "主题二：多账号与收藏测试", author: "另一位用户", authorUID: 1002, replyCount: 8)
+            Topic(id: TopicID(rawValue: 9001), forumID: forumID, subject: "话题一：欢迎使用 SNGA", author: "测试用户", authorUID: 1001, replyCount: 2),
+            Topic(id: TopicID(rawValue: 9002), forumID: forumID, subject: "话题二：多账号与收藏测试", author: "另一位用户", authorUID: 1002, replyCount: 8)
         ]
         let sortedTopics = sortOrder == .latestReply
             ? topics
@@ -161,11 +161,11 @@ actor DebugForumService: NGAForumService {
         let isPinnedTopic = topicID == forum.pinnedTopicID
         let subject: String
         if isPrimaryTopic {
-            subject = "主题一：欢迎使用 SNGA"
+            subject = "话题一：欢迎使用 SNGA"
         } else if isPinnedTopic {
             subject = "版面置顶话题"
         } else {
-            subject = "主题二：多账号与收藏测试"
+            subject = "话题二：多账号与收藏测试"
         }
         let topic = Topic(
             id: topicID,
@@ -196,9 +196,9 @@ actor DebugForumService: NGAForumService {
         let firstPostHTML = isPrimaryTopic
             ? """
               <p>这是一条用于 UI 测试的帖子内容。</p>
-              <p><a href="https://bbs.nga.cn/read.php?tid=9002">打开站内关联主题</a></p>
+              <p><a href="https://bbs.nga.cn/read.php?tid=9002">打开站内关联话题</a></p>
               """
-            : "<p>这是通过站内链接打开的关联主题。</p>"
+            : "<p>这是通过站内链接打开的关联话题。</p>"
         let allPosts = [
             Post(
                 id: PostID(rawValue: 1),
@@ -206,6 +206,26 @@ actor DebugForumService: NGAForumService {
                 floor: 0,
                 author: "测试用户",
                 authorUID: isPrimaryTopic ? 1001 : 1002,
+                authorInfo: isPrimaryTopic
+                    ? PostAuthorInfo(
+                        levelTitle: "一心净土",
+                        reputation: 2030,
+                        reputationLevel: 11,
+                        userGroup: "Warden",
+                        registeredAt: Date(timeIntervalSince1970: 1_487_143_790),
+                        prestige: 29.7,
+                        medals: [
+                            UserMedal(
+                                id: 386,
+                                name: "流浪地球",
+                                imageURL: URL(string: "https://img4.nga.cn/ngabbs/medal/386.gif")
+                            )
+                        ],
+                        honor: "于明日落下，静寂与月光",
+                        site: "星辰驰骋终幕蔷薇"
+                    )
+                    : nil,
+                postedAt: Date(timeIntervalSince1970: 1_785_000_000),
                 html: NGAParser().sanitizedPostHTML(firstPostHTML),
                 poll: isPrimaryTopic
                     ? TopicPoll(
@@ -331,7 +351,7 @@ actor DebugForumService: NGAForumService {
                 Topic(
                     id: TopicID(rawValue: 9001),
                     forumID: forum.id,
-                    subject: "主题一：欢迎使用 SNGA",
+                    subject: "话题一：欢迎使用 SNGA",
                     author: "测试用户",
                     replyCount: 2,
                     isFavorite: true

@@ -116,7 +116,7 @@ struct GlobalForumSearchView: View {
             ContentUnavailableView {
                 Label("搜索 NGA 论坛", systemImage: "magnifyingglass")
             } description: {
-                Text("可搜索主题、版面、版主和用户发布的内容。")
+                Text("可搜索话题、版面、版主和用户发布的内容。")
             }
         }
     }
