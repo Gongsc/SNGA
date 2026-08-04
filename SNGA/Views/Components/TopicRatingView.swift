@@ -7,7 +7,7 @@ struct TopicRatingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("主题评分", systemImage: "star.square.on.square")
+            Label("话题评分", systemImage: "star.square.on.square")
                 .font(.headline)
                 .foregroundStyle(theme.accentColor)
 

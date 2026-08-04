@@ -387,7 +387,7 @@ struct NGAParser: Sendable {
                 isLocked: containerText.contains("锁定")
             ))
         }
-        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到主题列表") }
+        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
         let paginationPages = try document.select("a[href*='page=']").compactMap { link -> Int? in
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else {
                 return nil
@@ -543,15 +543,21 @@ struct NGAParser: Sendable {
                     .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0)) }
                     .first { $0.id == topicID }
                 ?? Topic(id: topicID, forumID: ForumID(rawValue: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
+            let customLevelSource = (payload?["__F"] as? [String: Any])
+                .flatMap { string($0["custom_level"]) }
             var users = payload
                 .flatMap { $0["__U"] }
-                .map { userMap(in: $0) }
+                .map { userMap(in: $0, customLevelSource: customLevelSource) }
                 ?? postUsers(in: root)
             if let topicMetadata,
                let authorUID = postAuthorID(in: topicMetadata),
                let author = normalizedUsername(string(topicMetadata["author"])) {
-                let existingAvatar = users[authorUID]?.avatarURL
-                users[authorUID] = PostUser(name: author, avatarURL: existingAvatar)
+                if var existing = users[authorUID] {
+                    existing.name = author
+                    users[authorUID] = existing
+                } else {
+                    users[authorUID] = PostUser(name: author, avatarURL: nil, authorInfo: nil)
+                }
             }
             let postValues = postDictionaries(in: root, payload: payload)
             topic.rating = topicMetadata
@@ -580,7 +586,12 @@ struct NGAParser: Sendable {
                         topicAuthor: topic.author
                     )
                 }
-                let totalPages = threadPageCount(topic: topic, currentPage: page, postCount: posts.count)
+                let totalPages = threadPageCount(
+                    in: root,
+                    topic: topic,
+                    currentPage: page,
+                    postCount: posts.count
+                )
                 return ThreadPage(
                     topic: topic,
                     posts: unique(posts),
@@ -626,7 +637,9 @@ struct NGAParser: Sendable {
                     author: user?.name ?? normalizedUsername(inlineAuthor) ?? "",
                     authorUID: authorUID,
                     avatarURL: user?.avatarURL,
+                    authorInfo: user?.authorInfo,
                     postedAt: metadata?.postedAt,
+                    device: metadata?.device ?? .desktop,
                     html: contentHTML,
                     upvoteCount: metadata?.upvoteCount ?? 0,
                     downvoteCount: metadata?.downvoteCount ?? 0,
@@ -654,6 +667,7 @@ struct NGAParser: Sendable {
                     floor: floor,
                     author: normalizedUsername(author) ?? "",
                     postedAt: nil,
+                    device: .desktop,
                     html: try element.html(),
                     poll: floor == 0 ? htmlTopicPoll : nil,
                     ratingScores: htmlRatings.postScores[floor] ?? [:]
@@ -667,6 +681,7 @@ struct NGAParser: Sendable {
             forumID: ForumID(rawValue: 0),
             subject: title,
             author: posts.first(where: { $0.floor == 0 })?.author ?? "",
+            authorUID: posts.first(where: { $0.floor == 0 })?.authorUID,
             replyCount: max(0, posts.map(\.floor).max() ?? 0),
             isPinned: false,
             isLocked: false,
@@ -682,10 +697,15 @@ struct NGAParser: Sendable {
                 .value
                 .flatMap(Int.init)
         }
-        let totalPages = max(
-            threadPageCount(topic: topic, currentPage: page, postCount: posts.count),
-            linkedPages.max() ?? 1
-        )
+        let filtersByAuthor = URLComponents(url: response.url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "authorid" }) == true
+        let totalPages = filtersByAuthor
+            ? max(page, linkedPages.max() ?? page)
+            : max(
+                threadPageCount(topic: topic, currentPage: page, postCount: posts.count),
+                linkedPages.max() ?? 1
+            )
         return ThreadPage(
             topic: topic,
             posts: unique(posts),
@@ -696,19 +716,41 @@ struct NGAParser: Sendable {
     }
 
     private func threadPageCount(topic: Topic, currentPage: Int, postCount: Int) -> Int {
-        // NGA 每页最多显示 20 个楼层；replyCount 不包含主题首帖。
+        // NGA 每页最多显示 20 个楼层；replyCount 不包含话题首帖。
         let countFromReplies = max(1, (topic.replyCount + 20) / 20)
         if topic.replyCount > 0 || postCount < 20 {
             return max(currentPage, countFromReplies)
         }
-        // 结构化响应缺少主题元数据时，只能用满页结果保守探测下一页。
+        // 结构化响应缺少话题元数据时，只能用满页结果保守探测下一页。
         return currentPage + 1
+    }
+
+    private func threadPageCount(
+        in root: Any,
+        topic: Topic,
+        currentPage: Int,
+        postCount: Int
+    ) -> Int {
+        if let metadata = dictionaries(in: root).first(where: {
+            $0["__ROWS"] != nil && $0["__R__ROWS_PAGE"] != nil
+        }),
+           let totalRows = int(metadata["__ROWS"]),
+           let rowsPerPage = int(metadata["__R__ROWS_PAGE"]),
+           totalRows >= 0,
+           rowsPerPage > 0 {
+            let totalPages = max(1, (totalRows + rowsPerPage - 1) / rowsPerPage)
+            return max(currentPage, totalPages)
+        }
+        return threadPageCount(topic: topic, currentPage: currentPage, postCount: postCount)
     }
 
     func messages(from response: NGAHTTPResponse, folder: MessageFolder, page: Int) throws -> MessagePage {
         if let root = jsonRoot(response.data) {
             try throwJSONErrorIfPresent(in: root)
-            let payload = jsonPayload(in: root)
+            let rawPayload = jsonPayload(in: root)
+            let payload = folder == .notifications
+                ? notificationPayload(in: rawPayload)
+                : rawPayload
             var values: [ForumMessage]
             if folder == .notifications {
                 values = dictionaries(in: payload)
@@ -861,7 +903,7 @@ struct NGAParser: Sendable {
     func checkIn(from response: NGAHTTPResponse) throws -> CheckInResult {
         let text = try response.decodedString()
         if let root = jsonRoot(response.data) ?? jsonRoot(text) {
-            let message = flattenedText(root)
+            let message = flattenedStringText(root)
             if message.contains("已签到") || message.contains("已经签到") || message.contains("今天已经签到") {
                 return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
             }
@@ -870,7 +912,7 @@ struct NGAParser: Sendable {
             }
             try throwJSONErrorIfPresent(in: root)
             if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
-                return .success(message: concise(message))
+                return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
             }
             // 当前签到接口成功时可能只返回 {"data": null, "time": ...}，
             // 没有文案；只要结构化响应中存在 data 且没有 error 即可确认成功。
@@ -883,7 +925,7 @@ struct NGAParser: Sendable {
             return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
         }
         if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
-            return .success(message: concise(message))
+            return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
         }
         throw NGAServiceError.unexpectedPage("无法确认签到结果")
     }
@@ -1164,7 +1206,7 @@ struct NGAParser: Sendable {
         let rendered = renderBBCode(source, topicRating: topicRating)
         var clean: String
         do {
-            let document = try SwiftSoup.parseBodyFragment(rendered, NGAEndpoint.baseURL.absoluteString)
+            let document = try SwiftSoup.parseBodyFragment(rendered.html, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
                 for textNode in element.textNodes() {
                     let current = textNode.getWholeText()
@@ -1198,18 +1240,26 @@ struct NGAParser: Sendable {
             }
 
             let whitelist = try Whitelist.relaxed()
-                .addTags("details", "summary", "section", "hr")
+                .addTags("details", "summary", "section", "hr", "button")
                 .addAttributes("a", "class")
+                .addAttributes(
+                    "button",
+                    "class",
+                    "type",
+                    "data-snga-random-block-index",
+                    "aria-label",
+                    "aria-pressed"
+                )
                 .addAttributes("img", "class", "loading", "referrerpolicy")
                 .addAttributes("span", "class")
-                .addAttributes("div", "class")
+                .addAttributes("div", "class", "role", "aria-label", "aria-hidden")
                 .addAttributes("h3", "class")
                 .addAttributes("section", "class")
                 .addAttributes("details", "open")
-                .addAttributes("td", "width")
-                .addAttributes("th", "width")
+                .addAttributes("td", "width", "colspan", "rowspan")
+                .addAttributes("th", "width", "colspan", "rowspan")
             clean = try SwiftSoup.clean(
-                try document.body()?.html() ?? rendered,
+                try document.body()?.html() ?? rendered.html,
                 NGAEndpoint.baseURL.absoluteString,
                 whitelist
             ) ?? "<p>内容无法显示</p>"
@@ -1224,11 +1274,12 @@ struct NGAParser: Sendable {
         <style>
         :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
         #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child{margin-bottom:0}p{margin:6px 0}
-        img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{max-width:100%;border-collapse:collapse;display:block;overflow:auto}td,th{border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:4px}
+        img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}.ubb-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ubb-split-left{text-align:left}.ubb-split-right{text-align:right}
         .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
         blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
         details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
+        .nga-random-block-panel{display:none}.nga-random-block-panel.snga-is-active{display:block}.nga-random-block-controls{display:flex;align-items:center;justify-content:center;min-height:28px;margin:1px 0 4px;overflow:hidden}.nga-random-block-button{position:relative;width:44px;height:28px;margin:0 2px;padding:0;border:0;border-radius:8px;color:inherit;background:transparent;cursor:pointer}.nga-random-block-button::before{position:absolute;top:10px;left:10px;width:24px;height:8px;border-radius:999px;background:color-mix(in srgb,CanvasText 22%,transparent);content:""}.nga-random-block-button.snga-is-active::before{background:var(--snga-highlight)}.nga-random-block-button:hover::before{background:color-mix(in srgb,var(--snga-highlight) 72%,CanvasText)}.nga-random-block-button:focus-visible{outline:2px solid var(--snga-highlight);outline-offset:-3px}
         .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
         .nga-rich-card-title{margin:0 0 8px;font-size:1.15em}.nga-rich-card-image{margin:6px 0}.nga-rich-card-image img{display:block;border-radius:7px}
         .nga-game-card{display:grid;grid-template-columns:minmax(88px,9rem) minmax(0,1fr);gap:12px;margin:8px 0 12px;padding:14px;box-sizing:border-box;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;color:CanvasText;background:color-mix(in srgb,var(--snga-highlight) 9%,transparent)}.nga-game-card-no-score{grid-template-columns:minmax(0,1fr)}
@@ -1237,9 +1288,11 @@ struct NGAParser: Sendable {
         .nga-game-cover{grid-column:1/-1;overflow:hidden;border-radius:7px;background:color-mix(in srgb,CanvasText 6%,transparent)}.nga-game-cover img{display:block;width:100%;height:auto}.nga-game-cover .snga-image-placeholder{display:flex;width:100%}
         .nga-game-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 20px}.nga-game-field{min-width:0}.nga-game-label{font-size:1.05em;font-weight:650}.nga-game-value{margin-top:3px;color:#b22222;font-size:1.05em;overflow-wrap:anywhere}.nga-game-website{grid-column:1/-1}.nga-game-website a{display:inline-flex;align-items:center;gap:5px;color:#b22222;font-size:1.05em;font-weight:600}.nga-game-extra{grid-column:1/-1}
         @media(max-width:520px){.nga-game-card{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px}.nga-game-card-no-score{grid-template-columns:1fr}.nga-game-score{min-height:76px}.nga-game-score-value{font-size:2.2em}.nga-game-score-count{font-size:.72em}.nga-game-title{font-size:1.4em}.nga-game-details{grid-template-columns:repeat(2,minmax(0,1fr))}.nga-game-website{grid-column:1/-1}}@media(max-width:360px){.nga-game-card{grid-template-columns:1fr}.nga-game-score{width:112px;min-height:72px}.nga-game-cover,.nga-game-details{grid-column:1}.nga-game-details{grid-template-columns:1fr}}
-        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}
-        .ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}
+        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-orangered{color:orangered}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-darkblue{color:darkblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}.ubb-color-silver{color:silver}.ubb-color-white{color:white}
+        .ubb-size-50{font-size:50%}.ubb-size-60{font-size:60%}.ubb-size-70{font-size:70%}.ubb-size-80{font-size:80%}.ubb-size-90{font-size:90%}.ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}.ubb-size-160{font-size:160%}.ubb-size-170{font-size:170%}.ubb-size-180{font-size:180%}.ubb-size-190{font-size:190%}.ubb-size-200{font-size:200%}
         .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
+        @media(max-width:700px){table,thead,tbody,tfoot{display:block;width:100%}tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:8px 0}td,th{display:block;width:auto!important;min-width:0;border-radius:6px}}@media(max-width:360px){.ubb-split-row{grid-template-columns:1fr}.ubb-split-right{text-align:left}}
+        \(rendered.additionalStyleSheet)
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
     }
@@ -1271,6 +1324,38 @@ struct NGAParser: Sendable {
     private enum RemoteResourceKind {
         case attachment
         case avatar
+    }
+
+    private struct RenderedPostContent {
+        let html: String
+        let additionalStyleSheet: String
+    }
+
+    private struct PostStyleRegistry {
+        private let prefix: String
+        private var rules: [String] = []
+
+        init(source: String) {
+            var hash: UInt64 = 14_695_981_039_346_656_037
+            for byte in source.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1_099_511_628_211
+            }
+            prefix = "snga-fixed-\(String(hash, radix: 16))"
+        }
+
+        mutating func register(_ declarations: String, semanticClass: String? = nil) -> String {
+            let generatedClass = "\(prefix)-\(rules.count)"
+            rules.append(".\(generatedClass){\(declarations)}")
+            if let semanticClass {
+                return "\(semanticClass) \(generatedClass)"
+            }
+            return generatedClass
+        }
+
+        var styleSheet: String {
+            rules.joined()
+        }
     }
 
     private func renderGameCards(
@@ -1531,11 +1616,452 @@ struct NGAParser: Sendable {
         return content.isEmpty ? nil : content
     }
 
+    private struct FixedBlockConfiguration {
+        let minimumWidth: Double
+        let maximumWidth: Double
+        let height: Double
+        let outerBackground: String
+        let innerBackground: String
+    }
+
+    private func renderFixedStyleBlocks(
+        in source: String,
+        styles: inout PostStyleRegistry
+    ) -> String {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[randomblock\](.*?)\[/randomblock\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) else { return source }
+        let original = source as NSString
+        let matches = expression.matches(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        )
+        guard !matches.isEmpty else { return source }
+
+        var result = ""
+        var cursor = 0
+        var matchIndex = 0
+        while matchIndex < matches.count {
+            let firstMatch = matches[matchIndex]
+            var alternatives = [firstMatch]
+            var groupEnd = NSMaxRange(firstMatch.range)
+            var nextIndex = matchIndex + 1
+
+            while nextIndex < matches.count {
+                let nextMatch = matches[nextIndex]
+                let separatorRange = NSRange(
+                    location: groupEnd,
+                    length: nextMatch.range.location - groupEnd
+                )
+                guard isRandomBlockSeparator(original.substring(with: separatorRange)) else {
+                    break
+                }
+                alternatives.append(nextMatch)
+                groupEnd = NSMaxRange(nextMatch.range)
+                nextIndex += 1
+            }
+
+            result += original.substring(
+                with: NSRange(
+                    location: cursor,
+                    length: firstMatch.range.location - cursor
+                )
+            )
+            let rawAlternatives = alternatives.map { original.substring(with: $0.range) }
+            var renderedAlternatives: [String?] = []
+            renderedAlternatives.reserveCapacity(alternatives.count)
+            for alternative in alternatives {
+                let body = alternative.numberOfRanges > 1
+                    ? original.substring(with: alternative.range(at: 1))
+                    : ""
+                renderedAlternatives.append(renderFixedStyleBlock(body, styles: &styles))
+            }
+
+            if alternatives.count > 1,
+               renderedAlternatives.allSatisfy({ $0 != nil }) {
+                result += renderFixedStyleCarousel(
+                    renderedAlternatives.compactMap { $0 },
+                    selectedIndex: stableRandomBlockIndex(in: rawAlternatives)
+                )
+            } else {
+                for alternativeIndex in alternatives.indices {
+                    if alternativeIndex > 0 {
+                        let previousMatch = alternatives[alternativeIndex - 1]
+                        let currentMatch = alternatives[alternativeIndex]
+                        result += original.substring(
+                            with: NSRange(
+                                location: NSMaxRange(previousMatch.range),
+                                length: currentMatch.range.location - NSMaxRange(previousMatch.range)
+                            )
+                        )
+                    }
+                    result += renderedAlternatives[alternativeIndex]
+                        ?? rawAlternatives[alternativeIndex]
+                }
+            }
+            cursor = groupEnd
+            matchIndex = nextIndex
+        }
+        result += original.substring(from: cursor)
+        return result
+    }
+
+    private func renderFixedStyleCarousel(
+        _ alternatives: [String],
+        selectedIndex: Int
+    ) -> String {
+        let count = alternatives.count
+        let panels = alternatives.enumerated().map { index, html in
+            let isSelected = index == selectedIndex
+            let stateClass = isSelected ? " snga-is-active" : ""
+            return #"<div class="nga-random-block-panel\#(stateClass)" aria-hidden="\#(!isSelected)">\#(html)</div>"#
+        }.joined()
+        let buttons = alternatives.indices.map { index in
+            let isSelected = index == selectedIndex
+            let stateClass = isSelected ? " snga-is-active" : ""
+            return #"<button type="button" class="nga-random-block-button\#(stateClass)" data-snga-random-block-index="\#(index)" aria-label="显示版头 \#(index + 1)，共 \#(count) 个" aria-pressed="\#(isSelected)"></button>"#
+        }.joined()
+        return #"<div class="nga-random-block-carousel" role="group" aria-label="版头内容">\#(panels)<div class="nga-random-block-controls" role="group" aria-label="切换版头">\#(buttons)</div></div>"#
+    }
+
+    private func renderFixedStyleBlock(
+        _ source: String,
+        styles: inout PostStyleRegistry
+    ) -> String? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[fixsize\s+([^\]]+)\]"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let original = source as NSString
+        guard let match = expression.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ), match.numberOfRanges > 1,
+        let configuration = fixedBlockConfiguration(
+            original.substring(with: match.range(at: 1))
+        ) else { return nil }
+
+        var body = source
+        if let range = Range(match.range, in: body) {
+            body.removeSubrange(range)
+        }
+        body = body.replacingOccurrences(
+            of: #"\[/?fixsize(?:\s+[^\]]*)?\]"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        body = compactFixedStyleLayout(body)
+        body = renderFixedStyleMarkup(in: body, styles: &styles)
+
+        let height = cssNumber(configuration.height)
+        let minimumWidth = cssNumber(configuration.minimumWidth)
+        let maximumWidth = cssNumber(configuration.maximumWidth)
+        let outerClass = styles.register(
+            "clear:both;overflow:hidden;width:auto;height:\(height)em;background:\(configuration.outerBackground);",
+            semanticClass: "nga-fixed-block"
+        )
+        let innerClass = styles.register(
+            "margin:auto;overflow:hidden;position:relative;z-index:0;height:\(height)em;max-width:\(maximumWidth)em;min-width:\(minimumWidth)em;background:\(configuration.innerBackground);",
+            semanticClass: "nga-fixed-block-canvas"
+        )
+        return #"<div class="\#(outerClass)"><div class="\#(innerClass)">\#(body)</div></div>"#
+    }
+
+    private func compactFixedStyleLayout(_ source: String) -> String {
+        var output = removingStripBreakMarkers(from: source)
+        output = output.replacingOccurrences(
+            of: #"\[/?comment(?:\s+[^\]]*)?\](?:[ \t\r\n]*<br\s*/?>)?"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let layoutTag = #"\[(?:/?style(?:\s+[^\]]*)?|/?url(?:=[^\]]*)?|/?randomblock)\]"#
+        output = output.replacingOccurrences(
+            of: #"(\#(layoutTag))(?:(?:[ \t\r\n]*<br\s*/?>[ \t\r\n]*)+|[ \t\r\n]+)(?=\#(layoutTag))"#,
+            with: "$1",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        output = output.replacingOccurrences(
+            of: #"(?:[ \t\r\n]*<br\s*/?>[ \t\r\n]*)+$"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func removingStripBreakMarkers(from source: String) -> String {
+        source.replacingOccurrences(
+            of: #"\[/?stripbr\][ \t]*(?:<br\s*/?>|\r?\n)?"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
+    private func renderFixedStyleMarkup(
+        in source: String,
+        styles: inout PostStyleRegistry
+    ) -> String {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"\[style(?:\s+[^\]]*)?\]|\[/style\]"#,
+            options: .caseInsensitive
+        ) else { return source }
+        let original = source as NSString
+        let matches = expression.matches(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        )
+        var result = ""
+        var cursor = 0
+        var openElements: [Bool] = []
+
+        for match in matches {
+            result += original.substring(
+                with: NSRange(location: cursor, length: match.range.location - cursor)
+            )
+            let token = original.substring(with: match.range)
+            if token.lowercased().hasPrefix("[/style") {
+                if openElements.popLast() == true {
+                    result += "</div>"
+                }
+            } else {
+                let attributes = String(token.dropFirst("[style".count).dropLast())
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let className = styles.register(fixedStyleDeclarations(attributes))
+                if let imageURL = fixedStyleImageURL(attributes) {
+                    result += #"<img class="\#(className)" src="\#(htmlAttributeEscaped(imageURL.absoluteString))" alt="帖子图片">"#
+                    openElements.append(false)
+                } else {
+                    result += #"<div class="\#(className)">"#
+                    openElements.append(true)
+                }
+            }
+            cursor = NSMaxRange(match.range)
+        }
+        result += original.substring(from: cursor)
+        for shouldClose in openElements.reversed() where shouldClose {
+            result += "</div>"
+        }
+        return result
+    }
+
+    private func fixedStyleImageURL(_ source: String) -> URL? {
+        guard let expression = try? NSRegularExpression(
+            pattern: #"(?:^|\s)src\s+([^\s]+)"#,
+            options: .caseInsensitive
+        ) else { return nil }
+        let original = source as NSString
+        guard let match = expression.firstMatch(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        ), match.numberOfRanges > 1 else { return nil }
+        return remoteResourceURL(
+            original.substring(with: match.range(at: 1)),
+            kind: .attachment
+        )
+    }
+
+    private func fixedBlockConfiguration(_ source: String) -> FixedBlockConfiguration? {
+        let tokens = source.split(whereSeparator: \.isWhitespace).map(String.init)
+        let lowered = tokens.map { $0.lowercased() }
+        guard let widthIndex = lowered.firstIndex(of: "width"),
+              tokens.indices.contains(widthIndex + 1),
+              let firstWidth = Double(tokens[widthIndex + 1]),
+              firstWidth.isFinite,
+              firstWidth > 0,
+              firstWidth <= 5_000,
+              let heightIndex = lowered.firstIndex(of: "height"),
+              tokens.indices.contains(heightIndex + 1),
+              let height = Double(tokens[heightIndex + 1]),
+              height.isFinite,
+              height > 0,
+              height <= 5_000 else {
+            return nil
+        }
+        let secondWidth = tokens.indices.contains(widthIndex + 2)
+            ? Double(tokens[widthIndex + 2])
+            : nil
+        let maximumWidth = min(5_000, max(firstWidth, secondWidth ?? firstWidth))
+        let minimumWidth = min(firstWidth, maximumWidth)
+
+        var backgrounds = ["#000000", "#dddddd"]
+        if let backgroundIndex = lowered.firstIndex(of: "background") {
+            let candidates = tokens.dropFirst(backgroundIndex + 1).prefix(2)
+                .compactMap(safeCSSColor)
+            if let first = candidates.first {
+                backgrounds[0] = first
+                backgrounds[1] = candidates.count > 1 ? candidates[1] : first
+            }
+        }
+        return FixedBlockConfiguration(
+            minimumWidth: minimumWidth,
+            maximumWidth: maximumWidth,
+            height: height,
+            outerBackground: backgrounds[0],
+            innerBackground: backgrounds[1]
+        )
+    }
+
+    private func fixedStyleDeclarations(_ source: String) -> String {
+        let supportedKeys = Set([
+            "width", "height", "left", "right", "top", "bottom",
+            "line-height", "font", "color", "background", "rotate",
+            "dybg", "filter-drop-shadow", "src", "padding"
+        ])
+        let tokens = source.split(whereSeparator: \.isWhitespace).map(String.init)
+        var attributes: [String: String] = [:]
+        var index = 0
+        while index + 1 < tokens.count {
+            let key = tokens[index].lowercased()
+            if supportedKeys.contains(key) {
+                if key == "padding" {
+                    var values = [tokens[index + 1]]
+                    if tokens.indices.contains(index + 2),
+                       !supportedKeys.contains(tokens[index + 2].lowercased()),
+                       safeCSSLength(tokens[index + 2]) != nil {
+                        values.append(tokens[index + 2])
+                    }
+                    attributes[key] = values.joined(separator: " ")
+                    index += values.count + 1
+                } else {
+                    attributes[key] = tokens[index + 1]
+                    index += 2
+                }
+            } else {
+                index += 1
+            }
+        }
+
+        var declarations = ["display:inline-block"]
+        let lengthKeys = ["width", "height", "left", "right", "top", "bottom"]
+        for key in lengthKeys {
+            if let rawValue = attributes[key], let value = safeCSSLength(rawValue) {
+                declarations.append("\(key):\(value)")
+            }
+        }
+        let positionKeys = ["left", "right", "top", "bottom"]
+        if positionKeys.contains(where: { attributes[$0] != nil }) {
+            declarations.append("position:absolute")
+        }
+        if let rawPadding = attributes["padding"] {
+            let values = rawPadding.split(whereSeparator: \.isWhitespace)
+                .compactMap { safeCSSLength(String($0)) }
+            if !values.isEmpty {
+                declarations.append("padding:\(values.joined(separator: " "))")
+            }
+        }
+        if let rawValue = attributes["line-height"], let value = safeCSSLength(rawValue) {
+            declarations.append("line-height:\(value)")
+        }
+        if let rawValue = attributes["font"],
+           let value = Double(rawValue), value.isFinite, (0.5...3).contains(value) {
+            declarations.append("font-size:\(cssNumber(value))em")
+        }
+        if let color = attributes["color"].flatMap(safeCSSColor) {
+            declarations.append("color:\(color)")
+        }
+        if let background = attributes["background"].flatMap(safeCSSColor) {
+            declarations.append("background:\(background)")
+        }
+        if let rawValue = attributes["rotate"],
+           let degrees = Double(rawValue), degrees.isFinite, abs(degrees) <= 3_600 {
+            declarations.append("transform:rotate(\(cssNumber(degrees))deg)")
+        }
+        if let dybg = attributes["dybg"] {
+            declarations.append(contentsOf: fixedBackgroundDeclarations(dybg))
+        }
+        if let shadow = attributes["filter-drop-shadow"].flatMap(fixedDropShadow) {
+            declarations.append("filter:\(shadow)")
+        }
+        return declarations.joined(separator: ";") + ";"
+    }
+
+    private func fixedBackgroundDeclarations(_ source: String) -> [String] {
+        let components = source.split(separator: ";", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard components.count >= 6 else { return [] }
+        var declarations: [String] = []
+        if let url = remoteResourceURL(components[5], kind: .attachment) {
+            declarations.append("background-image:url(\"\(url.absoluteString)\")")
+        }
+        if let size = safeCSSLength(components[0], defaultUnit: "%") {
+            declarations.append("background-size:\(size)")
+        }
+        if let horizontal = safeCSSLength(components[1], defaultUnit: "%"),
+           let vertical = safeCSSLength(components[2], defaultUnit: "%") {
+            declarations.append("background-position:\(horizontal) \(vertical)")
+        }
+        return declarations
+    }
+
+    private func fixedDropShadow(_ source: String) -> String? {
+        let components = source.split(separator: ";", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard components.count == 4,
+              let color = safeCSSColor(components[0]),
+              let x = safeCSSLength(components[1]),
+              let y = safeCSSLength(components[2]),
+              let blur = safeCSSLength(components[3]) else {
+            return nil
+        }
+        return "drop-shadow(\(x) \(y) \(blur) \(color))"
+    }
+
+    private func safeCSSLength(_ source: String, defaultUnit: String = "em") -> String? {
+        let value = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.range(
+            of: #"^-?\d+(?:\.\d+)?%?$"#,
+            options: .regularExpression
+        ) != nil else { return nil }
+        let hasPercent = value.hasSuffix("%")
+        let numericText = hasPercent ? String(value.dropLast()) : value
+        guard let number = Double(numericText), number.isFinite, abs(number) <= 5_000 else {
+            return nil
+        }
+        return "\(cssNumber(number))\(hasPercent ? "%" : defaultUnit)"
+    }
+
+    private func safeCSSColor(_ source: String) -> String? {
+        let value = source.lowercased()
+        guard value.range(
+            of: #"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$"#,
+            options: .regularExpression
+        ) != nil else { return nil }
+        return value
+    }
+
+    private func cssNumber(_ value: Double) -> String {
+        guard value.rounded() != value else { return String(Int(value)) }
+        return String(value)
+    }
+
+    private func isRandomBlockSeparator(_ source: String) -> Bool {
+        source.range(
+            of: #"^(?:(?:\s|<br\s*/?>)|\[/?stripbr\])*$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private func stableRandomBlockIndex(in alternatives: [String]) -> Int {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for alternative in alternatives {
+            for byte in alternative.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1_099_511_628_211
+            }
+            hash ^= 0xFF
+            hash &*= 1_099_511_628_211
+        }
+        return Int(hash % UInt64(alternatives.count))
+    }
+
     private func renderBBCode(
         _ source: String,
         topicRating: TopicRating?
-    ) -> String {
+    ) -> RenderedPostContent {
+        var styleRegistry = PostStyleRegistry(source: source)
         var output = renderGameCards(in: source, topicRating: topicRating)
+        output = renderFixedStyleBlocks(in: output, styles: &styleRegistry)
+        output = removingStripBreakMarkers(from: output)
 
         output = output.replacingOccurrences(
             of: "[randomblock]",
@@ -1588,6 +2114,11 @@ struct NGAParser: Sendable {
             with: "",
             options: [.regularExpression, .caseInsensitive]
         )
+        output = replacingMatches(
+            in: output,
+            pattern: #"\[size=0%\].*?\[/size\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) { _ in "" }
 
         output = replacingMatches(
             in: output,
@@ -1728,6 +2259,7 @@ struct NGAParser: Sendable {
             "<blockquote>\(captures.first ?? "")</blockquote>"
         }
         output = renderListBBCode(output)
+        output = renderDirectionalBBCode(output)
         output = renderTableBBCode(output)
 
         let pairedTags: [(String, String)] = [
@@ -1753,8 +2285,9 @@ struct NGAParser: Sendable {
             options: [.caseInsensitive]
         ) { captures in
             let supported = [
-                "red", "orange", "green", "teal", "blue", "skyblue",
-                "royalblue", "purple", "deeppink", "chocolate", "sienna", "gray"
+                "red", "orange", "orangered", "green", "teal", "blue",
+                "skyblue", "darkblue", "royalblue", "purple", "deeppink",
+                "chocolate", "sienna", "gray", "silver", "white"
             ]
             let value = captures.first?.lowercased() ?? ""
             let color = supported.contains(value) ? value : "default"
@@ -1767,10 +2300,10 @@ struct NGAParser: Sendable {
         )
         output = replacingMatches(
             in: output,
-            pattern: #"\[size=(\d{2,3})%\]"#,
+            pattern: #"\[size=(\d{1,3})%\]"#,
             options: [.caseInsensitive]
         ) { captures in
-            let value = Int(captures.first ?? "").map { min(150, max(100, $0)) } ?? 100
+            let value = Int(captures.first ?? "").map { min(200, max(50, $0)) } ?? 100
             let rounded = ((value + 5) / 10) * 10
             return #"<span class="ubb-size-\#(rounded)">"#
         }
@@ -1820,11 +2353,41 @@ struct NGAParser: Sendable {
         output = output.replacingOccurrences(of: "\r\n", with: "\n")
         output = output.replacingOccurrences(of: "\r", with: "\n")
         output = output.replacingOccurrences(of: "\n", with: "<br>")
-        return output.replacingOccurrences(
+        let html = output.replacingOccurrences(
             of: #"(?i)(?:\s*<br\s*/?>\s*){3,}"#,
             with: "<br><br>",
             options: .regularExpression
         )
+        return RenderedPostContent(
+            html: html,
+            additionalStyleSheet: styleRegistry.styleSheet
+        )
+    }
+
+    private func renderDirectionalBBCode(_ source: String) -> String {
+        var output = replacingMatches(
+            in: source,
+            pattern: #"\[l\]((?:(?!\[/l\]).)*)\[/l\]\s*\[r\]((?:(?!\[/r\]).)*)\[/r\]"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        ) { captures in
+            guard captures.count == 2 else { return "" }
+            return #"<div class="ubb-split-row"><div class="ubb-split-left">\#(captures[0])</div><div class="ubb-split-right">\#(captures[1])</div></div>"#
+        }
+        let directionalTags = [
+            ("l", "ubb-align-left"),
+            ("c", "ubb-align-center"),
+            ("r", "ubb-align-right")
+        ]
+        for (tag, cssClass) in directionalTags {
+            output = replacingMatches(
+                in: output,
+                pattern: #"\[\#(tag)\]((?:(?!\[/\#(tag)\]).)*)\[/\#(tag)\]"#,
+                options: [.caseInsensitive, .dotMatchesLineSeparators]
+            ) { captures in
+                #"<div class="\#(cssClass)">\#(captures.first ?? "")</div>"#
+            }
+        }
+        return output
     }
 
     private func renderTableBBCode(_ source: String) -> String {
@@ -1841,23 +2404,33 @@ struct NGAParser: Sendable {
             ) { rowCaptures in
                 let row = rowCaptures.first ?? ""
                 let widths = tableCellWidths(in: row)
-                let totalWidth = widths.reduce(0, +)
+                let explicitWidths = widths.compactMap { $0 }
+                let usesWeightedWidths = !widths.isEmpty
+                    && explicitWidths.count == widths.count
+                let totalWidth = explicitWidths.reduce(0, +)
                 var renderedRow = replacingMatches(
                     in: row,
-                    pattern: #"\[(td|th)(?:\s+([^\]]*))?\](.*?)\[/\1\]"#,
+                    pattern: #"\[(td|th)(\d+(?:\.\d+)?)?(?:\s+([^\]]*))?\](.*?)\[/\1\]"#,
                     options: [.caseInsensitive, .dotMatchesLineSeparators]
                 ) { cellCaptures in
-                    guard cellCaptures.count == 3 else { return "" }
+                    guard cellCaptures.count == 4 else { return "" }
                     let tag = cellCaptures[0].lowercased()
-                    let width = tableCellWidth(in: cellCaptures[1])
-                    let widthAttribute: String
-                    if let width, totalWidth > 0 {
+                    let attributes = cellCaptures[2]
+                    let width = tableCellWidth(
+                        shorthand: cellCaptures[1],
+                        attributes: attributes
+                    )
+                    var safeAttributes = ""
+                    if usesWeightedWidths, let width, totalWidth > 0 {
                         let percentage = width / totalWidth * 100
-                        widthAttribute = #" width="\#(formattedPercentage(percentage))%""#
-                    } else {
-                        widthAttribute = ""
+                        safeAttributes += #" width="\#(formattedPercentage(percentage))%""#
                     }
-                    return "<\(tag)\(widthAttribute)>\(cellCaptures[2])</\(tag)>"
+                    for name in ["colspan", "rowspan"] {
+                        if let span = tableCellSpan(named: name, in: attributes) {
+                            safeAttributes += " \(name)=\"\(span)\""
+                        }
+                    }
+                    return "<\(tag)\(safeAttributes)>\(cellCaptures[3])</\(tag)>"
                 }
                 renderedRow = renderedRow.replacingOccurrences(
                     of: #"(?i)(</?(?:td|th)\b[^>]*>)\s*(?:<br\s*/?>\s*)+(?=</?(?:td|th)\b)"#,
@@ -1885,9 +2458,9 @@ struct NGAParser: Sendable {
         }
     }
 
-    private func tableCellWidths(in row: String) -> [Double] {
+    private func tableCellWidths(in row: String) -> [Double?] {
         guard let expression = try? NSRegularExpression(
-            pattern: #"\[(?:td|th)\b([^\]]*)\]"#,
+            pattern: #"\[(?:td|th)(\d+(?:\.\d+)?)?(?:\s+([^\]]*))?\]"#,
             options: [.caseInsensitive]
         ) else {
             return []
@@ -1896,13 +2469,25 @@ struct NGAParser: Sendable {
         return expression.matches(
             in: row,
             range: NSRange(location: 0, length: source.length)
-        ).compactMap { match in
-            guard match.numberOfRanges > 1,
-                  match.range(at: 1).location != NSNotFound else {
-                return nil
-            }
-            return tableCellWidth(in: source.substring(with: match.range(at: 1)))
+        ).map { match in
+            let shorthand = match.range(at: 1).location == NSNotFound
+                ? ""
+                : source.substring(with: match.range(at: 1))
+            let attributes = match.range(at: 2).location == NSNotFound
+                ? ""
+                : source.substring(with: match.range(at: 2))
+            return tableCellWidth(shorthand: shorthand, attributes: attributes)
         }
+    }
+
+    private func tableCellWidth(
+        shorthand: String,
+        attributes: String
+    ) -> Double? {
+        if let width = Double(shorthand), width > 0 {
+            return width
+        }
+        return tableCellWidth(in: attributes)
     }
 
     private func tableCellWidth(in attributes: String) -> Double? {
@@ -1920,6 +2505,25 @@ struct NGAParser: Sendable {
             return nil
         }
         return Double(source.substring(with: match.range(at: 1)))
+    }
+
+    private func tableCellSpan(named name: String, in attributes: String) -> Int? {
+        let escapedName = NSRegularExpression.escapedPattern(for: name)
+        guard let expression = try? NSRegularExpression(
+            pattern: #"(?:^|\s)\#(escapedName)\s*=\s*["']?(\d+)"#,
+            options: [.caseInsensitive]
+        ) else {
+            return nil
+        }
+        let source = attributes as NSString
+        guard let match = expression.firstMatch(
+            in: attributes,
+            range: NSRange(location: 0, length: source.length)
+        ), match.numberOfRanges > 1,
+              let value = Int(source.substring(with: match.range(at: 1))) else {
+            return nil
+        }
+        return min(12, max(1, value))
     }
 
     private func formattedPercentage(_ value: Double) -> String {
@@ -2000,8 +2604,18 @@ struct NGAParser: Sendable {
                 .map(plainText),
             iconURL: iconURL,
             category: category ?? string(dictionary["group"]),
+            pinnedTopicID: pinnedTopicID(in: dictionary),
             isSelectedInParent: selectedSubforumState(from: dictionary)
         )
+    }
+
+    private func pinnedTopicID(in dictionary: [String: Any]) -> TopicID? {
+        for key in ["topped_topic", "top_topic", "pinned_topic"] {
+            if let rawValue = int64(dictionary[key]), rawValue > 0 {
+                return TopicID(rawValue: rawValue)
+            }
+        }
+        return nil
     }
 
     private func profile(
@@ -2075,6 +2689,7 @@ struct NGAParser: Sendable {
             forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
             subject: subject,
             author: normalizedUsername(string(dictionary["author"])) ?? "",
+            authorUID: postAuthorID(in: dictionary),
             replyCount: int(dictionary["replies"]) ?? int(dictionary["replyCount"]) ?? 0,
             publishedAt: date(dictionary["postdate"]),
             lastReplyAt: date(dictionary["lastpost"]),
@@ -2186,11 +2801,15 @@ struct NGAParser: Sendable {
                 id = ForumID(rawValue: rawID)
             }
             let subtitle = fields.count > 2 ? string(fields[2]).map(plainText) : nil
+            let pinnedTopicID = fields.count > 3
+                ? int64(fields[3]).flatMap { $0 > 0 ? TopicID(rawValue: $0) : nil }
+                : nil
             let attributes = fields.count > 4 ? int(fields[4]) : nil
             return Forum(
                 id: id,
                 name: name,
                 subtitle: subtitle,
+                pinnedTopicID: pinnedTopicID,
                 isSelectedInParent: attributes.map(isSelectedSubforumAttributes)
             )
         }
@@ -2236,12 +2855,25 @@ struct NGAParser: Sendable {
     private struct PostUser {
         var name: String
         var avatarURL: URL?
+        var authorInfo: PostAuthorInfo?
+    }
+
+    private struct ForumLevelRule {
+        var threshold: Int
+        var title: String
+    }
+
+    private struct MedalDefinition {
+        var filename: String
+        var name: String
+        var detail: String?
     }
 
     private struct HTMLPostMetadata {
         var pid: Int64?
         var authorUID: Int64?
         var postedAt: Date?
+        var device: PostDevice
         var upvoteCount: Int
         var downvoteCount: Int
     }
@@ -2301,12 +2933,16 @@ struct NGAParser: Sendable {
                     .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
                 : []
             let score = scoreValues.count > 1 ? scoreValues[1] : 0
+            let rawDevice = arguments.count > 19
+                ? normalizedJavaScriptLiteral(arguments[19])
+                : nil
             result[floor] = HTMLPostMetadata(
                 pid: Int64(normalizedJavaScriptLiteral(arguments[10])),
                 authorUID: Int64(normalizedJavaScriptLiteral(arguments[13])),
                 postedAt: timestamp.flatMap {
                     $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
                 },
+                device: postDevice(from: rawDevice),
                 upvoteCount: max(0, score),
                 downvoteCount: max(0, -score)
             )
@@ -2480,7 +3116,7 @@ struct NGAParser: Sendable {
         guard let content = postContent(in: dictionary) else { return nil }
         let rawPID = int64(dictionary["pid"]) ?? int64(dictionary["postid"])
         let rawFloor = int(dictionary["lou"]) ?? int(dictionary["floor"]) ?? 0
-        // NGA 的结构化响应以 pid=0 表示主题首帖。少数页面变体会把 lou
+        // NGA 的结构化响应以 pid=0 表示话题首帖。少数页面变体会把 lou
         // 写成 1；首帖身份应以 pid 为准，避免在界面上误标为 #1。
         let floor = rawPID == 0 ? 0 : rawFloor
         let pid = rawPID
@@ -2507,6 +3143,10 @@ struct NGAParser: Sendable {
         let inlineAvatar = remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
         let postTopicID = TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue)
         let rawVote = string(dictionary["vote"])
+        let rawDevice = ["from_client", "fromClient", "client", "device"]
+            .lazy
+            .compactMap { string(dictionary[$0]) }
+            .first
         return Post(
             id: PostID(rawValue: pid),
             topicID: postTopicID,
@@ -2514,7 +3154,9 @@ struct NGAParser: Sendable {
             author: author,
             authorUID: authorUID,
             avatarURL: inlineAvatar ?? user?.avatarURL,
+            authorInfo: user?.authorInfo,
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
+            device: postDevice(from: rawDevice),
             html: content,
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
@@ -2540,6 +3182,17 @@ struct NGAParser: Sendable {
             },
             ratingScores: rawVote.flatMap(postRatingScores) ?? [:]
         )
+    }
+
+    private func postDevice(from rawValue: String?) -> PostDevice {
+        let value = rawValue?.lowercased() ?? ""
+        if value.contains("android") {
+            return .android
+        }
+        if value.contains("ios") || value.contains("iphone") || value.contains("ipad") {
+            return .apple
+        }
+        return .desktop
     }
 
     private func topicVoteValue(in dictionary: [String: Any]) -> String? {
@@ -2831,15 +3484,26 @@ struct NGAParser: Sendable {
     }
 
     private func postUsers(in root: Any) -> [Int64: PostUser] {
-        guard let value = dictionaries(in: root).first(where: { $0["__U"] != nil })?["__U"] else {
+        guard let container = dictionaries(in: root).first(where: { $0["__U"] != nil }),
+              let value = container["__U"] else {
             return [:]
         }
-        return userMap(in: value)
+        let customLevelSource = (container["__F"] as? [String: Any])
+            .flatMap { string($0["custom_level"]) }
+        return userMap(in: value, customLevelSource: customLevelSource)
     }
 
-    private func userMap(in value: Any) -> [Int64: PostUser] {
+    private func userMap(
+        in value: Any,
+        customLevelSource: String? = nil
+    ) -> [Int64: PostUser] {
         var result: [Int64: PostUser] = [:]
         var nextAnonymousUID: Int64 = -1
+        let container = value as? [String: Any]
+        let groupNames = userGroupNames(in: container?["__GROUPS"])
+        let medalDefinitions = medalDefinitions(in: container?["__MEDALS"])
+        let reputationScores = userReputationScores(in: container?["__REPUTATIONS"])
+        let levelRules = forumLevelRules(from: customLevelSource)
 
         func visit(_ value: Any, keyHint: Int64? = nil) {
             if let array = value as? [Any] {
@@ -2873,9 +3537,32 @@ struct NGAParser: Sendable {
                     resolvedUID = uid ?? keyHint
                 }
                 if let resolvedUID {
+                    let reputation = reputationScores[resolvedUID]
+                    let matchedLevelIndex = reputation.flatMap { score in
+                        levelRules.lastIndex { $0.threshold <= score }
+                    }
+                    let levelOffset = (levelRules.first?.threshold ?? 0) < 0 ? 1 : 0
+                    let medals = userMedals(
+                        from: dictionary["medal"],
+                        definitions: medalDefinitions
+                    )
+                    let authorInfo = PostAuthorInfo(
+                        levelTitle: matchedLevelIndex.map { levelRules[$0].title },
+                        reputation: reputation,
+                        reputationLevel: matchedLevelIndex.map { max(0, $0 - levelOffset) },
+                        userGroup: (int(dictionary["groupid"]) ?? int(dictionary["memberid"]))
+                            .flatMap { groupNames[$0] }
+                            ?? nonEmptyString(dictionary["group"]),
+                        registeredAt: date(dictionary["regdate"]),
+                        prestige: int(dictionary["rvrc"]).map { Double($0) / 10 },
+                        medals: medals,
+                        honor: normalizedUserHonor(string(dictionary["honor"])),
+                        site: nonEmptyString(dictionary["site"])
+                    )
                     result[resolvedUID] = PostUser(
                         name: name,
-                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
+                        avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
+                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil
                     )
                 }
                 return
@@ -2901,6 +3588,145 @@ struct NGAParser: Sendable {
 
         visit(value)
         return result
+    }
+
+    private func userGroupNames(in value: Any?) -> [Int: String] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        return dictionary.reduce(into: [:]) { result, entry in
+            guard let groupID = Int(entry.key) else { return }
+            let name: String?
+            if let values = entry.value as? [Any] {
+                name = values.first.flatMap(string)
+            } else if let group = entry.value as? [String: Any] {
+                name = string(group["name"]) ?? string(group["title"]) ?? string(group["0"])
+            } else {
+                name = string(entry.value)
+            }
+            if let name = name.map(plainText)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !name.isEmpty {
+                result[groupID] = name
+            }
+        }
+    }
+
+    private func medalDefinitions(in value: Any?) -> [Int: MedalDefinition] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        return dictionary.reduce(into: [:]) { result, entry in
+            guard let medalID = Int(entry.key) else { return }
+            let filename: String?
+            let name: String?
+            let detail: String?
+            if let values = entry.value as? [Any] {
+                filename = values.indices.contains(0) ? string(values[0]) : nil
+                name = values.indices.contains(1) ? string(values[1]) : nil
+                detail = values.indices.contains(2) ? string(values[2]) : nil
+            } else if let medal = entry.value as? [String: Any] {
+                filename = string(medal["image"]) ?? string(medal["filename"]) ?? string(medal["0"])
+                name = string(medal["name"]) ?? string(medal["title"]) ?? string(medal["1"])
+                detail = string(medal["description"]) ?? string(medal["detail"]) ?? string(medal["2"])
+            } else {
+                return
+            }
+            guard let filename = filename?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !filename.isEmpty else {
+                return
+            }
+            let normalizedName = name.map(plainText)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let normalizedDetail = detail.map(plainText)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            result[medalID] = MedalDefinition(
+                filename: filename,
+                name: normalizedName.isEmpty ? "徽章 \(medalID)" : normalizedName,
+                detail: normalizedDetail.isEmpty ? nil : normalizedDetail
+            )
+        }
+    }
+
+    private func userReputationScores(in value: Any?) -> [Int64: Int] {
+        guard let dictionary = value as? [String: Any] else { return [:] }
+        var result: [Int64: Int] = [:]
+        let reputations = dictionary.sorted {
+            (Int($0.key) ?? .max) < (Int($1.key) ?? .max)
+        }
+        for reputation in reputations {
+            guard let scores = reputation.value as? [String: Any] else { continue }
+            for (rawUID, rawScore) in scores {
+                guard let uid = Int64(rawUID), uid > 0, result[uid] == nil,
+                      let score = int(rawScore) else {
+                    continue
+                }
+                result[uid] = score
+            }
+        }
+        return result
+    }
+
+    private func forumLevelRules(from source: String?) -> [ForumLevelRule] {
+        guard let source,
+              let expression = try? NSRegularExpression(
+                pattern: #"\{\s*r\s*:\s*(-?\d+)\s*,\s*n\s*:\s*[\"']([^\"']+)[\"']\s*\}"#
+              ) else {
+            return []
+        }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        return expression.matches(in: source, range: range).compactMap { match in
+            guard match.numberOfRanges == 3,
+                  let thresholdRange = Range(match.range(at: 1), in: source),
+                  let titleRange = Range(match.range(at: 2), in: source),
+                  let threshold = Int(source[thresholdRange]) else {
+                return nil
+            }
+            return ForumLevelRule(
+                threshold: threshold,
+                title: plainText(String(source[titleRange]))
+            )
+        }
+        .sorted { $0.threshold < $1.threshold }
+    }
+
+    private func userMedals(
+        from value: Any?,
+        definitions: [Int: MedalDefinition]
+    ) -> [UserMedal] {
+        guard let rawValue = string(value) else { return [] }
+        let baseURL = URL(string: "https://img4.nga.cn/ngabbs/medal/")
+        return rawValue.split(separator: ",").compactMap { rawID in
+            guard let id = Int(rawID.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let definition = definitions[id] else {
+                return nil
+            }
+            return UserMedal(
+                id: id,
+                name: definition.name,
+                detail: definition.detail,
+                imageURL: URL(string: definition.filename, relativeTo: baseURL)?.absoluteURL
+            )
+        }
+    }
+
+    private func normalizedUserHonor(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let honor = plainText(value)
+            .replacingOccurrences(
+                of: #"^\s*\d{9,}\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "$notitle$", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return honor.isEmpty ? nil : honor
+    }
+
+    private func hasVisibleAuthorInfo(_ info: PostAuthorInfo) -> Bool {
+        info.levelTitle != nil ||
+            info.reputation != nil ||
+            info.userGroup != nil ||
+            info.registeredAt != nil ||
+            info.prestige != nil ||
+            !info.medals.isEmpty ||
+            info.honor != nil ||
+            info.site != nil
     }
 
     private func message(from dictionary: [String: Any], folder: MessageFolder) -> ForumMessage? {
@@ -2989,11 +3815,11 @@ struct NGAParser: Sendable {
     private func notificationPreview(rawType: Int, sender: String) -> String {
         let actor = sender.isEmpty ? "有用户" : sender
         switch rawType {
-        case 1: return "\(actor) 回复了你的主题"
+        case 1: return "\(actor) 回复了你的话题"
         case 2: return "\(actor) 回复了你的回复"
-        case 3: return "\(actor) 评价了你的主题"
+        case 3: return "\(actor) 评价了你的话题"
         case 4: return "\(actor) 评价了你的回复"
-        case 7: return "\(actor) 在主题中提到了你"
+        case 7: return "\(actor) 在话题中提到了你"
         case 8: return "\(actor) 在回复中提到了你"
         case 10, 11: return sender.isEmpty ? "收到一条短消息" : "\(sender) 发来一条短消息"
         default: return "收到一条论坛通知"
@@ -3012,6 +3838,29 @@ struct NGAParser: Sendable {
         dictionaries(in: payload)
             .compactMap { int($0["unread"]) }
             .first
+    }
+
+    private func notificationPayload(in value: Any) -> Any {
+        // NGA 会把提醒对象作为 JavaScript 字符串放进 data[0]，且数字键没有引号；
+        // 先解开这一层，再沿用普通 JSON 提醒解析。
+        for source in strings(in: value) {
+            guard let openingBrace = source.firstIndex(of: "{"),
+                  let closingBrace = source.lastIndex(of: "}"),
+                  openingBrace < closingBrace else {
+                continue
+            }
+            let object = String(source[openingBrace...closingBrace])
+            let normalized = replacingMatches(
+                in: object,
+                pattern: #"([,{]\s*)(\d+)\s*:"#
+            ) { captures in
+                "\(captures[0])\"\(captures[1])\":"
+            }
+            if let payload = jsonRoot(normalized) {
+                return payload
+            }
+        }
+        return value
     }
 
     private func normalizedUsername(_ rawValue: String?) -> String? {
@@ -3227,7 +4076,21 @@ struct NGAParser: Sendable {
         if explicitlyRequiresLogin(message) {
             throw NGAServiceError.requiresLogin
         }
+        if indicatesLockedTopic(message) {
+            throw NGAServiceError.topicLocked
+        }
         throw NGAServiceError.restricted(message)
+    }
+
+    private func indicatesLockedTopic(_ message: String) -> Bool {
+        [
+            "此帖子被锁定",
+            "帖子被锁定",
+            "帖子已锁定",
+            "此主题被锁定",
+            "主题被锁定",
+            "主题已锁定"
+        ].contains { message.contains($0) }
     }
 
     private func explicitlyRequiresLogin(_ message: String) -> Bool {
@@ -3257,6 +4120,19 @@ struct NGAParser: Sendable {
         }
         if let array = value as? [Any] {
             return array.flatMap(dictionaries(in:))
+        }
+        return []
+    }
+
+    private func strings(in value: Any) -> [String] {
+        if let string = value as? String {
+            return [string]
+        }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.values.flatMap(strings(in:))
+        }
+        if let array = value as? [Any] {
+            return array.flatMap(strings(in:))
         }
         return []
     }
@@ -3320,6 +4196,10 @@ struct NGAParser: Sendable {
         }
         if let absolute = URL(string: rawValue), absolute.scheme != nil {
             guard ["http", "https"].contains(absolute.scheme?.lowercased() ?? "") else { return nil }
+            if case .attachment = kind,
+               let normalized = normalizedLegacyAttachmentURL(absolute) {
+                return normalized
+            }
             return secureURL(absolute)
         }
 
@@ -3349,6 +4229,17 @@ struct NGAParser: Sendable {
             return URL(string: rawValue, relativeTo: NGAEndpoint.baseURL)?.absoluteURL
         }
         return URL(string: rawValue, relativeTo: NGAEndpoint.baseURL)?.absoluteURL
+    }
+
+    private func normalizedLegacyAttachmentURL(_ url: URL) -> URL? {
+        guard url.host?.lowercased() == "img.ngacn.cc",
+              url.path.hasPrefix("/attachments/") else {
+            return nil
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.scheme = "https"
+        components?.host = "img.nga.178.com"
+        return components?.url
     }
 
     private func replacingMatches(
@@ -3527,6 +4418,17 @@ struct NGAParser: Sendable {
         if let number = value as? NSNumber { return number.stringValue }
         if let dictionary = value as? [String: Any] { return dictionary.values.map(flattenedText).joined(separator: " ") }
         if let array = value as? [Any] { return array.map(flattenedText).joined(separator: " ") }
+        return ""
+    }
+
+    private func flattenedStringText(_ value: Any) -> String {
+        if let string = value as? String { return string }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.values.map(flattenedStringText).filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        if let array = value as? [Any] {
+            return array.map(flattenedStringText).filter { !$0.isEmpty }.joined(separator: " ")
+        }
         return ""
     }
 

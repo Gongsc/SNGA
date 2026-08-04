@@ -39,6 +39,7 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var subtitle: String? = nil
     var iconURL: URL? = nil
     var category: String? = nil
+    var pinnedTopicID: TopicID? = nil
     /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
     var isSelectedInParent: Bool? = nil
 }
@@ -62,6 +63,7 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var forumID: ForumID
     var subject: String
     var author: String
+    var authorUID: Int64? = nil
     var replyCount: Int
     var publishedAt: Date? = nil
     var lastReplyAt: Date? = nil
@@ -93,6 +95,39 @@ struct ForumPage: Hashable, Codable, Sendable {
     var subforums: [Forum] = []
 }
 
+enum PostDevice: String, Hashable, Codable, Sendable {
+    case apple
+    case android
+    case desktop
+
+    var title: String {
+        switch self {
+        case .apple: "Apple 设备"
+        case .android: "Android 设备"
+        case .desktop: "桌面设备"
+        }
+    }
+}
+
+struct UserMedal: Identifiable, Hashable, Codable, Sendable {
+    let id: Int
+    var name: String
+    var detail: String? = nil
+    var imageURL: URL? = nil
+}
+
+struct PostAuthorInfo: Hashable, Codable, Sendable {
+    var levelTitle: String? = nil
+    var reputation: Int? = nil
+    var reputationLevel: Int? = nil
+    var userGroup: String? = nil
+    var registeredAt: Date? = nil
+    var prestige: Double? = nil
+    var medals: [UserMedal] = []
+    var honor: String? = nil
+    var site: String? = nil
+}
+
 struct Post: Identifiable, Hashable, Codable, Sendable {
     let id: PostID
     var topicID: TopicID
@@ -100,7 +135,9 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var author: String
     var authorUID: Int64? = nil
     var avatarURL: URL? = nil
+    var authorInfo: PostAuthorInfo? = nil
     var postedAt: Date? = nil
+    var device: PostDevice? = nil
     var html: String
     var quotedPostID: PostID? = nil
     var upvoteCount: Int = 0
@@ -279,7 +316,7 @@ enum UserActivityKind: String, CaseIterable, Codable, Sendable, Identifiable {
 
     var title: String {
         switch self {
-        case .topics: "主题"
+        case .topics: "话题"
         case .replies: "回复"
         }
     }

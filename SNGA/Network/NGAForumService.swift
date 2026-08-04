@@ -87,15 +87,37 @@ actor LiveNGAForumService: NGAForumService {
         }
     }
 
-    func topics(forumID: ForumID, page: Int) async throws -> ForumPage {
-        try parser.forumPage(from: await client.request(.topics(forumID: forumID, page: page)), forumID: forumID, page: page)
+    func topics(
+        forumID: ForumID,
+        page: Int,
+        sortOrder: TopicListSortOrder,
+        featuredOnly: Bool
+    ) async throws -> ForumPage {
+        try parser.forumPage(
+            from: await client.request(.topics(
+                forumID: forumID,
+                page: page,
+                sortOrder: sortOrder,
+                featuredOnly: featuredOnly
+            )),
+            forumID: forumID,
+            page: page
+        )
     }
 
-    func threadPage(topicID: TopicID, page: Int) async throws -> ThreadPage {
+    func threadPage(
+        topicID: TopicID,
+        page: Int,
+        authorUID: Int64?
+    ) async throws -> ThreadPage {
         var result: ThreadPage
         do {
             result = try parser.threadPage(
-                from: await client.request(.thread(topicID: topicID, page: page)),
+                from: await client.request(.thread(
+                    topicID: topicID,
+                    page: page,
+                    authorUID: authorUID
+                )),
                 topicID: topicID,
                 page: page
             )
@@ -103,7 +125,11 @@ actor LiveNGAForumService: NGAForumService {
             switch error {
             case .unexpectedPage, .restricted:
                 result = try parser.threadPage(
-                    from: await client.request(.threadHTML(topicID: topicID, page: page)),
+                    from: await client.request(.threadHTML(
+                        topicID: topicID,
+                        page: page,
+                        authorUID: authorUID
+                    )),
                     topicID: topicID,
                     page: page
                 )

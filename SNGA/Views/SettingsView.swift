@@ -9,6 +9,8 @@ struct SettingsView: View {
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(RecentForumSettings.maximumCountKey)
+    private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(ToolboxInstanceSettings.selectionKey)
     private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
@@ -65,7 +67,20 @@ struct SettingsView: View {
             }
             Section("浏览") {
                 Toggle("无图模式", isOn: $imageFreeMode)
-                Text("开启后，主题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                Text("开启后，话题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Stepper(
+                    "最近访问数量：\(recentForumMaximumCount)",
+                    value: $recentForumMaximumCount,
+                    in: RecentForumSettings.allowedRange
+                )
+                .accessibilityIdentifier("recent-forum-maximum-count")
+                .onChange(of: recentForumMaximumCount) { _, maximumCount in
+                    model.updateRecentForumLimit(maximumCount)
+                }
+                Text("最多保留指定数量的最近访问版面；减少数量会删除较早的记录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

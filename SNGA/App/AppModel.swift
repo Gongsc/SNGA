@@ -9,6 +9,7 @@ private struct ThreadNavigationSnapshot: Sendable {
     let page: Int
     let hasMore: Bool
     let totalPages: Int
+    let showsOnlyTopicAuthor: Bool
 }
 
 @MainActor
@@ -32,8 +33,12 @@ final class AppModel {
     var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
+    var topicListSortOrder: TopicListSortOrder = .latestReply
+    var isShowingFeaturedTopics = false
+    var isShowingOnlyTopicAuthor = false
 
     var forums: [Forum] = []
+    var recentForums: [Forum] = []
     var favorites: [FavoriteSnapshot] = []
     var favoriteTopicFolders: [TopicFavoriteFolder] = []
     var selectedFavoriteTopicFolderID: String?
@@ -151,9 +156,24 @@ final class AppModel {
         return favorites.contains { $0.forum.id == currentForum.id && $0.state != .pendingRemove }
     }
 
+    var currentPinnedTopicID: TopicID? {
+        currentForum?.pinnedTopicID
+    }
+
     var isCurrentTopicFavorite: Bool {
         guard let currentTopic else { return false }
         return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+    }
+
+    var currentTopicAuthorUID: Int64? {
+        if let authorUID = currentTopic?.authorUID, authorUID != 0 {
+            return authorUID
+        }
+        if let authorUID = posts.first(where: { $0.floor == 0 })?.authorUID,
+           authorUID != 0 {
+            return authorUID
+        }
+        return nil
     }
 
     var canReturnToPreviousThread: Bool {
@@ -226,6 +246,7 @@ final class AppModel {
 #endif
         await reloadAccountsAndServices()
         if let activeAccount {
+            loadRecentForums()
             sidebarSelection = .userCenter(activeAccount.ngaUID)
             currentProfile = Profile(
                 uid: activeAccount.ngaUID,
@@ -297,6 +318,7 @@ final class AppModel {
             showsLogin = false
             await reloadAccountsAndServices()
             if let activeAccount {
+                loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
                     uid: activeAccount.ngaUID,
@@ -329,6 +351,7 @@ final class AppModel {
             accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
             refreshActiveAccountCheckInStatus(records: records)
             clearVisibleContent()
+            loadRecentForums()
             if let activeAccount {
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
@@ -359,10 +382,16 @@ final class AppModel {
             let subforumPreferences = try context.fetch(
                 FetchDescriptor<SubforumPreferenceRecord>()
             )
+            let recentForums = try context.fetch(
+                FetchDescriptor<RecentForumRecord>()
+            )
             accounts.filter { $0.accountID == accountID }.forEach(context.delete)
             favorites.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
             drafts.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
             subforumPreferences
+                .filter { $0.accountIDString == accountID.description }
+                .forEach(context.delete)
+            recentForums
                 .filter { $0.accountIDString == accountID.description }
                 .forEach(context.delete)
             try await sessionStore.remove(accountID: accountID)
@@ -371,6 +400,7 @@ final class AppModel {
             await reloadAccountsAndServices()
             clearVisibleContent()
             if let activeAccount {
+                loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
                     uid: activeAccount.ngaUID,
@@ -512,7 +542,57 @@ final class AppModel {
                 return
             }
             forums = result
+            recentForums = recentForums.map(enrichingForumFromDirectory)
             favorites = enrichingFavoriteForums(favorites)
+        }
+    }
+
+    func loadRecentForums() {
+        guard let activeAccountID else {
+            recentForums = []
+            return
+        }
+        do {
+            let maximumCount = RecentForumSettings.maximumCount
+            let records = try sortedRecentForumRecords(accountID: activeAccountID)
+            let discardedRecords = records.dropFirst(maximumCount)
+            discardedRecords.forEach(context.delete)
+            if !discardedRecords.isEmpty {
+                try context.save()
+            }
+            recentForums = records
+                .prefix(maximumCount)
+                .map(\.forum)
+                .map(enrichingForumFromDirectory)
+        } catch {
+            recentForums = []
+            present(error)
+        }
+    }
+
+    func updateRecentForumLimit(_ maximumCount: Int) {
+        do {
+            let maximumCount = RecentForumSettings.normalizedMaximumCount(maximumCount)
+            UserDefaults.standard.set(
+                maximumCount,
+                forKey: RecentForumSettings.maximumCountKey
+            )
+            let records = try context.fetch(FetchDescriptor<RecentForumRecord>())
+            let groupedRecords = Dictionary(grouping: records, by: \.accountIDString)
+            var removedAnyRecord = false
+            for accountRecords in groupedRecords.values {
+                let sortedRecords = accountRecords.sorted(by: recentForumRecordComesFirst)
+                for record in sortedRecords.dropFirst(maximumCount) {
+                    context.delete(record)
+                    removedAnyRecord = true
+                }
+            }
+            if removedAnyRecord {
+                try context.save()
+            }
+            loadRecentForums()
+        } catch {
+            present(error)
         }
     }
 
@@ -626,6 +706,7 @@ final class AppModel {
     private func showForum(_ forum: Forum) async {
         clearForumSearch()
         currentForum = forum
+        recordRecentForum(forum)
         sidebarSelection = .forum(forum.id)
         selectedTopicID = nil
         currentTopic = nil
@@ -638,6 +719,36 @@ final class AppModel {
         subforumSelectionForumID = nil
         resetThreadNavigationHistory()
         await loadTopics(forumID: forum.id, reset: true)
+    }
+
+    private func recordRecentForum(
+        _ forum: Forum,
+        updatesVisitOrder: Bool = true
+    ) {
+        guard let activeAccountID else { return }
+        do {
+            let forum = enrichingForumFromDirectory(forum)
+            let recordID = RecentForumRecord.recordID(
+                accountID: activeAccountID,
+                forumID: forum.id
+            )
+            let records = try recentForumRecords(accountID: activeAccountID)
+            if let record = records.first(where: { $0.id == recordID }) {
+                record.update(
+                    forum: forum,
+                    visitedAt: updatesVisitOrder ? .now : nil
+                )
+            } else {
+                context.insert(RecentForumRecord(
+                    accountID: activeAccountID,
+                    forum: forum
+                ))
+            }
+            try context.save()
+            loadRecentForums()
+        } catch {
+            present(error)
+        }
     }
 
     func loadTopics(forumID: ForumID, reset: Bool) async {
@@ -653,7 +764,12 @@ final class AppModel {
         }
         let page = reset ? 1 : topicPage + 1
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
-            let result = try await service.topics(forumID: forumID, page: page)
+            let result = try await service.topics(
+                forumID: forumID,
+                page: page,
+                sortOrder: topicListSortOrder,
+                featuredOnly: isShowingFeaturedTopics
+            )
             guard activeAccountID == requestAccountID,
                   topicListRequestID == requestID,
                   selectedForumID == forumID else {
@@ -676,7 +792,12 @@ final class AppModel {
         }
         let targetPage = max(1, min(page, topicTotalPages))
         await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
-            let result = try await service.topics(forumID: forumID, page: targetPage)
+            let result = try await service.topics(
+                forumID: forumID,
+                page: targetPage,
+                sortOrder: topicListSortOrder,
+                featuredOnly: isShowingFeaturedTopics
+            )
             guard activeAccountID == requestAccountID,
                   topicListRequestID == requestID,
                   selectedForumID == forumID else {
@@ -692,6 +813,9 @@ final class AppModel {
         replaceTopics: Bool
     ) {
         currentForum = result.forum ?? currentForum ?? forums.first { $0.id == forumID }
+        if let currentForum {
+            recordRecentForum(currentForum, updatesVisitOrder: false)
+        }
         topics = replaceTopics ? result.topics : merged(topics, result.topics)
         if result.page == 1 || !result.subforums.isEmpty || subforums.isEmpty {
             let previousSubforumIDs = Set(subforums.map(\.id))
@@ -707,6 +831,7 @@ final class AppModel {
                     subtitle: forum.subtitle ?? known.subtitle,
                     iconURL: forum.iconURL ?? known.iconURL,
                     category: forum.category ?? known.category,
+                    pinnedTopicID: forum.pinnedTopicID ?? known.pinnedTopicID,
                     isSelectedInParent: forum.isSelectedInParent
                 )
             }
@@ -809,6 +934,23 @@ final class AppModel {
         await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
     }
 
+    func openPinnedTopic() async {
+        guard let currentForum, let topicID = currentForum.pinnedTopicID else {
+            return
+        }
+        let topic = topics.first {
+            $0.id == topicID && $0.mirroredForumID == nil
+        } ?? Topic(
+            id: topicID,
+            forumID: currentForum.id,
+            subject: "置顶话题",
+            author: "",
+            replyCount: 0,
+            isPinned: true
+        )
+        await openTopic(topic)
+    }
+
     @discardableResult
     func prepareLinkedTopicPage(topicID: TopicID, page: Int) async -> ThreadPage? {
         guard let service = activeService,
@@ -824,7 +966,8 @@ final class AppModel {
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
             let result = try await service.threadPage(
                 topicID: topicID,
-                page: targetPage
+                page: targetPage,
+                authorUID: nil
             )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
@@ -848,7 +991,8 @@ final class AppModel {
             hotReplies: hotReplies,
             page: threadPage,
             hasMore: threadHasMore,
-            totalPages: threadTotalPages
+            totalPages: threadTotalPages,
+            showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
         ))
         threadRequestID = UUID()
         var loadedTopic = destination.topic
@@ -861,6 +1005,7 @@ final class AppModel {
         threadPage = destination.page
         threadHasMore = destination.hasMore
         threadTotalPages = max(destination.totalPages, destination.page)
+        isShowingOnlyTopicAuthor = false
         return true
     }
 
@@ -875,6 +1020,7 @@ final class AppModel {
         threadPage = previous.page
         threadHasMore = previous.hasMore
         threadTotalPages = previous.totalPages
+        isShowingOnlyTopicAuthor = previous.showsOnlyTopicAuthor
         return true
     }
 
@@ -901,7 +1047,11 @@ final class AppModel {
             showsIndicator: showsLoadingIndicator,
             isCurrent: { self.threadRequestID == requestID }
         ) {
-            let result = try await service.threadPage(topicID: topicID, page: page)
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: page,
+                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
+            )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
                   selectedTopicID == topicID else {
@@ -910,6 +1060,7 @@ final class AppModel {
             var loadedTopic = result.topic
             loadedTopic.isFavorite = loadedTopic.isFavorite
                 || favoriteTopicIDs.contains(loadedTopic.id)
+            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
             currentTopic = loadedTopic
             posts = reset ? result.posts : merged(posts, result.posts)
             if reset || !result.hotReplies.isEmpty {
@@ -921,12 +1072,14 @@ final class AppModel {
         }
     }
 
-    func loadThreadPage(topicID: TopicID, page: Int) async {
-        guard let service = activeService else { return }
+    @discardableResult
+    func loadThreadPage(topicID: TopicID, page: Int) async -> Bool {
+        guard let service = activeService else { return false }
         let requestAccountID = service.accountID
         let requestID = UUID()
         threadRequestID = requestID
         let targetPage = max(1, page)
+        var didLoad = false
         isLoadingThreadContent = true
         defer {
             if threadRequestID == requestID {
@@ -934,7 +1087,11 @@ final class AppModel {
             }
         }
         await withLoading(isCurrent: { self.threadRequestID == requestID }) {
-            let result = try await service.threadPage(topicID: topicID, page: targetPage)
+            let result = try await service.threadPage(
+                topicID: topicID,
+                page: targetPage,
+                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
+            )
             guard activeAccountID == requestAccountID,
                   threadRequestID == requestID,
                   selectedTopicID == topicID else {
@@ -943,13 +1100,16 @@ final class AppModel {
             var loadedTopic = result.topic
             loadedTopic.isFavorite = loadedTopic.isFavorite
                 || favoriteTopicIDs.contains(loadedTopic.id)
+            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
             currentTopic = loadedTopic
             posts = result.posts
             hotReplies = result.hotReplies
             threadPage = result.page
             threadHasMore = result.hasMore
             threadTotalPages = max(result.totalPages, result.page)
+            didLoad = true
         }
+        return didLoad
     }
 
     func vote(on postID: PostID, direction: PostVoteDirection) async {
@@ -1034,10 +1194,10 @@ final class AppModel {
                 return false
             }
             if voteSubmissionMayHaveSucceeded(error) {
-                // 写请求不会自动重试。响应不明确时刷新主题，让服务器状态
+                // 写请求不会自动重试。响应不明确时刷新话题，让服务器状态
                 // 决定后续显示，避免用户重复投票。
                 await loadThreadPage(topicID: topicID, page: threadPage)
-                statusMessage = "投票请求已提交，结果以刷新后的主题为准"
+                statusMessage = "投票请求已提交，结果以刷新后的话题为准"
                 statusMessageIsError = false
                 return true
             }
@@ -1190,10 +1350,14 @@ final class AppModel {
               !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
+        if currentTopic?.id == topicID, currentTopic?.isLocked == true {
+            present(NGAServiceError.topicLocked)
+            return false
+        }
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
-                present(NGAServiceError.unsupported("当前主题没有可用的评分"))
+                present(NGAServiceError.unsupported("当前话题没有可用的评分"))
                 return false
             }
             guard rating.isAcceptingResponses(at: .now) else {
@@ -1517,7 +1681,7 @@ final class AppModel {
                     topics[index].isFavorite = false
                 }
             }
-            statusMessage = "已取消主题收藏"
+            statusMessage = "已取消话题收藏"
             statusMessageIsError = false
         } catch {
             present(error)
@@ -1649,8 +1813,9 @@ final class AppModel {
                 record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
                 switch result {
                 case let .success(message), let .alreadyCheckedIn(message):
-                    record.lastCheckInMessage = message
-                    results.append("\(record.displayName)：\(message)")
+                    let displayMessage = CheckInPolicy.userFacingSuccessMessage(from: message)
+                    record.lastCheckInMessage = displayMessage
+                    results.append("\(record.displayName)：\(displayMessage)")
                 }
             } catch {
                 hasFailure = true
@@ -1771,6 +1936,19 @@ final class AppModel {
         await loadThreadPage(topicID: selectedTopicID, page: threadPage)
     }
 
+    func toggleOnlyTopicAuthor() async {
+        guard let selectedTopicID,
+              isShowingOnlyTopicAuthor || currentTopicAuthorUID != nil else {
+            return
+        }
+        let previousValue = isShowingOnlyTopicAuthor
+        isShowingOnlyTopicAuthor.toggle()
+        let didLoad = await loadThreadPage(topicID: selectedTopicID, page: 1)
+        if !didLoad, self.selectedTopicID == selectedTopicID {
+            isShowingOnlyTopicAuthor = previousValue
+        }
+    }
+
     func handleNotification(
         accountIDString: String,
         messageIDString: String,
@@ -1825,6 +2003,26 @@ final class AppModel {
         ((try? context.fetch(FetchDescriptor<FavoriteRecord>())) ?? [])
             .filter { $0.accountIDString == accountID.description }
             .sorted { $0.order < $1.order }
+    }
+
+    private func recentForumRecords(accountID: AccountID) throws -> [RecentForumRecord] {
+        try context.fetch(FetchDescriptor<RecentForumRecord>())
+            .filter { $0.accountIDString == accountID.description }
+    }
+
+    private func sortedRecentForumRecords(accountID: AccountID) throws -> [RecentForumRecord] {
+        try recentForumRecords(accountID: accountID)
+            .sorted(by: recentForumRecordComesFirst)
+    }
+
+    private func recentForumRecordComesFirst(
+        _ left: RecentForumRecord,
+        _ right: RecentForumRecord
+    ) -> Bool {
+        if left.lastVisitedAt != right.lastVisitedAt {
+            return left.lastVisitedAt > right.lastVisitedAt
+        }
+        return left.id < right.id
     }
 
     private func enrichingForumFromDirectory(_ forum: Forum) -> Forum {
@@ -1958,6 +2156,7 @@ final class AppModel {
 
     private func clearVisibleContent() {
         favorites = []
+        recentForums = []
         favoriteTopicFolders = []
         selectedFavoriteTopicFolderID = nil
         favoriteTopics = []
@@ -2004,6 +2203,7 @@ final class AppModel {
 
     private func resetThreadNavigationHistory() {
         threadNavigationPath = []
+        isShowingOnlyTopicAuthor = false
     }
 
     private func beginLoading() {
@@ -2046,6 +2246,11 @@ final class AppModel {
                 category: "app",
                 error.localizedDescription
             )
+        }
+        if let serviceError = error as? NGAServiceError,
+           serviceError == .topicLocked,
+           currentTopic?.id == selectedTopicID {
+            currentTopic?.isLocked = true
         }
         guard let serviceError = error as? NGAServiceError,
               serviceError == .requiresLogin,
@@ -2102,7 +2307,9 @@ final class AppModel {
         }
         if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
             activeAccountCheckInStatus = .checkedIn(
-                message: record.lastCheckInMessage ?? "今日已签到"
+                message: CheckInPolicy.userFacingSuccessMessage(
+                    from: record.lastCheckInMessage
+                )
             )
         } else {
             activeAccountCheckInStatus = .notCheckedIn
@@ -2271,6 +2478,10 @@ final class AppModel {
 
 #if DEBUG
     private func seedUITestData() {
+        UserDefaults.standard.set(
+            RecentForumSettings.defaultMaximumCount,
+            forKey: RecentForumSettings.maximumCountKey
+        )
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         context.insert(accountA)

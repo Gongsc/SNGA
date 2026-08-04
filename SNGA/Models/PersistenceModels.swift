@@ -176,3 +176,60 @@ final class SubforumPreferenceRecord {
             .joined(separator: ",")
     }
 }
+
+@Model
+final class RecentForumRecord {
+    @Attribute(.unique) var id: String
+    var accountIDString: String
+    var forumID: Int64
+    var forumName: String
+    var forumSubtitle: String?
+    var forumIconURLString: String?
+    var forumCategory: String?
+    var pinnedTopicID: Int64?
+    var lastVisitedAt: Date
+
+    init(
+        accountID: AccountID,
+        forum: Forum,
+        lastVisitedAt: Date = .now
+    ) {
+        self.id = Self.recordID(accountID: accountID, forumID: forum.id)
+        self.accountIDString = accountID.description
+        self.forumID = forum.id.rawValue
+        self.forumName = forum.name
+        self.forumSubtitle = forum.subtitle
+        self.forumIconURLString = forum.iconURL?.absoluteString
+        self.forumCategory = forum.category
+        self.pinnedTopicID = forum.pinnedTopicID?.rawValue
+        self.lastVisitedAt = lastVisitedAt
+    }
+
+    var forum: Forum {
+        Forum(
+            id: ForumID(rawValue: forumID),
+            name: forumName,
+            subtitle: forumSubtitle,
+            iconURL: forumIconURLString.flatMap(URL.init(string:)),
+            category: forumCategory,
+            pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:))
+        )
+    }
+
+    func update(forum: Forum, visitedAt: Date?) {
+        forumName = forum.name
+        forumSubtitle = forum.subtitle
+        if let iconURL = forum.iconURL {
+            forumIconURLString = iconURL.absoluteString
+        }
+        forumCategory = forum.category
+        pinnedTopicID = forum.pinnedTopicID?.rawValue
+        if let visitedAt {
+            lastVisitedAt = visitedAt
+        }
+    }
+
+    static func recordID(accountID: AccountID, forumID: ForumID) -> String {
+        "\(accountID.description):\(forumID.rawValue)"
+    }
+}

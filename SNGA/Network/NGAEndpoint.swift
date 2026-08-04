@@ -152,12 +152,22 @@ struct NGAEndpoint: Sendable {
         ]
     )
 
-    static func topics(forumID: ForumID, page: Int) -> NGAEndpoint {
-        NGAEndpoint(path: "/thread.php", queryItems: [
+    static func topics(
+        forumID: ForumID,
+        page: Int,
+        sortOrder: TopicListSortOrder,
+        featuredOnly: Bool
+    ) -> NGAEndpoint {
+        var queryItems: [URLQueryItem] = [
             .init(name: forumID.queryName, value: forumID.description),
+            .init(name: "order_by", value: sortOrder.queryValue),
             .init(name: "page", value: String(max(1, page))),
             .init(name: "__output", value: "11")
-        ])
+        ]
+        if featuredOnly {
+            queryItems.insert(.init(name: "recommend", value: "1"), at: 1)
+        }
+        return NGAEndpoint(path: "/thread.php", queryItems: queryItems)
     }
 
     static func searchTopics(
@@ -200,21 +210,41 @@ struct NGAEndpoint: Sendable {
         )
     }
 
-    static func thread(topicID: TopicID, page: Int) -> NGAEndpoint {
-        NGAEndpoint(path: "/read.php", queryItems: [
+    static func thread(
+        topicID: TopicID,
+        page: Int,
+        authorUID: Int64?
+    ) -> NGAEndpoint {
+        var queryItems: [URLQueryItem] = [
             .init(name: "tid", value: topicID.description),
             .init(name: "page", value: String(max(1, page))),
             .init(name: "__output", value: "11")
-        ], userAgentOverride: "NGA_WP_JW/(;WINDOWS)")
+        ]
+        if let authorUID {
+            queryItems.insert(.init(name: "authorid", value: String(authorUID)), at: 1)
+        }
+        return NGAEndpoint(
+            path: "/read.php",
+            queryItems: queryItems,
+            userAgentOverride: "NGA_WP_JW/(;WINDOWS)"
+        )
     }
 
-    static func threadHTML(topicID: TopicID, page: Int) -> NGAEndpoint {
-        NGAEndpoint(
+    static func threadHTML(
+        topicID: TopicID,
+        page: Int,
+        authorUID: Int64?
+    ) -> NGAEndpoint {
+        var queryItems: [URLQueryItem] = [
+            .init(name: "tid", value: topicID.description),
+            .init(name: "page", value: String(max(1, page)))
+        ]
+        if let authorUID {
+            queryItems.insert(.init(name: "authorid", value: String(authorUID)), at: 1)
+        }
+        return NGAEndpoint(
             path: "/read.php",
-            queryItems: [
-                .init(name: "tid", value: topicID.description),
-                .init(name: "page", value: String(max(1, page)))
-            ],
+            queryItems: queryItems,
             userAgentOverride: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.64 Safari/537.36"
         )
     }

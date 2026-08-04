@@ -753,7 +753,7 @@ struct FavoritesView: View {
                     ContentUnavailableView {
                         Label("还没有收藏夹", systemImage: "folder")
                     } description: {
-                        Text("新建一个收藏夹后，即可按目录整理论坛主题。")
+                        Text("新建一个收藏夹后，即可按目录整理论坛话题。")
                     } actions: {
                         Button("新建收藏夹") {
                             showsCreateFolder = true
@@ -765,9 +765,9 @@ struct FavoritesView: View {
                     Label("收藏夹为空", systemImage: "star")
                 } description: {
                         if let folder = model.selectedFavoriteTopicFolder {
-                            Text("“\(folder.name)”中还没有主题。打开主题后可从底部星标菜单选择收藏目录。")
+                            Text("“\(folder.name)”中还没有话题。打开话题后可从底部星标菜单选择收藏目录。")
                         } else {
-                            Text("打开主题后可从底部星标菜单选择收藏目录。")
+                            Text("打开话题后可从底部星标菜单选择收藏目录。")
                         }
                 } actions: {
                     Button("浏览全部版面") {
@@ -803,7 +803,7 @@ struct FavoritesView: View {
                                 )
                             }
                             .contextMenu {
-                                Button("打开主题") {
+                                Button("打开话题") {
                                     Task { await model.openTopic(topic) }
                                 }
                                 Button("从当前收藏夹移除", role: .destructive) {
@@ -838,7 +838,7 @@ struct FavoritesView: View {
                     Label("刷新收藏夹", systemImage: "arrow.clockwise")
                 }
                 .labelStyle(.iconOnly)
-                .help("刷新收藏目录与主题")
+                .help("刷新收藏目录与话题")
                 .disabled(model.isLoading)
                 .accessibilityIdentifier("favorite-topics-refresh")
             }
@@ -1004,7 +1004,7 @@ private struct FavoriteFolderEditorSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("设为默认收藏夹", isOn: $isDefault)
-                Text("从主题页快速收藏时，默认优先选中这个目录。")
+                Text("从话题页快速收藏时，默认优先选中这个目录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1018,7 +1018,7 @@ private struct FavoriteFolderEditorSheet: View {
                     }
                     .disabled(isWorking)
                     .confirmationDialog(
-                        "删除收藏夹及其中的所有收藏主题？",
+                        "删除收藏夹及其中的所有收藏话题？",
                         isPresented: $showsDeleteConfirmation,
                         titleVisibility: .visible
                     ) {
@@ -1145,7 +1145,7 @@ struct TopicListView: View {
 
                             if isSubforumsExpanded {
                                 HStack {
-                                    Text("勾选后在当前主题列表中显示该子版面的主题")
+                                    Text("勾选后在当前话题列表中显示该子版面的话题")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     Spacer()
@@ -1211,6 +1211,46 @@ struct TopicListView: View {
                         }
                     }
                 ) {
+                    Menu("排序方式", systemImage: "arrow.up.arrow.down") {
+                        ForEach(TopicListSortOrder.allCases) { sortOrder in
+                            Button {
+                                selectSortOrder(sortOrder)
+                            } label: {
+                                if model.topicListSortOrder == sortOrder {
+                                    Label(sortOrder.title, systemImage: "checkmark")
+                                } else {
+                                    Text(sortOrder.title)
+                                }
+                            }
+                        }
+                    }
+                    .menuIndicator(.hidden)
+                    .labelStyle(.iconOnly)
+                    .help("排序方式：\(model.topicListSortOrder.title)")
+                    .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
+                    .accessibilityIdentifier("topic-list-sort-order")
+
+                    Button(action: toggleFeaturedTopics) {
+                        Label(
+                            model.isShowingFeaturedTopics ? "退出精华区" : "精华区",
+                            systemImage: model.isShowingFeaturedTopics ? "medal.fill" : "medal"
+                        )
+                    }
+                    .labelStyle(.iconOnly)
+                    .help(model.isShowingFeaturedTopics ? "显示全部话题" : "只显示精华话题")
+                    .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
+                    .accessibilityIdentifier("topic-list-featured")
+
+                    if model.currentPinnedTopicID != nil {
+                        Button(action: openPinnedTopic) {
+                            Label("置顶话题", systemImage: "pin.fill")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("查看置顶话题")
+                        .disabled(visibleIsLoading)
+                        .accessibilityIdentifier("topic-list-pinned-topic")
+                    }
+
                     Button {
                         withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                             proxy.scrollTo(topAnchor, anchor: .top)
@@ -1219,7 +1259,7 @@ struct TopicListView: View {
                         Label("回到顶部", systemImage: "arrow.up.to.line")
                     }
                     .labelStyle(.iconOnly)
-                    .help("回到主题列表顶部")
+                    .help("回到话题列表顶部")
                     .accessibilityIdentifier("topic-list-scroll-to-top")
 
                     Button {
@@ -1249,13 +1289,13 @@ struct TopicListView: View {
                             }
                         }
                     } label: {
-                        Label("刷新主题列表", systemImage: "list.bullet.rectangle")
+                        Label("刷新话题列表", systemImage: "arrow.clockwise.circle")
                     }
                     .labelStyle(.iconOnly)
                     .accessibilityLabel(
-                        visibleIsLoading ? "正在刷新主题列表" : "刷新主题列表"
+                        visibleIsLoading ? "正在刷新话题列表" : "刷新话题列表"
                     )
-                    .help("刷新主题列表")
+                    .help("刷新话题列表")
                     .disabled(visibleIsLoading)
                     .accessibilityIdentifier("forum-refresh")
                 }
@@ -1267,6 +1307,12 @@ struct TopicListView: View {
                         proxy.scrollTo(topAnchor, anchor: .top)
                     }
                 }
+            }
+            .onChange(of: model.topicListSortOrder) {
+                reloadTopics(proxy: proxy)
+            }
+            .onChange(of: model.isShowingFeaturedTopics) {
+                reloadTopics(proxy: proxy)
             }
         }
         .task(id: forumID) {
@@ -1284,7 +1330,7 @@ struct TopicListView: View {
     }
 
     private var topicListHeader: some View {
-        Text("主题")
+        Text("话题")
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 8)
@@ -1318,7 +1364,7 @@ struct TopicListView: View {
                 }
             }
 
-            Text(model.currentForum?.name ?? "主题")
+            Text(model.currentForum?.name ?? "话题")
                 .font(.title2.bold())
                 .lineLimit(1)
 
@@ -1450,6 +1496,29 @@ struct TopicListView: View {
         }
     }
 
+    private func selectSortOrder(_ sortOrder: TopicListSortOrder) {
+        model.topicListSortOrder = sortOrder
+    }
+
+    private func toggleFeaturedTopics() {
+        model.isShowingFeaturedTopics.toggle()
+    }
+
+    private func openPinnedTopic() {
+        Task { await model.openPinnedTopic() }
+    }
+
+    private func reloadTopics(proxy: ScrollViewProxy) {
+        guard !model.isCurrentForumSearchActive else { return }
+        Task {
+            await model.loadTopics(forumID: forumID, reset: true)
+            await Task.yield()
+            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                proxy.scrollTo(topAnchor, anchor: .top)
+            }
+        }
+    }
+
     private var includedSubforumCount: Int {
         model.subforums.count { model.includedSubforumIDs.contains($0.id) }
     }
@@ -1571,7 +1640,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                     navigate(1)
                 }
                 .labelStyle(.iconOnly)
-                .help("跳转到主题列表首页")
+                .help("跳转到话题列表首页")
                 .accessibilityIdentifier("topic-list-first-page")
                 .disabled(isLoading || currentPage <= 1)
 
@@ -1579,7 +1648,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                     navigate(currentPage - 1)
                 }
                 .labelStyle(.iconOnly)
-                .help("主题列表上一页")
+                .help("话题列表上一页")
                 .accessibilityIdentifier("topic-list-previous-page")
                 .disabled(isLoading || currentPage <= 1)
 
@@ -1588,7 +1657,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                     .multilineTextAlignment(.center)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(performJump)
-                    .accessibilityLabel("主题列表目标页码")
+                    .accessibilityLabel("话题列表目标页码")
                     .accessibilityIdentifier("topic-list-page-field")
 
                 if !isCompact {
@@ -1605,7 +1674,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                     navigate(currentPage + 1)
                 }
                 .labelStyle(.iconOnly)
-                .help("主题列表下一页")
+                .help("话题列表下一页")
                 .accessibilityIdentifier("topic-list-next-page")
                 .disabled(isLoading || currentPage >= totalPages)
 
@@ -1613,7 +1682,7 @@ private struct TopicListPaginationBar<Actions: View>: View {
                     navigate(totalPages)
                 }
                 .labelStyle(.iconOnly)
-                .help("跳转到主题列表尾页")
+                .help("跳转到话题列表尾页")
                 .accessibilityIdentifier("topic-list-last-page")
                 .disabled(isLoading || currentPage >= totalPages)
             }
@@ -1679,7 +1748,7 @@ private struct SubforumTile: View {
             .buttonStyle(.plain)
 
             Toggle(
-                "在主版面主题列表中显示 \(forum.name)",
+                "在主版面话题列表中显示 \(forum.name)",
                 isOn: Binding(
                     get: { isIncluded },
                     set: { model.setSubforumIncluded(forum.id, included: $0) }
@@ -1687,7 +1756,7 @@ private struct SubforumTile: View {
             )
             .labelsHidden()
             .toggleStyle(.checkbox)
-            .help(isIncluded ? "隐藏该子版面及其下属主题" : "显示该子版面及其下属主题")
+            .help(isIncluded ? "隐藏该子版面及其下属话题" : "显示该子版面及其下属话题")
         }
         .padding(8)
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)

@@ -74,7 +74,7 @@ struct ThreadContentSkeletonView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("正在加载主题内容")
+        .accessibilityLabel("正在加载话题内容")
         .accessibilityIdentifier("thread-content-skeleton")
     }
 

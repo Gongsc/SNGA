@@ -2,6 +2,62 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testPostAuthorInformationAppearsInThread() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+
+        let authorName = app.descendants(matching: .any)["post-author-name-1"]
+        let replyDate = app.descendants(matching: .any)["post-author-date-1"]
+        let avatar = app.descendants(matching: .any)["post-author-avatar-1"].firstMatch
+        let level = app.descendants(matching: .any)["post-author-level-1"]
+        let medals = app.descendants(matching: .any)["post-author-medals-1"].firstMatch
+        XCTAssertTrue(authorName.waitForExistence(timeout: 5))
+        XCTAssertTrue(replyDate.exists)
+        XCTAssertTrue(avatar.exists)
+        XCTAssertTrue(level.exists)
+        XCTAssertTrue(medals.exists)
+        XCTAssertGreaterThan(authorName.frame.width, 20)
+        XCTAssertGreaterThan(replyDate.frame.width, 20)
+        XCTAssertEqual(authorName.frame.midY, level.frame.midY, accuracy: 3)
+        XCTAssertEqual(replyDate.frame.midY, medals.frame.midY, accuracy: 3)
+        XCTAssertLessThanOrEqual(avatar.frame.minY, authorName.frame.minY + 2)
+        XCTAssertGreaterThanOrEqual(avatar.frame.maxY, replyDate.frame.maxY - 2)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-reputation-1"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-registered-1"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["post-author-prestige-1"].exists)
+    }
+
+    func testRecentlyVisitedForumsAppearInVisitOrder() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.staticTexts["最近访问"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["暂无最近访问"].exists)
+
+        app.buttons["favorite-forum--7"].click()
+        XCTAssertTrue(app.buttons["recent-forum--7"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["暂无最近访问"].exists)
+
+        app.buttons["全部版面"].click()
+        app.buttons["directory-forum-510381"].click()
+        XCTAssertTrue(app.buttons["recent-forum-510381"].waitForExistence(timeout: 5))
+        XCTAssertLessThan(
+            app.buttons["recent-forum-510381"].frame.minY,
+            app.buttons["recent-forum--7"].frame.minY
+        )
+    }
+
     func testAboutWindowShowsProjectLinks() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -16,7 +72,7 @@ final class SNGAUITests: XCTestCase {
         about.click()
 
         XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.6.0（1）"].exists)
+        XCTAssertTrue(app.staticTexts["版本 1.6.1（1）"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(app.links["gongsc@live.cn"].exists)
@@ -61,7 +117,7 @@ final class SNGAUITests: XCTestCase {
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
-        XCTAssertTrue(app.buttons["回复主题"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["回复话题"].waitForExistence(timeout: 5))
 
         app.buttons["测试账号 B"].click()
         XCTAssertTrue(app.buttons["论坛消息"].waitForExistence(timeout: 5))
@@ -89,6 +145,23 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
         app.buttons["艾泽拉斯国家地理"].firstMatch.click()
         XCTAssertTrue(app.buttons["topic-list-scroll-to-top"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["topic-list-featured"].exists)
+
+        let pinnedTopic = app.buttons["topic-list-pinned-topic"]
+        XCTAssertTrue(pinnedTopic.waitForExistence(timeout: 5))
+        pinnedTopic.click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["thread-topic-title"]
+                .waitForExistence(timeout: 5)
+        )
+        let loadedPinnedTopic = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "版面置顶话题"),
+            object: app.descendants(matching: .any)["thread-topic-title"]
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [loadedPinnedTopic], timeout: 5),
+            .completed
+        )
 
         let nextPage = app.buttons["topic-list-next-page"]
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
@@ -105,9 +178,12 @@ final class SNGAUITests: XCTestCase {
             .completed
         )
 
-        let favoriteForum = app.buttons["favorite-forum--7"]
-        XCTAssertTrue(favoriteForum.waitForExistence(timeout: 5))
-        favoriteForum.click()
+        let sortOrder = app.descendants(matching: .any)["topic-list-sort-order"]
+        XCTAssertTrue(sortOrder.waitForExistence(timeout: 5))
+        sortOrder.click()
+        let latestTopic = app.menuItems["最新话题"]
+        XCTAssertTrue(latestTopic.waitForExistence(timeout: 5))
+        latestTopic.click()
 
         let skeleton = app.descendants(matching: .any)["topic-list-skeleton"]
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
@@ -119,9 +195,14 @@ final class SNGAUITests: XCTestCase {
             XCTWaiter.wait(for: [returnedToFirstPage], timeout: 5),
             .completed
         )
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         XCTAssertTrue(
             app.descendants(matching: .any)["topic-list-top"]
                 .waitForExistence(timeout: 5)
+        )
+        XCTAssertLessThan(
+            app.buttons["topic-9002"].frame.minY,
+            app.buttons["topic-9001"].frame.minY
         )
 
         let windowWidthBeforeOpeningTopic = app.windows.firstMatch.frame.width
@@ -133,8 +214,24 @@ final class SNGAUITests: XCTestCase {
             windowWidthBeforeOpeningTopic,
             accuracy: 2
         )
-        XCTAssertTrue(app.buttons["分享主题"].waitForExistence(timeout: 5))
-        app.buttons["分享主题"].click()
+        let onlyAuthor = app.descendants(matching: .any)["thread-only-author"]
+        XCTAssertTrue(onlyAuthor.waitForExistence(timeout: 5))
+        XCTAssertEqual(onlyAuthor.value as? String, "已关闭")
+        let replyAuthor = app.buttons["回复用户"]
+        XCTAssertTrue(replyAuthor.waitForExistence(timeout: 5))
+        onlyAuthor.click()
+        let onlyAuthorEnabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "已开启"),
+            object: onlyAuthor
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [onlyAuthorEnabled], timeout: 5),
+            .completed
+        )
+        XCTAssertTrue(replyAuthor.waitForNonExistence(timeout: 5))
+
+        XCTAssertTrue(app.buttons["分享话题"].waitForExistence(timeout: 5))
+        app.buttons["分享话题"].click()
 
         let copyLink = app.buttons["copy-topic-link"]
         XCTAssertTrue(copyLink.waitForExistence(timeout: 5))
@@ -160,7 +257,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         app.buttons["topic-9001"].click()
 
-        let internalLink = app.links["打开站内关联主题"]
+        let internalLink = app.links["打开站内关联话题"]
         XCTAssertTrue(internalLink.waitForExistence(timeout: 5))
         internalLink.click()
 
@@ -171,7 +268,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let topicTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(topicTitle.waitForExistence(timeout: 5))
-        XCTAssertEqual(topicTitle.label, "主题二：多账号与收藏测试")
+        XCTAssertEqual(topicTitle.label, "话题二：多账号与收藏测试")
         XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
         backButton.click()
 
@@ -179,7 +276,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
         let restoredTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(restoredTitle.waitForExistence(timeout: 5))
-        XCTAssertEqual(restoredTitle.label, "主题一：欢迎使用 SNGA")
+        XCTAssertEqual(restoredTitle.label, "话题一：欢迎使用 SNGA")
         XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
     }
 

@@ -10,7 +10,7 @@ struct TopicPollView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("主题投票", systemImage: "chart.bar.doc.horizontal")
+            Label("话题投票", systemImage: "chart.bar.doc.horizontal")
                 .font(.headline)
                 .foregroundStyle(theme.accentColor)
 

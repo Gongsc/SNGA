@@ -41,6 +41,41 @@ struct SidebarView: View {
                     )
                 }
 
+                Section("最近访问") {
+                    if model.recentForums.isEmpty {
+                        Text("暂无最近访问")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(model.recentForums) { forum in
+                        Button {
+                            Task { await model.openForum(forum) }
+                        } label: {
+                            SidebarInteractiveRow(
+                                isSelected: model.sidebarSelection == .forum(forum.id)
+                            ) {
+                                HStack(spacing: 8) {
+                                    SidebarForumIcon(forum: forum)
+
+                                    Text(forum.name)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if model.isRefreshingTopics,
+                                       model.selectedForumID == forum.id {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .accessibilityLabel("正在刷新\(forum.name)")
+                                    }
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .sidebarListRow()
+                        .accessibilityIdentifier(
+                            "recent-forum-\(forum.id.description)"
+                        )
+                    }
+                }
+
                 Section("收藏版面") {
                     if model.favorites.isEmpty {
                         Text("暂无收藏")
@@ -54,16 +89,7 @@ struct SidebarView: View {
                                 isSelected: model.sidebarSelection == .forum(favorite.forum.id)
                             ) {
                                 HStack(spacing: 8) {
-                                    AsyncImage(url: favorite.forum.iconURL) { image in
-                                        image
-                                            .resizable()
-                                            .scaledToFit()
-                                    } placeholder: {
-                                        Image(systemName: "bubble.left.and.bubble.right")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .frame(width: 24, height: 24)
-                                    .accessibilityHidden(true)
+                                    SidebarForumIcon(forum: favorite.forum)
 
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
@@ -151,6 +177,26 @@ struct SidebarView: View {
     }
 }
 
+private struct SidebarForumIcon: View {
+    let forum: Forum
+
+    var body: some View {
+        AsyncImage(url: forum.iconURL) { image in
+            image
+                .resizable()
+                .scaledToFit()
+        } placeholder: {
+            Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(.secondary)
+                .padding(3)
+        }
+        .frame(width: 24, height: 24)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct SidebarAccountButton: View {
     @Environment(AppModel.self) private var model
     let account: AccountSummary
@@ -209,7 +255,7 @@ private struct SidebarAccountButton: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会删除此账号的会话、收藏和草稿，不能撤销。")
+            Text("会删除此账号的会话、收藏、最近访问和草稿，不能撤销。")
         }
     }
 }

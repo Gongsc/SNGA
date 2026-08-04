@@ -172,6 +172,58 @@ struct PostWebView: NSViewRepresentable {
         }, true);
     })();
     """
+    static let randomBlockCarouselScript = """
+    (() => {
+        if (window.__sngaRandomBlockCarouselInstalled) return;
+        window.__sngaRandomBlockCarouselInstalled = true;
+
+        const activate = (carousel, selectedIndex) => {
+            const panels = Array.from(carousel.children).filter((element) =>
+                element.classList.contains("nga-random-block-panel")
+            );
+            const buttons = Array.from(
+                carousel.querySelectorAll(".nga-random-block-button")
+            );
+            if (selectedIndex < 0 || selectedIndex >= panels.length) return;
+            panels.forEach((panel, index) => {
+                const isSelected = index === selectedIndex;
+                panel.classList.toggle("snga-is-active", isSelected);
+                panel.setAttribute("aria-hidden", isSelected ? "false" : "true");
+            });
+            buttons.forEach((button, index) => {
+                const isSelected = index === selectedIndex;
+                button.classList.toggle("snga-is-active", isSelected);
+                button.setAttribute("aria-pressed", isSelected ? "true" : "false");
+            });
+        };
+
+        document.querySelectorAll(".nga-random-block-carousel").forEach((carousel) => {
+            const buttons = Array.from(
+                carousel.querySelectorAll(".nga-random-block-button")
+            );
+            const selectedIndex = Math.max(
+                0,
+                buttons.findIndex((button) => button.classList.contains("snga-is-active"))
+            );
+            activate(carousel, selectedIndex);
+        });
+
+        document.addEventListener("click", (event) => {
+            if (!(event.target instanceof Element)) return;
+            const button = event.target.closest(".nga-random-block-button");
+            if (!button) return;
+            const carousel = button.closest(".nga-random-block-carousel");
+            const selectedIndex = Number.parseInt(
+                button.getAttribute("data-snga-random-block-index") || "",
+                10
+            );
+            if (!carousel || !Number.isInteger(selectedIndex)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            activate(carousel, selectedIndex);
+        });
+    })();
+    """
 
     var html: String
     var theme: ResolvedAppTheme
@@ -230,6 +282,11 @@ struct PostWebView: NSViewRepresentable {
         ))
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.imageInteractionScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.randomBlockCarouselScript,
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))

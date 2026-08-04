@@ -142,6 +142,7 @@ struct ToolboxFeedView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.backgroundColor)
         .overlay(alignment: .top) {
             if isLoading, content != nil {

@@ -4,13 +4,141 @@ import XCTest
 @testable import SNGA
 
 final class FavoriteAndCheckInTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: RecentForumSettings.maximumCountKey)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: RecentForumSettings.maximumCountKey)
+        super.tearDown()
+    }
+
+    @MainActor
+    func testRecentForumsAreOrderedDeduplicatedPersistedAndAccountScoped() async throws {
+        let schema = Schema([
+            AccountRecord.self,
+            FavoriteRecord.self,
+            DraftRecord.self,
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
+        ])
+        let configuration = ModelConfiguration(
+            "RecentForumTests",
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let firstAccountID = AccountID(rawValue: UUID())
+        let secondAccountID = AccountID(rawValue: UUID())
+        let firstIconURL = try XCTUnwrap(
+            URL(string: "https://img4.nga.cn/ngabbs/nga_classic/f/app/414.png")
+        )
+        let secondIconURL = try XCTUnwrap(
+            URL(string: "https://img4.nga.cn/ngabbs/nga_classic/f/app/35925536.png")
+        )
+        let firstForum = Forum(
+            id: ForumID(rawValue: 414),
+            name: "综合游戏讨论区",
+            iconURL: firstIconURL
+        )
+        let secondForum = Forum(
+            id: ForumID(stid: 35_925_536),
+            name: "幻兽帕鲁"
+        )
+        let model = AppModel(container: container)
+        model.activeAccountID = firstAccountID
+
+        await model.openForum(firstForum)
+        await model.openForum(secondForum)
+        await model.openForum(Forum(id: firstForum.id, name: firstForum.name))
+
+        XCTAssertEqual(model.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(model.recentForums.first?.iconURL, firstIconURL)
+
+        let restoredModel = AppModel(container: container)
+        restoredModel.activeAccountID = firstAccountID
+        restoredModel.forums = [
+            Forum(
+                id: secondForum.id,
+                name: secondForum.name,
+                iconURL: secondIconURL
+            )
+        ]
+        restoredModel.loadRecentForums()
+        XCTAssertEqual(restoredModel.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(restoredModel.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
+
+        restoredModel.activeAccountID = secondAccountID
+        restoredModel.loadRecentForums()
+        XCTAssertTrue(restoredModel.recentForums.isEmpty)
+    }
+
+    @MainActor
+    func testRecentForumLimitPrunesOlderRecordsForEveryAccount() async throws {
+        let schema = Schema([
+            AccountRecord.self,
+            FavoriteRecord.self,
+            DraftRecord.self,
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
+        ])
+        let configuration = ModelConfiguration(
+            "RecentForumLimitTests",
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let accountID = AccountID(rawValue: UUID())
+        let secondAccountID = AccountID(rawValue: UUID())
+        let model = AppModel(container: container)
+        model.activeAccountID = accountID
+
+        await model.openForum(Forum(id: ForumID(rawValue: 1), name: "版面一"))
+        await model.openForum(Forum(id: ForumID(rawValue: 2), name: "版面二"))
+        await model.openForum(Forum(id: ForumID(rawValue: 3), name: "版面三"))
+
+        model.activeAccountID = secondAccountID
+        await model.openForum(Forum(id: ForumID(rawValue: 11), name: "版面十一"))
+        await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
+        await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
+
+        model.updateRecentForumLimit(2)
+
+        XCTAssertEqual(model.recentForums.map(\.id), [
+            ForumID(rawValue: 13),
+            ForumID(rawValue: 12)
+        ])
+
+        let restoredModel = AppModel(container: container)
+        restoredModel.activeAccountID = accountID
+        restoredModel.loadRecentForums()
+        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+            ForumID(rawValue: 3),
+            ForumID(rawValue: 2)
+        ])
+        restoredModel.activeAccountID = secondAccountID
+        restoredModel.loadRecentForums()
+        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+            ForumID(rawValue: 13),
+            ForumID(rawValue: 12)
+        ])
+    }
+
     @MainActor
     func testLinkedTopicNavigationRestoresCompleteThreadHistory() throws {
         let schema = Schema([
             AccountRecord.self,
             FavoriteRecord.self,
             DraftRecord.self,
-            SubforumPreferenceRecord.self
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
         ])
         let configuration = ModelConfiguration(
             "ThreadNavigationTests",
@@ -174,6 +302,21 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertEqual(CheckInPolicy.dayKey(for: afterMidnightUTC), "2026-07-23")
         XCTAssertFalse(CheckInPolicy.shouldCheckIn(lastSuccessfulDay: "2026-07-23", now: afterMidnightUTC))
         XCTAssertTrue(CheckInPolicy.shouldCheckIn(lastSuccessfulDay: "2026-07-22", now: afterMidnightUTC))
+    }
+
+    func testCheckInSuccessMessageHidesInternalTaskProgressValues() {
+        XCTAssertEqual(
+            CheckInPolicy.userFacingSuccessMessage(
+                from: "36379260 12 2324 20669 14 20669 14 20669 3 1785774438 签到成功 (任务进度更新) 1785774438"
+            ),
+            "签到成功（任务进度已更新）"
+        )
+        XCTAssertEqual(
+            CheckInPolicy.userFacingSuccessMessage(
+                from: "今日已签到（服务器时间 2026-07-24 09:23:50）"
+            ),
+            "今日已签到（服务器时间 2026-07-24 09:23:50）"
+        )
     }
 
     func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {

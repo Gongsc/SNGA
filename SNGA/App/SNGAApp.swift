@@ -7,6 +7,24 @@ enum BrowsingSettings {
     static let imageFreeModeKey = "browsing.imageFreeMode"
 }
 
+enum RecentForumSettings {
+    static let maximumCountKey = "browsing.recentForums.maximumCount"
+    static let defaultMaximumCount = 10
+    static let allowedRange = 1...30
+
+    static var maximumCount: Int {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: maximumCountKey) != nil else {
+            return defaultMaximumCount
+        }
+        return normalizedMaximumCount(defaults.integer(forKey: maximumCountKey))
+    }
+
+    static func normalizedMaximumCount(_ value: Int) -> Int {
+        min(max(value, allowedRange.lowerBound), allowedRange.upperBound)
+    }
+}
+
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     case system
     case light
@@ -326,7 +344,8 @@ struct SNGAApp: App {
             AccountRecord.self,
             FavoriteRecord.self,
             DraftRecord.self,
-            SubforumPreferenceRecord.self
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self
         ])
         let configuration = ModelConfiguration(
             "SNGA",
@@ -357,12 +376,12 @@ struct SNGAApp: App {
             AboutCommands()
 
             CommandGroup(after: .sidebar) {
-                Button(model.selectedTopicID == nil ? "刷新" : "刷新主题内容") {
+                Button(model.selectedTopicID == nil ? "刷新" : "刷新话题内容") {
                     Task { await model.refreshCurrentSelection() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
-                Button("刷新主题列表") {
+                Button("刷新话题列表") {
                     Task { await model.refreshTopicList() }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])

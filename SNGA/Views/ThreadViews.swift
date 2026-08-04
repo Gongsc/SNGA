@@ -20,6 +20,7 @@ struct ThreadView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var replyTarget: Post?
     @State private var writesNewReply = false
+    @State private var showsLockedTopicAlert = false
     @State private var showsTopicLinkActions = false
     @State private var didCopyTopicLink = false
     @State private var navigationDirection = ThreadNavigationDirection.forward
@@ -50,6 +51,11 @@ struct ThreadView: View {
         }
         .task {
             await model.loadFavoriteTopicFolders()
+        }
+        .alert("帖子已锁定", isPresented: $showsLockedTopicAlert) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("该话题已锁定，无法回复。")
         }
         .ignoresSafeArea(.container, edges: .top)
     }
@@ -95,13 +101,7 @@ struct ThreadView: View {
                                     PostRow(
                                         post: post,
                                         topicRating: presentation.topic.rating,
-                                        reply: {
-                                            if post.floor == 0 {
-                                                writesNewReply = true
-                                            } else {
-                                                replyTarget = post
-                                            }
-                                        },
+                                        reply: { startReply(to: post) },
                                         openPost: { postID, page in
                                             revealPost(
                                                 postID,
@@ -119,7 +119,7 @@ struct ThreadView: View {
                                         HotRepliesSection(
                                             posts: presentation.hotReplies,
                                             topicRating: presentation.topic.rating,
-                                            reply: { replyTarget = $0 },
+                                            reply: startReply,
                                             openPost: { postID, page in
                                                 revealPost(
                                                     postID,
@@ -168,17 +168,17 @@ struct ThreadView: View {
                             Label("回到顶部", systemImage: "arrow.up.to.line")
                         }
                         .labelStyle(.iconOnly)
-                        .help("回到主题内容顶部")
+                        .help("回到话题内容顶部")
                         .disabled(model.currentTopic == nil)
                         .accessibilityIdentifier("thread-scroll-to-top")
 
                         Button {
                             showsTopicLinkActions = true
                         } label: {
-                            Label("分享主题", systemImage: "square.and.arrow.up")
+                            Label("分享话题", systemImage: "square.and.arrow.up")
                         }
                         .labelStyle(.iconOnly)
-                        .help("复制主题链接或在浏览器中打开")
+                        .help("复制话题链接或在浏览器中打开")
                         .disabled(model.selectedTopicID == nil)
                         .accessibilityIdentifier("thread-share")
                         .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
@@ -243,32 +243,63 @@ struct ThreadView: View {
                             }
                         } label: {
                             Label(
-                                model.isCurrentTopicFavorite ? "管理主题收藏" : "收藏主题",
+                                model.isCurrentTopicFavorite ? "管理话题收藏" : "收藏话题",
                                 systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
                             )
                         }
                         .labelStyle(.iconOnly)
-                        .help("选择主题收藏夹")
+                        .help("选择话题收藏夹")
                         .disabled(model.currentTopic == nil)
                         .accessibilityIdentifier("thread-topic-favorite")
 
                         Button {
-                            Task { await model.refreshThreadContent() }
+                            Task {
+                                await model.toggleOnlyTopicAuthor()
+                                await Task.yield()
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
+                                    proxy.scrollTo(topAnchor, anchor: .top)
+                                }
+                            }
                         } label: {
-                            Label("刷新主题内容", systemImage: "arrow.clockwise.circle")
+                            Label(
+                                model.isShowingOnlyTopicAuthor ? "查看全部回复" : "只看作者",
+                                systemImage: model.isShowingOnlyTopicAuthor
+                                    ? "person.crop.circle.fill"
+                                    : "person.crop.circle"
+                            )
                         }
                         .labelStyle(.iconOnly)
-                        .help("刷新当前主题内容")
+                        .help(
+                            model.isShowingOnlyTopicAuthor
+                                ? "显示话题中的全部回复"
+                                : "只显示话题作者的回复"
+                        )
+                        .disabled(model.currentTopicAuthorUID == nil || isThreadLoading)
+                        .accessibilityValue(model.isShowingOnlyTopicAuthor ? "已开启" : "已关闭")
+                        .accessibilityIdentifier("thread-only-author")
+
+                        Button {
+                            Task { await model.refreshThreadContent() }
+                        } label: {
+                            Label("刷新话题内容", systemImage: "arrow.clockwise.circle")
+                        }
+                        .labelStyle(.iconOnly)
+                        .help("刷新当前话题内容")
                         .disabled(isThreadLoading)
                         .accessibilityIdentifier("thread-refresh")
 
                         Button {
-                            writesNewReply = true
+                            startNewReply()
                         } label: {
-                            Label("回复主题", systemImage: "arrowshape.turn.up.left")
+                            Label(
+                                presentation.topic.isLocked ? "话题已锁定" : "回复话题",
+                                systemImage: presentation.topic.isLocked
+                                    ? "lock.fill"
+                                    : "arrowshape.turn.up.left"
+                            )
                         }
                         .labelStyle(.iconOnly)
-                        .help("回复当前主题")
+                        .help(presentation.topic.isLocked ? "话题已锁定" : "回复当前话题")
                         .disabled(model.selectedTopicID == nil)
                         .accessibilityIdentifier("thread-reply")
                     }
@@ -298,6 +329,26 @@ struct ThreadView: View {
                 insertion: .move(edge: .leading).combined(with: .opacity),
                 removal: .move(edge: .trailing).combined(with: .opacity)
             )
+        }
+    }
+
+    private func startNewReply() {
+        guard model.currentTopic?.isLocked != true else {
+            showsLockedTopicAlert = true
+            return
+        }
+        writesNewReply = true
+    }
+
+    private func startReply(to post: Post) {
+        guard model.currentTopic?.isLocked != true else {
+            showsLockedTopicAlert = true
+            return
+        }
+        if post.floor == 0 {
+            writesNewReply = true
+        } else {
+            replyTarget = post
         }
     }
 
@@ -460,11 +511,11 @@ struct ThreadView: View {
         guard let url = topicURL else { return }
         NSPasteboard.general.clearContents()
         guard NSPasteboard.general.setString(url.absoluteString, forType: .string) else {
-            model.statusMessage = "复制主题链接失败"
+            model.statusMessage = "复制话题链接失败"
             model.statusMessageIsError = true
             return
         }
-        model.statusMessage = "主题链接已复制"
+        model.statusMessage = "话题链接已复制"
         model.statusMessageIsError = false
         didCopyTopicLink = true
         Task {
@@ -476,7 +527,7 @@ struct ThreadView: View {
     private func openTopicInBrowser() {
         guard let url = topicURL else { return }
         if NSWorkspace.shared.open(url) {
-            model.statusMessage = "已在默认浏览器中打开主题"
+            model.statusMessage = "已在默认浏览器中打开话题"
             model.statusMessageIsError = false
             showsTopicLinkActions = false
         } else {
@@ -498,7 +549,7 @@ private struct TopicLinkActionsPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("主题网页链接")
+            Text("话题网页链接")
                 .font(.headline)
             Text(url.absoluteString)
                 .font(.caption.monospaced())
@@ -651,7 +702,7 @@ private struct AnimatedThreadBackButton: View {
         .buttonStyle(.borderless)
         .disabled(!isEnabled)
         .help("返回：\(previousTitle)")
-        .accessibilityLabel("返回上一主题")
+        .accessibilityLabel("返回上一话题")
         .accessibilityIdentifier("thread-linked-topic-back")
         .onHover { hovering in
             isHovering = hovering
@@ -805,7 +856,7 @@ private struct PostRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
+            HStack(alignment: .top, spacing: 8) {
                 if let authorUID {
                     Button {
                         openAuthorProfile(uid: authorUID)
@@ -820,22 +871,36 @@ private struct PostRow: View {
                     .buttonStyle(.plain)
                     .contentShape(.circle)
                     .help("查看用户信息")
+                    .accessibilityIdentifier("post-author-avatar-\(post.id.rawValue)")
                 } else {
                     authorAvatar
+                        .accessibilityIdentifier("post-author-avatar-\(post.id.rawValue)")
                 }
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: PostAuthorHeaderLayout.rowSpacing) {
                     if let authorUID {
                         Button {
                             openAuthorProfile(uid: authorUID)
                         } label: {
                             Text(post.author.isEmpty ? "未知用户" : post.author)
                                 .fontWeight(.semibold)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .frame(
+                                    height: PostAuthorHeaderLayout.rowHeight,
+                                    alignment: .leading
+                                )
                         }
                         .buttonStyle(.plain)
                         .help("查看用户信息")
+                        .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     } else {
                         Text(post.author.isEmpty ? "未知用户" : post.author)
                             .fontWeight(.semibold)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(
+                                height: PostAuthorHeaderLayout.rowHeight,
+                                alignment: .leading
+                            )
+                            .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     }
                     if let date = post.postedAt {
                         Text(
@@ -849,15 +914,37 @@ private struct PostRow: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(
+                            height: PostAuthorHeaderLayout.rowHeight,
+                            alignment: .leading
+                        )
+                        .accessibilityIdentifier("post-author-date-\(post.id.rawValue)")
+                    } else {
+                        Color.clear
+                            .frame(height: PostAuthorHeaderLayout.rowHeight)
+                            .accessibilityHidden(true)
                     }
                 }
-                Spacer()
-                Text(floorLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(isHotReply ? theme.accentColor : Color.secondary)
-                Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
+                .layoutPriority(2)
+                if let authorInfo = post.authorInfo {
+                    PostAuthorInfoView(info: authorInfo, postID: post.id)
+                } else {
+                    Spacer()
+                }
+                HStack(spacing: 8) {
+                    Text(floorLabel)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(isHotReply ? theme.accentColor : Color.secondary)
+                    Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                }
+                .frame(height: PostAuthorHeaderLayout.rowHeight)
+            }
+            if let authorInfo = post.authorInfo,
+               authorInfo.honor != nil || authorInfo.site != nil {
+                PostAuthorSupplementaryInfoView(info: authorInfo)
             }
             PostBodyView(
                 html: post.html,
@@ -880,6 +967,13 @@ private struct PostRow: View {
                 PostRatingView(rating: topicRating, scores: post.ratingScores)
             }
             HStack(spacing: 12) {
+                Label(postDevice.title, systemImage: deviceSystemImage)
+                    .labelStyle(.iconOnly)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("发自 \(postDevice.title)")
+                    .accessibilityLabel("发自 \(postDevice.title)")
+                    .accessibilityIdentifier("post-device-\(post.id.rawValue)")
                 Spacer()
                 voteButton(direction: .up)
                 voteButton(direction: .down)
@@ -911,9 +1005,17 @@ private struct PostRow: View {
         AsyncImage(url: post.avatarURL) { image in
             image.resizable().scaledToFill()
         } placeholder: {
-            Image(systemName: "person.crop.circle.fill").foregroundStyle(.secondary)
+            Image(systemName: "person.crop.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .padding(2)
         }
-        .frame(width: 30, height: 30)
+        .frame(
+            width: PostAuthorHeaderLayout.avatarSize,
+            height: PostAuthorHeaderLayout.avatarSize
+        )
         .clipShape(.circle)
     }
 
@@ -939,6 +1041,18 @@ private struct PostRow: View {
             : theme.surfaceColor
     }
 
+    private var postDevice: PostDevice {
+        post.device ?? .desktop
+    }
+
+    private var deviceSystemImage: String {
+        switch postDevice {
+        case .apple: "apple.logo"
+        case .android: "rectangle.portrait"
+        case .desktop: "desktopcomputer"
+        }
+    }
+
     private func voteButton(direction: PostVoteDirection) -> some View {
         let isSelected = post.userVote == direction
         let count = direction == .up ? post.upvoteCount : post.downvoteCount
@@ -959,6 +1073,140 @@ private struct PostRow: View {
         .buttonStyle(.borderless)
         .disabled(model.votingPostIDs.contains(post.id))
         .help(direction == .up ? "点赞" : "点踩")
+    }
+}
+
+private enum PostAuthorHeaderLayout {
+    static let rowHeight: CGFloat = 20
+    static let rowSpacing: CGFloat = 3
+    static let avatarSize = rowHeight * 2 + rowSpacing
+}
+
+private struct PostAuthorInfoView: View {
+    let info: PostAuthorInfo
+    let postID: PostID
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: PostAuthorHeaderLayout.rowSpacing) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 20) {
+                    if let levelTitle = info.levelTitle {
+                        detail("级别", value: levelTitle, identifier: "level")
+                    }
+                    if let reputation = reputationText {
+                        detail("声望", value: reputation, identifier: "reputation")
+                    }
+                    if let registeredAt = info.registeredAt {
+                        detail(
+                            "注册",
+                            value: registeredAt.formatted(
+                                .dateTime.year().month(.twoDigits).day(.twoDigits)
+                            ),
+                            identifier: "registered"
+                        )
+                    }
+                    if let prestige = info.prestige {
+                        detail(
+                            "威望",
+                            value: prestige.formatted(
+                                .number.precision(.fractionLength(0...1))
+                            ),
+                            identifier: "prestige"
+                        )
+                    }
+                    if let userGroup = info.userGroup {
+                        detail("用户组", value: userGroup, identifier: "group")
+                    }
+                }
+                .frame(height: PostAuthorHeaderLayout.rowHeight)
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: PostAuthorHeaderLayout.rowHeight)
+            if !info.medals.isEmpty {
+                HStack(alignment: .center, spacing: 6) {
+                    Text("徽章:")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("post-author-medals-\(postID.rawValue)")
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 5) {
+                            ForEach(info.medals) { medal in
+                                medalImage(medal)
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(height: PostAuthorHeaderLayout.rowHeight)
+                }
+                .frame(height: PostAuthorHeaderLayout.rowHeight)
+            } else {
+                Color.clear
+                    .frame(height: PostAuthorHeaderLayout.rowHeight)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var reputationText: String? {
+        guard let reputation = info.reputation else { return nil }
+        if let level = info.reputationLevel {
+            return "\(reputation) (lv\(level))"
+        }
+        return String(reputation)
+    }
+
+    private func detail(_ title: String, value: String, identifier: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(title):")
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+        .font(.caption)
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("post-author-\(identifier)-\(postID.rawValue)")
+    }
+
+    private func medalImage(_ medal: UserMedal) -> some View {
+        AsyncImage(url: medal.imageURL) { image in
+            image
+                .resizable()
+                .interpolation(.none)
+                .scaledToFit()
+        } placeholder: {
+            Image(systemName: "seal")
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 18, height: 18)
+        .help(medal.detail.map { "\(medal.name)：\($0)" } ?? medal.name)
+        .accessibilityLabel(medal.name)
+    }
+}
+
+private struct PostAuthorSupplementaryInfoView: View {
+    let info: PostAuthorInfo
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let honor = info.honor {
+                Text(honor)
+                    .textSelection(.enabled)
+            }
+            if let site = info.site {
+                Text(site)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.leading, 40)
     }
 }
 
@@ -1024,7 +1272,7 @@ struct ReplyComposerView: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(replyTo.map { "回复 #\($0.floor) · \($0.author)" } ?? "回复主题")
+                    Text(replyTo.map { "回复 #\($0.floor) · \($0.author)" } ?? "回复话题")
                         .font(.headline)
                     Text(topic.subject).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
