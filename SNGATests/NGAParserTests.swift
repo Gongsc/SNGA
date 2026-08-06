@@ -62,7 +62,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(profile.followerCount, 6)
         XCTAssertEqual(
             profile.avatarURL?.absoluteString,
-            "https://img.nga.178.com/avatars/2015/36379260.jpg"
+            "https://img.nga.cn/avatars/2015/36379260.jpg"
         )
         XCTAssertFalse(profile.isMasked)
     }
@@ -131,7 +131,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.posts.first?.id, PostID(rawValue: 201))
         XCTAssertEqual(thread.posts.first?.floor, 0)
         XCTAssertEqual(thread.posts.first?.author, "Alice")
-        XCTAssertEqual(thread.posts.first?.avatarURL?.absoluteString, "https://img.nga.178.com/avatars/2009/1.jpg")
+        XCTAssertEqual(thread.posts.first?.avatarURL?.absoluteString, "https://img.nga.cn/avatars/2009/1.jpg")
         XCTAssertEqual(thread.posts.first?.html, "<p>正文</p>")
         XCTAssertEqual(thread.posts.first?.upvoteCount, 8)
         XCTAssertEqual(thread.posts.first?.downvoteCount, 2)
@@ -685,7 +685,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.posts.map(\.author), ["主楼用户", "一楼用户"])
         XCTAssertEqual(
             thread.posts.first?.avatarURL?.absoluteString,
-            "https://img.nga.178.com/avatars/2020/12/62810712.jpg"
+            "https://img.nga.cn/avatars/2020/12/62810712.jpg"
         )
         XCTAssertEqual(thread.posts.map(\.device), [.apple, .desktop])
         XCTAssertEqual(thread.posts.map(\.upvoteCount), [4, 2])
@@ -1157,6 +1157,10 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(forums[0].id, ForumID(rawValue: 510381))
         XCTAssertEqual(forums[0].category, "综合游戏讨论区")
         XCTAssertEqual(forums[0].iconURL?.scheme, "https")
+        XCTAssertEqual(
+            forums[0].iconURL?.absoluteString,
+            "https://img4.nga.cn/ngabbs/nga_classic/f/app/510381.png"
+        )
         XCTAssertEqual(forums[1].id.queryName, "stid")
         XCTAssertEqual(forums[1].id.description, "18855745")
         XCTAssertNotEqual(forums[1].id, ForumID(rawValue: 414))
@@ -1471,13 +1475,31 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(html.contains(#"<main id="snga-post-content">"#))
     }
 
+    func testSanitizerNormalizesRetiredNGAImageHosts() throws {
+        let html = parser.sanitizedPostHTML(
+            """
+            <img src='https://img.nga.178.com/attachments/mon_202607/23/example.jpg'>
+            <img src='https://img4.nga.178.com/ngabbs/post/smile/ac0.png'>
+            """
+        )
+        let document = try SwiftSoup.parse(html)
+
+        XCTAssertEqual(
+            try document.select("main img").map { try $0.attr("src") },
+            [
+                "https://img.nga.cn/attachments/mon_202607/23/example.jpg",
+                "https://img4.nga.cn/ngabbs/post/smile/ac0.png"
+            ]
+        )
+    }
+
     func testRendersAttachmentAndOfficialSmileBBCode() {
         let html = parser.sanitizedPostHTML(
             "[img]./mon_202607/23/example.jpg[/img]\n[s:ac:blink]"
         )
 
-        XCTAssertTrue(html.contains("https://img.nga.178.com/attachments/mon_202607/23/example.jpg"))
-        XCTAssertTrue(html.contains("https://img4.nga.178.com/ngabbs/post/smile/ac0.png"))
+        XCTAssertTrue(html.contains("https://img.nga.cn/attachments/mon_202607/23/example.jpg"))
+        XCTAssertTrue(html.contains("https://img4.nga.cn/ngabbs/post/smile/ac0.png"))
         XCTAssertTrue(html.contains("background:var(--snga-smile-backdrop)"))
         XCTAssertFalse(html.contains("[s:ac:blink]"))
     }
@@ -1492,7 +1514,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.select(".snga-image-placeholder").count, 1)
         XCTAssertEqual(
             try document.select(".snga-image-placeholder").first()?.attr("data-snga-src"),
-            "https://img.nga.178.com/attachments/mon_202607/23/example.jpg"
+            "https://img.nga.cn/attachments/mon_202607/23/example.jpg"
         )
         XCTAssertEqual(try document.select("img.nga-smile[src]").count, 1)
         XCTAssertEqual(
@@ -1547,7 +1569,7 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertTrue(html.contains("nga-game-card"))
         XCTAssertTrue(html.contains("鸣潮3.5版本剧情评分"))
-        XCTAssertTrue(html.contains("https://img.nga.178.com/attachments/mon_202607/09/cover.webp"))
+        XCTAssertTrue(html.contains("https://img.nga.cn/attachments/mon_202607/09/cover.webp"))
         XCTAssertTrue(html.contains(#"class="ubb-color-teal""#))
         XCTAssertFalse(html.contains("—"))
         XCTAssertFalse(html.contains("[randomblock]"))
@@ -1587,9 +1609,9 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(html.contains("filter:drop-shadow(0em 0em 0.225em #00000044)"))
         XCTAssertTrue(
             html.contains(
-                #"background-image:url(&quot;https://img.nga.178.com/attachments/mon_202603/03/header.webp&quot;)"#
+                #"background-image:url(&quot;https://img.nga.cn/attachments/mon_202603/03/header.webp&quot;)"#
             ) || html.contains(
-                #"background-image:url("https://img.nga.178.com/attachments/mon_202603/03/header.webp")"#
+                #"background-image:url("https://img.nga.cn/attachments/mon_202603/03/header.webp")"#
             )
         )
         XCTAssertFalse(html.localizedCaseInsensitiveContains("[randomblock]"))
@@ -1627,7 +1649,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(images.count, 2)
         XCTAssertEqual(
             try firstImage.attr("src"),
-            "https://img.nga.178.com/attachments/mon_202607/28/character-one.png"
+            "https://img.nga.cn/attachments/mon_202607/28/character-one.png"
         )
         XCTAssertTrue(html.contains("padding:0em 1em"))
         XCTAssertTrue(html.contains("right:32em;top:1em;position:absolute"))
@@ -1662,11 +1684,11 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(images.count, 2)
         XCTAssertEqual(
             try images.first?.attr("src"),
-            "https://img.nga.178.com/attachments/mon_202606/29/background.webp"
+            "https://img.nga.cn/attachments/mon_202606/29/background.webp"
         )
         XCTAssertEqual(
             try images.last?.attr("src"),
-            "https://img.nga.178.com/attachments/mon_202606/29/banner.png"
+            "https://img.nga.cn/attachments/mon_202606/29/banner.png"
         )
         XCTAssertEqual(try canvas.select("br").count, 0)
         XCTAssertFalse(html.localizedCaseInsensitiveContains("[stripbr]"))
@@ -1818,7 +1840,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.select(".nga-game-field").count, 4)
         XCTAssertEqual(
             try document.select(".nga-game-cover img").attr("src"),
-            "https://img.nga.178.com/attachments/mon_202009/15/cover.jpg"
+            "https://img.nga.cn/attachments/mon_202009/15/cover.jpg"
         )
         XCTAssertEqual(
             try document.select(".nga-game-website a").attr("href"),
@@ -1926,7 +1948,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.select(".ubb-color-silver").text(), "早上好，锄宗除外")
         XCTAssertEqual(
             try document.select("main img").attr("src"),
-            "https://img.nga.178.com/attachments/mon_201804/26/biQ5-ku98K5ToS5k-23.png"
+            "https://img.nga.cn/attachments/mon_201804/26/biQ5-ku98K5ToS5k-23.png"
         )
         XCTAssertFalse(try document.body()?.text().contains("用于消除间距的隐藏文字") == true)
         XCTAssertFalse(html.localizedCaseInsensitiveContains("[td20]"))
@@ -1964,9 +1986,9 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(NGAEmoticon.common.count, 45)
         XCTAssertEqual(blink?.code, "[s:ac:blink]")
-        XCTAssertEqual(blink?.imageURL?.absoluteString, "https://img4.nga.178.com/ngabbs/post/smile/ac0.png")
+        XCTAssertEqual(blink?.imageURL?.absoluteString, "https://img4.nga.cn/ngabbs/post/smile/ac0.png")
         XCTAssertEqual(last?.code, "[s:ac:黑枪]")
-        XCTAssertEqual(last?.imageURL?.absoluteString, "https://img4.nga.178.com/ngabbs/post/smile/ac44.png")
+        XCTAssertEqual(last?.imageURL?.absoluteString, "https://img4.nga.cn/ngabbs/post/smile/ac44.png")
     }
 
     func testRendersReplyHeaderAsClickableFloorReference() {
