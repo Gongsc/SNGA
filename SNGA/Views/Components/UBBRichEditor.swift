@@ -71,7 +71,7 @@ struct NGAEmoticon: Identifiable, Hashable {
     var id: String { "\(family):\(name)" }
     var code: String { "[s:\(family):\(name)]" }
     var imageURL: URL? {
-        URL(string: "https://img4.nga.178.com/ngabbs/post/smile/\(fileName)")
+        URL(string: "https://img4.nga.cn/ngabbs/post/smile/\(fileName)")
     }
 
     static let common: [NGAEmoticon] = {
@@ -355,7 +355,7 @@ struct UBBRichEditor: NSViewRepresentable {
             if (index === undefined) {
               return `<span data-ubb-code="${escapeAttribute(whole)}">${whole}</span>`;
             }
-            const src = `https://img4.nga.178.com/ngabbs/post/smile/ac${index}.png`;
+            const src = `https://img4.nga.cn/ngabbs/post/smile/ac${index}.png`;
             return `<img class="nga-smile" src="${src}" alt="${escapeAttribute(decodedName)}" data-ubb-code="${escapeAttribute(whole)}">`;
           });
           value = replacePaired(

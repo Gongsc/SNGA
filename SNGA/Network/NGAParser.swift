@@ -2189,7 +2189,7 @@ struct NGAParser: Sendable {
                   let file = smileFile(family: captures[0], name: captures[1]) else {
                 return htmlEscaped(captures.last ?? "表情")
             }
-            let url = "https://img4.nga.178.com/ngabbs/post/smile/\(file)"
+            let url = "https://img4.nga.cn/ngabbs/post/smile/\(file)"
             return #"<img class="nga-smile" src="\#(url)" alt="\#(htmlAttributeEscaped(captures[1]))">"#
         }
 
@@ -2666,13 +2666,18 @@ struct NGAParser: Sendable {
         let iconID = string(dictionary["id"]) ?? forumID.description
         guard var components = URLComponents(string: "\(iconPrefix)\(iconID).png") else { return nil }
         if components.scheme == "http" { components.scheme = "https" }
-        return components.url
+        return components.url.flatMap(secureURL)
     }
 
     private func secureURL(_ value: URL) -> URL? {
-        guard value.scheme == "http" else { return value }
+        let host = value.host?.lowercased()
+        guard value.scheme == "http" || host == "img.nga.178.com" || host == "img4.nga.178.com" else {
+            return value
+        }
         var components = URLComponents(url: value, resolvingAgainstBaseURL: false)
-        components?.scheme = "https"
+        if value.scheme == "http" { components?.scheme = "https" }
+        if host == "img.nga.178.com" { components?.host = "img.nga.cn" }
+        if host == "img4.nga.178.com" { components?.host = "img4.nga.cn" }
         return components?.url
     }
 
@@ -4191,16 +4196,12 @@ struct NGAParser: Sendable {
             .replacingOccurrences(of: "&amp;", with: "&")
         guard !rawValue.isEmpty else { return nil }
 
-        if rawValue.hasPrefix("//") {
-            return URL(string: "https:\(rawValue)")
+        if rawValue.hasPrefix("//"),
+           let absolute = URL(string: "https:\(rawValue)") {
+            return normalizedRemoteResourceURL(absolute, kind: kind)
         }
         if let absolute = URL(string: rawValue), absolute.scheme != nil {
-            guard ["http", "https"].contains(absolute.scheme?.lowercased() ?? "") else { return nil }
-            if case .attachment = kind,
-               let normalized = normalizedLegacyAttachmentURL(absolute) {
-                return normalized
-            }
-            return secureURL(absolute)
+            return normalizedRemoteResourceURL(absolute, kind: kind)
         }
 
         let withoutDot = rawValue
@@ -4214,14 +4215,14 @@ struct NGAParser: Sendable {
                 let path = withoutDot.hasPrefix("attachments/")
                     ? String(withoutDot.dropFirst("attachments/".count))
                     : withoutDot
-                return URL(string: "https://img.nga.178.com/attachments/\(path)")
+                return URL(string: "https://img.nga.cn/attachments/\(path)")
             }
         case .avatar:
             let path = withoutDot.hasPrefix("avatars/")
                 ? String(withoutDot.dropFirst("avatars/".count))
                 : withoutDot.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if !path.isEmpty {
-                return URL(string: "https://img.nga.178.com/avatars/\(path)")
+                return URL(string: "https://img.nga.cn/avatars/\(path)")
             }
         }
 
@@ -4231,14 +4232,22 @@ struct NGAParser: Sendable {
         return URL(string: rawValue, relativeTo: NGAEndpoint.baseURL)?.absoluteURL
     }
 
-    private func normalizedLegacyAttachmentURL(_ url: URL) -> URL? {
-        guard url.host?.lowercased() == "img.ngacn.cc",
-              url.path.hasPrefix("/attachments/") else {
-            return nil
-        }
+    private func normalizedRemoteResourceURL(_ url: URL, kind: RemoteResourceKind) -> URL? {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.scheme = "https"
-        components?.host = "img.nga.178.com"
+        switch url.host?.lowercased() {
+        case "img.nga.178.com":
+            components?.host = "img.nga.cn"
+        case "img4.nga.178.com":
+            components?.host = "img4.nga.cn"
+        case "img.ngacn.cc":
+            if case .attachment = kind, url.path.hasPrefix("/attachments/") {
+                components?.host = "img.nga.cn"
+            }
+        default:
+            break
+        }
         return components?.url
     }
 
