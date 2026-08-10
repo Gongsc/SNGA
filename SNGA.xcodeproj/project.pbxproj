@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A67E00000000000000000001 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E00000000000000000002 /* ThreadPageContentView.swift */; };
 		A66E00000000000000000001 /* TopicListSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66E00000000000000000002 /* TopicListSortOrder.swift */; };
 		A65E00000000000000000001 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65E00000000000000000002 /* AboutView.swift */; };
 		A65E00000000000000000003 /* AboutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65E00000000000000000004 /* AboutCommands.swift */; };
@@ -86,6 +87,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A67E00000000000000000002 /* ThreadPageContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadPageContentView.swift; sourceTree = "<group>"; };
 		A66E00000000000000000002 /* TopicListSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListSortOrder.swift; sourceTree = "<group>"; };
 		A65E00000000000000000002 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A65E00000000000000000004 /* AboutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutCommands.swift; sourceTree = "<group>"; };
@@ -274,6 +276,7 @@
 				AC2FE63519863D051826534B /* RootView.swift */,
 				A61B00000000000000000002 /* SettingsView.swift */,
 				F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */,
+				A67E00000000000000000002 /* ThreadPageContentView.swift */,
 				6F0C86AA303E8B9438408600 /* ThreadViews.swift */,
 				A60A00000000000000000004 /* ToolboxViews.swift */,
 			);
@@ -474,6 +477,7 @@
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
+				A67E00000000000000000001 /* ThreadPageContentView.swift in Sources */,
 				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
 				A61B00000000000000000007 /* MouseWheelZoomMonitor.swift in Sources */,
 				A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */,

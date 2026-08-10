@@ -167,6 +167,12 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
         nextPage.click()
 
+        let topicListLoading = app.descendants(matching: .any)[
+            "topic-list-loading-indicator"
+        ]
+        XCTAssertTrue(topicListLoading.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["topic-9001"].exists)
+
         let pageField = app.textFields["topic-list-page-field"]
         XCTAssertTrue(pageField.waitForExistence(timeout: 5))
         let reachedSecondPage = XCTNSPredicateExpectation(
@@ -177,6 +183,7 @@ final class SNGAUITests: XCTestCase {
             XCTWaiter.wait(for: [reachedSecondPage], timeout: 5),
             .completed
         )
+        XCTAssertTrue(topicListLoading.waitForNonExistence(timeout: 5))
 
         let sortOrder = app.descendants(matching: .any)["topic-list-sort-order"]
         XCTAssertTrue(sortOrder.waitForExistence(timeout: 5))
@@ -185,8 +192,8 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(latestTopic.waitForExistence(timeout: 5))
         latestTopic.click()
 
-        let skeleton = app.descendants(matching: .any)["topic-list-skeleton"]
-        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
+        XCTAssertTrue(topicListLoading.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["topic-9001"].exists)
         let returnedToFirstPage = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "1"),
             object: pageField
@@ -195,7 +202,7 @@ final class SNGAUITests: XCTestCase {
             XCTWaiter.wait(for: [returnedToFirstPage], timeout: 5),
             .completed
         )
-        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(topicListLoading.waitForNonExistence(timeout: 5))
         XCTAssertTrue(
             app.descendants(matching: .any)["topic-list-top"]
                 .waitForExistence(timeout: 5)
@@ -237,11 +244,77 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(copyLink.waitForExistence(timeout: 5))
         let openInBrowser = app.buttons["open-topic-in-browser"]
         XCTAssertTrue(openInBrowser.exists)
+        let copyFrameBefore = copyLink.frame
+        let browserFrameBefore = openInBrowser.frame
         copyLink.click()
         XCTAssertTrue(app.buttons["已复制"].waitForExistence(timeout: 5))
+        let copiedLink = app.buttons["copy-topic-link"]
+        XCTAssertEqual(copiedLink.frame.minX, copyFrameBefore.minX, accuracy: 1)
+        XCTAssertEqual(copiedLink.frame.width, copyFrameBefore.width, accuracy: 1)
+        XCTAssertEqual(openInBrowser.frame.minX, browserFrameBefore.minX, accuracy: 1)
         XCTAssertGreaterThanOrEqual(
-            openInBrowser.frame.minX - copyLink.frame.maxX,
+            openInBrowser.frame.minX - copiedLink.frame.maxX,
             10
+        )
+    }
+
+    func testImageHeavyThreadCanReturnToTop() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--uitesting",
+            "--uitesting-seed",
+            "--uitesting-image-thread"
+        ]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+
+        let skeleton = app.descendants(matching: .any)["thread-content-skeleton"]
+        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
+        let author = app.descendants(matching: .any)["post-author-name-1"]
+        XCTAssertFalse(author.exists)
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        let initialAuthorY = author.frame.minY
+        let threadScroll = app.scrollViews["thread-content-scroll"]
+        XCTAssertTrue(threadScroll.waitForExistence(timeout: 5))
+        threadScroll.swipeUp()
+        threadScroll.swipeUp()
+        XCTAssertLessThan(author.frame.minY, initialAuthorY - 100)
+
+        let scrollToTop = app.buttons["thread-scroll-to-top"]
+        XCTAssertTrue(scrollToTop.waitForExistence(timeout: 5))
+        scrollToTop.click()
+        XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertEqual(author.frame.minY, initialAuthorY, accuracy: 20)
+
+        let nextPage = app.buttons["thread-next-page"]
+        XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
+        nextPage.click()
+        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
+        XCTAssertFalse(author.exists)
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["post-author-name-101"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let pageField = app.textFields["thread-page-field"]
+        XCTAssertTrue(pageField.waitForExistence(timeout: 5))
+        pageField.click()
+        app.typeKey("a", modifierFlags: .command)
+        pageField.typeText("3")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
+        XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["post-author-name-201"]
+                .waitForExistence(timeout: 5)
         )
     }
 
@@ -263,9 +336,12 @@ final class SNGAUITests: XCTestCase {
 
         let skeleton = app.descendants(matching: .any)["thread-content-skeleton"]
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
+        let linkedTopicContent = app.staticTexts["这是通过站内链接打开的关联话题。"]
+        XCTAssertFalse(linkedTopicContent.exists)
         let backButton = app.buttons["thread-linked-topic-back"]
         XCTAssertTrue(backButton.waitForExistence(timeout: 5))
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(linkedTopicContent.waitForExistence(timeout: 5))
         let topicTitle = app.staticTexts["thread-topic-title"]
         XCTAssertTrue(topicTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(topicTitle.label, "话题二：多账号与收藏测试")

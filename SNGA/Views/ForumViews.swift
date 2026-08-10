@@ -1351,7 +1351,7 @@ struct TopicListView: View {
                 ForumTitleBackButton(
                     title: "返回上级版面 \(parentForum.name)",
                     accessibilityIdentifier: "forum-back-to-parent",
-                    isDisabled: model.isLoading
+                    isDisabled: visibleIsLoading
                 ) {
                     Task { await model.openParentForum() }
                 }
@@ -1458,6 +1458,7 @@ struct TopicListView: View {
         !model.isCurrentForumSearchActive
             && model.isRefreshingTopics
             && model.selectedForumID == forumID
+            && model.topics.isEmpty
     }
 
     private var visibleTotalPages: Int {
@@ -1469,7 +1470,7 @@ struct TopicListView: View {
     private var visibleIsLoading: Bool {
         model.isCurrentForumSearchActive
             ? model.isSearchingForum
-            : model.isLoading
+            : model.isRefreshingTopics && model.selectedForumID == forumID
     }
 
     private func performForumSearch() {
@@ -1621,6 +1622,8 @@ private struct TopicListPaginationBar<Actions: View>: View {
             if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("正在加载话题列表")
+                    .accessibilityIdentifier("topic-list-loading-indicator")
             }
 
             Spacer(minLength: 4)

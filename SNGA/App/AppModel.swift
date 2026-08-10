@@ -708,6 +708,10 @@ final class AppModel {
         currentForum = forum
         recordRecentForum(forum)
         sidebarSelection = .forum(forum.id)
+        topics = []
+        topicPage = 1
+        topicHasMore = false
+        topicTotalPages = 1
         selectedTopicID = nil
         currentTopic = nil
         selectedMessageID = nil

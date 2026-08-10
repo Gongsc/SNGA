@@ -1220,7 +1220,8 @@ struct NGAParser: Sendable {
                 let rawSource = try image.attr("src")
                 if let resolved = remoteResourceURL(rawSource, kind: .attachment) {
                     try image.attr("src", resolved.absoluteString)
-                    try image.attr("loading", "lazy")
+                    try image.attr("loading", "eager")
+                    try image.attr("decoding", "async")
                     try image.attr("referrerpolicy", "no-referrer")
                     if resolved.path.localizedCaseInsensitiveContains("/ngabbs/post/smile/") {
                         try image.addClass("nga-smile")
@@ -1250,7 +1251,15 @@ struct NGAParser: Sendable {
                     "aria-label",
                     "aria-pressed"
                 )
-                .addAttributes("img", "class", "loading", "referrerpolicy")
+                .addAttributes(
+                    "img",
+                    "class",
+                    "width",
+                    "height",
+                    "loading",
+                    "decoding",
+                    "referrerpolicy"
+                )
                 .addAttributes("span", "class")
                 .addAttributes("div", "class", "role", "aria-label", "aria-hidden")
                 .addAttributes("h3", "class")

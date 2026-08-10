@@ -26,6 +26,7 @@ struct ThreadView: View {
     @State private var navigationDirection = ThreadNavigationDirection.forward
     @State private var pendingLinkedPostID: PostID?
     @State private var isLinkedThreadTransitioning = false
+    @State private var preparedThreadContentIdentity: ThreadPageContentView.Identity?
     private let topAnchor = "thread-page-top"
 
     var body: some View {
@@ -74,6 +75,14 @@ struct ThreadView: View {
 
     private func threadContent(_ presentation: ThreadPresentation) -> some View {
         ScrollViewReader { proxy in
+            let contentIdentity = ThreadPageContentView.Identity(
+                topicID: presentation.topic.id,
+                page: presentation.page,
+                posts: presentation.posts,
+                hotReplies: presentation.hotReplies
+            )
+            let showsSkeleton = showsThreadContentSkeleton
+
             VStack(spacing: 0) {
                 ThreadTitleHeader(
                     topic: presentation.topic,
@@ -83,66 +92,45 @@ struct ThreadView: View {
                 )
 
                 ScrollView {
-                    Group {
-                        if showsThreadContentSkeleton {
-                            ThreadContentSkeletonView()
-                                .transition(.opacity)
-                        } else {
-                            // A thread page contains at most about 20 posts. Build every row
-                            // up front so each embedded WKWebView can load and measure before
-                            // the user scrolls to it; lazy creation caused visible stalls at
-                            // every newly reached floor.
-                            VStack(spacing: 12) {
-                                Color.clear
-                                    .frame(height: 0)
-                                    .id(topAnchor)
+                    ZStack(alignment: .top) {
+                        ThreadPageContentView(
+                            identity: contentIdentity,
+                            topAnchor: topAnchor,
+                            posts: presentation.posts,
+                            hotReplies: presentation.hotReplies,
+                            topicRating: presentation.topic.rating,
+                            reply: startReply,
+                            openPost: { postID, page, topicID in
+                                revealPost(
+                                    postID,
+                                    page: page,
+                                    topicID: topicID,
+                                    proxy: proxy
+                                )
+                            },
+                            openInternalLink: { destination in
+                                openInternalLink(destination, proxy: proxy)
+                            },
+                            onReady: markThreadContentReady
+                        )
+                        .id(contentIdentity)
+                        .opacity(showsSkeleton ? 0 : 1)
+                        .allowsHitTesting(!showsSkeleton)
+                        .accessibilityHidden(showsSkeleton)
 
-                                ForEach(presentation.posts) { post in
-                                    PostRow(
-                                        post: post,
-                                        topicRating: presentation.topic.rating,
-                                        reply: { startReply(to: post) },
-                                        openPost: { postID, page in
-                                            revealPost(
-                                                postID,
-                                                page: page,
-                                                topicID: post.topicID,
-                                                proxy: proxy
-                                            )
-                                        },
-                                        openInternalLink: { destination in
-                                            openInternalLink(destination, proxy: proxy)
-                                        }
-                                    )
-                                    .id(post.id)
-                                    if post.floor == 0, !presentation.hotReplies.isEmpty {
-                                        HotRepliesSection(
-                                            posts: presentation.hotReplies,
-                                            topicRating: presentation.topic.rating,
-                                            reply: startReply,
-                                            openPost: { postID, page in
-                                                revealPost(
-                                                    postID,
-                                                    page: page,
-                                                    topicID: post.topicID,
-                                                    proxy: proxy
-                                                )
-                                            },
-                                            openInternalLink: { destination in
-                                                openInternalLink(destination, proxy: proxy)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        ThreadContentSkeletonView()
+                            .opacity(showsSkeleton ? 1 : 0)
+                            .allowsHitTesting(showsSkeleton)
+                            .accessibilityHidden(!showsSkeleton)
                     }
                     .padding()
                     .animation(
                         reduceMotion ? nil : .easeOut(duration: 0.18),
-                        value: showsThreadContentSkeleton
+                        value: showsSkeleton
                     )
                 }
+                .accessibilityIdentifier("thread-content-scroll")
+                .scrollDisabled(showsSkeleton)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     ThreadPaginationBar(
                         currentPage: presentation.page,
@@ -154,16 +142,12 @@ struct ThreadView: View {
                             Task {
                                 await model.loadThreadPage(topicID: topicID, page: page)
                                 await Task.yield()
-                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                                    proxy.scrollTo(topAnchor, anchor: .top)
-                                }
+                                scrollToThreadTop(proxy: proxy)
                             }
                         }
                     ) {
                         Button {
-                            withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                                proxy.scrollTo(topAnchor, anchor: .top)
-                            }
+                            scrollToThreadTop(proxy: proxy)
                         } label: {
                             Label("回到顶部", systemImage: "arrow.up.to.line")
                         }
@@ -256,9 +240,7 @@ struct ThreadView: View {
                             Task {
                                 await model.toggleOnlyTopicAuthor()
                                 await Task.yield()
-                                withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                                    proxy.scrollTo(topAnchor, anchor: .top)
-                                }
+                                scrollToThreadTop(proxy: proxy)
                             }
                         } label: {
                             Label(
@@ -353,11 +335,24 @@ struct ThreadView: View {
     }
 
     private var showsThreadContentSkeleton: Bool {
-        model.isLoadingThreadContent || isLinkedThreadTransitioning
+        guard let currentThreadContentIdentity else { return true }
+        return model.isLoadingThreadContent
+            || isLinkedThreadTransitioning
+            || preparedThreadContentIdentity != currentThreadContentIdentity
     }
 
     private var isThreadLoading: Bool {
-        model.isLoading || model.isLoadingThreadContent || isLinkedThreadTransitioning
+        showsThreadContentSkeleton
+    }
+
+    private var currentThreadContentIdentity: ThreadPageContentView.Identity? {
+        guard let presentation = currentPresentation else { return nil }
+        return ThreadPageContentView.Identity(
+            topicID: presentation.topic.id,
+            page: presentation.page,
+            posts: presentation.posts,
+            hotReplies: presentation.hotReplies
+        )
     }
 
     private var threadNavigationAnimation: Animation? {
@@ -435,9 +430,7 @@ struct ThreadView: View {
                     Task { @MainActor in
                         await model.loadThreadPage(topicID: topicID, page: page)
                         await Task.yield()
-                        withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
-                            proxy.scrollTo(topAnchor, anchor: .top)
-                        }
+                        scrollToThreadTop(proxy: proxy)
                     }
                 }
                 return
@@ -472,7 +465,7 @@ struct ThreadView: View {
                 guard model.selectedTopicID == topicID else { return }
                 await Task.yield()
                 if postID == nil {
-                    proxy.scrollTo(topAnchor, anchor: .top)
+                    scrollToThreadTop(proxy: proxy)
                 } else if pendingLinkedPostID != nil,
                           !model.posts.contains(where: { $0.id == postID }) {
                     pendingLinkedPostID = nil
@@ -500,6 +493,19 @@ struct ThreadView: View {
     private func finishLinkedThreadTransition() {
         withAnimation(motionAnimation(.easeOut(duration: 0.18))) {
             isLinkedThreadTransitioning = false
+        }
+    }
+
+    private func markThreadContentReady(_ identity: ThreadPageContentView.Identity) {
+        guard identity == currentThreadContentIdentity else { return }
+        preparedThreadContentIdentity = identity
+    }
+
+    private func scrollToThreadTop(proxy: ScrollViewProxy) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            proxy.scrollTo(topAnchor, anchor: .top)
         }
     }
 
@@ -559,13 +565,17 @@ private struct TopicLinkActionsPopover: View {
 
             HStack(spacing: 14) {
                 Button(action: copy) {
-                    Label(
-                        didCopy ? "已复制" : "复制链接",
-                        systemImage: didCopy ? "checkmark" : "doc.on.doc"
-                    )
+                    ZStack {
+                        Label("复制链接", systemImage: "doc.on.doc")
+                            .opacity(didCopy ? 0 : 1)
+                        Label("已复制", systemImage: "checkmark")
+                            .opacity(didCopy ? 1 : 0)
+                    }
+                    .accessibilityHidden(true)
                 }
                 .buttonStyle(.bordered)
                 .fixedSize(horizontal: true, vertical: false)
+                .accessibilityLabel(didCopy ? "已复制" : "复制链接")
                 .accessibilityIdentifier("copy-topic-link")
                 Button(action: openInBrowser) {
                     Label("在默认浏览器中打开", systemImage: "safari")
@@ -767,6 +777,8 @@ private struct ThreadPaginationBar<Actions: View>: View {
             if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("正在加载话题内容")
+                    .accessibilityIdentifier("thread-loading-indicator")
             }
 
             Spacer(minLength: 4)
@@ -800,6 +812,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(performJump)
                 .accessibilityLabel("目标页码")
+                .accessibilityIdentifier("thread-page-field")
 
             if !isCompact {
                 Text("/ \(totalPages)")
@@ -816,6 +829,7 @@ private struct ThreadPaginationBar<Actions: View>: View {
             .labelStyle(.iconOnly)
             .help("下一页")
             .disabled(isLoading || currentPage >= totalPages)
+            .accessibilityIdentifier("thread-next-page")
 
             Button("尾页", systemImage: "forward.end.fill") {
                 navigate(totalPages)
@@ -844,15 +858,17 @@ private struct ThreadPaginationBar<Actions: View>: View {
     }
 }
 
-private struct PostRow: View {
+struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     let post: Post
     let topicRating: TopicRating?
     var isHotReply = false
+    var loadOrder: Int? = nil
     var reply: () -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
     var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
+    var onContentReady: @MainActor () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -949,6 +965,7 @@ private struct PostRow: View {
             PostBodyView(
                 html: post.html,
                 cacheKey: "thread-\(post.topicID.rawValue)-post-\(post.id.rawValue)",
+                loadOrder: loadOrder,
                 onOpenInternalLink: { destination in
                     switch destination {
                     case let .post(postID, page):
@@ -956,7 +973,8 @@ private struct PostRow: View {
                     default:
                         openInternalLink(destination)
                     }
-                }
+                },
+                onContentReady: onContentReady
             )
             if let poll = post.poll {
                 TopicPollView(poll: poll)
@@ -1210,13 +1228,15 @@ private struct PostAuthorSupplementaryInfoView: View {
     }
 }
 
-private struct HotRepliesSection: View {
+struct HotRepliesSection: View {
     @Environment(\.sngaTheme) private var theme
     let posts: [Post]
     let topicRating: TopicRating?
+    var loadOrderOffset = 0
     var reply: (Post) -> Void
     var openPost: @MainActor @Sendable (PostID, Int?) -> Void
     var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
+    var onContentReady: @MainActor (Post) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1225,14 +1245,17 @@ private struct HotRepliesSection: View {
                 .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 2)
 
-            ForEach(posts) { post in
+            ForEach(posts.indices, id: \.self) { index in
+                let post = posts[index]
                 PostRow(
                     post: post,
                     topicRating: topicRating,
                     isHotReply: true,
+                    loadOrder: loadOrderOffset + index,
                     reply: { reply(post) },
                     openPost: openPost,
-                    openInternalLink: openInternalLink
+                    openInternalLink: openInternalLink,
+                    onContentReady: { onContentReady(post) }
                 )
             }
         }

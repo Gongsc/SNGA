@@ -1465,12 +1465,18 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.body()?.text(), #"Tom's "reply" & more"#)
     }
 
-    func testSanitizerRemovesExecutableContent() {
-        let html = parser.sanitizedPostHTML("<p onclick='steal()'>安全</p><script>steal()</script><form><input></form><img src='https://img.nga.cn/a.png'>")
+    func testSanitizerRemovesExecutableContent() throws {
+        let html = parser.sanitizedPostHTML("<p onclick='steal()'>安全</p><script>steal()</script><form><input></form><img src='https://img.nga.cn/a.png' width='800' height='600'>")
+        let document = try SwiftSoup.parse(html)
+        let image = try XCTUnwrap(document.select("main img").first())
         XCTAssertFalse(html.contains("onclick"))
         XCTAssertFalse(html.contains("<script>steal()"))
         XCTAssertFalse(html.contains("<form>"))
         XCTAssertTrue(html.contains("https://img.nga.cn/a.png"))
+        XCTAssertTrue(html.contains(#"decoding="async""#))
+        XCTAssertEqual(try image.attr("loading"), "eager")
+        XCTAssertEqual(try image.attr("width"), "800")
+        XCTAssertEqual(try image.attr("height"), "600")
         XCTAssertTrue(html.contains("Content-Security-Policy"))
         XCTAssertTrue(html.contains(#"<main id="snga-post-content">"#))
     }
