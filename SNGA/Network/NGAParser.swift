@@ -618,9 +618,7 @@ struct NGAParser: Sendable {
             for row in rows {
                 guard let floor = try htmlFloor(in: row) else { continue }
                 let metadata = htmlPostMetadata[floor]
-                let content = try row.select(
-                    "#postcontent\(floor), #post_content\(floor), [id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
-                ).first
+                let content = try htmlPostContent(in: row, floor: floor)
                 guard let content else { continue }
                 let contentHTML = try content.html()
                 let authorUID = metadata?.authorUID
@@ -651,7 +649,7 @@ struct NGAParser: Sendable {
             var fallbackID: Int64 = Int64(page * 10_000)
             let candidates = try document.select(
                 "[id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
-            )
+            ).filter { !isHTMLPostContentAndSubjectWrapper($0) }
             for element in candidates {
                 let elementID = element.id()
                 let floor = digits(in: elementID).flatMap(Int.init)
@@ -2898,6 +2896,26 @@ struct NGAParser: Sendable {
             return floor
         }
         return digits(in: row.id()).flatMap(Int.init)
+    }
+
+    private func htmlPostContent(in row: Element, floor: Int) throws -> Element? {
+        // NGA 会用 postcontentandsubject 包住标题和正文；必须先按楼层精确
+        // 选择正文，否则组合选择器会按文档顺序先命中外层包装节点。
+        if let exactContent = try row.select(
+            "#postcontent\(floor), #post_content\(floor)"
+        ).first {
+            return exactContent
+        }
+        return try row.select(
+            "[id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
+        ).first { !isHTMLPostContentAndSubjectWrapper($0) }
+    }
+
+    private func isHTMLPostContentAndSubjectWrapper(_ element: Element) -> Bool {
+        element.id()
+            .lowercased()
+            .replacing("_", with: "")
+            .hasPrefix("postcontentandsubject")
     }
 
     private func htmlUserMap(in source: String) -> [Int64: PostUser] {

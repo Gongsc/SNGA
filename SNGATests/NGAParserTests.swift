@@ -641,8 +641,11 @@ final class NGAParserTests: XCTestCase {
                 <td>
                   <a name="l0"></a>
                   <span id="postdate0">2026-07-23 10:48</span>
-                  <h3 id="postsubject0">真实主题标题</h3>
-                  <div id="postcontent0"><p>主楼正文</p></div>
+                  <span id="postcontentandsubject0">
+                    <h3 id="postsubject0">真实主题标题</h3>
+                    <br>
+                    <div id="postcontent0"><p>主楼正文</p></div>
+                  </span>
                 </td>
               </tr>
               <tr class="postrow">
@@ -691,6 +694,8 @@ final class NGAParserTests: XCTestCase {
         )
         XCTAssertEqual(thread.posts.map(\.device), [.apple, .desktop])
         XCTAssertEqual(thread.posts.map(\.upvoteCount), [4, 2])
+        XCTAssertEqual(thread.posts.first?.html, "<p>主楼正文</p>")
+        XCTAssertFalse(try XCTUnwrap(thread.posts.first?.html).contains("真实主题标题"))
     }
 
     func testParsesWrappedThreadPayloadWithHotRepliesKeptSeparateFromFloors() throws {
