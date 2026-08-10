@@ -382,7 +382,7 @@ struct SNGAApp: App {
                 .keyboardShortcut("r", modifiers: .command)
 
                 Button("刷新话题列表") {
-                    Task { await model.refreshTopicList() }
+                    Task { await model.browsing.refreshTopicList() }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(model.selectedForumID == nil)

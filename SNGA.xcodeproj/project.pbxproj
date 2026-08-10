@@ -79,6 +79,8 @@
 		A6F100000000000000000013 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000014 /* AppSession.swift */; };
 		A6F100000000000000000015 /* ThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000016 /* ThreadStore.swift */; };
 		A6F100000000000000000017 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000018 /* MessageStore.swift */; };
+		A6F100000000000000000019 /* FavoriteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000001A /* FavoriteStore.swift */; };
+		A6F10000000000000000001B /* ForumStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000001C /* ForumStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -174,6 +176,8 @@
 		A6F100000000000000000014 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		A6F100000000000000000016 /* ThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadStore.swift; sourceTree = "<group>"; };
 		A6F100000000000000000018 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
+		A6F10000000000000000001A /* FavoriteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteStore.swift; sourceTree = "<group>"; };
+		A6F10000000000000000001C /* ForumStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -191,6 +195,8 @@
 		2728E3DCBAA2D5D76F0D97BD /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A6F10000000000000000001C /* ForumStore.swift */,
+				A6F10000000000000000001A /* FavoriteStore.swift */,
 				A6F100000000000000000018 /* MessageStore.swift */,
 				A6F100000000000000000016 /* ThreadStore.swift */,
 				A6F100000000000000000014 /* AppSession.swift */,
@@ -465,6 +471,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6F10000000000000000001B /* ForumStore.swift in Sources */,
+				A6F100000000000000000019 /* FavoriteStore.swift in Sources */,
 				A6F100000000000000000017 /* MessageStore.swift in Sources */,
 				A6F100000000000000000015 /* ThreadStore.swift in Sources */,
 				A6F100000000000000000013 /* AppSession.swift in Sources */,

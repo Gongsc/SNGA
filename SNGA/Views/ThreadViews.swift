@@ -51,7 +51,7 @@ struct ThreadView: View {
             }
         }
         .task {
-            await model.loadFavoriteTopicFolders()
+            await model.favorite.loadFavoriteTopicFolders()
         }
         .alert("帖子已锁定", isPresented: $showsLockedTopicAlert) {
             Button("好", role: .cancel) {}
@@ -183,18 +183,18 @@ struct ThreadView: View {
 
                         Menu {
                             if let topic = model.thread.currentTopic {
-                                if model.favoriteTopicFolders.isEmpty {
+                                if model.favorite.favoriteTopicFolders.isEmpty {
                                     Text("正在加载收藏目录…")
                                 } else {
-                                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                                    ForEach(model.favorite.sortedFavoriteTopicFolders) { folder in
                                         Toggle(
                                             isOn: Binding(
                                                 get: {
-                                                    model.isTopicFavorite(topic, in: folder)
+                                                    model.favorite.isTopicFavorite(topic, in: folder)
                                                 },
                                                 set: { isFavorite in
                                                     Task {
-                                                        await model.setTopicFavorite(
+                                                        await model.favorite.setTopicFavorite(
                                                             topic,
                                                             in: folder,
                                                             isFavorite: isFavorite
@@ -208,18 +208,18 @@ struct ThreadView: View {
                                                 Text("默认收藏夹")
                                             }
                                         }
-                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                        .disabled(model.favorite.updatingFavoriteTopicIDs.contains(topic.id))
                                     }
                                     Divider()
                                     if model.isCurrentTopicFavorite {
                                         Button(role: .destructive) {
                                             Task {
-                                                await model.cancelTopicFavorite(topic)
+                                                await model.favorite.cancelTopicFavorite(topic)
                                             }
                                         } label: {
                                             Label("取消收藏", systemImage: "star.slash")
                                         }
-                                        .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                        .disabled(model.favorite.updatingFavoriteTopicIDs.contains(topic.id))
                                         .accessibilityIdentifier("thread-topic-unfavorite")
                                         Divider()
                                     }
@@ -480,8 +480,8 @@ struct ThreadView: View {
             }
 
         case let .forum(forumID):
-            let forum = model.subforums.first { $0.id == forumID }
-                ?? model.forums.first { $0.id == forumID }
+            let forum = model.browsing.subforums.first { $0.id == forumID }
+                ?? model.browsing.forums.first { $0.id == forumID }
                 ?? Forum(id: forumID, name: "版面 \(forumID.description)")
             Task { await model.openForum(forum) }
 

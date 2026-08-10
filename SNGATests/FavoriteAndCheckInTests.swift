@@ -56,25 +56,25 @@ final class FavoriteAndCheckInTests: XCTestCase {
         await model.openForum(secondForum)
         await model.openForum(Forum(id: firstForum.id, name: firstForum.name))
 
-        XCTAssertEqual(model.recentForums.map(\.id), [firstForum.id, secondForum.id])
-        XCTAssertEqual(model.recentForums.first?.iconURL, firstIconURL)
+        XCTAssertEqual(model.browsing.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(model.browsing.recentForums.first?.iconURL, firstIconURL)
 
         let restoredModel = AppModel(container: container)
         restoredModel.session.activeAccountID = firstAccountID
-        restoredModel.forums = [
+        restoredModel.browsing.forums = [
             Forum(
                 id: secondForum.id,
                 name: secondForum.name,
                 iconURL: secondIconURL
             )
         ]
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [firstForum.id, secondForum.id])
-        XCTAssertEqual(restoredModel.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
 
         restoredModel.session.activeAccountID = secondAccountID
-        restoredModel.loadRecentForums()
-        XCTAssertTrue(restoredModel.recentForums.isEmpty)
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertTrue(restoredModel.browsing.recentForums.isEmpty)
     }
 
     @MainActor
@@ -109,23 +109,23 @@ final class FavoriteAndCheckInTests: XCTestCase {
         await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
         await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
 
-        model.updateRecentForumLimit(2)
+        model.browsing.updateRecentForumLimit(2)
 
-        XCTAssertEqual(model.recentForums.map(\.id), [
+        XCTAssertEqual(model.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 13),
             ForumID(rawValue: 12)
         ])
 
         let restoredModel = AppModel(container: container)
         restoredModel.session.activeAccountID = accountID
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 3),
             ForumID(rawValue: 2)
         ])
         restoredModel.session.activeAccountID = secondAccountID
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 13),
             ForumID(rawValue: 12)
         ])

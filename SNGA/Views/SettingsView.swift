@@ -78,7 +78,7 @@ struct SettingsView: View {
                 )
                 .accessibilityIdentifier("recent-forum-maximum-count")
                 .onChange(of: recentForumMaximumCount) { _, maximumCount in
-                    model.updateRecentForumLimit(maximumCount)
+                    model.browsing.updateRecentForumLimit(maximumCount)
                 }
                 Text("最多保留指定数量的最近访问版面；减少数量会删除较早的记录。")
                     .font(.caption)

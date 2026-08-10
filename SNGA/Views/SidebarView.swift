@@ -42,11 +42,11 @@ struct SidebarView: View {
                 }
 
                 Section("最近访问") {
-                    if model.recentForums.isEmpty {
+                    if model.browsing.recentForums.isEmpty {
                         Text("暂无最近访问")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.recentForums) { forum in
+                    ForEach(model.browsing.recentForums) { forum in
                         Button {
                             Task { await model.openForum(forum) }
                         } label: {
@@ -59,7 +59,7 @@ struct SidebarView: View {
                                     Text(forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if model.isRefreshingTopics,
+                                    if model.browsing.isRefreshingTopics,
                                        model.selectedForumID == forum.id {
                                         ProgressView()
                                             .controlSize(.small)
@@ -77,11 +77,11 @@ struct SidebarView: View {
                 }
 
                 Section("收藏版面") {
-                    if model.favorites.isEmpty {
+                    if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.favorites, id: \.forum.id) { favorite in
+                    ForEach(model.favorite.favorites, id: \.forum.id) { favorite in
                         Button {
                             Task { await model.openForum(favorite.forum) }
                         } label: {
@@ -94,7 +94,7 @@ struct SidebarView: View {
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if model.isRefreshingTopics,
+                                    if model.browsing.isRefreshingTopics,
                                        model.selectedForumID == favorite.forum.id {
                                         ProgressView()
                                             .controlSize(.small)
@@ -133,7 +133,7 @@ struct SidebarView: View {
             model.messaging.selectedMessageID = nil
             switch selection {
             case .directory:
-                Task { await model.loadForums() }
+                Task { await model.browsing.loadForums() }
             case .search:
                 model.clearForumSearch()
             case .favorites, .toolbox:
