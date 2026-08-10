@@ -33,6 +33,9 @@ struct UserCenterView: View {
                 }
             }
         }
+        // 未登录时这里是 ContentUnavailableView，本身不撑满可用高度，
+        // 底部工具栏就会贴在它下方而不是面板底部。与全部版面、消息列表保持一致。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("用户中心")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -819,6 +822,8 @@ struct FavoritesView: View {
                 }
             }
         }
+        // 同 UserCenterView：空状态分支不撑满高度时，底部分页栏会跟着上移。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("收藏夹")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             TopicListPaginationBar(
