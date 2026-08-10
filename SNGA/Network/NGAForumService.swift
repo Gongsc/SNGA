@@ -137,9 +137,10 @@ actor LiveNGAForumService: NGAForumService {
                 throw error
             }
         }
+        let sanitize = parser.makePostHTMLSanitizer()
         result.posts = result.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(
+            post.html = sanitize(
                 post.html,
                 topicRating: post.floor == 0 ? result.topic.rating : nil
             )
@@ -147,7 +148,7 @@ actor LiveNGAForumService: NGAForumService {
         }
         result.hotReplies = result.hotReplies.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            post.html = sanitize(post.html)
             return post
         }
         return result
@@ -198,12 +199,13 @@ actor LiveNGAForumService: NGAForumService {
     func message(id: MessageID) async throws -> ForumMessage {
         let response = try await client.request(.message(id: id))
         var message = try parser.message(from: response, id: id)
+        let sanitize = parser.makePostHTMLSanitizer()
         if let html = message.html {
-            message.html = parser.sanitizedPostHTML(html)
+            message.html = sanitize(html)
         }
         message.posts = message.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            post.html = sanitize(post.html)
             return post
         }
         return message

@@ -296,7 +296,7 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let themedHTML = renderedHTML
+        let themedHTML = context.coordinator.renderedHTML(for: self)
         if let cacheKey,
            let cached = PostWebViewCache.shared.take(
                for: cacheKey,
@@ -390,14 +390,18 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let themedHTML = renderedHTML
+        let themedHTML = context.coordinator.renderedHTML(for: self)
         if context.coordinator.lastHTML != themedHTML {
             context.coordinator.prepareForLoad(themedHTML)
             webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
         }
     }
 
-    private var renderedHTML: String {
+    fileprivate static func render(
+        html: String,
+        theme: ResolvedAppTheme,
+        imageFreeMode: Bool
+    ) -> String {
         PostImagePolicy.applying(
             to: theme.applying(to: html),
             hidesRemoteImages: imageFreeMode
@@ -441,6 +445,7 @@ struct PostWebView: NSViewRepresentable {
         let onOpenImage: @MainActor (URL) -> Void
         let onContentReady: @MainActor () -> Void
         var lastHTML = ""
+        private var renderCache: RenderCache?
         private var documentGeneration = 0
         private var isInvalidated = false
         private var measurementInFlight = false
@@ -461,6 +466,39 @@ struct PostWebView: NSViewRepresentable {
             self.onOpenInternalLink = onOpenInternalLink
             self.onOpenImage = onOpenImage
             self.onContentReady = onContentReady
+        }
+
+        private struct RenderCache {
+            let source: String
+            let theme: ResolvedAppTheme
+            let imageFreeMode: Bool
+            let output: String
+        }
+
+        /// `updateNSView` 会在每个 SwiftUI 更新周期对每个楼层各跑一次，而渲染要做
+        /// 六次以上的全文替换，无图模式下还要完整解析一遍 HTML —— 全部在主线程。
+        /// 主题与无图模式都是低频变化量，这里按输入记忆化，未变时直接复用。
+        /// 相同 `Post` 值传来的 `html` 是同一份字符串存储，`==` 走的是常数时间快路径。
+        @MainActor
+        fileprivate func renderedHTML(for view: PostWebView) -> String {
+            if let renderCache,
+               renderCache.source == view.html,
+               renderCache.theme == view.theme,
+               renderCache.imageFreeMode == view.imageFreeMode {
+                return renderCache.output
+            }
+            let output = PostWebView.render(
+                html: view.html,
+                theme: view.theme,
+                imageFreeMode: view.imageFreeMode
+            )
+            renderCache = RenderCache(
+                source: view.html,
+                theme: view.theme,
+                imageFreeMode: view.imageFreeMode,
+                output: output
+            )
+            return output
         }
 
         @MainActor

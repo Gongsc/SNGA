@@ -1488,6 +1488,30 @@ final class NGAParserTests: XCTestCase {
         XCTAssertTrue(html.contains(#"<main id="snga-post-content">"#))
     }
 
+    func testReusedSanitizerMatchesSingleShotSanitizerForEveryPost() throws {
+        // 整页楼层共用一个 Whitelist。清洗过程只读取白名单，复用不应改变任何一层的结果，
+        // 也不应让前一层的内容影响后一层。
+        let sources = [
+            "<p onclick='steal()'>第一层</p><script>steal()</script>",
+            "<img src='https://img.nga.178.com/attachments/mon_202607/23/a.jpg'>",
+            "<details open><summary>折叠</summary><p>正文</p></details>",
+            "<table><tr><td colspan='2' width='120'>单元格</td></tr></table>",
+            "<a href='javascript:steal()'>危险链接</a><a href='https://nga.cn/x'>正常</a>"
+        ]
+
+        let sanitize = parser.makePostHTMLSanitizer()
+        for source in sources {
+            XCTAssertEqual(
+                sanitize(source),
+                parser.sanitizedPostHTML(source),
+                "复用白名单后的结果与单次清洗不一致：\(source)"
+            )
+        }
+
+        // 同一个清洗器重复处理同一份内容也必须稳定。
+        XCTAssertEqual(sanitize(sources[0]), sanitize(sources[0]))
+    }
+
     func testSanitizerNormalizesRetiredNGAImageHosts() throws {
         let html = parser.sanitizedPostHTML(
             """
