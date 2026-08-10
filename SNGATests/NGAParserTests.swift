@@ -165,6 +165,7 @@ final class NGAParserTests: XCTestCase {
                 "medal": "386,45",
                 "site": "星辰驰骋终幕蔷薇",
                 "honor": " 1763083820 $notitle$ 于明日落下，静寂与月光",
+                "ipLoc": "上海市",
                 "regdate": 1487143790,
                 "rvrc": 297
               },
@@ -205,6 +206,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(authorInfo.userGroup, "Warden")
         XCTAssertEqual(authorInfo.registeredAt, Date(timeIntervalSince1970: 1_487_143_790))
         XCTAssertEqual(authorInfo.prestige, 29.7)
+        XCTAssertEqual(authorInfo.location, "上海市")
         XCTAssertEqual(authorInfo.honor, "于明日落下，静寂与月光")
         XCTAssertEqual(authorInfo.site, "星辰驰骋终幕蔷薇")
         XCTAssertEqual(authorInfo.medals.map(\.id), [386, 45])
@@ -639,8 +641,11 @@ final class NGAParserTests: XCTestCase {
                 <td>
                   <a name="l0"></a>
                   <span id="postdate0">2026-07-23 10:48</span>
-                  <h3 id="postsubject0">真实主题标题</h3>
-                  <div id="postcontent0"><p>主楼正文</p></div>
+                  <span id="postcontentandsubject0">
+                    <h3 id="postsubject0">真实主题标题</h3>
+                    <br>
+                    <div id="postcontent0"><p>主楼正文</p></div>
+                  </span>
                 </td>
               </tr>
               <tr class="postrow">
@@ -689,6 +694,8 @@ final class NGAParserTests: XCTestCase {
         )
         XCTAssertEqual(thread.posts.map(\.device), [.apple, .desktop])
         XCTAssertEqual(thread.posts.map(\.upvoteCount), [4, 2])
+        XCTAssertEqual(thread.posts.first?.html, "<p>主楼正文</p>")
+        XCTAssertFalse(try XCTUnwrap(thread.posts.first?.html).contains("真实主题标题"))
     }
 
     func testParsesWrappedThreadPayloadWithHotRepliesKeptSeparateFromFloors() throws {
@@ -1465,14 +1472,44 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(try document.body()?.text(), #"Tom's "reply" & more"#)
     }
 
-    func testSanitizerRemovesExecutableContent() {
-        let html = parser.sanitizedPostHTML("<p onclick='steal()'>安全</p><script>steal()</script><form><input></form><img src='https://img.nga.cn/a.png'>")
+    func testSanitizerRemovesExecutableContent() throws {
+        let html = parser.sanitizedPostHTML("<p onclick='steal()'>安全</p><script>steal()</script><form><input></form><img src='https://img.nga.cn/a.png' width='800' height='600'>")
+        let document = try SwiftSoup.parse(html)
+        let image = try XCTUnwrap(document.select("main img").first())
         XCTAssertFalse(html.contains("onclick"))
         XCTAssertFalse(html.contains("<script>steal()"))
         XCTAssertFalse(html.contains("<form>"))
         XCTAssertTrue(html.contains("https://img.nga.cn/a.png"))
+        XCTAssertTrue(html.contains(#"decoding="async""#))
+        XCTAssertEqual(try image.attr("loading"), "eager")
+        XCTAssertEqual(try image.attr("width"), "800")
+        XCTAssertEqual(try image.attr("height"), "600")
         XCTAssertTrue(html.contains("Content-Security-Policy"))
         XCTAssertTrue(html.contains(#"<main id="snga-post-content">"#))
+    }
+
+    func testReusedSanitizerMatchesSingleShotSanitizerForEveryPost() throws {
+        // 整页楼层共用一个 Whitelist。清洗过程只读取白名单，复用不应改变任何一层的结果，
+        // 也不应让前一层的内容影响后一层。
+        let sources = [
+            "<p onclick='steal()'>第一层</p><script>steal()</script>",
+            "<img src='https://img.nga.178.com/attachments/mon_202607/23/a.jpg'>",
+            "<details open><summary>折叠</summary><p>正文</p></details>",
+            "<table><tr><td colspan='2' width='120'>单元格</td></tr></table>",
+            "<a href='javascript:steal()'>危险链接</a><a href='https://nga.cn/x'>正常</a>"
+        ]
+
+        let sanitize = parser.makePostHTMLSanitizer()
+        for source in sources {
+            XCTAssertEqual(
+                sanitize(source),
+                parser.sanitizedPostHTML(source),
+                "复用白名单后的结果与单次清洗不一致：\(source)"
+            )
+        }
+
+        // 同一个清洗器重复处理同一份内容也必须稳定。
+        XCTAssertEqual(sanitize(sources[0]), sanitize(sources[0]))
     }
 
     func testSanitizerNormalizesRetiredNGAImageHosts() throws {
@@ -1553,6 +1590,8 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("</blockquote><br>"))
         XCTAssertTrue(html.contains("</blockquote>回复内容"))
         XCTAssertTrue(html.contains("p{margin:6px 0}"))
+        XCTAssertTrue(html.contains("blockquote{margin:8px 0 12px"))
+        XCTAssertTrue(html.contains("#snga-post-content>:last-child:not(blockquote){margin-bottom:0}"))
     }
 
     func testRendersAdvancedNGAStyleCardWithoutLeakingLayoutUBB() {

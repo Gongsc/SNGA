@@ -2,7 +2,7 @@
 
 ## 摘要
 
-- 从空仓库创建 `SNGA.xcodeproj`，使用 Swift 6.3、SwiftUI、SwiftData、WebKit 和 Security.framework，最低支持 macOS 26。
+- 从空仓库创建 `SNGA.xcodeproj`，使用 Swift 6.3、SwiftUI、SwiftData、WebKit 和 UserNotifications，最低支持 macOS 26。
 - 界面采用原生 `NavigationSplitView`：账号、收藏板块、全部板块、论坛消息；登录和复杂帖子正文使用受控 `WKWebView`。
 - 首版交付可直接运行和测试的本地 Xcode 工程，不包含 Developer ID 签名、公证或商店发布。
 
@@ -10,9 +10,9 @@
 
 - 账号与存储：
   - 通过内嵌 NGA 官方网页完成登录及验证码交互，不读取或保存密码。
-  - 登录成功后识别用户 UID、名称和头像，仅将 NGA 会话 Cookie 按账号加密存入钥匙串。
-  - SwiftData 保存账号元数据、当前账号、收藏、同步状态、签到记录和回复草稿；账号删除时清理对应钥匙串与本地数据。
-  - 每个账号使用独立 `NGAClient` actor 和显式 Cookie 请求头，禁止共享 Cookie 容器，确保切换及并发轮询不会串号。
+  - 登录成功后识别用户 UID、名称和头像，仅将 NGA 会话 Cookie 按账号写入应用沙盒内的独立会话文件，目录权限 0700、文件权限 0600。
+  - SwiftData 保存账号元数据、当前账号、收藏、同步状态、签到记录和回复草稿；账号删除时清理对应会话文件与本地数据。
+  - 每个账号使用独立 `NGANetworkClient` actor 和显式 Cookie 请求头，禁止共享 Cookie 容器，确保切换及并发轮询不会串号。
 
 - 网络与解析：
   - 定义 `NGAForumService` 接口，覆盖板块目录、主题分页、帖子分页、回复、私信、提醒、收藏同步和签到。

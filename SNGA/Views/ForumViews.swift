@@ -7,13 +7,13 @@ struct UserCenterView: View {
 
     var body: some View {
         Group {
-            if model.activeAccountID == nil {
+            if model.session.activeAccountID == nil {
                 ContentUnavailableView {
                     Label("欢迎使用 SNGA", systemImage: "bubble.left.and.bubble.right")
                 } description: {
                     Text("添加 NGA 账号后即可浏览论坛。")
                 } actions: {
-                    Button("登录 NGA") { model.showsLogin = true }
+                    Button("登录 NGA") { model.session.showsLogin = true }
                         .buttonStyle(.borderedProminent)
                 }
             } else {
@@ -33,6 +33,9 @@ struct UserCenterView: View {
                 }
             }
         }
+        // 未登录时这里是 ContentUnavailableView，本身不撑满可用高度，
+        // 底部工具栏就会贴在它下方而不是面板底部。与全部版面、消息列表保持一致。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("用户中心")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -46,7 +49,7 @@ struct UserCenterView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("刷新用户中心")
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .disabled(model.session.activeAccountID == nil || model.session.isLoading)
                     .accessibilityIdentifier("user-center-refresh")
                 }
             }
@@ -99,10 +102,10 @@ struct UserCenterView: View {
 
     @ViewBuilder
     private var checkInContent: some View {
-        let status = model.activeAccountCheckInStatus
+        let status = model.session.activeAccountCheckInStatus
         if status.canCheckIn {
             Button {
-                Task { await model.checkInActiveAccount() }
+                Task { await model.session.checkInActiveAccount() }
             } label: {
                 checkInStatusCard(status)
             }
@@ -282,7 +285,7 @@ struct UserCenterView: View {
             .frame(maxWidth: 320)
 
             if model.userActivities.isEmpty {
-                if model.isLoading {
+                if model.session.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
@@ -315,7 +318,7 @@ struct UserCenterView: View {
             Button("上一页", systemImage: "chevron.left") {
                 navigateActivity(to: model.userActivityPage - 1)
             }
-            .disabled(model.isLoading || model.userActivityPage <= 1)
+            .disabled(model.session.isLoading || model.userActivityPage <= 1)
 
             Text("第 \(model.userActivityPage) / \(model.userActivityTotalPages) 页")
                 .font(.callout.monospacedDigit())
@@ -325,7 +328,7 @@ struct UserCenterView: View {
                 navigateActivity(to: model.userActivityPage + 1)
             }
             .labelStyle(.titleAndIcon)
-            .disabled(model.isLoading || !model.userActivityHasMore)
+            .disabled(model.session.isLoading || !model.userActivityHasMore)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
@@ -343,7 +346,7 @@ struct UserCenterView: View {
     }
 
     private var targetUID: Int64? {
-        uid ?? model.activeAccount?.ngaUID
+        uid ?? model.session.activeAccount?.ngaUID
     }
 
     private var profile: Profile? {
@@ -351,7 +354,7 @@ struct UserCenterView: View {
            currentProfile.uid == targetUID {
             return currentProfile
         }
-        guard let account = model.activeAccount,
+        guard let account = model.session.activeAccount,
               account.ngaUID == targetUID else {
             return nil
         }
@@ -487,7 +490,7 @@ struct ForumDirectoryView: View {
             Divider()
 
             Group {
-                if model.forums.isEmpty && !model.isLoading {
+                if model.browsing.forums.isEmpty && !model.session.isLoading {
                     ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
                 } else if isSearching && filteredCategories.isEmpty {
                     ContentUnavailableView(
@@ -527,7 +530,7 @@ struct ForumDirectoryView: View {
                                     } label: {
                                         ForumDirectoryInteractiveRow(
                                             forum: forum,
-                                            isFavorite: model.favorites.contains {
+                                            isFavorite: model.favorite.favorites.contains {
                                                 $0.forum.id == forum.id && $0.state != .pendingRemove
                                             }
                                         )
@@ -555,19 +558,19 @@ struct ForumDirectoryView: View {
                 HStack {
                     Spacer()
                     Button {
-                        Task { await model.loadForums() }
+                        Task { await model.browsing.loadForums() }
                     } label: {
                         Label("刷新全部版面", systemImage: "arrow.clockwise")
                     }
                     .labelStyle(.iconOnly)
                     .help("刷新全部版面")
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .disabled(model.session.activeAccountID == nil || model.session.isLoading)
                     .accessibilityIdentifier("directory-refresh")
                 }
             }
         }
         .task {
-            if model.forums.isEmpty { await model.loadForums() }
+            if model.browsing.forums.isEmpty { await model.browsing.loadForums() }
         }
     }
 
@@ -617,7 +620,7 @@ struct ForumDirectoryView: View {
     }
 
     private var filteredCategories: [ForumCategory] {
-        ForumDirectorySearch.filter(model.forumCategories, query: searchText)
+        ForumDirectorySearch.filter(model.browsing.forumCategories, query: searchText)
     }
 
     private func categoryHeader(_ category: ForumCategory) -> some View {
@@ -743,13 +746,13 @@ struct FavoritesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.favoriteTopicFolders.isEmpty {
+            if !model.favorite.favoriteTopicFolders.isEmpty {
                 folderBar
                 Divider()
             }
 
             Group {
-                if model.favoriteTopicFolders.isEmpty && !model.isLoading {
+                if model.favorite.favoriteTopicFolders.isEmpty && !model.session.isLoading {
                     ContentUnavailableView {
                         Label("还没有收藏夹", systemImage: "folder")
                     } description: {
@@ -760,11 +763,11 @@ struct FavoritesView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
-                } else if model.favoriteTopics.isEmpty && !model.isLoading {
+                } else if model.favorite.favoriteTopics.isEmpty && !model.session.isLoading {
                 ContentUnavailableView {
                     Label("收藏夹为空", systemImage: "star")
                 } description: {
-                        if let folder = model.selectedFavoriteTopicFolder {
+                        if let folder = model.favorite.selectedFavoriteTopicFolder {
                             Text("“\(folder.name)”中还没有话题。打开话题后可从底部星标菜单选择收藏目录。")
                         } else {
                             Text("打开话题后可从底部星标菜单选择收藏目录。")
@@ -772,13 +775,13 @@ struct FavoritesView: View {
                 } actions: {
                     Button("浏览全部版面") {
                         model.sidebarSelection = .directory
-                        Task { await model.loadForums() }
+                        Task { await model.browsing.loadForums() }
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 } else {
                     List {
-                        ForEach(model.favoriteTopics) { topic in
+                        ForEach(model.favorite.favoriteTopics) { topic in
                             HStack(spacing: 10) {
                                 Button {
                                     Task { await model.openTopic(topic) }
@@ -797,7 +800,7 @@ struct FavoritesView: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .help("从当前收藏夹移除《\(topic.subject)》")
-                                .disabled(model.updatingFavoriteTopicIDs.contains(topic.id))
+                                .disabled(model.favorite.updatingFavoriteTopicIDs.contains(topic.id))
                                 .accessibilityIdentifier(
                                     "favorite-topic-remove-\(topic.id.rawValue)"
                                 )
@@ -819,42 +822,44 @@ struct FavoritesView: View {
                 }
             }
         }
+        // 同 UserCenterView：空状态分支不撑满高度时，底部分页栏会跟着上移。
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("收藏夹")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             TopicListPaginationBar(
-                currentPage: model.favoriteTopicPage,
-                totalPages: model.favoriteTopicTotalPages,
-                isLoading: model.isLoading,
+                currentPage: model.favorite.favoriteTopicPage,
+                totalPages: model.favorite.favoriteTopicTotalPages,
+                isLoading: model.session.isLoading,
                 navigate: { page in
-                    Task { await model.loadFavoriteTopics(page: page) }
+                    Task { await model.favorite.loadFavoriteTopics(page: page) }
                 }
             ) {
                 Button {
                     Task {
-                        await model.loadFavoriteTopicFolders(force: true)
-                        await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+                        await model.favorite.loadFavoriteTopicFolders(force: true)
+                        await model.favorite.loadFavoriteTopics(page: model.favorite.favoriteTopicPage)
                     }
                 } label: {
                     Label("刷新收藏夹", systemImage: "arrow.clockwise")
                 }
                 .labelStyle(.iconOnly)
                 .help("刷新收藏目录与话题")
-                .disabled(model.isLoading)
+                .disabled(model.session.isLoading)
                 .accessibilityIdentifier("favorite-topics-refresh")
             }
         }
         .task {
-            await model.loadFavoriteTopicFolders(force: true)
-            await model.loadFavoriteTopics(page: model.favoriteTopicPage)
+            await model.favorite.loadFavoriteTopicFolders(force: true)
+            await model.favorite.loadFavoriteTopics(page: model.favorite.favoriteTopicPage)
         }
         .sheet(isPresented: $showsCreateFolder) {
             FavoriteFolderEditorSheet(
                 title: "新建收藏夹",
                 initialName: "",
                 initialIsPublic: false,
-                initialIsDefault: model.favoriteTopicFolders.isEmpty,
+                initialIsDefault: model.favorite.favoriteTopicFolders.isEmpty,
                 save: { name, isPublic, isDefault in
-                    await model.createTopicFavoriteFolder(
+                    await model.favorite.createTopicFavoriteFolder(
                         name: name,
                         isPublic: isPublic,
                         isDefault: isDefault
@@ -873,10 +878,10 @@ struct FavoritesView: View {
                     updated.name = name
                     updated.isPublic = isPublic
                     updated.isDefault = isDefault
-                    return await model.updateTopicFavoriteFolder(updated)
+                    return await model.favorite.updateTopicFavoriteFolder(updated)
                 },
                 delete: {
-                    await model.deleteTopicFavoriteFolder(folder)
+                    await model.favorite.deleteTopicFavoriteFolder(folder)
                 }
             )
         }
@@ -886,9 +891,9 @@ struct FavoritesView: View {
         HStack(spacing: 8) {
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
-                    ForEach(model.sortedFavoriteTopicFolders) { folder in
+                    ForEach(model.favorite.sortedFavoriteTopicFolders) { folder in
                         Button {
-                            Task { await model.selectFavoriteTopicFolder(folder.id) }
+                            Task { await model.favorite.selectFavoriteTopicFolder(folder.id) }
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: folder.isDefault ? "folder.fill" : "folder")
@@ -908,12 +913,12 @@ struct FavoritesView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
                             .foregroundStyle(
-                                model.selectedFavoriteTopicFolderID == folder.id
+                                model.favorite.selectedFavoriteTopicFolderID == folder.id
                                     ? theme.accentColor
                                     : Color.primary
                             )
                             .background(
-                                model.selectedFavoriteTopicFolderID == folder.id
+                                model.favorite.selectedFavoriteTopicFolderID == folder.id
                                     ? theme.accentColor.opacity(0.14)
                                     : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 7)
@@ -930,13 +935,13 @@ struct FavoritesView: View {
                 .frame(height: 22)
 
             Button {
-                editingFolder = model.selectedFavoriteTopicFolder
+                editingFolder = model.favorite.selectedFavoriteTopicFolder
             } label: {
                 Label("修改收藏夹", systemImage: "pencil")
             }
             .labelStyle(.iconOnly)
             .help("修改名称、公开状态及默认收藏夹")
-            .disabled(model.selectedFavoriteTopicFolder == nil)
+            .disabled(model.favorite.selectedFavoriteTopicFolder == nil)
             .accessibilityIdentifier("favorite-folder-edit")
 
             Button {
@@ -954,9 +959,9 @@ struct FavoritesView: View {
     }
 
     private func remove(_ topic: Topic) {
-        guard let folder = model.selectedFavoriteTopicFolder else { return }
+        guard let folder = model.favorite.selectedFavoriteTopicFolder else { return }
         Task {
-            await model.setTopicFavorite(topic, in: folder, isFavorite: false)
+            await model.favorite.setTopicFavorite(topic, in: folder, isFavorite: false)
         }
     }
 }
@@ -1106,7 +1111,7 @@ struct TopicListView: View {
                 )
 
                 if !model.isCurrentForumSearchActive,
-                   !model.subforums.isEmpty {
+                   !model.browsing.subforums.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
                             Button {
@@ -1130,7 +1135,7 @@ struct TopicListView: View {
                                         Text("子版面")
                                     }
                                     .font(.headline)
-                                    Text("\(model.subforums.count)")
+                                    Text("\(model.browsing.subforums.count)")
                                         .font(.caption.monospacedDigit())
                                         .foregroundStyle(.secondary)
                                     Spacer()
@@ -1150,7 +1155,7 @@ struct TopicListView: View {
                                         .foregroundStyle(.secondary)
                                     Spacer()
                                     Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
-                                        model.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                        model.browsing.setAllSubforumsIncluded(!allSubforumsIncluded)
                                     }
                                     .buttonStyle(.borderless)
                                     .font(.caption)
@@ -1161,10 +1166,10 @@ struct TopicListView: View {
                                     alignment: .leading,
                                     spacing: 8
                                 ) {
-                                    ForEach(model.subforums) { forum in
+                                    ForEach(model.browsing.subforums) { forum in
                                         SubforumTile(
                                             forum: forum,
-                                            isIncluded: model.includedSubforumIDs.contains(forum.id)
+                                            isIncluded: model.browsing.includedSubforumIDs.contains(forum.id)
                                         )
                                     }
                                 }
@@ -1185,11 +1190,11 @@ struct TopicListView: View {
                     TopicListSkeletonView()
                 } else if model.isCurrentForumSearchActive {
                     currentForumSearchRows
-                } else if model.subforums.isEmpty {
-                    topicRows(model.displayedTopics)
+                } else if model.browsing.subforums.isEmpty {
+                    topicRows(model.browsing.displayedTopics)
                 } else {
                     topicListHeader
-                    topicRows(model.displayedTopics)
+                    topicRows(model.browsing.displayedTopics)
                 }
             }
             .listStyle(.plain)
@@ -1216,7 +1221,7 @@ struct TopicListView: View {
                             Button {
                                 selectSortOrder(sortOrder)
                             } label: {
-                                if model.topicListSortOrder == sortOrder {
+                                if model.browsing.topicListSortOrder == sortOrder {
                                     Label(sortOrder.title, systemImage: "checkmark")
                                 } else {
                                     Text(sortOrder.title)
@@ -1226,18 +1231,18 @@ struct TopicListView: View {
                     }
                     .menuIndicator(.hidden)
                     .labelStyle(.iconOnly)
-                    .help("排序方式：\(model.topicListSortOrder.title)")
+                    .help("排序方式：\(model.browsing.topicListSortOrder.title)")
                     .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
                     .accessibilityIdentifier("topic-list-sort-order")
 
                     Button(action: toggleFeaturedTopics) {
                         Label(
-                            model.isShowingFeaturedTopics ? "退出精华区" : "精华区",
-                            systemImage: model.isShowingFeaturedTopics ? "medal.fill" : "medal"
+                            model.browsing.isShowingFeaturedTopics ? "退出精华区" : "精华区",
+                            systemImage: model.browsing.isShowingFeaturedTopics ? "medal.fill" : "medal"
                         )
                     }
                     .labelStyle(.iconOnly)
-                    .help(model.isShowingFeaturedTopics ? "显示全部话题" : "只显示精华话题")
+                    .help(model.browsing.isShowingFeaturedTopics ? "显示全部话题" : "只显示精华话题")
                     .disabled(visibleIsLoading || model.isCurrentForumSearchActive)
                     .accessibilityIdentifier("topic-list-featured")
 
@@ -1263,8 +1268,8 @@ struct TopicListView: View {
                     .accessibilityIdentifier("topic-list-scroll-to-top")
 
                     Button {
-                        guard let forum = model.currentForum else { return }
-                        Task { await model.toggleFavorite(forum) }
+                        guard let forum = model.browsing.currentForum else { return }
+                        Task { await model.favorite.toggleFavorite(forum) }
                     } label: {
                         Label(
                             model.isActiveForumFavorite ? "取消收藏" : "收藏版面",
@@ -1273,7 +1278,7 @@ struct TopicListView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
-                    .disabled(model.currentForum == nil)
+                    .disabled(model.browsing.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
 
                     Button {
@@ -1281,7 +1286,7 @@ struct TopicListView: View {
                             if model.isCurrentForumSearchActive {
                                 await model.loadForumSearchPage(visiblePage)
                             } else {
-                                await model.refreshTopicList()
+                                await model.browsing.refreshTopicList()
                             }
                             await Task.yield()
                             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
@@ -1300,7 +1305,7 @@ struct TopicListView: View {
                     .accessibilityIdentifier("forum-refresh")
                 }
             }
-            .onChange(of: model.topicListScrollToTopRevision) {
+            .onChange(of: model.browsing.topicListScrollToTopRevision) {
                 Task { @MainActor in
                     await Task.yield()
                     withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
@@ -1308,16 +1313,16 @@ struct TopicListView: View {
                     }
                 }
             }
-            .onChange(of: model.topicListSortOrder) {
+            .onChange(of: model.browsing.topicListSortOrder) {
                 reloadTopics(proxy: proxy)
             }
-            .onChange(of: model.isShowingFeaturedTopics) {
+            .onChange(of: model.browsing.isShowingFeaturedTopics) {
                 reloadTopics(proxy: proxy)
             }
         }
         .task(id: forumID) {
-            if model.currentForum?.id != forumID || model.topics.isEmpty {
-                await model.loadTopics(forumID: forumID, reset: true)
+            if model.browsing.currentForum?.id != forumID || model.browsing.topics.isEmpty {
+                await model.browsing.loadTopics(forumID: forumID, reset: true)
             }
         }
         .onChange(of: forumID) {
@@ -1347,11 +1352,11 @@ struct TopicListView: View {
 
     private var forumTitleRow: some View {
         HStack(spacing: 10) {
-            if let parentForum = model.parentForum {
+            if let parentForum = model.browsing.parentForum {
                 ForumTitleBackButton(
                     title: "返回上级版面 \(parentForum.name)",
                     accessibilityIdentifier: "forum-back-to-parent",
-                    isDisabled: model.isLoading
+                    isDisabled: visibleIsLoading
                 ) {
                     Task { await model.openParentForum() }
                 }
@@ -1364,7 +1369,7 @@ struct TopicListView: View {
                 }
             }
 
-            Text(model.currentForum?.name ?? "话题")
+            Text(model.browsing.currentForum?.name ?? "话题")
                 .font(.title2.bold())
                 .lineLimit(1)
 
@@ -1394,7 +1399,7 @@ struct TopicListView: View {
             } label: {
                 TopicInteractiveRow(
                     topic: topic,
-                    isSelected: model.selectedTopicID == topic.id
+                    isSelected: model.thread.selectedTopicID == topic.id
                 )
             }
             .buttonStyle(.plain)
@@ -1451,25 +1456,26 @@ struct TopicListView: View {
     private var visiblePage: Int {
         model.isCurrentForumSearchActive
             ? model.forumSearchPage?.page ?? 1
-            : model.topicPage
+            : model.browsing.topicPage
     }
 
     private var showsTopicListSkeleton: Bool {
         !model.isCurrentForumSearchActive
-            && model.isRefreshingTopics
+            && model.browsing.isRefreshingTopics
             && model.selectedForumID == forumID
+            && model.browsing.topics.isEmpty
     }
 
     private var visibleTotalPages: Int {
         model.isCurrentForumSearchActive
             ? model.forumSearchPage?.totalPages ?? 1
-            : model.topicTotalPages
+            : model.browsing.topicTotalPages
     }
 
     private var visibleIsLoading: Bool {
         model.isCurrentForumSearchActive
             ? model.isSearchingForum
-            : model.isLoading
+            : model.browsing.isRefreshingTopics && model.selectedForumID == forumID
     }
 
     private func performForumSearch() {
@@ -1492,16 +1498,16 @@ struct TopicListView: View {
         if model.isCurrentForumSearchActive {
             await model.loadForumSearchPage(page)
         } else {
-            await model.loadTopicPage(forumID: forumID, page: page)
+            await model.browsing.loadTopicPage(forumID: forumID, page: page)
         }
     }
 
     private func selectSortOrder(_ sortOrder: TopicListSortOrder) {
-        model.topicListSortOrder = sortOrder
+        model.browsing.topicListSortOrder = sortOrder
     }
 
     private func toggleFeaturedTopics() {
-        model.isShowingFeaturedTopics.toggle()
+        model.browsing.isShowingFeaturedTopics.toggle()
     }
 
     private func openPinnedTopic() {
@@ -1511,7 +1517,7 @@ struct TopicListView: View {
     private func reloadTopics(proxy: ScrollViewProxy) {
         guard !model.isCurrentForumSearchActive else { return }
         Task {
-            await model.loadTopics(forumID: forumID, reset: true)
+            await model.browsing.loadTopics(forumID: forumID, reset: true)
             await Task.yield()
             withAnimation(motionAnimation(.easeInOut(duration: 0.2))) {
                 proxy.scrollTo(topAnchor, anchor: .top)
@@ -1520,12 +1526,12 @@ struct TopicListView: View {
     }
 
     private var includedSubforumCount: Int {
-        model.subforums.count { model.includedSubforumIDs.contains($0.id) }
+        model.browsing.subforums.count { model.browsing.includedSubforumIDs.contains($0.id) }
     }
 
     private var allSubforumsIncluded: Bool {
-        !model.subforums.isEmpty &&
-            model.subforums.allSatisfy { model.includedSubforumIDs.contains($0.id) }
+        !model.browsing.subforums.isEmpty &&
+            model.browsing.subforums.allSatisfy { model.browsing.includedSubforumIDs.contains($0.id) }
     }
 
     private func motionAnimation(_ animation: Animation) -> Animation? {
@@ -1621,6 +1627,8 @@ private struct TopicListPaginationBar<Actions: View>: View {
             if isLoading && showsLoadingIndicator {
                 ProgressView()
                     .controlSize(.small)
+                    .accessibilityLabel("正在加载话题列表")
+                    .accessibilityIdentifier("topic-list-loading-indicator")
             }
 
             Spacer(minLength: 4)
@@ -1751,7 +1759,7 @@ private struct SubforumTile: View {
                 "在主版面话题列表中显示 \(forum.name)",
                 isOn: Binding(
                     get: { isIncluded },
-                    set: { model.setSubforumIncluded(forum.id, included: $0) }
+                    set: { model.browsing.setSubforumIncluded(forum.id, included: $0) }
                 )
             )
             .labelsHidden()

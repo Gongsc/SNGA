@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A67E00000000000000000001 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A67E00000000000000000002 /* ThreadPageContentView.swift */; };
 		A66E00000000000000000001 /* TopicListSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66E00000000000000000002 /* TopicListSortOrder.swift */; };
 		A65E00000000000000000001 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65E00000000000000000002 /* AboutView.swift */; };
 		A65E00000000000000000003 /* AboutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A65E00000000000000000004 /* AboutCommands.swift */; };
@@ -66,6 +67,20 @@
 		F42D2B846FC38121AD31CC97 /* NGANetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */; };
 		F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2FE63519863D051826534B /* RootView.swift */; };
 		FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */; };
+		A6F100000000000000000001 /* PostContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000002 /* PostContent.swift */; };
+		A6F100000000000000000003 /* PostContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000004 /* PostContentBuilder.swift */; };
+		A6F100000000000000000005 /* EmoticonImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000006 /* EmoticonImageStore.swift */; };
+		A6F100000000000000000007 /* PostContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000008 /* PostContentView.swift */; };
+		A6F100000000000000000009 /* PostContentBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000A /* PostContentBuilderTests.swift */; };
+		A6F10000000000000000000B /* RequestSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000C /* RequestSlot.swift */; };
+		A6F10000000000000000000D /* RequestSlotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000000E /* RequestSlotTests.swift */; };
+		A6F10000000000000000000F /* PostQuoteExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000010 /* PostQuoteExpander.swift */; };
+		A6F100000000000000000011 /* PostQuoteExpanderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000012 /* PostQuoteExpanderTests.swift */; };
+		A6F100000000000000000013 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000014 /* AppSession.swift */; };
+		A6F100000000000000000015 /* ThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000016 /* ThreadStore.swift */; };
+		A6F100000000000000000017 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000018 /* MessageStore.swift */; };
+		A6F100000000000000000019 /* FavoriteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000001A /* FavoriteStore.swift */; };
+		A6F10000000000000000001B /* ForumStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F10000000000000000001C /* ForumStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -86,6 +101,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A67E00000000000000000002 /* ThreadPageContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadPageContentView.swift; sourceTree = "<group>"; };
 		A66E00000000000000000002 /* TopicListSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListSortOrder.swift; sourceTree = "<group>"; };
 		A65E00000000000000000002 /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A65E00000000000000000004 /* AboutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutCommands.swift; sourceTree = "<group>"; };
@@ -148,6 +164,20 @@
 		F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGANetworkClient.swift; sourceTree = "<group>"; };
 		F78187F7A7D91C4B955A2FEB /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
 		FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SNGAApp.swift; sourceTree = "<group>"; };
+		A6F100000000000000000002 /* PostContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContent.swift; sourceTree = "<group>"; };
+		A6F100000000000000000004 /* PostContentBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentBuilder.swift; sourceTree = "<group>"; };
+		A6F100000000000000000006 /* EmoticonImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmoticonImageStore.swift; sourceTree = "<group>"; };
+		A6F100000000000000000008 /* PostContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentView.swift; sourceTree = "<group>"; };
+		A6F10000000000000000000A /* PostContentBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentBuilderTests.swift; sourceTree = "<group>"; };
+		A6F10000000000000000000C /* RequestSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSlot.swift; sourceTree = "<group>"; };
+		A6F10000000000000000000E /* RequestSlotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSlotTests.swift; sourceTree = "<group>"; };
+		A6F100000000000000000010 /* PostQuoteExpander.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostQuoteExpander.swift; sourceTree = "<group>"; };
+		A6F100000000000000000012 /* PostQuoteExpanderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostQuoteExpanderTests.swift; sourceTree = "<group>"; };
+		A6F100000000000000000014 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		A6F100000000000000000016 /* ThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadStore.swift; sourceTree = "<group>"; };
+		A6F100000000000000000018 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
+		A6F10000000000000000001A /* FavoriteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteStore.swift; sourceTree = "<group>"; };
+		A6F10000000000000000001C /* ForumStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -165,6 +195,12 @@
 		2728E3DCBAA2D5D76F0D97BD /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A6F10000000000000000001C /* ForumStore.swift */,
+				A6F10000000000000000001A /* FavoriteStore.swift */,
+				A6F100000000000000000018 /* MessageStore.swift */,
+				A6F100000000000000000016 /* ThreadStore.swift */,
+				A6F100000000000000000014 /* AppSession.swift */,
+				A6F10000000000000000000C /* RequestSlot.swift */,
 				A65E00000000000000000004 /* AboutCommands.swift */,
 				56BF648EE4A2EC4050DC77E4 /* AppModel.swift */,
 				FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */,
@@ -193,6 +229,7 @@
 		9A07DA85DABC6A64464A35D7 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				A6F100000000000000000002 /* PostContent.swift */,
 				45E326F278EE7F0B5619DC66 /* DomainModels.swift */,
 				0734A89E0257A2AF3D07BEF8 /* ForumSearchKind.swift */,
 				26C34AD076AC4B138FF17703 /* ForumSearchPage.swift */,
@@ -238,6 +275,8 @@
 		B0E9269AAA2BBF7019360B58 /* Network */ = {
 			isa = PBXGroup;
 			children = (
+				A6F100000000000000000010 /* PostQuoteExpander.swift */,
+				A6F100000000000000000004 /* PostContentBuilder.swift */,
 				30F28E6EC3AF398C4F536780 /* ForumService.swift */,
 				BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */,
 				BE78B47EBCD9C893087DA621 /* NGAForumService.swift */,
@@ -274,6 +313,7 @@
 				AC2FE63519863D051826534B /* RootView.swift */,
 				A61B00000000000000000002 /* SettingsView.swift */,
 				F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */,
+				A67E00000000000000000002 /* ThreadPageContentView.swift */,
 				6F0C86AA303E8B9438408600 /* ThreadViews.swift */,
 				A60A00000000000000000004 /* ToolboxViews.swift */,
 			);
@@ -283,6 +323,8 @@
 		E38CA9081796C1C452348BEF /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				A6F100000000000000000008 /* PostContentView.swift */,
+				A6F100000000000000000006 /* EmoticonImageStore.swift */,
 				2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */,
 				A61B00000000000000000008 /* MouseWheelZoomMonitor.swift */,
 				A61B00000000000000000006 /* NGAEmoticonPicker.swift */,
@@ -302,6 +344,9 @@
 		E83F715C57A40DEB0B666CCA /* SNGATests */ = {
 			isa = PBXGroup;
 			children = (
+				A6F100000000000000000012 /* PostQuoteExpanderTests.swift */,
+				A6F10000000000000000000E /* RequestSlotTests.swift */,
+				A6F10000000000000000000A /* PostContentBuilderTests.swift */,
 				2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */,
 				53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
@@ -426,6 +471,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6F10000000000000000001B /* ForumStore.swift in Sources */,
+				A6F100000000000000000019 /* FavoriteStore.swift in Sources */,
+				A6F100000000000000000017 /* MessageStore.swift in Sources */,
+				A6F100000000000000000015 /* ThreadStore.swift in Sources */,
+				A6F100000000000000000013 /* AppSession.swift in Sources */,
+				A6F10000000000000000000F /* PostQuoteExpander.swift in Sources */,
+				A6F10000000000000000000B /* RequestSlot.swift in Sources */,
+				A6F100000000000000000007 /* PostContentView.swift in Sources */,
+				A6F100000000000000000005 /* EmoticonImageStore.swift in Sources */,
+				A6F100000000000000000003 /* PostContentBuilder.swift in Sources */,
+				A6F100000000000000000001 /* PostContent.swift in Sources */,
 				A65E00000000000000000003 /* AboutCommands.swift in Sources */,
 				A65E00000000000000000001 /* AboutView.swift in Sources */,
 				DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */,
@@ -474,6 +530,7 @@
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
+				A67E00000000000000000001 /* ThreadPageContentView.swift in Sources */,
 				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
 				A61B00000000000000000007 /* MouseWheelZoomMonitor.swift in Sources */,
 				A61B00000000000000000005 /* NGAEmoticonPicker.swift in Sources */,
@@ -493,6 +550,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6F100000000000000000011 /* PostQuoteExpanderTests.swift in Sources */,
+				A6F10000000000000000000D /* RequestSlotTests.swift in Sources */,
+				A6F100000000000000000009 /* PostContentBuilderTests.swift in Sources */,
 				FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */,
 				2B527AAC590E9D6EF7E2C82C /* ForumSearchTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
@@ -585,7 +645,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;
@@ -628,7 +688,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.7.1;
+				MARKETING_VERSION = 1.8.0;
 
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;

@@ -20,7 +20,10 @@ final class PostWebViewCache {
     static let shared = PostWebViewCache()
     private let entries = NSCache<NSString, Entry>()
 
-    init(countLimit: Int = 60) {
+    /// 缓存里每一项都是一个存活的 `WKWebView`，代价远高于普通的值缓存。
+    /// 楼层改为按需创建后，滚出视口的楼层会频繁进出这里，因此上限按
+    /// “回滚一两屏够用” 来定，而不是按整页楼层数。
+    init(countLimit: Int = 20) {
         entries.countLimit = countLimit
     }
 
@@ -84,29 +87,38 @@ enum PostImagePolicy {
 struct PostWebView: NSViewRepresentable {
     private static let heightMessageName = "sngaContentHeightChanged"
     private static let imageMessageName = "sngaImageClicked"
+    private static let contentReadyMessageName = "sngaContentReady"
     @MainActor private static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
     private static let heightObserverScript = """
     (() => {
         if (window.__sngaHeightObserverInstalled) return;
         window.__sngaHeightObserverInstalled = true;
 
-        let notificationPending = false;
+        let notificationTimer = 0;
+        let lastReportedHeight = 0;
+        const measuredHeight = () => {
+            const content = document.getElementById("snga-post-content") || document.body;
+            if (!content) return 0;
+            const rect = content.getBoundingClientRect();
+            return Math.ceil(Math.max(0, rect.height, content.scrollHeight));
+        };
         const notify = () => {
-            if (notificationPending) return;
-            notificationPending = true;
-            requestAnimationFrame(() => {
-                notificationPending = false;
-                window.webkit.messageHandlers.sngaContentHeightChanged.postMessage(null);
-            });
+            window.clearTimeout(notificationTimer);
+            notificationTimer = window.setTimeout(() => {
+                notificationTimer = 0;
+                requestAnimationFrame(() => {
+                    const height = measuredHeight();
+                    if (Math.abs(height - lastReportedHeight) <= 0.5) return;
+                    lastReportedHeight = height;
+                    window.webkit.messageHandlers.sngaContentHeightChanged.postMessage(height);
+                });
+            }, 80);
         };
 
         const content = document.getElementById("snga-post-content") || document.body;
         if (!content) return;
         const observer = new ResizeObserver(notify);
         observer.observe(content);
-        document.querySelectorAll("img, .snga-image-placeholder, details, table, pre, blockquote").forEach((element) => {
-            observer.observe(element);
-        });
         window.__sngaHeightObserver = observer;
         document.addEventListener("toggle", notify, true);
         document.addEventListener("load", notify, true);
@@ -135,6 +147,7 @@ struct PostWebView: NSViewRepresentable {
             if (alt) image.setAttribute("alt", alt);
             if (originalClass) image.setAttribute("class", originalClass);
             image.setAttribute("loading", "eager");
+            image.setAttribute("decoding", "async");
             image.setAttribute("referrerpolicy", "no-referrer");
             image.draggable = false;
             image.style.cursor = "zoom-in";
@@ -170,6 +183,47 @@ struct PostWebView: NSViewRepresentable {
             event.stopPropagation();
             loadDeferredImage(placeholder);
         }, true);
+    })();
+    """
+    private static let contentReadyScript = """
+    (() => {
+        if (window.__sngaContentReadyInstalled) return;
+        window.__sngaContentReadyInstalled = true;
+
+        const images = Array.from(document.images);
+        images.forEach((image) => {
+            image.loading = "eager";
+            image.decoding = "async";
+        });
+
+        const waitForImage = (image) => new Promise((resolve) => {
+            const finish = () => {
+                if (typeof image.decode !== "function") {
+                    resolve();
+                    return;
+                }
+                image.decode().catch(() => {}).finally(resolve);
+            };
+            if (image.complete) {
+                finish();
+                return;
+            }
+            image.addEventListener("load", finish, { once: true });
+            image.addEventListener("error", resolve, { once: true });
+        });
+
+        const imagesReady = Promise.all(images.map(waitForImage));
+        const timeout = new Promise((resolve) => window.setTimeout(resolve, 15000));
+        Promise.race([imagesReady, timeout])
+            .then(() => new Promise(requestAnimationFrame))
+            .then(() => new Promise(requestAnimationFrame))
+            .then(() => {
+                const content = document.getElementById("snga-post-content") || document.body;
+                if (!content) return;
+                const rect = content.getBoundingClientRect();
+                const height = Math.ceil(Math.max(0, rect.height, content.scrollHeight));
+                window.webkit.messageHandlers.sngaContentReady.postMessage(height);
+            });
     })();
     """
     static let randomBlockCarouselScript = """
@@ -232,18 +286,20 @@ struct PostWebView: NSViewRepresentable {
     @Binding var contentHeight: CGFloat
     var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
     var onOpenImage: @MainActor (URL) -> Void = { _ in }
+    var onContentReady: @MainActor () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             height: $contentHeight,
             cacheKey: cacheKey,
             onOpenInternalLink: onOpenInternalLink,
-            onOpenImage: onOpenImage
+            onOpenImage: onOpenImage,
+            onContentReady: onContentReady
         )
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let themedHTML = renderedHTML
+        let themedHTML = context.coordinator.renderedHTML(for: self)
         if let cacheKey,
            let cached = PostWebViewCache.shared.take(
                for: cacheKey,
@@ -264,6 +320,11 @@ struct PostWebView: NSViewRepresentable {
                 webView,
                 delays: [0.05, 0.25]
             )
+            let coordinator = context.coordinator
+            Task { @MainActor in
+                await Task.yield()
+                coordinator.reportContentReady(height: cached.height)
+            }
             return webView
         }
 
@@ -290,6 +351,11 @@ struct PostWebView: NSViewRepresentable {
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         ))
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.contentReadyScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        ))
         let webView = PassthroughWebView(frame: .zero, configuration: configuration)
         configure(webView, coordinator: context.coordinator)
         webView.setValue(false, forKey: "drawsBackground")
@@ -310,6 +376,9 @@ struct PostWebView: NSViewRepresentable {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: imageMessageName
         )
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: contentReadyMessageName
+        )
         if let cacheKey = coordinator.cacheKey, !cachedHTML.isEmpty {
             PostWebViewCache.shared.store(
                 webView,
@@ -324,14 +393,18 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let themedHTML = renderedHTML
+        let themedHTML = context.coordinator.renderedHTML(for: self)
         if context.coordinator.lastHTML != themedHTML {
             context.coordinator.prepareForLoad(themedHTML)
             webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
         }
     }
 
-    private var renderedHTML: String {
+    fileprivate static func render(
+        html: String,
+        theme: ResolvedAppTheme,
+        imageFreeMode: Bool
+    ) -> String {
         PostImagePolicy.applying(
             to: theme.applying(to: html),
             hidesRemoteImages: imageFreeMode
@@ -349,6 +422,10 @@ struct PostWebView: NSViewRepresentable {
         controller.add(
             coordinator,
             name: Self.imageMessageName
+        )
+        controller.add(
+            coordinator,
+            name: Self.contentReadyMessageName
         )
     }
 
@@ -369,24 +446,62 @@ struct PostWebView: NSViewRepresentable {
         let cacheKey: String?
         let onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void
         let onOpenImage: @MainActor (URL) -> Void
+        let onContentReady: @MainActor () -> Void
         var lastHTML = ""
+        private var renderCache: RenderCache?
         private var documentGeneration = 0
         private var isInvalidated = false
         private var measurementInFlight = false
         private var measurementRequested = false
         private var measurementTask: Task<Void, Never>?
+        private var hasReportedContentReady = false
         private var processRecoveryDates: [Date] = []
 
         init(
             height: Binding<CGFloat>,
             cacheKey: String?,
             onOpenInternalLink: @escaping @MainActor (NGAInternalDestination) -> Void,
-            onOpenImage: @escaping @MainActor (URL) -> Void
+            onOpenImage: @escaping @MainActor (URL) -> Void,
+            onContentReady: @escaping @MainActor () -> Void
         ) {
             _height = height
             self.cacheKey = cacheKey
             self.onOpenInternalLink = onOpenInternalLink
             self.onOpenImage = onOpenImage
+            self.onContentReady = onContentReady
+        }
+
+        private struct RenderCache {
+            let source: String
+            let theme: ResolvedAppTheme
+            let imageFreeMode: Bool
+            let output: String
+        }
+
+        /// `updateNSView` 会在每个 SwiftUI 更新周期对每个楼层各跑一次，而渲染要做
+        /// 六次以上的全文替换，无图模式下还要完整解析一遍 HTML —— 全部在主线程。
+        /// 主题与无图模式都是低频变化量，这里按输入记忆化，未变时直接复用。
+        /// 相同 `Post` 值传来的 `html` 是同一份字符串存储，`==` 走的是常数时间快路径。
+        @MainActor
+        fileprivate func renderedHTML(for view: PostWebView) -> String {
+            if let renderCache,
+               renderCache.source == view.html,
+               renderCache.theme == view.theme,
+               renderCache.imageFreeMode == view.imageFreeMode {
+                return renderCache.output
+            }
+            let output = PostWebView.render(
+                html: view.html,
+                theme: view.theme,
+                imageFreeMode: view.imageFreeMode
+            )
+            renderCache = RenderCache(
+                source: view.html,
+                theme: view.theme,
+                imageFreeMode: view.imageFreeMode,
+                output: output
+            )
+            return output
         }
 
         @MainActor
@@ -397,6 +512,7 @@ struct PostWebView: NSViewRepresentable {
             measurementRequested = false
             measurementTask?.cancel()
             measurementTask = nil
+            hasReportedContentReady = false
             lastHTML = html
         }
 
@@ -408,6 +524,7 @@ struct PostWebView: NSViewRepresentable {
             measurementRequested = false
             measurementTask?.cancel()
             measurementTask = nil
+            hasReportedContentReady = false
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
@@ -468,10 +585,7 @@ struct PostWebView: NSViewRepresentable {
                     }
                     self.measurementInFlight = false
                     if let number = result as? NSNumber {
-                        let measured = max(22, CGFloat(truncating: number))
-                        if abs(self.height - measured) > 0.5 {
-                            self.height = measured
-                        }
+                        self.applyMeasuredHeight(CGFloat(truncating: number))
                     }
                     if self.measurementRequested, let webView {
                         self.measurementRequested = false
@@ -479,6 +593,22 @@ struct PostWebView: NSViewRepresentable {
                     }
                 }
             }
+        }
+
+        @MainActor
+        private func applyMeasuredHeight(_ measured: CGFloat) {
+            let normalizedHeight = max(22, measured)
+            if abs(height - normalizedHeight) > 0.5 {
+                height = normalizedHeight
+            }
+        }
+
+        @MainActor
+        fileprivate func reportContentReady(height measured: CGFloat) {
+            guard !isInvalidated, !hasReportedContentReady else { return }
+            applyMeasuredHeight(measured)
+            hasReportedContentReady = true
+            onContentReady()
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -509,11 +639,22 @@ struct PostWebView: NSViewRepresentable {
                 }
                 return
             }
+            if message.name == PostWebView.contentReadyMessageName,
+               let number = message.body as? NSNumber {
+                Task { @MainActor [weak self] in
+                    self?.reportContentReady(height: CGFloat(truncating: number))
+                }
+                return
+            }
             guard message.name == PostWebView.heightMessageName,
                   let webView = message.webView else { return }
             Task { @MainActor [weak self, weak webView] in
                 guard let self, let webView else { return }
-                self.scheduleMeasurements(webView, delays: [0.05])
+                if let number = message.body as? NSNumber {
+                    self.applyMeasuredHeight(CGFloat(truncating: number))
+                } else {
+                    self.scheduleMeasurements(webView, delays: [0.05])
+                }
             }
         }
 
@@ -634,23 +775,78 @@ struct PostBodyView: View {
     @Environment(\.sngaTheme) private var theme
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     var html: String
+    /// 可原生渲染的正文。为 nil 时回退到 `WKWebView`。
+    var nativeContent: PostContent? = nil
     var cacheKey: String? = nil
+    var loadOrder: Int? = nil
     var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
+    var onContentReady: @MainActor () -> Void = {}
+    private static let maximumStaggerSteps = 4
     @State private var height: CGFloat = 24
+    @State private var isReadyToCreateWebView = false
 
     var body: some View {
-        PostWebView(
-            html: html,
-            theme: theme,
-            imageFreeMode: imageFreeMode,
-            cacheKey: cacheKey,
-            contentHeight: $height,
-            onOpenInternalLink: onOpenInternalLink,
-            onOpenImage: { url in
-                model.previewImageURL = url
+        // 原生分支只可能包含表情，而无图模式本就放行表情，因此不受该设置影响。
+        if let nativeContent {
+            nativeBody(nativeContent)
+        } else {
+            webViewBody
+        }
+    }
+
+    /// 原生分支不需要测高，也不产生 WKWebView，因此直接汇报就绪。
+    private func nativeBody(_ content: PostContent) -> some View {
+        PostContentView(
+            content: content,
+            onOpenLink: { url in
+                if let destination = NGAInternalLink.destination(for: url) {
+                    onOpenInternalLink(destination)
+                } else {
+                    NSWorkspace.shared.open(url)
+                }
             }
         )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: content) {
+            onContentReady()
+        }
+    }
+
+    private var webViewBody: some View {
+        Group {
+            if loadOrder == nil || isReadyToCreateWebView {
+                PostWebView(
+                    html: html,
+                    theme: theme,
+                    imageFreeMode: imageFreeMode,
+                    cacheKey: cacheKey,
+                    contentHeight: $height,
+                    onOpenInternalLink: onOpenInternalLink,
+                    onOpenImage: { url in
+                        model.previewImageURL = url
+                    },
+                    onContentReady: onContentReady
+                )
+            } else {
+                Color.clear
+                    .frame(height: 24)
+                    .accessibilityHidden(true)
+            }
+        }
             .frame(maxWidth: .infinity)
             .frame(height: max(height, 24))
+            .task(id: loadOrder) {
+                guard let loadOrder else { return }
+                isReadyToCreateWebView = false
+                // 错峰只是为了避免同一个 runloop 周期内集中创建 WKWebView。
+                // 楼层改为按需创建后，滚动位置本身就带来了天然错峰，因此给延迟封顶 ——
+                // 否则滚到第 20 层时会凭空多等 400ms 才开始渲染。
+                let staggerSteps = min(loadOrder, Self.maximumStaggerSteps)
+                if staggerSteps > 0 {
+                    try? await Task.sleep(for: .milliseconds(staggerSteps * 20))
+                }
+                guard !Task.isCancelled else { return }
+                isReadyToCreateWebView = true
+            }
     }
 }

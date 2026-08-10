@@ -199,9 +199,31 @@ actor DebugForumService: NGAForumService {
               <p><a href="https://bbs.nga.cn/read.php?tid=9002">打开站内关联话题</a></p>
               """
             : "<p>这是通过站内链接打开的关联话题。</p>"
+        let sanitizedFirstPostHTML = NGAParser().sanitizedPostHTML(firstPostHTML)
+        let renderedFirstPostHTML: String
+        if isPrimaryTopic,
+           ProcessInfo.processInfo.arguments.contains("--uitesting-image-thread") {
+            let tallImage = """
+            <img
+                src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMjQwMCI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIyNDAwIiBmaWxsPSIjY2NjIi8+PC9zdmc+"
+                width="100"
+                height="2400"
+                loading="eager"
+                decoding="async"
+                alt="滚动性能测试图片"
+            >
+            """
+            renderedFirstPostHTML = sanitizedFirstPostHTML.replacingOccurrences(
+                of: "</main>",
+                with: "\(tallImage)</main>"
+            )
+        } else {
+            renderedFirstPostHTML = sanitizedFirstPostHTML
+        }
+        let postIDOffset = page == 1 ? 0 : Int64((page - 1) * 100)
         let allPosts = [
             Post(
-                id: PostID(rawValue: 1),
+                id: PostID(rawValue: 1 + postIDOffset),
                 topicID: topicID,
                 floor: 0,
                 author: "测试用户",
@@ -226,7 +248,7 @@ actor DebugForumService: NGAForumService {
                     )
                     : nil,
                 postedAt: Date(timeIntervalSince1970: 1_785_000_000),
-                html: NGAParser().sanitizedPostHTML(firstPostHTML),
+                html: renderedFirstPostHTML,
                 poll: isPrimaryTopic
                     ? TopicPoll(
                         id: topicID,
@@ -250,7 +272,7 @@ actor DebugForumService: NGAForumService {
                     : nil
             ),
             Post(
-                id: PostID(rawValue: 2),
+                id: PostID(rawValue: 2 + postIDOffset),
                 topicID: topicID,
                 floor: 1,
                 author: "回复用户",

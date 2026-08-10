@@ -12,7 +12,7 @@ struct ForumSearchResultsView: View {
                 } label: {
                     TopicInteractiveRow(
                         topic: topic,
-                        isSelected: model.selectedTopicID == topic.id
+                        isSelected: model.thread.selectedTopicID == topic.id
                     )
                 }
                 .buttonStyle(.plain)

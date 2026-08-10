@@ -7,6 +7,48 @@ struct ParsedHTMLForm: Sendable {
     var fields: [String: String]
 }
 
+/// 编译一个正则的成本远高于用它匹配一次，而解析器里同一批 pattern 会在每个楼层、
+/// 每一页上反复出现。这里按 pattern 与 options 缓存已编译的表达式；
+/// `NSRegularExpression` 匹配本身是线程安全的，可以跨账号 actor 共享。
+private final class CachedRegularExpressions: @unchecked Sendable {
+    private struct Key: Hashable {
+        let pattern: String
+        let options: NSRegularExpression.Options.RawValue
+    }
+
+    static let shared = CachedRegularExpressions()
+
+    /// 少数 pattern 由站点字段名拼出。正常取值有限，这里仍设上限兜底，
+    /// 避免页面结构异变时缓存无限增长。
+    private static let capacity = 256
+
+    private let lock = NSLock()
+    private var storage: [Key: NSRegularExpression] = [:]
+
+    func expression(
+        pattern: String,
+        options: NSRegularExpression.Options = []
+    ) -> NSRegularExpression? {
+        let key = Key(pattern: pattern, options: options.rawValue)
+        lock.lock()
+        let cached = storage[key]
+        lock.unlock()
+        if let cached { return cached }
+
+        guard let compiled = try? NSRegularExpression(
+            pattern: pattern,
+            options: options
+        ) else {
+            return nil
+        }
+        lock.lock()
+        if storage.count >= Self.capacity { storage.removeAll(keepingCapacity: true) }
+        storage[key] = compiled
+        lock.unlock()
+        return compiled
+    }
+}
+
 struct NGAParser: Sendable {
     func profile(from response: NGAHTTPResponse, expectedUID: Int64) throws -> Profile {
         let text = try response.decodedString()
@@ -618,9 +660,7 @@ struct NGAParser: Sendable {
             for row in rows {
                 guard let floor = try htmlFloor(in: row) else { continue }
                 let metadata = htmlPostMetadata[floor]
-                let content = try row.select(
-                    "#postcontent\(floor), #post_content\(floor), [id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
-                ).first
+                let content = try htmlPostContent(in: row, floor: floor)
                 guard let content else { continue }
                 let contentHTML = try content.html()
                 let authorUID = metadata?.authorUID
@@ -651,7 +691,7 @@ struct NGAParser: Sendable {
             var fallbackID: Int64 = Int64(page * 10_000)
             let candidates = try document.select(
                 "[id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
-            )
+            ).filter { !isHTMLPostContentAndSubjectWrapper($0) }
             for element in candidates {
                 let elementID = element.id()
                 let floor = digits(in: elementID).flatMap(Int.init)
@@ -932,7 +972,7 @@ struct NGAParser: Sendable {
 
     private func checkInAlreadyCompletedMessage(from source: String) -> String {
         let message = concise(source)
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"服务器时间\s*([0-9]{4}-[0-9]{2}-[0-9]{2}\s+[0-9]{2}:[0-9]{2}:[0-9]{2})"#,
             options: .caseInsensitive
         ) else {
@@ -1111,7 +1151,7 @@ struct NGAParser: Sendable {
     private func structuredMessageItems(in source: String) -> [String] {
         // SwiftSoup 的 HTML 解析器会丢弃以 "_" 开头的 NGA XML 标签，
         // 因此只在已限定的 <__MESSAGE> 片段内提取 <item>，避免把正文误判为状态。
-        guard let envelopeExpression = try? NSRegularExpression(
+        guard let envelopeExpression = CachedRegularExpressions.shared.expression(
             pattern: #"<__MESSAGE\b[^>]*>([\s\S]*?)</__MESSAGE>"#,
             options: .caseInsensitive
         ) else { return [] }
@@ -1121,7 +1161,7 @@ struct NGAParser: Sendable {
             return []
         }
         let envelope = String(source[envelopeRange])
-        guard let itemExpression = try? NSRegularExpression(
+        guard let itemExpression = CachedRegularExpressions.shared.expression(
             pattern: #"<item\b[^>]*>([\s\S]*?)</item>"#,
             options: .caseInsensitive
         ) else { return [] }
@@ -1174,7 +1214,7 @@ struct NGAParser: Sendable {
     }
 
     private func structuredSection(named name: String, in source: String) -> String? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"<\#(name)\b[^>]*>([\s\S]*?)</\#(name)>"#,
             options: .caseInsensitive
         ) else { return nil }
@@ -1187,7 +1227,7 @@ struct NGAParser: Sendable {
     }
 
     private func structuredInteger(named name: String, in source: String) -> Int? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"<\#(name)\b[^>]*>\s*(-?\d+)\s*</\#(name)>"#,
             options: .caseInsensitive
         ) else { return nil }
@@ -1199,13 +1239,93 @@ struct NGAParser: Sendable {
         return Int(source[capture])
     }
 
+    /// 可复用的楼层清洗器。整页楼层的白名单规则完全相同，构造一次即可反复使用，
+    /// 省掉逐楼重建 `Whitelist` 的十余次 addTags/addAttributes。
+    ///
+    /// 持有 `Whitelist`（SwiftSoup 的 class，非 Sendable），因此只应在单次
+    /// 解析调用内部使用，不要跨隔离域传递。清洗过程只读取白名单，不修改它。
+    struct PostHTMLSanitizer {
+        fileprivate let parser: NGAParser
+        fileprivate let whitelist: Whitelist?
+
+        /// 清洗出楼层正文，同时给出可原生渲染的结构（无法原生还原时为 nil）。
+        func post(
+            _ source: String,
+            topicRating: TopicRating? = nil
+        ) -> SanitizedPost {
+            parser.sanitizedPost(
+                source,
+                topicRating: topicRating,
+                whitelist: whitelist
+            )
+        }
+
+        func callAsFunction(
+            _ source: String,
+            topicRating: TopicRating? = nil
+        ) -> String {
+            post(source, topicRating: topicRating).html
+        }
+    }
+
+    func makePostHTMLSanitizer() -> PostHTMLSanitizer {
+        PostHTMLSanitizer(parser: self, whitelist: try? Self.makePostWhitelist())
+    }
+
     func sanitizedPostHTML(
         _ source: String,
         topicRating: TopicRating? = nil
     ) -> String {
+        makePostHTMLSanitizer()(source, topicRating: topicRating)
+    }
+
+    func sanitizedPost(
+        _ source: String,
+        topicRating: TopicRating? = nil
+    ) -> SanitizedPost {
+        makePostHTMLSanitizer().post(source, topicRating: topicRating)
+    }
+
+    private static func makePostWhitelist() throws -> Whitelist {
+        try Whitelist.relaxed()
+            .addTags("details", "summary", "section", "hr", "button")
+            .addAttributes("a", "class")
+            .addAttributes(
+                "button",
+                "class",
+                "type",
+                "data-snga-random-block-index",
+                "aria-label",
+                "aria-pressed"
+            )
+            .addAttributes(
+                "img",
+                "class",
+                "width",
+                "height",
+                "loading",
+                "decoding",
+                "referrerpolicy"
+            )
+            .addAttributes("span", "class")
+            .addAttributes("div", "class", "role", "aria-label", "aria-hidden")
+            .addAttributes("h3", "class")
+            .addAttributes("section", "class")
+            .addAttributes("details", "open")
+            .addAttributes("td", "width", "colspan", "rowspan")
+            .addAttributes("th", "width", "colspan", "rowspan")
+    }
+
+    private func sanitizedPost(
+        _ source: String,
+        topicRating: TopicRating?,
+        whitelist: Whitelist?
+    ) -> SanitizedPost {
         let rendered = renderBBCode(source, topicRating: topicRating)
         var clean: String
+        var nativeContent: PostContent?
         do {
+            guard let whitelist else { throw NGAServiceError.invalidResponse }
             let document = try SwiftSoup.parseBodyFragment(rendered.html, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
                 for textNode in element.textNodes() {
@@ -1220,7 +1340,8 @@ struct NGAParser: Sendable {
                 let rawSource = try image.attr("src")
                 if let resolved = remoteResourceURL(rawSource, kind: .attachment) {
                     try image.attr("src", resolved.absoluteString)
-                    try image.attr("loading", "lazy")
+                    try image.attr("loading", "eager")
+                    try image.attr("decoding", "async")
                     try image.attr("referrerpolicy", "no-referrer")
                     if resolved.path.localizedCaseInsensitiveContains("/ngabbs/post/smile/") {
                         try image.addClass("nga-smile")
@@ -1239,45 +1360,30 @@ struct NGAParser: Sendable {
                 }
             }
 
-            let whitelist = try Whitelist.relaxed()
-                .addTags("details", "summary", "section", "hr", "button")
-                .addAttributes("a", "class")
-                .addAttributes(
-                    "button",
-                    "class",
-                    "type",
-                    "data-snga-random-block-index",
-                    "aria-label",
-                    "aria-pressed"
-                )
-                .addAttributes("img", "class", "loading", "referrerpolicy")
-                .addAttributes("span", "class")
-                .addAttributes("div", "class", "role", "aria-label", "aria-hidden")
-                .addAttributes("h3", "class")
-                .addAttributes("section", "class")
-                .addAttributes("details", "open")
-                .addAttributes("td", "width", "colspan", "rowspan")
-                .addAttributes("th", "width", "colspan", "rowspan")
-            clean = try SwiftSoup.clean(
-                try document.body()?.html() ?? rendered.html,
-                NGAEndpoint.baseURL.absoluteString,
-                whitelist
-            ) ?? "<p>内容无法显示</p>"
-            clean = compactedPostSpacing(clean)
+            // 直接清洗已解析的 DOM，而不是先序列化再交给 `SwiftSoup.clean` ——
+            // 后者会把同一份内容重新解析一遍，等于每个楼层解析两次。
+            // （`SwiftSoup.clean` 额外做的 nbsp 归一化只对纯文本白名单生效，这里不适用。）
+            let cleaner = Cleaner(headWhitelist: nil, bodyWhitelist: whitelist)
+            guard let cleanBody = try cleaner.clean(document).body() else {
+                throw NGAServiceError.invalidResponse
+            }
+            nativeContent = PostContentBuilder.content(from: cleanBody)
+            clean = compactedPostSpacing(try cleanBody.html())
         } catch {
             clean = "<p>内容无法显示</p>"
+            nativeContent = nil
         }
-        return """
+        let html = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
         <style>
         :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
-        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child{margin-bottom:0}p{margin:6px 0}
+        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child:not(blockquote){margin-bottom:0}p{margin:6px 0}
         img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}.ubb-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ubb-split-left{text-align:left}.ubb-split-right{text-align:right}
         .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
-        blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
+        blockquote{margin:8px 0 12px;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
         details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
         .nga-random-block-panel{display:none}.nga-random-block-panel.snga-is-active{display:block}.nga-random-block-controls{display:flex;align-items:center;justify-content:center;min-height:28px;margin:1px 0 4px;overflow:hidden}.nga-random-block-button{position:relative;width:44px;height:28px;margin:0 2px;padding:0;border:0;border-radius:8px;color:inherit;background:transparent;cursor:pointer}.nga-random-block-button::before{position:absolute;top:10px;left:10px;width:24px;height:8px;border-radius:999px;background:color-mix(in srgb,CanvasText 22%,transparent);content:""}.nga-random-block-button.snga-is-active::before{background:var(--snga-highlight)}.nga-random-block-button:hover::before{background:color-mix(in srgb,var(--snga-highlight) 72%,CanvasText)}.nga-random-block-button:focus-visible{outline:2px solid var(--snga-highlight);outline-offset:-3px}
         .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
@@ -1295,6 +1401,7 @@ struct NGAParser: Sendable {
         \(rendered.additionalStyleSheet)
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
+        return SanitizedPost(html: html, nativeContent: nativeContent)
     }
 
     private func compactedPostSpacing(_ html: String) -> String {
@@ -1473,7 +1580,7 @@ struct NGAParser: Sendable {
         in source: String
     ) -> String? {
         let escapedName = NSRegularExpression.escapedPattern(for: name)
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[comment\s+\#(escapedName)\](.*?)\[/comment\s+\#(escapedName)\]"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) else {
@@ -1511,7 +1618,7 @@ struct NGAParser: Sendable {
     }
 
     private func gameCardImageURL(_ source: String) -> URL? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[style\b[^\]]*\bsrc\s+([^\s\]]+)"#,
             options: .caseInsensitive
         ) else {
@@ -1533,7 +1640,7 @@ struct NGAParser: Sendable {
     private func gameCardReleaseItems(
         _ source: String
     ) -> [(platform: String, date: String)] {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[style\b[^\]]*\](.*?)\[/style\]\s*([12]\d{3}-\d{2}-\d{2})"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) else {
@@ -1556,7 +1663,7 @@ struct NGAParser: Sendable {
     private func gameCardWebsite(
         in source: String
     ) -> (url: URL, label: String)? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[url=([^\]]+)\](.*?)\[/url\]"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) else {
@@ -1600,7 +1707,7 @@ struct NGAParser: Sendable {
                 options: [.regularExpression, .caseInsensitive]
             )
         }
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[color=[^\]]+\].*?\[/color\]"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) else {
@@ -1628,7 +1735,7 @@ struct NGAParser: Sendable {
         in source: String,
         styles: inout PostStyleRegistry
     ) -> String {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[randomblock\](.*?)\[/randomblock\]"#,
             options: [.caseInsensitive, .dotMatchesLineSeparators]
         ) else { return source }
@@ -1729,7 +1836,7 @@ struct NGAParser: Sendable {
         _ source: String,
         styles: inout PostStyleRegistry
     ) -> String? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[fixsize\s+([^\]]+)\]"#,
             options: .caseInsensitive
         ) else { return nil }
@@ -1801,7 +1908,7 @@ struct NGAParser: Sendable {
         in source: String,
         styles: inout PostStyleRegistry
     ) -> String {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[style(?:\s+[^\]]*)?\]|\[/style\]"#,
             options: .caseInsensitive
         ) else { return source }
@@ -1845,7 +1952,7 @@ struct NGAParser: Sendable {
     }
 
     private func fixedStyleImageURL(_ source: String) -> URL? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"(?:^|\s)src\s+([^\s]+)"#,
             options: .caseInsensitive
         ) else { return nil }
@@ -2459,7 +2566,7 @@ struct NGAParser: Sendable {
     }
 
     private func tableCellWidths(in row: String) -> [Double?] {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[(?:td|th)(\d+(?:\.\d+)?)?(?:\s+([^\]]*))?\]"#,
             options: [.caseInsensitive]
         ) else {
@@ -2491,7 +2598,7 @@ struct NGAParser: Sendable {
     }
 
     private func tableCellWidth(in attributes: String) -> Double? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"(?:^|\s)width\s*=\s*["']?(\d+(?:\.\d+)?)"#,
             options: [.caseInsensitive]
         ) else {
@@ -2509,7 +2616,7 @@ struct NGAParser: Sendable {
 
     private func tableCellSpan(named name: String, in attributes: String) -> Int? {
         let escapedName = NSRegularExpression.escapedPattern(for: name)
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"(?:^|\s)\#(escapedName)\s*=\s*["']?(\d+)"#,
             options: [.caseInsensitive]
         ) else {
@@ -2889,6 +2996,26 @@ struct NGAParser: Sendable {
             return floor
         }
         return digits(in: row.id()).flatMap(Int.init)
+    }
+
+    private func htmlPostContent(in row: Element, floor: Int) throws -> Element? {
+        // NGA 会用 postcontentandsubject 包住标题和正文；必须先按楼层精确
+        // 选择正文，否则组合选择器会按文档顺序先命中外层包装节点。
+        if let exactContent = try row.select(
+            "#postcontent\(floor), #post_content\(floor)"
+        ).first {
+            return exactContent
+        }
+        return try row.select(
+            "[id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
+        ).first { !isHTMLPostContentAndSubjectWrapper($0) }
+    }
+
+    private func isHTMLPostContentAndSubjectWrapper(_ element: Element) -> Bool {
+        element.id()
+            .lowercased()
+            .replacing("_", with: "")
+            .hasPrefix("postcontentandsubject")
     }
 
     private func htmlUserMap(in source: String) -> [Int64: PostUser] {
@@ -3371,7 +3498,7 @@ struct NGAParser: Sendable {
     }
 
     private func referencedPostID(in content: String) -> Int64? {
-        guard let expression = try? NSRegularExpression(
+        guard let expression = CachedRegularExpressions.shared.expression(
             pattern: #"\[pid=(\d+)(?:,[^\]]*)?\]"#,
             options: .caseInsensitive
         ) else { return nil }
@@ -3560,6 +3687,7 @@ struct NGAParser: Sendable {
                             ?? nonEmptyString(dictionary["group"]),
                         registeredAt: date(dictionary["regdate"]),
                         prestige: int(dictionary["rvrc"]).map { Double($0) / 10 },
+                        location: nonEmptyString(dictionary["ipLoc"]),
                         medals: medals,
                         honor: normalizedUserHonor(string(dictionary["honor"])),
                         site: nonEmptyString(dictionary["site"])
@@ -3669,7 +3797,7 @@ struct NGAParser: Sendable {
 
     private func forumLevelRules(from source: String?) -> [ForumLevelRule] {
         guard let source,
-              let expression = try? NSRegularExpression(
+              let expression = CachedRegularExpressions.shared.expression(
                 pattern: #"\{\s*r\s*:\s*(-?\d+)\s*,\s*n\s*:\s*[\"']([^\"']+)[\"']\s*\}"#
               ) else {
             return []
@@ -3729,6 +3857,7 @@ struct NGAParser: Sendable {
             info.userGroup != nil ||
             info.registeredAt != nil ||
             info.prestige != nil ||
+            info.location != nil ||
             !info.medals.isEmpty ||
             info.honor != nil ||
             info.site != nil
@@ -4257,7 +4386,7 @@ struct NGAParser: Sendable {
         options: NSRegularExpression.Options = [],
         transform: ([String]) -> String
     ) -> String {
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: options) else {
+        guard let expression = CachedRegularExpressions.shared.expression(pattern: pattern, options: options) else {
             return source
         }
         let original = source as NSString

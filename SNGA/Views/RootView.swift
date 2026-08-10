@@ -9,6 +9,7 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var session = model.session
         NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
@@ -55,17 +56,17 @@ struct RootView: View {
             model.previewImageURL == nil ? .visible : .hidden,
             for: .windowToolbar
         )
-        .sheet(isPresented: $model.showsLogin) {
+        .sheet(isPresented: $session.showsLogin) {
             LoginSheet()
                 .environment(model)
         }
         .alert("SNGA", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { if !$0 { model.clearError() } }
+            get: { model.session.errorMessage != nil },
+            set: { if !$0 { model.session.clearError() } }
         )) {
-            Button("好", role: .cancel) { model.clearError() }
+            Button("好", role: .cancel) { model.session.clearError() }
         } message: {
-            Text(model.errorMessage ?? "")
+            Text(model.session.errorMessage ?? "")
         }
         .task {
             await model.bootstrap()
@@ -373,9 +374,9 @@ private struct DetailColumnView: View {
     var body: some View {
         if model.sidebarSelection == .toolbox {
             ToolboxFeedView(feed: model.selectedToolboxFeed)
-        } else if model.selectedTopicID != nil {
+        } else if model.thread.selectedTopicID != nil {
             ThreadView()
-        } else if model.selectedMessageID != nil {
+        } else if model.messaging.selectedMessageID != nil {
             MessageDetailView()
         } else {
             ContentUnavailableView(

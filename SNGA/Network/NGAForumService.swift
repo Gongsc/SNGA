@@ -137,17 +137,38 @@ actor LiveNGAForumService: NGAForumService {
                 throw error
             }
         }
+        // 展开「Reply to」抬头必须发生在清洗之前 —— 此时 html 还是原始 BBCode。
+        // 只用本页已有的楼层解析，不额外发请求：跨页引用取不到就保持原样。
+        var rawContentByID: [PostID: String] = [:]
+        for post in result.posts + result.hotReplies {
+            rawContentByID[post.id] = post.html
+        }
+        let resolve: (PostID) -> String? = { rawContentByID[$0] }
+        result.posts = PostQuoteExpander.expandingReferences(
+            in: result.posts,
+            resolve: resolve
+        )
+        result.hotReplies = PostQuoteExpander.expandingReferences(
+            in: result.hotReplies,
+            resolve: resolve
+        )
+
+        let sanitize = parser.makePostHTMLSanitizer()
         result.posts = result.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(
+            let sanitized = sanitize.post(
                 post.html,
                 topicRating: post.floor == 0 ? result.topic.rating : nil
             )
+            post.html = sanitized.html
+            post.nativeContent = sanitized.nativeContent
             return post
         }
         result.hotReplies = result.hotReplies.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            let sanitized = sanitize.post(post.html)
+            post.html = sanitized.html
+            post.nativeContent = sanitized.nativeContent
             return post
         }
         return result
@@ -198,12 +219,13 @@ actor LiveNGAForumService: NGAForumService {
     func message(id: MessageID) async throws -> ForumMessage {
         let response = try await client.request(.message(id: id))
         var message = try parser.message(from: response, id: id)
+        let sanitize = parser.makePostHTMLSanitizer()
         if let html = message.html {
-            message.html = parser.sanitizedPostHTML(html)
+            message.html = sanitize(html)
         }
         message.posts = message.posts.map { post in
             var post = post
-            post.html = parser.sanitizedPostHTML(post.html)
+            post.html = sanitize(post.html)
             return post
         }
         return message

@@ -7,11 +7,11 @@ struct SidebarView: View {
     var body: some View {
         List {
             Section("账号") {
-                ForEach(model.accounts) { account in
+                ForEach(model.session.accounts) { account in
                     SidebarAccountButton(account: account)
                 }
                 Button {
-                    model.showsLogin = true
+                    model.session.showsLogin = true
                 } label: {
                     SidebarInteractiveRow(isSelected: false) {
                         Label("添加账号", systemImage: "person.badge.plus")
@@ -22,12 +22,12 @@ struct SidebarView: View {
                 .sidebarListRow()
             }
 
-            if model.activeAccountID != nil {
+            if model.session.activeAccountID != nil {
                 Section("浏览") {
                     sidebarButton(
                         "用户中心",
                         systemImage: "person.crop.circle",
-                        selection: .userCenter(model.activeAccount?.ngaUID)
+                        selection: .userCenter(model.session.activeAccount?.ngaUID)
                     )
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
@@ -37,16 +37,16 @@ struct SidebarView: View {
                         "论坛消息",
                         systemImage: "bell",
                         selection: .messages(.notifications),
-                        badge: model.unreadCount
+                        badge: model.messaging.unreadCount
                     )
                 }
 
                 Section("最近访问") {
-                    if model.recentForums.isEmpty {
+                    if model.browsing.recentForums.isEmpty {
                         Text("暂无最近访问")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.recentForums) { forum in
+                    ForEach(model.browsing.recentForums) { forum in
                         Button {
                             Task { await model.openForum(forum) }
                         } label: {
@@ -59,7 +59,7 @@ struct SidebarView: View {
                                     Text(forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if model.isRefreshingTopics,
+                                    if model.browsing.isRefreshingTopics,
                                        model.selectedForumID == forum.id {
                                         ProgressView()
                                             .controlSize(.small)
@@ -77,11 +77,11 @@ struct SidebarView: View {
                 }
 
                 Section("收藏版面") {
-                    if model.favorites.isEmpty {
+                    if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(model.favorites, id: \.forum.id) { favorite in
+                    ForEach(model.favorite.favorites, id: \.forum.id) { favorite in
                         Button {
                             Task { await model.openForum(favorite.forum) }
                         } label: {
@@ -94,7 +94,7 @@ struct SidebarView: View {
                                     Text(favorite.forum.name)
                                         .lineLimit(1)
                                     Spacer()
-                                    if model.isRefreshingTopics,
+                                    if model.browsing.isRefreshingTopics,
                                        model.selectedForumID == favorite.forum.id {
                                         ProgressView()
                                             .controlSize(.small)
@@ -129,17 +129,17 @@ struct SidebarView: View {
     private func sidebarButton(_ title: String, systemImage: String, selection: SidebarSelection, badge: Int = 0) -> some View {
         Button {
             model.sidebarSelection = selection
-            model.selectedTopicID = nil
-            model.selectedMessageID = nil
+            model.thread.selectedTopicID = nil
+            model.messaging.selectedMessageID = nil
             switch selection {
             case .directory:
-                Task { await model.loadForums() }
+                Task { await model.browsing.loadForums() }
             case .search:
                 model.clearForumSearch()
             case .favorites, .toolbox:
                 break
             case let .userCenter(uid):
-                if let uid = uid ?? model.activeAccount?.ngaUID {
+                if let uid = uid ?? model.session.activeAccount?.ngaUID {
                     Task { await model.openUserCenter(uid: uid) }
                 }
             case .forum, .messages:
@@ -167,7 +167,7 @@ struct SidebarView: View {
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {
         if case .userCenter = selection {
-            guard let activeUID = model.activeAccount?.ngaUID,
+            guard let activeUID = model.session.activeAccount?.ngaUID,
                   case let .userCenter(displayedUID)? = model.sidebarSelection else {
                 return false
             }
@@ -206,7 +206,7 @@ private struct SidebarAccountButton: View {
         Button {
             Task { await model.selectAccount(account.id) }
         } label: {
-            SidebarInteractiveRow(isSelected: account.id == model.activeAccountID) {
+            SidebarInteractiveRow(isSelected: account.id == model.session.activeAccountID) {
                 HStack(spacing: 8) {
                     AsyncImage(url: account.avatarURL) { image in
                         image.resizable().scaledToFill()
@@ -227,7 +227,7 @@ private struct SidebarAccountButton: View {
                         }
                     }
                     Spacer()
-                    if account.id == model.activeAccountID {
+                    if account.id == model.session.activeAccountID {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.tint)
                             .accessibilityLabel("当前账号")
@@ -239,7 +239,7 @@ private struct SidebarAccountButton: View {
         .sidebarListRow()
         .contextMenu {
             if account.sessionState == .requiresLogin {
-                Button("重新登录") { model.showsLogin = true }
+                Button("重新登录") { model.session.showsLogin = true }
             }
             Button("移除账号", role: .destructive) {
                 showsRemoveConfirmation = true

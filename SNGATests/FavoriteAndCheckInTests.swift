@@ -50,31 +50,31 @@ final class FavoriteAndCheckInTests: XCTestCase {
             name: "幻兽帕鲁"
         )
         let model = AppModel(container: container)
-        model.activeAccountID = firstAccountID
+        model.session.activeAccountID = firstAccountID
 
         await model.openForum(firstForum)
         await model.openForum(secondForum)
         await model.openForum(Forum(id: firstForum.id, name: firstForum.name))
 
-        XCTAssertEqual(model.recentForums.map(\.id), [firstForum.id, secondForum.id])
-        XCTAssertEqual(model.recentForums.first?.iconURL, firstIconURL)
+        XCTAssertEqual(model.browsing.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(model.browsing.recentForums.first?.iconURL, firstIconURL)
 
         let restoredModel = AppModel(container: container)
-        restoredModel.activeAccountID = firstAccountID
-        restoredModel.forums = [
+        restoredModel.session.activeAccountID = firstAccountID
+        restoredModel.browsing.forums = [
             Forum(
                 id: secondForum.id,
                 name: secondForum.name,
                 iconURL: secondIconURL
             )
         ]
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [firstForum.id, secondForum.id])
-        XCTAssertEqual(restoredModel.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [firstForum.id, secondForum.id])
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
 
-        restoredModel.activeAccountID = secondAccountID
-        restoredModel.loadRecentForums()
-        XCTAssertTrue(restoredModel.recentForums.isEmpty)
+        restoredModel.session.activeAccountID = secondAccountID
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertTrue(restoredModel.browsing.recentForums.isEmpty)
     }
 
     @MainActor
@@ -98,34 +98,34 @@ final class FavoriteAndCheckInTests: XCTestCase {
         let accountID = AccountID(rawValue: UUID())
         let secondAccountID = AccountID(rawValue: UUID())
         let model = AppModel(container: container)
-        model.activeAccountID = accountID
+        model.session.activeAccountID = accountID
 
         await model.openForum(Forum(id: ForumID(rawValue: 1), name: "版面一"))
         await model.openForum(Forum(id: ForumID(rawValue: 2), name: "版面二"))
         await model.openForum(Forum(id: ForumID(rawValue: 3), name: "版面三"))
 
-        model.activeAccountID = secondAccountID
+        model.session.activeAccountID = secondAccountID
         await model.openForum(Forum(id: ForumID(rawValue: 11), name: "版面十一"))
         await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
         await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
 
-        model.updateRecentForumLimit(2)
+        model.browsing.updateRecentForumLimit(2)
 
-        XCTAssertEqual(model.recentForums.map(\.id), [
+        XCTAssertEqual(model.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 13),
             ForumID(rawValue: 12)
         ])
 
         let restoredModel = AppModel(container: container)
-        restoredModel.activeAccountID = accountID
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+        restoredModel.session.activeAccountID = accountID
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 3),
             ForumID(rawValue: 2)
         ])
-        restoredModel.activeAccountID = secondAccountID
-        restoredModel.loadRecentForums()
-        XCTAssertEqual(restoredModel.recentForums.map(\.id), [
+        restoredModel.session.activeAccountID = secondAccountID
+        restoredModel.browsing.loadRecentForums()
+        XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
             ForumID(rawValue: 13),
             ForumID(rawValue: 12)
         ])
@@ -165,12 +165,12 @@ final class FavoriteAndCheckInTests: XCTestCase {
             author: "Alice",
             html: "<p>A</p>"
         )
-        model.selectedTopicID = topicA.id
-        model.currentTopic = topicA
-        model.posts = [postA]
-        model.threadPage = 2
-        model.threadHasMore = true
-        model.threadTotalPages = 4
+        model.thread.selectedTopicID = topicA.id
+        model.thread.currentTopic = topicA
+        model.thread.posts = [postA]
+        model.thread.page = 2
+        model.thread.hasMore = true
+        model.thread.totalPages = 4
 
         let topicB = Topic(
             id: TopicID(rawValue: 202),
@@ -187,7 +187,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             html: "<p>B</p>"
         )
         XCTAssertTrue(
-            model.beginLinkedTopicNavigation(to: ThreadPage(
+            model.thread.beginLinkedTopicNavigation(to: ThreadPage(
                 topic: topicB,
                 posts: [postB],
                 page: 3,
@@ -195,7 +195,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
                 totalPages: 3
             ))
         )
-        XCTAssertEqual(model.previousThreadTitle, "起始主题")
+        XCTAssertEqual(model.thread.previousThreadTitle, "起始主题")
 
         let topicC = Topic(
             id: TopicID(rawValue: 303),
@@ -204,24 +204,24 @@ final class FavoriteAndCheckInTests: XCTestCase {
             author: "Carol",
             replyCount: 0
         )
-        XCTAssertTrue(model.beginLinkedTopicNavigation(to: ThreadPage(
+        XCTAssertTrue(model.thread.beginLinkedTopicNavigation(to: ThreadPage(
             topic: topicC,
             posts: [],
             page: 1,
             hasMore: false,
             totalPages: 1
         )))
-        XCTAssertTrue(model.returnToPreviousThread())
-        XCTAssertEqual(model.currentTopic, topicB)
-        XCTAssertEqual(model.posts, [postB])
-        XCTAssertEqual(model.threadPage, 3)
+        XCTAssertTrue(model.thread.returnToPreviousThread())
+        XCTAssertEqual(model.thread.currentTopic, topicB)
+        XCTAssertEqual(model.thread.posts, [postB])
+        XCTAssertEqual(model.thread.page, 3)
 
-        XCTAssertTrue(model.returnToPreviousThread())
-        XCTAssertEqual(model.currentTopic, topicA)
-        XCTAssertEqual(model.posts, [postA])
-        XCTAssertEqual(model.threadPage, 2)
-        XCTAssertEqual(model.threadTotalPages, 4)
-        XCTAssertFalse(model.canReturnToPreviousThread)
+        XCTAssertTrue(model.thread.returnToPreviousThread())
+        XCTAssertEqual(model.thread.currentTopic, topicA)
+        XCTAssertEqual(model.thread.posts, [postA])
+        XCTAssertEqual(model.thread.page, 2)
+        XCTAssertEqual(model.thread.totalPages, 4)
+        XCTAssertFalse(model.thread.canReturnToPreviousThread)
     }
 
     func testOptimisticVoteStateUpdatesCountsAndSelection() {

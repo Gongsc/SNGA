@@ -6,7 +6,7 @@ struct MessageDetailView: View {
 
     var body: some View {
         Group {
-            if let message = model.currentMessage {
+            if let message = model.messaging.currentMessage {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         MessageDetailHeader(
@@ -38,7 +38,7 @@ struct MessageDetailView: View {
                     MessageReplyView(message: message)
                         .environment(model)
                 }
-            } else if model.isLoading {
+            } else if model.session.isLoading {
                 ProgressView()
             } else {
                 ContentUnavailableView("无法显示消息", systemImage: "envelope.badge")
@@ -225,11 +225,11 @@ private struct MessageReplyView: View {
                 Button("取消") { dismiss() }
                 Button("发送") {
                     Task {
-                        if await model.replyToMessage(id: message.id, content: content) { dismiss() }
+                        if await model.messaging.reply(id: message.id, content: content) { dismiss() }
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSubmitting)
+                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.messaging.isSubmitting)
             }
             .padding()
             Divider()

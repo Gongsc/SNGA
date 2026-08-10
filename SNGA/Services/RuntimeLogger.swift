@@ -119,9 +119,13 @@ actor RuntimeLogger {
         return components.string.map(redacted) ?? redacted(url.absoluteString)
     }
 
+    /// 每行日志都会走一次脱敏，正则只编译一次。
+    private static let redactionExpression = try? NSRegularExpression(
+        pattern: #"(?i)\b(access_token|access_uid|auth|authorization|cookie|ngaPassportCid|ngaPassportUid|token)\s*([=:]\s*)("[^"]*"|'[^']*'|[^\s&,;]+)"#
+    )
+
     nonisolated static func redacted(_ value: String) -> String {
-        let pattern = #"(?i)\b(access_token|access_uid|auth|authorization|cookie|ngaPassportCid|ngaPassportUid|token)\s*([=:]\s*)("[^"]*"|'[^']*'|[^\s&,;]+)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+        guard let expression = redactionExpression else {
             return value
         }
         let range = NSRange(value.startIndex..., in: value)
