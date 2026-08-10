@@ -376,7 +376,7 @@ private struct DetailColumnView: View {
             ToolboxFeedView(feed: model.selectedToolboxFeed)
         } else if model.thread.selectedTopicID != nil {
             ThreadView()
-        } else if model.selectedMessageID != nil {
+        } else if model.messaging.selectedMessageID != nil {
             MessageDetailView()
         } else {
             ContentUnavailableView(

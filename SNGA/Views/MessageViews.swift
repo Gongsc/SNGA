@@ -7,7 +7,7 @@ struct MessageListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.messages.isEmpty && !model.session.isLoading {
+            if model.messaging.messages.isEmpty && !model.session.isLoading {
                 ContentUnavailableView(
                     folder == .notifications ? "暂无通知" : "暂无短消息",
                     systemImage: folder == .notifications ? "bell.slash" : "bubble.left"
@@ -16,33 +16,33 @@ struct MessageListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(model.messages.enumerated(), id: \.element.id) { index, message in
+                        ForEach(model.messaging.messages.enumerated(), id: \.element.id) { index, message in
                             Button {
                                 Task { await model.openMessage(message) }
                             } label: {
                                 MessageRow(
                                     message: message,
-                                    isSelected: model.selectedMessageID == message.id
+                                    isSelected: model.messaging.selectedMessageID == message.id
                                 )
                                 .contentShape(.rect)
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("message-\(message.id.rawValue)")
 
-                            if index < model.messages.count - 1 {
+                            if index < model.messaging.messages.count - 1 {
                                 Divider()
                                     .padding(.leading, 54)
                                     .padding(.trailing, 14)
                             }
                         }
 
-                        if model.messageHasMore {
+                        if model.messaging.messageHasMore {
                             Divider()
                                 .padding(.horizontal, 14)
                             Button {
                                 Task {
                                     await model.loadMessages(
-                                        folder: model.messageFolder,
+                                        folder: model.messaging.messageFolder,
                                         reset: false
                                     )
                                 }
@@ -74,7 +74,7 @@ struct MessageListView: View {
                 HStack {
                     if folder == .notifications {
                         Button {
-                            model.markAllMessagesRead(in: folder)
+                            model.messaging.markAllRead(in: folder)
                         } label: {
                             Label("全部已读", systemImage: "checkmark")
                         }
@@ -108,7 +108,7 @@ struct MessageListView: View {
     }
 
     private var unreadMessages: [ForumMessage] {
-        model.messages.filter(\.isUnread)
+        model.messaging.messages.filter(\.isUnread)
     }
 }
 

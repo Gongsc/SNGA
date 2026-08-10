@@ -37,7 +37,7 @@ struct SidebarView: View {
                         "论坛消息",
                         systemImage: "bell",
                         selection: .messages(.notifications),
-                        badge: model.unreadCount
+                        badge: model.messaging.unreadCount
                     )
                 }
 
@@ -130,7 +130,7 @@ struct SidebarView: View {
         Button {
             model.sidebarSelection = selection
             model.thread.selectedTopicID = nil
-            model.selectedMessageID = nil
+            model.messaging.selectedMessageID = nil
             switch selection {
             case .directory:
                 Task { await model.loadForums() }

@@ -6,7 +6,6 @@ import SwiftData
 @Observable
 final class AppModel {
     var sidebarSelection: SidebarSelection? = .userCenter(nil)
-    var selectedMessageID: MessageID?
     var currentProfile: Profile?
     var userActivities: [UserActivity] = []
     var userActivityUID: Int64?
@@ -34,9 +33,6 @@ final class AppModel {
     var includedSubforumIDs: Set<ForumID> = []
     var forumNavigationPath: [Forum] = []
     var currentForum: Forum?
-    var messages: [ForumMessage] = []
-    var currentMessage: ForumMessage?
-    var messageFolder: MessageFolder = .privateMessages
 
     var topicPage = 1
     var topicHasMore = false
@@ -44,9 +40,6 @@ final class AppModel {
     var favoriteTopicPage = 1
     var favoriteTopicHasMore = false
     var favoriteTopicTotalPages = 1
-    var messagePage = 1
-    var messageHasMore = false
-    var unreadCount = 0
 
     var isRefreshingTopics = false
     var topicListScrollToTopRevision = 0
@@ -61,18 +54,16 @@ final class AppModel {
     @ObservationIgnored private let forumDirectoryRequests = RequestSlot()
     @ObservationIgnored private let forumSearchRequests = RequestSlot()
     @ObservationIgnored private let topicListRequests = RequestSlot()
-    @ObservationIgnored private let messageListRequests = RequestSlot()
-    @ObservationIgnored private let messageDetailRequests = RequestSlot()
     @ObservationIgnored private let favoriteRequests = RequestSlot()
     @ObservationIgnored private let favoriteTopicFolderRequests = RequestSlot()
     @ObservationIgnored private let favoriteTopicRequests = RequestSlot()
-    @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
     private var forumUserReturnSelection: SidebarSelection?
     private var favoriteTopicIDs: Set<TopicID> = []
     private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
     let session: AppSession
     let thread: ThreadStore
+    let messaging: MessageStore
 
     private var activeService: (any NGAForumService)? { session.activeService }
 
@@ -88,11 +79,42 @@ final class AppModel {
         )
         self.session = session
         thread = ThreadStore(session: session)
+        messaging = MessageStore(session: session)
         // 「是否已收藏」归收藏域所有。话题域只需要这一个查询，用闭包倒置依赖，
         // 避免它为了一个布尔值反过来持有整个 AppModel。
         thread.provideFavoriteLookup { [weak self] topicID in
             self?.favoriteTopicIDs.contains(topicID) ?? false
         }
+        // 侧栏选择是导航状态，留在 AppModel；消息域只需要判断用户是否还停在该信箱。
+        messaging.provideSelectionCheck { [weak self] folder in
+            self?.sidebarSelection == .messages(folder)
+        }
+    }
+
+    /// 打开一条消息。指向话题的提醒需要跨域跳转，由这里协调。
+    func openMessage(_ message: ForumMessage) async {
+        thread.reset()
+        switch await messaging.open(message) {
+        case .handled:
+            break
+        case let .requestsTopic(id, subject, author):
+            await openTopic(Topic(
+                id: id,
+                forumID: ForumID(rawValue: 0),
+                subject: subject,
+                author: author,
+                replyCount: 0
+            ))
+        }
+    }
+
+    func loadMessages(folder: MessageFolder, reset: Bool = true) async {
+        sidebarSelection = .messages(folder)
+        await messaging.load(folder: folder, reset: reset)
+    }
+
+    func pollMessages() async {
+        await messaging.poll()
     }
 
     var displayedUserUID: Int64? {
@@ -344,8 +366,6 @@ final class AppModel {
             forumUserReturnSelection = nil
                     }
         sidebarSelection = .userCenter(uid)
-        selectedMessageID = nil
-        currentMessage = nil
         userActivities = []
         userActivityUID = uid
         userActivityKind = .topics
@@ -618,8 +638,8 @@ final class AppModel {
         topicTotalPages = 1
         thread.selectedTopicID = nil
         thread.currentTopic = nil
-        selectedMessageID = nil
-        currentMessage = nil
+        messaging.selectedMessageID = nil
+        messaging.currentMessage = nil
         thread.posts = []
         thread.hotReplies = []
         subforums = []
@@ -850,152 +870,8 @@ final class AppModel {
 
     @discardableResult
 
-    func loadMessages(folder: MessageFolder, reset: Bool = true) async {
-        guard let service = activeService else { return }
-        let requestAccountID = service.accountID
-        let ticket = messageListRequests.begin()
-        messageFolder = folder
-        sidebarSelection = .messages(folder)
-        let page = reset ? 1 : messagePage + 1
-        await session.withLoading(isCurrent: { ticket.isCurrent }) {
-            var result: MessagePage
-            if folder == .notifications {
-                result = try await unifiedMessageFeedPage(
-                    service: service,
-                    page: page,
-                    accountID: requestAccountID
-                )
-            } else {
-                result = try await service.messages(folder: folder, page: page)
-                result.messages = applyingPersistedReadState(
-                    to: result.messages,
-                    folder: folder,
-                    accountID: requestAccountID
-                )
-            }
-            guard session.activeAccountID == requestAccountID,
-                  ticket.isCurrent,
-                  sidebarSelection == .messages(folder),
-                  messageFolder == folder else {
-                return
-            }
-            messages = reset ? result.messages : merged(messages, result.messages)
-            messagePage = page
-            messageHasMore = result.hasMore
-            if folder == .notifications {
-                messageUnreadCounts[.privateMessages] = messages.filter {
-                    $0.kind == .privateMessage && $0.isUnread
-                }.count
-            }
-            setUnreadCount(messages.filter(\.isUnread).count, for: folder)
-        }
-    }
-
-    func openMessage(_ message: ForumMessage) async {
-        thread.reset()
-        thread.selectedTopicID = nil
-        thread.currentTopic = nil
-        selectedMessageID = message.id
-        let folder = messageFolder
-        if folder == .notifications {
-            markMessageRead(message, folder: folder)
-            if message.kind == .privateMessage {
-                guard let service = activeService else { return }
-                let requestAccountID = service.accountID
-                let ticket = messageDetailRequests.begin()
-                await session.withLoading(isCurrent: { ticket.isCurrent }) {
-                    let result = try await service.message(id: message.id)
-                    guard session.activeAccountID == requestAccountID,
-                          ticket.isCurrent,
-                          selectedMessageID == message.id else {
-                        return
-                    }
-                    currentMessage = result
-                }
-            } else if let topicID = message.topicID {
-                selectedMessageID = nil
-                currentMessage = nil
-                await openTopic(Topic(
-                    id: topicID,
-                    forumID: ForumID(rawValue: 0),
-                    subject: message.subject,
-                    author: message.sender,
-                    replyCount: 0
-                ))
-            } else {
-                currentMessage = messages.first(where: { $0.id == message.id }) ?? message
-            }
-            return
-        }
-        guard let service = activeService else { return }
-        let requestAccountID = service.accountID
-        let ticket = messageDetailRequests.begin()
-        await session.withLoading(isCurrent: { ticket.isCurrent }) {
-            let result = try await service.message(id: message.id)
-            guard session.activeAccountID == requestAccountID,
-                  ticket.isCurrent,
-                  selectedMessageID == message.id else {
-                return
-            }
-            currentMessage = result
-            markMessageRead(message, folder: folder)
-        }
-    }
-
-    func markAllMessagesRead(in folder: MessageFolder) {
-        let unreadMessages = messages.filter(\.isUnread)
-        guard messageFolder == folder, !unreadMessages.isEmpty else { return }
-
-        for index in messages.indices {
-            messages[index].isUnread = false
-        }
-        currentMessage?.isUnread = false
-        setUnreadCount(0, for: folder)
-
-        guard folder == .notifications,
-              let activeAccountID = session.activeAccountID,
-              let record = accountRecord(id: activeAccountID) else {
-            return
-        }
-        let newKeys = unreadMessages.flatMap { message in
-            var keys = [
-                UnreadMessagePolicy.key(folder: folder, messageID: message.id)
-            ]
-            if message.kind == .privateMessage {
-                keys.append(UnreadMessagePolicy.key(
-                    folder: .privateMessages,
-                    messageID: message.id
-                ))
-            }
-            return keys
-        }
-        var accumulated = Set<String>()
-        record.readNotificationKeys = Array(
-            (newKeys + record.readNotificationKeys)
-                .filter { accumulated.insert($0).inserted }
-                .prefix(UnreadMessagePolicy.maximumSeenKeyCount)
-        )
-        // 通知流中的短消息也属于“全部已读”的范围，避免侧栏保留重复角标。
-        messageUnreadCounts[.privateMessages] = 0
-        refreshUnreadCount()
-        try? session.context.save()
-    }
 
 
-    func replyToMessage(id: MessageID, content: String) async -> Bool {
-        guard let service = activeService, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        thread.isSubmitting = true
-        defer { thread.isSubmitting = false }
-        do {
-            try await service.replyMessage(id: id, content: content)
-            session.statusMessage = "私信回复已发送"
-            session.statusMessageIsError = false
-            return true
-        } catch {
-            session.present(error)
-            return false
-        }
-    }
 
     func refreshFavorites() async {
         guard let accountID = session.activeAccountID else {
@@ -1369,61 +1245,6 @@ final class AppModel {
         await pollMessages()
     }
 
-    func pollMessages() async {
-        let records = (try? session.context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        for record in records where record.sessionState == .valid {
-            guard let service = session.service(for: record.accountID) else { continue }
-            do {
-                async let privateMessages = service.messages(folder: .privateMessages, page: 1)
-                async let notifications = service.messages(folder: .notifications, page: 1)
-                var pages = try await [privateMessages, notifications]
-                if let inboxIndex = pages.firstIndex(where: { $0.folder == .privateMessages }) {
-                    pages[inboxIndex].messages = applyingPersistedReadState(
-                        to: pages[inboxIndex].messages,
-                        folder: .privateMessages,
-                        accountID: record.accountID
-                    )
-                }
-                if let notificationIndex = pages.firstIndex(where: { $0.folder == .notifications }) {
-                    pages[notificationIndex].messages.removeAll { $0.kind == .privateMessage }
-                    pages[notificationIndex].messages = applyingPersistedReadState(
-                        to: pages[notificationIndex].messages,
-                        folder: .notifications,
-                        accountID: record.accountID
-                    )
-                }
-                let update = UnreadMessagePolicy.update(
-                    pages: pages,
-                    previouslySeenKeys: record.seenUnreadMessageKeys
-                )
-                record.seenUnreadMessageKeys = update.seenKeys
-                record.unreadBaseline = update.unreadCount
-                if record.accountID == session.activeAccountID {
-                    let inboxUnread = pages
-                        .first(where: { $0.folder == .privateMessages })?
-                        .messages.filter(\.isUnread).count ?? 0
-                    let notificationUnread = pages
-                        .first(where: { $0.folder == .notifications })?
-                        .messages.filter(\.isUnread).count ?? 0
-                    messageUnreadCounts[.privateMessages] = inboxUnread
-                    messageUnreadCounts[.notifications] = inboxUnread + notificationUnread
-                    refreshUnreadCount()
-                }
-                let account = record.summary()
-                for item in update.newMessages {
-                    await session.notificationService.notify(
-                        account: account,
-                        folder: item.folder,
-                        message: item.message
-                    )
-                }
-            } catch {
-                // 私信或提醒接口偶发返回未登录时，只跳过本轮轮询。
-                // 论坛浏览仍可验证账号有效，后台接口不能单独使整个账号失效。
-            }
-        }
-        try? session.context.save()
-    }
 
     func refreshCurrentSelection() async {
         if thread.selectedTopicID != nil {
@@ -1479,7 +1300,7 @@ final class AppModel {
         let folder = MessageFolder(rawValue: messageFolderString) ?? .privateMessages
         await selectAccount(accountID)
         await loadMessages(folder: folder)
-        if let message = messages.first(where: { $0.id.rawValue == rawMessageID }) {
+        if let message = messaging.messages.first(where: { $0.id.rawValue == rawMessageID }) {
             await openMessage(message)
         }
     }
@@ -1635,8 +1456,12 @@ final class AppModel {
     }
 
 
+    /// 切换或删除账号时清空所有属于上一个账号的可见内容。
+    /// 各领域自己知道该清什么，这里只负责调用它们并清理仍留在本类型的状态。
     private func clearVisibleContent() {
         thread.reset()
+        messaging.reset()
+
         favorites = []
         recentForums = []
         favoriteTopicFolders = []
@@ -1644,18 +1469,23 @@ final class AppModel {
         favoriteTopics = []
         favoriteTopicIDs = []
         favoriteTopicFolderIDsByTopic = [:]
+        favoriteTopicPage = 1
+        favoriteTopicHasMore = false
+        favoriteTopicTotalPages = 1
+
         forums = []
         topics = []
         subforums = []
         includedSubforumIDs = []
         forumNavigationPath = []
         subforumSelectionForumID = nil
-        thread.posts = []
-        thread.hotReplies = []
-        messages = []
         currentForum = nil
-        thread.currentTopic = nil
-        currentMessage = nil
+        topicPage = 1
+        topicHasMore = false
+        topicTotalPages = 1
+        isRefreshingTopics = false
+        clearForumSearch()
+
         currentProfile = nil
         userActivities = []
         userActivityUID = nil
@@ -1663,20 +1493,8 @@ final class AppModel {
         userActivityPage = 1
         userActivityHasMore = false
         userActivityTotalPages = 1
-        clearForumSearch()
-        thread.selectedTopicID = nil
-        selectedMessageID = nil
-        thread.reset()
+
         previewImageURL = nil
-        topicPage = 1
-        topicHasMore = false
-        topicTotalPages = 1
-        favoriteTopicPage = 1
-        favoriteTopicHasMore = false
-        favoriteTopicTotalPages = 1
-        unreadCount = 0
-        messageUnreadCounts = [:]
-        isRefreshingTopics = false
     }
 
 
@@ -1685,127 +1503,11 @@ final class AppModel {
         return existing + incoming.filter { seen.insert($0.id).inserted }
     }
 
-    private func unifiedMessageFeedPage(
-        service: any NGAForumService,
-        page: Int,
-        accountID: AccountID
-    ) async throws -> MessagePage {
-        if page > 1 {
-            var inbox = try await service.messages(folder: .privateMessages, page: page)
-            inbox.messages = applyingPersistedReadState(
-                to: inbox.messages,
-                folder: .privateMessages,
-                accountID: accountID
-            )
-            return UnifiedMessageFeedPolicy.merging(notifications: nil, inbox: inbox)
-        }
 
-        async let notificationRequest: MessagePage? =
-            try? await service.messages(folder: .notifications, page: 1)
-        do {
-            var inbox = try await service.messages(folder: .privateMessages, page: 1)
-            inbox.messages = applyingPersistedReadState(
-                to: inbox.messages,
-                folder: .privateMessages,
-                accountID: accountID
-            )
-            var notifications = await notificationRequest
-            if var notificationPage = notifications {
-                notificationPage.messages = applyingPersistedReadState(
-                    to: notificationPage.messages,
-                    folder: .notifications,
-                    accountID: accountID
-                )
-                notifications = notificationPage
-            }
-            return UnifiedMessageFeedPolicy.merging(
-                notifications: notifications,
-                inbox: inbox
-            )
-        } catch {
-            guard var notifications = await notificationRequest else {
-                throw error
-            }
-            notifications.messages = applyingPersistedReadState(
-                to: notifications.messages,
-                folder: .notifications,
-                accountID: accountID
-            )
-            return UnifiedMessageFeedPolicy.merging(
-                notifications: notifications,
-                inbox: nil
-            )
-        }
-    }
 
-    private func applyingPersistedReadState(
-        to messages: [ForumMessage],
-        folder: MessageFolder,
-        accountID: AccountID
-    ) -> [ForumMessage] {
-        guard let record = accountRecord(id: accountID) else {
-            return messages
-        }
-        // 提醒接口在读取后会清除服务端未读计数；在用户实际打开提醒前，
-        // 用本地状态保留未读标记。短消息则仅应用用户明确标记的本地已读状态。
-        return NotificationReadPolicy.applying(
-            to: messages,
-            folder: folder,
-            readKeys: record.readNotificationKeys,
-            previouslyUnreadKeys: record.seenUnreadMessageKeys ?? []
-        )
-    }
 
-    private func markMessageRead(_ message: ForumMessage, folder: MessageFolder) {
-        guard message.isUnread else { return }
-        if let index = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[index].isUnread = false
-        }
-        if currentMessage?.id == message.id {
-            currentMessage?.isUnread = false
-        }
-        setUnreadCount(max(0, (messageUnreadCounts[folder] ?? 0) - 1), for: folder)
 
-        guard let activeAccountID = session.activeAccountID,
-              let record = accountRecord(id: activeAccountID) else {
-            return
-        }
-        var newKeys = [
-            UnreadMessagePolicy.key(folder: folder, messageID: message.id)
-        ]
-        if folder == .notifications, message.kind == .privateMessage {
-            newKeys.append(UnreadMessagePolicy.key(
-                folder: .privateMessages,
-                messageID: message.id
-            ))
-            messageUnreadCounts[.privateMessages] = max(
-                0,
-                (messageUnreadCounts[.privateMessages] ?? 0) - 1
-            )
-            refreshUnreadCount()
-        }
-        let newKeySet = Set(newKeys)
-        var keys = record.readNotificationKeys.filter { !newKeySet.contains($0) }
-        keys.insert(contentsOf: newKeys, at: 0)
-        record.readNotificationKeys = Array(keys.prefix(UnreadMessagePolicy.maximumSeenKeyCount))
-        try? session.context.save()
-    }
 
-    private func setUnreadCount(_ count: Int, for folder: MessageFolder) {
-        messageUnreadCounts[folder] = max(0, count)
-        refreshUnreadCount()
-    }
-
-    private func refreshUnreadCount() {
-        // “通知”已合并回复、评价、@ 和短消息；取最大值可避免短消息收件箱
-        // 与通知流同时加载后把同一批未读重复计数。
-        unreadCount = messageUnreadCounts.values.max() ?? 0
-    }
-
-    private func accountRecord(id: AccountID) -> AccountRecord? {
-        ((try? session.context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
-            .first { $0.accountID == id }
-    }
 
 
 #if DEBUG

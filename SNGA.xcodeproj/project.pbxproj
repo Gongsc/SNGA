@@ -78,6 +78,7 @@
 		A6F100000000000000000011 /* PostQuoteExpanderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000012 /* PostQuoteExpanderTests.swift */; };
 		A6F100000000000000000013 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000014 /* AppSession.swift */; };
 		A6F100000000000000000015 /* ThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000016 /* ThreadStore.swift */; };
+		A6F100000000000000000017 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6F100000000000000000018 /* MessageStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -172,6 +173,7 @@
 		A6F100000000000000000012 /* PostQuoteExpanderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostQuoteExpanderTests.swift; sourceTree = "<group>"; };
 		A6F100000000000000000014 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		A6F100000000000000000016 /* ThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadStore.swift; sourceTree = "<group>"; };
+		A6F100000000000000000018 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -189,6 +191,7 @@
 		2728E3DCBAA2D5D76F0D97BD /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A6F100000000000000000018 /* MessageStore.swift */,
 				A6F100000000000000000016 /* ThreadStore.swift */,
 				A6F100000000000000000014 /* AppSession.swift */,
 				A6F10000000000000000000C /* RequestSlot.swift */,
@@ -462,6 +465,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6F100000000000000000017 /* MessageStore.swift in Sources */,
 				A6F100000000000000000015 /* ThreadStore.swift in Sources */,
 				A6F100000000000000000013 /* AppSession.swift in Sources */,
 				A6F10000000000000000000F /* PostQuoteExpander.swift in Sources */,
