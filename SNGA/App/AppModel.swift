@@ -34,8 +34,6 @@ private struct PostAuthorLocationRequest {
 @MainActor
 @Observable
 final class AppModel {
-    var accounts: [AccountSummary] = []
-    var activeAccountID: AccountID?
     var sidebarSelection: SidebarSelection? = .userCenter(nil)
     var selectedTopicID: TopicID?
     var selectedMessageID: MessageID?
@@ -87,7 +85,6 @@ final class AppModel {
     var messageHasMore = false
     var unreadCount = 0
 
-    var isLoading = false
     var isRefreshingTopics = false
     var isLoadingThreadContent = false
     var topicListScrollToTopRevision = 0
@@ -96,26 +93,10 @@ final class AppModel {
     var submittingPollTopicIDs: Set<TopicID> = []
     var updatingFavoriteTopicIDs: Set<TopicID> = []
     var isUpdatingFavoriteTopicFolders = false
-    var showsLogin = false
-    var errorMessage: String?
-    var statusMessage: String?
-    var statusMessageIsError = false
     var previewImageURL: URL?
-    var checkingInAccountIDs: Set<AccountID> = []
-    var checkInFailures: [AccountID: String] = [:]
-    private(set) var activeAccountCheckInStatus: DailyCheckInStatus = .failed(
-        message: "尚未登录"
-    )
 
-    @ObservationIgnored private let container: ModelContainer
-    @ObservationIgnored private let context: ModelContext
-    @ObservationIgnored private let sessionStore: any SessionStore
-    @ObservationIgnored private let notificationService: NotificationService
-    @ObservationIgnored private var services: [AccountID: any NGAForumService] = [:]
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var subforumSelectionForumID: ForumID?
-    @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
-    @ObservationIgnored private var loadingRequestCount = 0
     @ObservationIgnored private let profileRequests = RequestSlot()
     @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
     @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
@@ -135,29 +116,39 @@ final class AppModel {
     private var favoriteTopicIDs: Set<TopicID> = []
     private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
+    let session: AppSession
+
+    private var activeService: (any NGAForumService)? { session.activeService }
+
     init(
         container: ModelContainer,
         sessionStore: any SessionStore = LocalSessionStore.shared,
         notificationService: NotificationService = .shared
     ) {
-        self.container = container
-        self.context = ModelContext(container)
-        self.sessionStore = sessionStore
-        self.notificationService = notificationService
-        context.autosaveEnabled = true
-    }
-
-    var activeAccount: AccountSummary? {
-        accounts.first { $0.id == activeAccountID }
+        session = AppSession(
+            container: container,
+            sessionStore: sessionStore,
+            notificationService: notificationService
+        )
+        // 话题被锁定是话题域自己的反应；AppSession 只负责统一呈现错误。
+        session.onError { [weak self] error in
+            guard let self,
+                  let serviceError = error as? NGAServiceError,
+                  serviceError == .topicLocked,
+                  currentTopic?.id == selectedTopicID else {
+                return
+            }
+            currentTopic?.isLocked = true
+        }
     }
 
     var displayedUserUID: Int64? {
         guard case let .userCenter(uid) = sidebarSelection else { return nil }
-        return uid ?? activeAccount?.ngaUID
+        return uid ?? session.activeAccount?.ngaUID
     }
 
     var isDisplayingActiveAccount: Bool {
-        guard let displayedUserUID, let activeAccount else { return false }
+        guard let displayedUserUID, let activeAccount = session.activeAccount else { return false }
         return displayedUserUID == activeAccount.ngaUID
     }
 
@@ -190,7 +181,7 @@ final class AppModel {
         if postAuthorLocationRequests[key]?.id == request.id {
             postAuthorLocationRequests[key] = nil
         }
-        guard activeAccountID == key.accountID else { return }
+        guard session.activeAccountID == key.accountID else { return }
 
         switch result {
         case let .loaded(location):
@@ -333,8 +324,8 @@ final class AppModel {
             return
         }
 #endif
-        await reloadAccountsAndServices()
-        if let activeAccount {
+        await session.reloadAccountsAndServices()
+        if let activeAccount = session.activeAccount {
             loadRecentForums()
             sidebarSelection = .userCenter(activeAccount.ngaUID)
             currentProfile = Profile(
@@ -348,65 +339,30 @@ final class AppModel {
         }
     }
 
-    func reloadAccountsAndServices() async {
-        do {
-            let records = try context.fetch(FetchDescriptor<AccountRecord>(sortBy: [SortDescriptor(\.createdAt)]))
-            if !records.isEmpty, !records.contains(where: \.isCurrent) {
-                records[0].isCurrent = true
-            }
-            services.removeAll()
-            for record in records {
-                let cookies = try await sessionStore.cookies(for: record.accountID)
-                let hasUID = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportUid") == .orderedSame &&
-                        Int64($0.value) == record.ngaUID
-                }
-                let hasCredential = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportCid") == .orderedSame &&
-                        !$0.value.isEmpty
-                }
-                if !hasUID || !hasCredential {
-                    record.sessionState = .requiresLogin
-                } else {
-                    // 本地凭据仍完整时先恢复为有效。单个 NGA 接口的偶发鉴权失败
-                    // 不应在下次启动后继续污染整个账号状态。
-                    record.sessionState = .valid
-                    services[record.accountID] = makeService(accountID: record.accountID, cookies: cookies)
-                }
-            }
-            try context.save()
-            accounts = records.map { $0.summary() }
-            activeAccountID = records.first(where: \.isCurrent)?.accountID ?? records.first?.accountID
-            refreshActiveAccountCheckInStatus(records: records)
-        } catch {
-            present(error)
-        }
-    }
-
     func addAccount(capture: LoginCapture) async {
         do {
-            let records = try context.fetch(FetchDescriptor<AccountRecord>())
+            let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
             let record: AccountRecord
             if let existing = records.first(where: { $0.ngaUID == capture.uid }) {
                 record = existing
                 record.sessionState = .valid
             } else {
                 record = AccountRecord(ngaUID: capture.uid, displayName: "NGA \(capture.uid)")
-                context.insert(record)
+                session.context.insert(record)
             }
             records.forEach { $0.isCurrent = false }
             record.isCurrent = true
-            try await sessionStore.save(cookies: capture.cookies, for: record.accountID)
-            let service = makeService(accountID: record.accountID, cookies: capture.cookies)
-            services[record.accountID] = service
+            try await session.sessionStore.save(cookies: capture.cookies, for: record.accountID)
+            let service = session.makeService(accountID: record.accountID, cookies: capture.cookies)
+            session.setService(service, for: record.accountID)
             if let profile = try? await service.profile(uid: capture.uid) {
                 record.displayName = profile.displayName
                 record.avatarURLString = profile.avatarURL?.absoluteString
             }
-            try context.save()
-            showsLogin = false
-            await reloadAccountsAndServices()
-            if let activeAccount {
+            try session.context.save()
+            session.showsLogin = false
+            await session.reloadAccountsAndServices()
+            if let activeAccount = session.activeAccount {
                 loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
@@ -419,12 +375,12 @@ final class AppModel {
             await refreshFavorites()
             await performMaintenance()
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
     func selectAccount(_ accountID: AccountID) async {
-        if activeAccountID == accountID, let account = activeAccount {
+        if session.activeAccountID == accountID, let account = session.activeAccount {
             await openUserCenter(
                 uid: account.ngaUID,
                 fallbackName: account.displayName,
@@ -433,15 +389,15 @@ final class AppModel {
             return
         }
         do {
-            let records = try context.fetch(FetchDescriptor<AccountRecord>())
+            let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
             records.forEach { $0.isCurrent = $0.accountID == accountID }
-            try context.save()
-            activeAccountID = accountID
-            accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
-            refreshActiveAccountCheckInStatus(records: records)
+            try session.context.save()
+            session.activeAccountID = accountID
+            session.accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
+            session.refreshActiveAccountCheckInStatus(records: records)
             clearVisibleContent()
             loadRecentForums()
-            if let activeAccount {
+            if let activeAccount = session.activeAccount {
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
                     uid: activeAccount.ngaUID,
@@ -451,7 +407,7 @@ final class AppModel {
             }
             await loadForums()
             await refreshFavorites()
-            if let activeAccount {
+            if let activeAccount = session.activeAccount {
                 await openUserCenter(
                     uid: activeAccount.ngaUID,
                     fallbackName: activeAccount.displayName,
@@ -459,36 +415,36 @@ final class AppModel {
                 )
             }
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
     func removeAccount(_ accountID: AccountID) async {
         do {
-            let accounts = try context.fetch(FetchDescriptor<AccountRecord>())
-            let favorites = try context.fetch(FetchDescriptor<FavoriteRecord>())
-            let drafts = try context.fetch(FetchDescriptor<DraftRecord>())
-            let subforumPreferences = try context.fetch(
+            let accountRecords = try session.context.fetch(FetchDescriptor<AccountRecord>())
+            let favorites = try session.context.fetch(FetchDescriptor<FavoriteRecord>())
+            let drafts = try session.context.fetch(FetchDescriptor<DraftRecord>())
+            let subforumPreferences = try session.context.fetch(
                 FetchDescriptor<SubforumPreferenceRecord>()
             )
-            let recentForums = try context.fetch(
+            let recentForums = try session.context.fetch(
                 FetchDescriptor<RecentForumRecord>()
             )
-            accounts.filter { $0.accountID == accountID }.forEach(context.delete)
-            favorites.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
-            drafts.filter { $0.accountIDString == accountID.description }.forEach(context.delete)
+            accountRecords.filter { $0.accountID == accountID }.forEach(session.context.delete)
+            favorites.filter { $0.accountIDString == accountID.description }.forEach(session.context.delete)
+            drafts.filter { $0.accountIDString == accountID.description }.forEach(session.context.delete)
             subforumPreferences
                 .filter { $0.accountIDString == accountID.description }
-                .forEach(context.delete)
+                .forEach(session.context.delete)
             recentForums
                 .filter { $0.accountIDString == accountID.description }
-                .forEach(context.delete)
-            try await sessionStore.remove(accountID: accountID)
-            services[accountID] = nil
-            try context.save()
-            await reloadAccountsAndServices()
+                .forEach(session.context.delete)
+            try await session.sessionStore.remove(accountID: accountID)
+            session.setService(nil, for: accountID)
+            try session.context.save()
+            await session.reloadAccountsAndServices()
             clearVisibleContent()
-            if let activeAccount {
+            if let activeAccount = session.activeAccount {
                 loadRecentForums()
                 sidebarSelection = .userCenter(activeAccount.ngaUID)
                 currentProfile = Profile(
@@ -502,7 +458,7 @@ final class AppModel {
                 sidebarSelection = .userCenter(nil)
             }
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -532,7 +488,7 @@ final class AppModel {
         userActivityHasMore = false
         userActivityTotalPages = 1
 
-        let account = accounts.first { $0.ngaUID == uid }
+        let account = session.accounts.first { $0.ngaUID == uid }
         let resolvedName = fallbackName ?? account?.displayName ?? "NGA \(uid)"
         let resolvedAvatarURL = fallbackAvatarURL ?? account?.avatarURL
         currentProfile = Profile(
@@ -544,7 +500,7 @@ final class AppModel {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let ticket = profileRequests.begin()
-        beginLoading()
+        session.beginLoading()
         do {
             var profile = try await service.profile(uid: uid)
             if profile.displayName == "NGA \(uid)", !resolvedName.isEmpty {
@@ -553,7 +509,7 @@ final class AppModel {
             if profile.avatarURL == nil {
                 profile.avatarURL = resolvedAvatarURL
             }
-            if activeAccountID == requestAccountID,
+            if session.activeAccountID == requestAccountID,
                ticket.isCurrent,
                displayedUserUID == uid {
                 currentProfile = profile
@@ -561,8 +517,8 @@ final class AppModel {
         } catch {
             // 用户中心保留楼层或账号中已有的资料，不因资料接口失败阻断浏览。
         }
-        endLoading()
-        guard activeAccountID == requestAccountID,
+        session.endLoading()
+        guard session.activeAccountID == requestAccountID,
               ticket.isCurrent,
               displayedUserUID == uid else {
             return
@@ -588,9 +544,9 @@ final class AppModel {
         let targetPage = max(1, page)
         userActivityUID = uid
         userActivityKind = kind
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.userActivities(uid: uid, kind: kind, page: targetPage)
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   displayedUserUID == uid,
                   userActivityUID == uid,
@@ -620,10 +576,10 @@ final class AppModel {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let ticket = forumDirectoryRequests.begin()
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             // NGA 的接口顺序就是官网分组和版面顺序，不能在这里全局排序。
             let result = try await service.forums()
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent else {
                 return
             }
@@ -634,7 +590,7 @@ final class AppModel {
     }
 
     func loadRecentForums() {
-        guard let activeAccountID else {
+        guard let activeAccountID = session.activeAccountID else {
             recentForums = []
             return
         }
@@ -642,9 +598,9 @@ final class AppModel {
             let maximumCount = RecentForumSettings.maximumCount
             let records = try sortedRecentForumRecords(accountID: activeAccountID)
             let discardedRecords = records.dropFirst(maximumCount)
-            discardedRecords.forEach(context.delete)
+            discardedRecords.forEach(session.context.delete)
             if !discardedRecords.isEmpty {
-                try context.save()
+                try session.context.save()
             }
             recentForums = records
                 .prefix(maximumCount)
@@ -652,7 +608,7 @@ final class AppModel {
                 .map(enrichingForumFromDirectory)
         } catch {
             recentForums = []
-            present(error)
+            session.present(error)
         }
     }
 
@@ -663,22 +619,22 @@ final class AppModel {
                 maximumCount,
                 forKey: RecentForumSettings.maximumCountKey
             )
-            let records = try context.fetch(FetchDescriptor<RecentForumRecord>())
+            let records = try session.context.fetch(FetchDescriptor<RecentForumRecord>())
             let groupedRecords = Dictionary(grouping: records, by: \.accountIDString)
             var removedAnyRecord = false
             for accountRecords in groupedRecords.values {
                 let sortedRecords = accountRecords.sorted(by: recentForumRecordComesFirst)
                 for record in sortedRecords.dropFirst(maximumCount) {
-                    context.delete(record)
+                    session.context.delete(record)
                     removedAnyRecord = true
                 }
             }
             if removedAnyRecord {
-                try context.save()
+                try session.context.save()
             }
             loadRecentForums()
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -701,7 +657,7 @@ final class AppModel {
 
         do {
             var result = try await service.search(request, page: targetPage)
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   forumSearchRequest == request else {
                 return
@@ -711,7 +667,7 @@ final class AppModel {
         } catch is CancellationError {
             return
         } catch {
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   forumSearchRequest == request else {
                 return
@@ -720,7 +676,7 @@ final class AppModel {
             forumSearchErrorMessage = error.localizedDescription
             if let serviceError = error as? NGAServiceError,
                serviceError == .requiresLogin {
-                present(error)
+                session.present(error)
             } else {
                 Task {
                     await RuntimeLogger.shared.log(
@@ -814,7 +770,7 @@ final class AppModel {
         _ forum: Forum,
         updatesVisitOrder: Bool = true
     ) {
-        guard let activeAccountID else { return }
+        guard let activeAccountID = session.activeAccountID else { return }
         do {
             let forum = enrichingForumFromDirectory(forum)
             let recordID = RecentForumRecord.recordID(
@@ -828,15 +784,15 @@ final class AppModel {
                     visitedAt: updatesVisitOrder ? .now : nil
                 )
             } else {
-                context.insert(RecentForumRecord(
+                session.context.insert(RecentForumRecord(
                     accountID: activeAccountID,
                     forum: forum
                 ))
             }
-            try context.save()
+            try session.context.save()
             loadRecentForums()
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -851,14 +807,14 @@ final class AppModel {
             }
         }
         let page = reset ? 1 : topicPage + 1
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.topics(
                 forumID: forumID,
                 page: page,
                 sortOrder: topicListSortOrder,
                 featuredOnly: isShowingFeaturedTopics
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedForumID == forumID else {
                 return
@@ -878,14 +834,14 @@ final class AppModel {
             }
         }
         let targetPage = max(1, min(page, topicTotalPages))
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.topics(
                 forumID: forumID,
                 page: targetPage,
                 sortOrder: topicListSortOrder,
                 featuredOnly: isShowingFeaturedTopics
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedForumID == forumID else {
                 return
@@ -963,19 +919,19 @@ final class AppModel {
     }
 
     private func savedSubforumSelection(parentForumID: ForumID) -> Set<ForumID>? {
-        guard let activeAccountID else { return nil }
+        guard let activeAccountID = session.activeAccountID else { return nil }
         let recordID = SubforumPreferenceRecord.recordID(
             accountID: activeAccountID,
             parentForumID: parentForumID
         )
-        let records = (try? context.fetch(
+        let records = (try? session.context.fetch(
             FetchDescriptor<SubforumPreferenceRecord>()
         )) ?? []
         return records.first(where: { $0.id == recordID })?.selectedForumIDs
     }
 
     private func saveCurrentSubforumSelection() {
-        guard let activeAccountID, let parentForumID = currentForum?.id else {
+        guard let activeAccountID = session.activeAccountID, let parentForumID = currentForum?.id else {
             return
         }
         do {
@@ -983,21 +939,21 @@ final class AppModel {
                 accountID: activeAccountID,
                 parentForumID: parentForumID
             )
-            let records = try context.fetch(
+            let records = try session.context.fetch(
                 FetchDescriptor<SubforumPreferenceRecord>()
             )
             if let record = records.first(where: { $0.id == recordID }) {
                 record.selectedForumIDs = includedSubforumIDs
             } else {
-                context.insert(SubforumPreferenceRecord(
+                session.context.insert(SubforumPreferenceRecord(
                     accountID: activeAccountID,
                     parentForumID: parentForumID,
                     selectedForumIDs: includedSubforumIDs
                 ))
             }
-            try context.save()
+            try session.context.save()
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -1049,13 +1005,13 @@ final class AppModel {
         let targetPage = max(1, page)
         var loadedPage: ThreadPage?
         let ticket = threadRequests.begin()
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.threadPage(
                 topicID: topicID,
                 page: targetPage,
                 authorUID: nil
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedTopicID == sourceTopicID,
                   result.topic.id == topicID else {
@@ -1128,7 +1084,7 @@ final class AppModel {
                 isLoadingThreadContent = false
             }
         }
-        await withLoading(
+        await session.withLoading(
             showsIndicator: showsLoadingIndicator,
             isCurrent: { ticket.isCurrent }
         ) {
@@ -1137,7 +1093,7 @@ final class AppModel {
                 page: page,
                 authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedTopicID == topicID else {
                 return
@@ -1170,13 +1126,13 @@ final class AppModel {
                 isLoadingThreadContent = false
             }
         }
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.threadPage(
                 topicID: topicID,
                 page: targetPage,
                 authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedTopicID == topicID else {
                 return
@@ -1223,19 +1179,19 @@ final class AppModel {
             )
             updateVoteState(state, postID: postID, in: &posts)
             updateVoteState(state, postID: postID, in: &hotReplies)
-            statusMessage = "评价已更新"
-            statusMessageIsError = false
+            session.statusMessage = "评价已更新"
+            session.statusMessageIsError = false
         } catch {
             if voteSubmissionMayHaveSucceeded(error) {
                 // NGA 偶尔会先执行点赞，再以 403 或无法解析的响应结束请求。
                 // 此时保留即时更新，避免误报失败及用户重复提交。
-                statusMessage = "评价已更新"
-                statusMessageIsError = false
+                session.statusMessage = "评价已更新"
+                session.statusMessageIsError = false
                 return
             }
             updateVoteState(originalState, postID: postID, in: &posts)
             updateVoteState(originalState, postID: postID, in: &hotReplies)
-            present(error)
+            session.present(error)
         }
     }
 
@@ -1246,11 +1202,11 @@ final class AppModel {
             return false
         }
         guard poll.isAcceptingResponses(at: .now) else {
-            present(NGAServiceError.unsupported("该投票已经结束"))
+            session.present(NGAServiceError.unsupported("该投票已经结束"))
             return false
         }
         guard poll.containsValidSelection(selection) else {
-            present(NGAServiceError.unsupported("请选择有效的投票选项"))
+            session.present(NGAServiceError.unsupported("请选择有效的投票选项"))
             return false
         }
 
@@ -1264,16 +1220,16 @@ final class AppModel {
                 topicID: topicID,
                 optionIDs: optionIDs
             )
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   selectedTopicID == topicID else {
                 return false
             }
             await loadThreadPage(topicID: topicID, page: threadPage)
-            statusMessage = "投票已提交"
-            statusMessageIsError = false
+            session.statusMessage = "投票已提交"
+            session.statusMessageIsError = false
             return true
         } catch {
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   selectedTopicID == topicID else {
                 return false
             }
@@ -1281,11 +1237,11 @@ final class AppModel {
                 // 写请求不会自动重试。响应不明确时刷新话题，让服务器状态
                 // 决定后续显示，避免用户重复投票。
                 await loadThreadPage(topicID: topicID, page: threadPage)
-                statusMessage = "投票请求已提交，结果以刷新后的话题为准"
-                statusMessageIsError = false
+                session.statusMessage = "投票请求已提交，结果以刷新后的话题为准"
+                session.statusMessageIsError = false
                 return true
             }
-            present(error)
+            session.present(error)
             return false
         }
     }
@@ -1297,7 +1253,7 @@ final class AppModel {
         messageFolder = folder
         sidebarSelection = .messages(folder)
         let page = reset ? 1 : messagePage + 1
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             var result: MessagePage
             if folder == .notifications {
                 result = try await unifiedMessageFeedPage(
@@ -1313,7 +1269,7 @@ final class AppModel {
                     accountID: requestAccountID
                 )
             }
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   sidebarSelection == .messages(folder),
                   messageFolder == folder else {
@@ -1343,9 +1299,9 @@ final class AppModel {
                 guard let service = activeService else { return }
                 let requestAccountID = service.accountID
                 let ticket = messageDetailRequests.begin()
-                await withLoading(isCurrent: { ticket.isCurrent }) {
+                await session.withLoading(isCurrent: { ticket.isCurrent }) {
                     let result = try await service.message(id: message.id)
-                    guard activeAccountID == requestAccountID,
+                    guard session.activeAccountID == requestAccountID,
                           ticket.isCurrent,
                           selectedMessageID == message.id else {
                         return
@@ -1370,9 +1326,9 @@ final class AppModel {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let ticket = messageDetailRequests.begin()
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.message(id: message.id)
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedMessageID == message.id else {
                 return
@@ -1393,7 +1349,7 @@ final class AppModel {
         setUnreadCount(0, for: folder)
 
         guard folder == .notifications,
-              let activeAccountID,
+              let activeAccountID = session.activeAccountID,
               let record = accountRecord(id: activeAccountID) else {
             return
         }
@@ -1418,7 +1374,7 @@ final class AppModel {
         // 通知流中的短消息也属于“全部已读”的范围，避免侧栏保留重复角标。
         messageUnreadCounts[.privateMessages] = 0
         refreshUnreadCount()
-        try? context.save()
+        try? session.context.save()
     }
 
     func submitReply(
@@ -1432,21 +1388,21 @@ final class AppModel {
             return false
         }
         if currentTopic?.id == topicID, currentTopic?.isLocked == true {
-            present(NGAServiceError.topicLocked)
+            session.present(NGAServiceError.topicLocked)
             return false
         }
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
-                present(NGAServiceError.unsupported("当前话题没有可用的评分"))
+                session.present(NGAServiceError.unsupported("当前话题没有可用的评分"))
                 return false
             }
             guard rating.isAcceptingResponses(at: .now) else {
-                present(NGAServiceError.unsupported("该评分已经结束"))
+                session.present(NGAServiceError.unsupported("该评分已经结束"))
                 return false
             }
             guard rating.containsValidScores(ratingScores) else {
-                present(NGAServiceError.unsupported("请选择有效的评分"))
+                session.present(NGAServiceError.unsupported("请选择有效的评分"))
                 return false
             }
         }
@@ -1462,12 +1418,12 @@ final class AppModel {
                 )
             )
             deleteDraft(topicID: topicID)
-            statusMessage = ratingScores.isEmpty ? "回复已发送" : "回复和评分已发送"
-            statusMessageIsError = false
+            session.statusMessage = ratingScores.isEmpty ? "回复已发送" : "回复和评分已发送"
+            session.statusMessageIsError = false
             await loadThread(topicID: topicID, reset: true)
             return true
         } catch {
-            present(error)
+            session.present(error)
             return false
         }
     }
@@ -1478,17 +1434,17 @@ final class AppModel {
         defer { isSubmitting = false }
         do {
             try await service.replyMessage(id: id, content: content)
-            statusMessage = "私信回复已发送"
-            statusMessageIsError = false
+            session.statusMessage = "私信回复已发送"
+            session.statusMessageIsError = false
             return true
         } catch {
-            present(error)
+            session.present(error)
             return false
         }
     }
 
     func refreshFavorites() async {
-        guard let accountID = activeAccountID else {
+        guard let accountID = session.activeAccountID else {
             favorites = []
             return
         }
@@ -1499,12 +1455,12 @@ final class AppModel {
             }
         )
         favorites = local.filter { $0.state != .pendingRemove }.sorted { $0.order < $1.order }
-        guard let service = services[accountID] else { return }
+        guard let service = session.service(for: accountID) else { return }
         let ticket = favoriteRequests.begin()
 
         do {
             let fetchedFavorites = try await service.favorites()
-            guard activeAccountID == accountID,
+            guard session.activeAccountID == accountID,
                   ticket.isCurrent else {
                 return
             }
@@ -1519,20 +1475,20 @@ final class AppModel {
     }
 
     func toggleFavorite(_ forum: Forum) async {
-        guard let accountID = activeAccountID else { return }
+        guard let accountID = session.activeAccountID else { return }
         let records = favoriteRecords(accountID: accountID)
         if let record = records.first(where: { $0.forumID == forum.id.rawValue }) {
             if record.syncState == .localOnly || !record.serverPresent {
-                context.delete(record)
+                session.context.delete(record)
             } else {
                 record.syncState = .pendingRemove
                 record.updatedAt = Date()
             }
         } else {
             let order = (records.map(\.order).max() ?? -1) + 1
-            context.insert(FavoriteRecord(accountID: accountID, forum: forum, order: order, syncState: .pendingAdd, serverPresent: false))
+            session.context.insert(FavoriteRecord(accountID: accountID, forum: forum, order: order, syncState: .pendingAdd, serverPresent: false))
         }
-        try? context.save()
+        try? session.context.save()
         favorites = enrichingFavoriteForums(
             favoriteRecords(accountID: accountID)
                 .filter { $0.syncState != .pendingRemove }
@@ -1541,7 +1497,7 @@ final class AppModel {
                 }
                 .sorted { $0.order < $1.order }
         )
-        if let service = services[accountID] {
+        if let service = session.service(for: accountID) {
             await replayFavoriteChanges(accountID: accountID, service: service)
         }
     }
@@ -1555,9 +1511,9 @@ final class AppModel {
         }
         let requestAccountID = service.accountID
         let ticket = favoriteTopicFolderRequests.begin()
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let folders = try await service.favoriteTopicFolders()
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent else {
                 return
             }
@@ -1591,9 +1547,9 @@ final class AppModel {
         let requestAccountID = service.accountID
         let ticket = favoriteTopicRequests.begin()
         let targetPage = max(1, page)
-        await withLoading(isCurrent: { ticket.isCurrent }) {
+        await session.withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.favoriteTopics(folderID: folderID, page: targetPage)
-            guard activeAccountID == requestAccountID,
+            guard session.activeAccountID == requestAccountID,
                   ticket.isCurrent,
                   selectedFavoriteTopicFolderID == folderID else {
                 return
@@ -1696,12 +1652,12 @@ final class AppModel {
             if let index = topics.firstIndex(where: { $0.id == topic.id }) {
                 topics[index].isFavorite = remainsFavorite
             }
-            statusMessage = isFavorite
+            session.statusMessage = isFavorite
                 ? "已收藏到“\(folder.name)”"
                 : "已从“\(folder.name)”移除"
-            statusMessageIsError = false
+            session.statusMessageIsError = false
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -1759,10 +1715,10 @@ final class AppModel {
                     topics[index].isFavorite = false
                 }
             }
-            statusMessage = "已取消话题收藏"
-            statusMessageIsError = false
+            session.statusMessage = "已取消话题收藏"
+            session.statusMessageIsError = false
         } catch {
-            present(error)
+            session.present(error)
         }
     }
 
@@ -1787,14 +1743,14 @@ final class AppModel {
             )
             let folders = try await service.favoriteTopicFolders()
             applyFavoriteTopicFolders(folders, preferredID: folderID)
-            statusMessage = "收藏夹已创建"
-            statusMessageIsError = false
+            session.statusMessage = "收藏夹已创建"
+            session.statusMessageIsError = false
             if selectedFavoriteTopicFolderID != nil {
                 await loadFavoriteTopics(page: 1)
             }
             return true
         } catch {
-            present(error)
+            session.present(error)
             return false
         }
     }
@@ -1814,11 +1770,11 @@ final class AppModel {
             try await service.updateTopicFavoriteFolder(updatedFolder)
             let folders = try await service.favoriteTopicFolders()
             applyFavoriteTopicFolders(folders, preferredID: folder.id)
-            statusMessage = "收藏夹设置已更新"
-            statusMessageIsError = false
+            session.statusMessage = "收藏夹设置已更新"
+            session.statusMessageIsError = false
             return true
         } catch {
-            present(error)
+            session.present(error)
             return false
         }
     }
@@ -1845,77 +1801,24 @@ final class AppModel {
             if selectedFavoriteTopicFolderID != nil {
                 await loadFavoriteTopics(page: 1)
             }
-            statusMessage = "收藏夹“\(folder.name)”已删除"
-            statusMessageIsError = false
+            session.statusMessage = "收藏夹“\(folder.name)”已删除"
+            session.statusMessageIsError = false
             return true
         } catch {
-            present(error)
+            session.present(error)
             return false
         }
     }
 
     func performMaintenance() async {
-        await checkInAllAccounts()
+        await session.checkInAllAccounts()
         await pollMessages()
     }
 
-    func checkInAllAccounts(force: Bool = false) async {
-        await checkInAccounts(force: force, limitedTo: nil)
-    }
-
-    func checkInActiveAccount() async {
-        guard let activeAccountID else {
-            return
-        }
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        refreshActiveAccountCheckInStatus(records: records)
-        guard activeAccountCheckInStatus.canCheckIn else { return }
-        await checkInAccounts(force: true, limitedTo: [activeAccountID])
-    }
-
-    private func checkInAccounts(force: Bool, limitedTo accountIDs: Set<AccountID>?) async {
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        refreshActiveAccountCheckInStatus(records: records)
-        var results: [String] = []
-        var hasFailure = false
-        for record in records where record.sessionState == .valid {
-            let accountID = record.accountID
-            guard accountIDs?.contains(accountID) ?? true else { continue }
-            guard force || CheckInPolicy.shouldCheckIn(lastSuccessfulDay: record.lastCheckInDay) else { continue }
-            guard let service = services[accountID] else { continue }
-            checkingInAccountIDs.insert(accountID)
-            checkInFailures[accountID] = nil
-            refreshActiveAccountCheckInStatus(records: records)
-            do {
-                let result = try await service.checkIn()
-                record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
-                switch result {
-                case let .success(message), let .alreadyCheckedIn(message):
-                    let displayMessage = CheckInPolicy.userFacingSuccessMessage(from: message)
-                    record.lastCheckInMessage = displayMessage
-                    results.append("\(record.displayName)：\(displayMessage)")
-                }
-            } catch {
-                hasFailure = true
-                let message = checkInFailureMessage(error)
-                checkInFailures[accountID] = message
-                results.append("\(record.displayName)：\(message)")
-            }
-            checkingInAccountIDs.remove(accountID)
-            refreshActiveAccountCheckInStatus(records: records)
-        }
-        try? context.save()
-        refreshActiveAccountCheckInStatus(records: records)
-        if !results.isEmpty {
-            statusMessage = results.joined(separator: "\n")
-            statusMessageIsError = hasFailure
-        }
-    }
-
     func pollMessages() async {
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        let records = (try? session.context.fetch(FetchDescriptor<AccountRecord>())) ?? []
         for record in records where record.sessionState == .valid {
-            guard let service = services[record.accountID] else { continue }
+            guard let service = session.service(for: record.accountID) else { continue }
             do {
                 async let privateMessages = service.messages(folder: .privateMessages, page: 1)
                 async let notifications = service.messages(folder: .notifications, page: 1)
@@ -1941,7 +1844,7 @@ final class AppModel {
                 )
                 record.seenUnreadMessageKeys = update.seenKeys
                 record.unreadBaseline = update.unreadCount
-                if record.accountID == activeAccountID {
+                if record.accountID == session.activeAccountID {
                     let inboxUnread = pages
                         .first(where: { $0.folder == .privateMessages })?
                         .messages.filter(\.isUnread).count ?? 0
@@ -1954,7 +1857,7 @@ final class AppModel {
                 }
                 let account = record.summary()
                 for item in update.newMessages {
-                    await notificationService.notify(
+                    await session.notificationService.notify(
                         account: account,
                         folder: item.folder,
                         message: item.message
@@ -1965,7 +1868,7 @@ final class AppModel {
                 // 论坛浏览仍可验证账号有效，后台接口不能单独使整个账号失效。
             }
         }
-        try? context.save()
+        try? session.context.save()
     }
 
     func refreshCurrentSelection() async {
@@ -1987,7 +1890,7 @@ final class AppModel {
         case .favorites: await loadFavoriteTopics(page: favoriteTopicPage)
         case .toolbox: refreshToolbox()
         case let .userCenter(uid):
-            if let targetUID = uid ?? activeAccount?.ngaUID {
+            if let targetUID = uid ?? session.activeAccount?.ngaUID {
                 await openUserCenter(uid: targetUID)
             }
             await loadForums()
@@ -2033,7 +1936,7 @@ final class AppModel {
         messageFolderString: String
     ) async {
         guard let accountID = AccountID(accountIDString),
-              accounts.contains(where: { $0.id == accountID }),
+              session.accounts.contains(where: { $0.id == accountID }),
               let rawMessageID = Int64(messageIDString) else {
             return
         }
@@ -2046,45 +1949,32 @@ final class AppModel {
     }
 
     func draft(topicID: TopicID) -> DraftRecord? {
-        guard let activeAccountID else { return nil }
-        return ((try? context.fetch(FetchDescriptor<DraftRecord>())) ?? []).first {
+        guard let activeAccountID = session.activeAccountID else { return nil }
+        return ((try? session.context.fetch(FetchDescriptor<DraftRecord>())) ?? []).first {
             $0.accountIDString == activeAccountID.description && $0.topicID == topicID.rawValue
         }
     }
 
     func saveDraft(topicID: TopicID, content: String, replyTo: PostID?) {
-        guard let activeAccountID else { return }
+        guard let activeAccountID = session.activeAccountID else { return }
         if let draft = draft(topicID: topicID) {
             draft.content = content
             draft.replyToPostID = replyTo?.rawValue
             draft.updatedAt = Date()
         } else {
-            context.insert(DraftRecord(accountID: activeAccountID, topicID: topicID, replyToPostID: replyTo, content: content))
+            session.context.insert(DraftRecord(accountID: activeAccountID, topicID: topicID, replyToPostID: replyTo, content: content))
         }
-        try? context.save()
-    }
-
-    func clearError() { errorMessage = nil }
-
-    private var activeService: (any NGAForumService)? {
-        activeAccountID.flatMap { services[$0] }
-    }
-
-    private func makeService(accountID: AccountID, cookies: [SessionCookie]) -> any NGAForumService {
-        let sessionStore = sessionStore
-        return LiveNGAForumService(accountID: accountID, cookies: cookies) { updatedCookies in
-            try? await sessionStore.save(cookies: updatedCookies, for: accountID)
-        }
+        try? session.context.save()
     }
 
     private func favoriteRecords(accountID: AccountID) -> [FavoriteRecord] {
-        ((try? context.fetch(FetchDescriptor<FavoriteRecord>())) ?? [])
+        ((try? session.context.fetch(FetchDescriptor<FavoriteRecord>())) ?? [])
             .filter { $0.accountIDString == accountID.description }
             .sorted { $0.order < $1.order }
     }
 
     private func recentForumRecords(accountID: AccountID) throws -> [RecentForumRecord] {
-        try context.fetch(FetchDescriptor<RecentForumRecord>())
+        try session.context.fetch(FetchDescriptor<RecentForumRecord>())
             .filter { $0.accountIDString == accountID.description }
     }
 
@@ -2170,7 +2060,7 @@ final class AppModel {
                 record.syncState = snapshot.state
                 record.serverPresent = snapshot.state == .synced
             } else {
-                context.insert(FavoriteRecord(
+                session.context.insert(FavoriteRecord(
                     accountID: accountID,
                     forum: snapshot.forum,
                     order: snapshot.order,
@@ -2180,9 +2070,9 @@ final class AppModel {
             }
         }
         for record in records where !snapshotIDs.contains(record.forumID) && record.syncState != .pendingRemove {
-            context.delete(record)
+            session.context.delete(record)
         }
-        try? context.save()
+        try? session.context.save()
     }
 
     private func replayFavoriteChanges(accountID: AccountID, service: any NGAForumService) async {
@@ -2195,7 +2085,7 @@ final class AppModel {
                     record.syncState = .synced
                     record.serverPresent = true
                 } else {
-                    context.delete(record)
+                    session.context.delete(record)
                 }
             } catch let error as NGAServiceError {
                 if case .unsupported = error {
@@ -2203,15 +2093,15 @@ final class AppModel {
                         record.syncState = .localOnly
                         record.serverPresent = false
                     } else {
-                        context.delete(record)
+                        session.context.delete(record)
                     }
                 }
             } catch {
                 // 保留 pending 状态，下一次前台刷新时重试。
             }
         }
-        try? context.save()
-        if activeAccountID == accountID {
+        try? session.context.save()
+        if session.activeAccountID == accountID {
             favorites = enrichingFavoriteForums(
                 favoriteRecords(accountID: accountID)
                     .filter { $0.syncState != .pendingRemove }
@@ -2228,8 +2118,8 @@ final class AppModel {
 
     private func deleteDraft(topicID: TopicID) {
         guard let draft = draft(topicID: topicID) else { return }
-        context.delete(draft)
-        try? context.save()
+        session.context.delete(draft)
+        try? session.context.save()
     }
 
     private func clearVisibleContent() {
@@ -2285,126 +2175,6 @@ final class AppModel {
     private func resetThreadNavigationHistory() {
         threadNavigationPath = []
         isShowingOnlyTopicAuthor = false
-    }
-
-    private func beginLoading() {
-        loadingRequestCount += 1
-        isLoading = true
-    }
-
-    private func endLoading() {
-        loadingRequestCount = max(0, loadingRequestCount - 1)
-        isLoading = loadingRequestCount > 0
-    }
-
-    private func withLoading(
-        showsIndicator: Bool = true,
-        isCurrent: () -> Bool = { true },
-        _ operation: () async throws -> Void
-    ) async {
-        let requestAccountID = activeAccountID
-        if showsIndicator { beginLoading() }
-        defer {
-            if showsIndicator { endLoading() }
-        }
-        do {
-            try await operation()
-            if let requestAccountID,
-               requestAccountID == activeAccountID,
-               isCurrent() {
-                foregroundLoginFailureDates[requestAccountID] = nil
-            }
-        } catch {
-            guard requestAccountID == activeAccountID, isCurrent() else { return }
-            present(error)
-        }
-    }
-
-    private func present(_ error: Error) {
-        Task {
-            await RuntimeLogger.shared.log(
-                .error,
-                category: "app",
-                error.localizedDescription
-            )
-        }
-        if let serviceError = error as? NGAServiceError,
-           serviceError == .topicLocked,
-           currentTopic?.id == selectedTopicID {
-            currentTopic?.isLocked = true
-        }
-        guard let serviceError = error as? NGAServiceError,
-              serviceError == .requiresLogin,
-              let activeAccountID else {
-            errorMessage = error.localizedDescription
-            return
-        }
-
-        let now = Date()
-        let previousFailure = foregroundLoginFailureDates[activeAccountID]
-        let isConsecutiveFailure = previousFailure.map {
-            now.timeIntervalSince($0) <= 120
-        } ?? false
-        foregroundLoginFailureDates[activeAccountID] = now
-
-        if !isConsecutiveFailure,
-           accounts.first(where: { $0.id == activeAccountID })?.sessionState != .requiresLogin {
-            statusMessage = "NGA 暂时未验证本次请求，已保留当前登录状态，请重试"
-            statusMessageIsError = true
-            return
-        }
-
-        errorMessage = error.localizedDescription
-        markSessionRequiresLogin(accountID: activeAccountID)
-    }
-
-    private func checkInFailureMessage(_ error: Error) -> String {
-        if error.localizedDescription.localizedCaseInsensitiveContains("client error") {
-            return "签到请求被 NGA 拒绝，请稍后重试"
-        }
-        return error.localizedDescription
-    }
-
-    private func refreshActiveAccountCheckInStatus(
-        records suppliedRecords: [AccountRecord]? = nil
-    ) {
-        guard let activeAccountID else {
-            activeAccountCheckInStatus = .failed(message: "尚未登录")
-            return
-        }
-        if checkingInAccountIDs.contains(activeAccountID) {
-            activeAccountCheckInStatus = .checkingIn
-            return
-        }
-        if let failure = checkInFailures[activeAccountID] {
-            activeAccountCheckInStatus = .failed(message: failure)
-            return
-        }
-        let records = suppliedRecords
-            ?? ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
-        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
-            activeAccountCheckInStatus = .failed(message: "无法读取签到状态")
-            return
-        }
-        if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
-            activeAccountCheckInStatus = .checkedIn(
-                message: CheckInPolicy.userFacingSuccessMessage(
-                    from: record.lastCheckInMessage
-                )
-            )
-        } else {
-            activeAccountCheckInStatus = .notCheckedIn
-        }
-    }
-
-    private func markSessionRequiresLogin(accountID: AccountID) {
-        if let record = ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []).first(where: { $0.accountID == accountID }) {
-            record.sessionState = .requiresLogin
-            try? context.save()
-        }
-        if let index = accounts.firstIndex(where: { $0.id == accountID }) {
-            accounts[index].sessionState = .requiresLogin
-        }
     }
 
     private func merged<T: Identifiable>(_ existing: [T], _ incoming: [T]) -> [T] where T.ID: Hashable {
@@ -2493,7 +2263,7 @@ final class AppModel {
         }
         setUnreadCount(max(0, (messageUnreadCounts[folder] ?? 0) - 1), for: folder)
 
-        guard let activeAccountID,
+        guard let activeAccountID = session.activeAccountID,
               let record = accountRecord(id: activeAccountID) else {
             return
         }
@@ -2515,7 +2285,7 @@ final class AppModel {
         var keys = record.readNotificationKeys.filter { !newKeySet.contains($0) }
         keys.insert(contentsOf: newKeys, at: 0)
         record.readNotificationKeys = Array(keys.prefix(UnreadMessagePolicy.maximumSeenKeyCount))
-        try? context.save()
+        try? session.context.save()
     }
 
     private func setUnreadCount(_ count: Int, for folder: MessageFolder) {
@@ -2530,7 +2300,7 @@ final class AppModel {
     }
 
     private func accountRecord(id: AccountID) -> AccountRecord? {
-        ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
+        ((try? session.context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
             .first { $0.accountID == id }
     }
 
@@ -2565,21 +2335,21 @@ final class AppModel {
         )
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
-        context.insert(accountA)
-        context.insert(accountB)
+        session.context.insert(accountA)
+        session.context.insert(accountB)
         let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
-        context.insert(FavoriteRecord(
+        session.context.insert(FavoriteRecord(
             accountID: accountA.accountID,
             forum: favoriteForum,
             order: 0,
             syncState: .localOnly,
             serverPresent: false
         ))
-        try? context.save()
-        accounts = [accountA.summary(), accountB.summary()]
-        activeAccountID = accountA.accountID
-        services[accountA.accountID] = DebugForumService(accountID: accountA.accountID)
-        services[accountB.accountID] = DebugForumService(accountID: accountB.accountID)
+        try? session.context.save()
+        session.accounts = [accountA.summary(), accountB.summary()]
+        session.activeAccountID = accountA.accountID
+        session.setService(DebugForumService(accountID: accountA.accountID), for: accountA.accountID)
+        session.setService(DebugForumService(accountID: accountB.accountID), for: accountB.accountID)
         forums = [favoriteForum, Forum(id: ForumID(rawValue: 510381), name: "晴风村")]
         favorites = [FavoriteSnapshot(forum: favoriteForum, order: 0, state: .localOnly)]
         sidebarSelection = .userCenter(accountA.ngaUID)

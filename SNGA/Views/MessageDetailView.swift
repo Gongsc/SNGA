@@ -38,7 +38,7 @@ struct MessageDetailView: View {
                     MessageReplyView(message: message)
                         .environment(model)
                 }
-            } else if model.isLoading {
+            } else if model.session.isLoading {
                 ProgressView()
             } else {
                 ContentUnavailableView("无法显示消息", systemImage: "envelope.badge")

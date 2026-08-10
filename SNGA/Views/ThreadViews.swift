@@ -411,8 +411,8 @@ struct ThreadView: View {
                     proxy.scrollTo(postID, anchor: .top)
                 }
             } else {
-                model.statusMessage = "未能在当前帖子页找到引用楼层"
-                model.statusMessageIsError = true
+                model.session.statusMessage = "未能在当前帖子页找到引用楼层"
+                model.session.statusMessageIsError = true
             }
         }
     }
@@ -474,8 +474,8 @@ struct ThreadView: View {
                 } else if pendingLinkedPostID != nil,
                           !model.posts.contains(where: { $0.id == postID }) {
                     pendingLinkedPostID = nil
-                    model.statusMessage = "未能在目标帖子页找到引用楼层"
-                    model.statusMessageIsError = true
+                    model.session.statusMessage = "未能在目标帖子页找到引用楼层"
+                    model.session.statusMessageIsError = true
                 }
             }
 
@@ -522,12 +522,12 @@ struct ThreadView: View {
         guard let url = topicURL else { return }
         NSPasteboard.general.clearContents()
         guard NSPasteboard.general.setString(url.absoluteString, forType: .string) else {
-            model.statusMessage = "复制话题链接失败"
-            model.statusMessageIsError = true
+            model.session.statusMessage = "复制话题链接失败"
+            model.session.statusMessageIsError = true
             return
         }
-        model.statusMessage = "话题链接已复制"
-        model.statusMessageIsError = false
+        model.session.statusMessage = "话题链接已复制"
+        model.session.statusMessageIsError = false
         didCopyTopicLink = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))
@@ -538,12 +538,12 @@ struct ThreadView: View {
     private func openTopicInBrowser() {
         guard let url = topicURL else { return }
         if NSWorkspace.shared.open(url) {
-            model.statusMessage = "已在默认浏览器中打开话题"
-            model.statusMessageIsError = false
+            model.session.statusMessage = "已在默认浏览器中打开话题"
+            model.session.statusMessageIsError = false
             showsTopicLinkActions = false
         } else {
-            model.statusMessage = "无法打开默认浏览器"
-            model.statusMessageIsError = true
+            model.session.statusMessage = "无法打开默认浏览器"
+            model.session.statusMessageIsError = true
         }
     }
 
@@ -1315,7 +1315,7 @@ struct ReplyComposerView: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.isSubmitting)
                 Button {
-                    model.clearError()
+                    model.session.clearError()
                     Task {
                         if await model.submitReply(
                             topicID: topic.id,
@@ -1404,12 +1404,12 @@ struct ReplyComposerView: View {
         .frame(minWidth: 760, minHeight: 560)
         .interactiveDismissDisabled(model.isSubmitting)
         .alert("回复发送失败", isPresented: Binding(
-            get: { model.errorMessage != nil },
-            set: { if !$0 { model.clearError() } }
+            get: { model.session.errorMessage != nil },
+            set: { if !$0 { model.session.clearError() } }
         )) {
-            Button("好", role: .cancel) { model.clearError() }
+            Button("好", role: .cancel) { model.session.clearError() }
         } message: {
-            Text(model.errorMessage ?? "")
+            Text(model.session.errorMessage ?? "")
         }
         .task {
             guard !loadedDraft else { return }

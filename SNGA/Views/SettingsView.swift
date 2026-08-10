@@ -146,11 +146,11 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("账号") {
-                if model.accounts.isEmpty {
+                if model.session.accounts.isEmpty {
                     Text("尚未添加账号")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(model.accounts) { account in
+                ForEach(model.session.accounts) { account in
                     SettingsAccountRow(account: account) {
                         loginRequest = SettingsLoginRequest(
                             title: "重新登录 \(account.displayName)"

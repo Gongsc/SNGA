@@ -50,7 +50,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             name: "幻兽帕鲁"
         )
         let model = AppModel(container: container)
-        model.activeAccountID = firstAccountID
+        model.session.activeAccountID = firstAccountID
 
         await model.openForum(firstForum)
         await model.openForum(secondForum)
@@ -60,7 +60,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertEqual(model.recentForums.first?.iconURL, firstIconURL)
 
         let restoredModel = AppModel(container: container)
-        restoredModel.activeAccountID = firstAccountID
+        restoredModel.session.activeAccountID = firstAccountID
         restoredModel.forums = [
             Forum(
                 id: secondForum.id,
@@ -72,7 +72,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertEqual(restoredModel.recentForums.map(\.id), [firstForum.id, secondForum.id])
         XCTAssertEqual(restoredModel.recentForums.map(\.iconURL), [firstIconURL, secondIconURL])
 
-        restoredModel.activeAccountID = secondAccountID
+        restoredModel.session.activeAccountID = secondAccountID
         restoredModel.loadRecentForums()
         XCTAssertTrue(restoredModel.recentForums.isEmpty)
     }
@@ -98,13 +98,13 @@ final class FavoriteAndCheckInTests: XCTestCase {
         let accountID = AccountID(rawValue: UUID())
         let secondAccountID = AccountID(rawValue: UUID())
         let model = AppModel(container: container)
-        model.activeAccountID = accountID
+        model.session.activeAccountID = accountID
 
         await model.openForum(Forum(id: ForumID(rawValue: 1), name: "版面一"))
         await model.openForum(Forum(id: ForumID(rawValue: 2), name: "版面二"))
         await model.openForum(Forum(id: ForumID(rawValue: 3), name: "版面三"))
 
-        model.activeAccountID = secondAccountID
+        model.session.activeAccountID = secondAccountID
         await model.openForum(Forum(id: ForumID(rawValue: 11), name: "版面十一"))
         await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
         await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
@@ -117,13 +117,13 @@ final class FavoriteAndCheckInTests: XCTestCase {
         ])
 
         let restoredModel = AppModel(container: container)
-        restoredModel.activeAccountID = accountID
+        restoredModel.session.activeAccountID = accountID
         restoredModel.loadRecentForums()
         XCTAssertEqual(restoredModel.recentForums.map(\.id), [
             ForumID(rawValue: 3),
             ForumID(rawValue: 2)
         ])
-        restoredModel.activeAccountID = secondAccountID
+        restoredModel.session.activeAccountID = secondAccountID
         restoredModel.loadRecentForums()
         XCTAssertEqual(restoredModel.recentForums.map(\.id), [
             ForumID(rawValue: 13),

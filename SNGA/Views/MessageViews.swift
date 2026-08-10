@@ -7,7 +7,7 @@ struct MessageListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.messages.isEmpty && !model.isLoading {
+            if model.messages.isEmpty && !model.session.isLoading {
                 ContentUnavailableView(
                     folder == .notifications ? "暂无通知" : "暂无短消息",
                     systemImage: folder == .notifications ? "bell.slash" : "bubble.left"
@@ -97,7 +97,7 @@ struct MessageListView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("刷新\(folder.title)")
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .disabled(model.session.activeAccountID == nil || model.session.isLoading)
                     .accessibilityIdentifier("message-list-refresh")
                 }
             }

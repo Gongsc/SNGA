@@ -7,13 +7,13 @@ struct UserCenterView: View {
 
     var body: some View {
         Group {
-            if model.activeAccountID == nil {
+            if model.session.activeAccountID == nil {
                 ContentUnavailableView {
                     Label("欢迎使用 SNGA", systemImage: "bubble.left.and.bubble.right")
                 } description: {
                     Text("添加 NGA 账号后即可浏览论坛。")
                 } actions: {
-                    Button("登录 NGA") { model.showsLogin = true }
+                    Button("登录 NGA") { model.session.showsLogin = true }
                         .buttonStyle(.borderedProminent)
                 }
             } else {
@@ -46,7 +46,7 @@ struct UserCenterView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("刷新用户中心")
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .disabled(model.session.activeAccountID == nil || model.session.isLoading)
                     .accessibilityIdentifier("user-center-refresh")
                 }
             }
@@ -99,10 +99,10 @@ struct UserCenterView: View {
 
     @ViewBuilder
     private var checkInContent: some View {
-        let status = model.activeAccountCheckInStatus
+        let status = model.session.activeAccountCheckInStatus
         if status.canCheckIn {
             Button {
-                Task { await model.checkInActiveAccount() }
+                Task { await model.session.checkInActiveAccount() }
             } label: {
                 checkInStatusCard(status)
             }
@@ -282,7 +282,7 @@ struct UserCenterView: View {
             .frame(maxWidth: 320)
 
             if model.userActivities.isEmpty {
-                if model.isLoading {
+                if model.session.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 120)
                 } else {
@@ -315,7 +315,7 @@ struct UserCenterView: View {
             Button("上一页", systemImage: "chevron.left") {
                 navigateActivity(to: model.userActivityPage - 1)
             }
-            .disabled(model.isLoading || model.userActivityPage <= 1)
+            .disabled(model.session.isLoading || model.userActivityPage <= 1)
 
             Text("第 \(model.userActivityPage) / \(model.userActivityTotalPages) 页")
                 .font(.callout.monospacedDigit())
@@ -325,7 +325,7 @@ struct UserCenterView: View {
                 navigateActivity(to: model.userActivityPage + 1)
             }
             .labelStyle(.titleAndIcon)
-            .disabled(model.isLoading || !model.userActivityHasMore)
+            .disabled(model.session.isLoading || !model.userActivityHasMore)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
@@ -343,7 +343,7 @@ struct UserCenterView: View {
     }
 
     private var targetUID: Int64? {
-        uid ?? model.activeAccount?.ngaUID
+        uid ?? model.session.activeAccount?.ngaUID
     }
 
     private var profile: Profile? {
@@ -351,7 +351,7 @@ struct UserCenterView: View {
            currentProfile.uid == targetUID {
             return currentProfile
         }
-        guard let account = model.activeAccount,
+        guard let account = model.session.activeAccount,
               account.ngaUID == targetUID else {
             return nil
         }
@@ -487,7 +487,7 @@ struct ForumDirectoryView: View {
             Divider()
 
             Group {
-                if model.forums.isEmpty && !model.isLoading {
+                if model.forums.isEmpty && !model.session.isLoading {
                     ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
                 } else if isSearching && filteredCategories.isEmpty {
                     ContentUnavailableView(
@@ -561,7 +561,7 @@ struct ForumDirectoryView: View {
                     }
                     .labelStyle(.iconOnly)
                     .help("刷新全部版面")
-                    .disabled(model.activeAccountID == nil || model.isLoading)
+                    .disabled(model.session.activeAccountID == nil || model.session.isLoading)
                     .accessibilityIdentifier("directory-refresh")
                 }
             }
@@ -749,7 +749,7 @@ struct FavoritesView: View {
             }
 
             Group {
-                if model.favoriteTopicFolders.isEmpty && !model.isLoading {
+                if model.favoriteTopicFolders.isEmpty && !model.session.isLoading {
                     ContentUnavailableView {
                         Label("还没有收藏夹", systemImage: "folder")
                     } description: {
@@ -760,7 +760,7 @@ struct FavoritesView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     }
-                } else if model.favoriteTopics.isEmpty && !model.isLoading {
+                } else if model.favoriteTopics.isEmpty && !model.session.isLoading {
                 ContentUnavailableView {
                     Label("收藏夹为空", systemImage: "star")
                 } description: {
@@ -824,7 +824,7 @@ struct FavoritesView: View {
             TopicListPaginationBar(
                 currentPage: model.favoriteTopicPage,
                 totalPages: model.favoriteTopicTotalPages,
-                isLoading: model.isLoading,
+                isLoading: model.session.isLoading,
                 navigate: { page in
                     Task { await model.loadFavoriteTopics(page: page) }
                 }
@@ -839,7 +839,7 @@ struct FavoritesView: View {
                 }
                 .labelStyle(.iconOnly)
                 .help("刷新收藏目录与话题")
-                .disabled(model.isLoading)
+                .disabled(model.session.isLoading)
                 .accessibilityIdentifier("favorite-topics-refresh")
             }
         }
