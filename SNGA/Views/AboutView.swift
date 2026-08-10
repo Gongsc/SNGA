@@ -10,7 +10,7 @@ struct AboutView: View {
 
     private let version = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
-    ) as? String ?? "1.7.1"
+    ) as? String ?? "1.7.2"
     private let build = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleVersion"
     ) as? String ?? "1"
