@@ -76,7 +76,7 @@ final class SNGAUITests: XCTestCase {
         about.click()
 
         XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.7.2（1）"].exists)
+        XCTAssertTrue(app.staticTexts["版本 1.8.0（1）"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(app.links["gongsc@live.cn"].exists)
