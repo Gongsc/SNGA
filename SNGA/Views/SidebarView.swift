@@ -129,7 +129,7 @@ struct SidebarView: View {
     private func sidebarButton(_ title: String, systemImage: String, selection: SidebarSelection, badge: Int = 0) -> some View {
         Button {
             model.sidebarSelection = selection
-            model.selectedTopicID = nil
+            model.thread.selectedTopicID = nil
             model.selectedMessageID = nil
             switch selection {
             case .directory:

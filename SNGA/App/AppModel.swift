@@ -2,40 +2,10 @@ import Foundation
 import Observation
 import SwiftData
 
-private struct ThreadNavigationSnapshot: Sendable {
-    let topic: Topic
-    let posts: [Post]
-    let hotReplies: [Post]
-    let page: Int
-    let hasMore: Bool
-    let totalPages: Int
-    let showsOnlyTopicAuthor: Bool
-}
-
-private struct PostAuthorLocationKey: Hashable, Sendable {
-    let accountID: AccountID
-    let uid: Int64
-}
-
-private struct CachedPostAuthorLocation: Sendable {
-    let value: String?
-}
-
-private enum PostAuthorLocationResult: Sendable {
-    case loaded(String?)
-    case failed
-}
-
-private struct PostAuthorLocationRequest {
-    let id: UUID
-    let task: Task<PostAuthorLocationResult, Never>
-}
-
 @MainActor
 @Observable
 final class AppModel {
     var sidebarSelection: SidebarSelection? = .userCenter(nil)
-    var selectedTopicID: TopicID?
     var selectedMessageID: MessageID?
     var currentProfile: Profile?
     var userActivities: [UserActivity] = []
@@ -52,7 +22,6 @@ final class AppModel {
     var toolboxRefreshRevision = 0
     var topicListSortOrder: TopicListSortOrder = .latestReply
     var isShowingFeaturedTopics = false
-    var isShowingOnlyTopicAuthor = false
 
     var forums: [Forum] = []
     var recentForums: [Forum] = []
@@ -65,9 +34,6 @@ final class AppModel {
     var includedSubforumIDs: Set<ForumID> = []
     var forumNavigationPath: [Forum] = []
     var currentForum: Forum?
-    var currentTopic: Topic?
-    var posts: [Post] = []
-    var hotReplies: [Post] = []
     var messages: [ForumMessage] = []
     var currentMessage: ForumMessage?
     var messageFolder: MessageFolder = .privateMessages
@@ -78,19 +44,12 @@ final class AppModel {
     var favoriteTopicPage = 1
     var favoriteTopicHasMore = false
     var favoriteTopicTotalPages = 1
-    var threadPage = 1
-    var threadHasMore = false
-    var threadTotalPages = 1
     var messagePage = 1
     var messageHasMore = false
     var unreadCount = 0
 
     var isRefreshingTopics = false
-    var isLoadingThreadContent = false
     var topicListScrollToTopRevision = 0
-    var isSubmitting = false
-    var votingPostIDs: Set<PostID> = []
-    var submittingPollTopicIDs: Set<TopicID> = []
     var updatingFavoriteTopicIDs: Set<TopicID> = []
     var isUpdatingFavoriteTopicFolders = false
     var previewImageURL: URL?
@@ -98,13 +57,10 @@ final class AppModel {
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private var subforumSelectionForumID: ForumID?
     @ObservationIgnored private let profileRequests = RequestSlot()
-    @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
-    @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
     @ObservationIgnored private let userActivityRequests = RequestSlot()
     @ObservationIgnored private let forumDirectoryRequests = RequestSlot()
     @ObservationIgnored private let forumSearchRequests = RequestSlot()
     @ObservationIgnored private let topicListRequests = RequestSlot()
-    @ObservationIgnored private let threadRequests = RequestSlot()
     @ObservationIgnored private let messageListRequests = RequestSlot()
     @ObservationIgnored private let messageDetailRequests = RequestSlot()
     @ObservationIgnored private let favoriteRequests = RequestSlot()
@@ -112,11 +68,11 @@ final class AppModel {
     @ObservationIgnored private let favoriteTopicRequests = RequestSlot()
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
     private var forumUserReturnSelection: SidebarSelection?
-    private var threadNavigationPath: [ThreadNavigationSnapshot] = []
     private var favoriteTopicIDs: Set<TopicID> = []
     private var favoriteTopicFolderIDsByTopic: [TopicID: Set<String>] = [:]
 
     let session: AppSession
+    let thread: ThreadStore
 
     private var activeService: (any NGAForumService)? { session.activeService }
 
@@ -125,20 +81,17 @@ final class AppModel {
         sessionStore: any SessionStore = LocalSessionStore.shared,
         notificationService: NotificationService = .shared
     ) {
-        session = AppSession(
+        let session = AppSession(
             container: container,
             sessionStore: sessionStore,
             notificationService: notificationService
         )
-        // 话题被锁定是话题域自己的反应；AppSession 只负责统一呈现错误。
-        session.onError { [weak self] error in
-            guard let self,
-                  let serviceError = error as? NGAServiceError,
-                  serviceError == .topicLocked,
-                  currentTopic?.id == selectedTopicID else {
-                return
-            }
-            currentTopic?.isLocked = true
+        self.session = session
+        thread = ThreadStore(session: session)
+        // 「是否已收藏」归收藏域所有。话题域只需要这一个查询，用闭包倒置依赖，
+        // 避免它为了一个布尔值反过来持有整个 AppModel。
+        thread.provideFavoriteLookup { [weak self] topicID in
+            self?.favoriteTopicIDs.contains(topicID) ?? false
         }
     }
 
@@ -152,73 +105,6 @@ final class AppModel {
         return displayedUserUID == activeAccount.ngaUID
     }
 
-    func loadPostAuthorLocation(uid: Int64) async {
-        guard uid > 0, let service = activeService else { return }
-        let key = PostAuthorLocationKey(accountID: service.accountID, uid: uid)
-        if let cached = postAuthorLocationCache[key] {
-            applyPostAuthorLocation(cached.value, to: uid)
-            return
-        }
-
-        let request: PostAuthorLocationRequest
-        if let existing = postAuthorLocationRequests[key] {
-            request = existing
-        } else {
-            let requestID = UUID()
-            let task = Task<PostAuthorLocationResult, Never> { [service] in
-                do {
-                    let profile = try await service.profile(uid: uid)
-                    return PostAuthorLocationResult.loaded(profile.location)
-                } catch {
-                    return PostAuthorLocationResult.failed
-                }
-            }
-            request = PostAuthorLocationRequest(id: requestID, task: task)
-            postAuthorLocationRequests[key] = request
-        }
-
-        let result = await request.task.value
-        if postAuthorLocationRequests[key]?.id == request.id {
-            postAuthorLocationRequests[key] = nil
-        }
-        guard session.activeAccountID == key.accountID else { return }
-
-        switch result {
-        case let .loaded(location):
-            let normalizedLocation = location?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let visibleLocation = normalizedLocation?.isEmpty == false
-                ? normalizedLocation
-                : nil
-            postAuthorLocationCache[key] = CachedPostAuthorLocation(
-                value: visibleLocation
-            )
-            applyPostAuthorLocation(visibleLocation, to: uid)
-        case .failed:
-            break
-        }
-    }
-
-    private func applyPostAuthorLocation(_ location: String?, to uid: Int64) {
-        guard let location else { return }
-
-        func enriching(_ values: [Post]) -> [Post] {
-            values.map { post in
-                guard post.authorUID == uid,
-                      post.authorInfo?.location != location else {
-                    return post
-                }
-                var updated = post
-                var authorInfo = updated.authorInfo ?? PostAuthorInfo()
-                authorInfo.location = location
-                updated.authorInfo = authorInfo
-                return updated
-            }
-        }
-
-        posts = enriching(posts)
-        hotReplies = enriching(hotReplies)
-    }
 
     var canReturnFromUserCenterToTopicList: Bool {
         guard case .forum = forumUserReturnSelection else { return false }
@@ -241,28 +127,10 @@ final class AppModel {
     }
 
     var isCurrentTopicFavorite: Bool {
-        guard let currentTopic else { return false }
-        return currentTopic.isFavorite || favoriteTopicIDs.contains(currentTopic.id)
+        guard let topic = thread.currentTopic else { return false }
+        return topic.isFavorite || favoriteTopicIDs.contains(topic.id)
     }
 
-    var currentTopicAuthorUID: Int64? {
-        if let authorUID = currentTopic?.authorUID, authorUID != 0 {
-            return authorUID
-        }
-        if let authorUID = posts.first(where: { $0.floor == 0 })?.authorUID,
-           authorUID != 0 {
-            return authorUID
-        }
-        return nil
-    }
-
-    var canReturnToPreviousThread: Bool {
-        !threadNavigationPath.isEmpty
-    }
-
-    var previousThreadTitle: String? {
-        threadNavigationPath.last?.topic.subject
-    }
 
     var selectedFavoriteTopicFolder: TopicFavoriteFolder? {
         favoriteTopicFolders.first { $0.id == selectedFavoriteTopicFolderID }
@@ -474,10 +342,7 @@ final class AppModel {
             }
         } else {
             forumUserReturnSelection = nil
-            selectedTopicID = nil
-            currentTopic = nil
-            resetThreadNavigationHistory()
-        }
+                    }
         sidebarSelection = .userCenter(uid)
         selectedMessageID = nil
         currentMessage = nil
@@ -725,11 +590,9 @@ final class AppModel {
         clearForumSearch()
         forumNavigationPath = []
         sidebarSelection = .directory
-        selectedTopicID = nil
-        currentTopic = nil
-        posts = []
-        hotReplies = []
-        resetThreadNavigationHistory()
+        thread.selectedTopicID = nil
+        thread.currentTopic = nil
+        thread.reset()
     }
 
     func openSubforum(_ forum: Forum) async {
@@ -753,16 +616,16 @@ final class AppModel {
         topicPage = 1
         topicHasMore = false
         topicTotalPages = 1
-        selectedTopicID = nil
-        currentTopic = nil
+        thread.selectedTopicID = nil
+        thread.currentTopic = nil
         selectedMessageID = nil
         currentMessage = nil
-        posts = []
-        hotReplies = []
+        thread.posts = []
+        thread.hotReplies = []
         subforums = []
         includedSubforumIDs = []
         subforumSelectionForumID = nil
-        resetThreadNavigationHistory()
+        thread.reset()
         await loadTopics(forumID: forum.id, reset: true)
     }
 
@@ -958,7 +821,6 @@ final class AppModel {
     }
 
     func openTopic(_ topic: Topic) async {
-        resetThreadNavigationHistory()
         if let mirroredForumID = topic.mirroredForumID {
             let mirroredForum = subforums.first { $0.id == mirroredForumID }
                 ?? forums.first { $0.id == mirroredForumID }
@@ -966,15 +828,7 @@ final class AppModel {
             await openSubforum(mirroredForum)
             return
         }
-        selectedTopicID = topic.id
-        var selectedTopic = topic
-        selectedTopic.isFavorite = topic.isFavorite || favoriteTopicIDs.contains(topic.id)
-        currentTopic = selectedTopic
-        posts = []
-        hotReplies = []
-        threadPage = 1
-        threadTotalPages = max(1, (topic.replyCount + 20) / 20)
-        await loadThread(topicID: topic.id, reset: true, showsLoadingIndicator: false)
+        await thread.open(topic)
     }
 
     func openPinnedTopic() async {
@@ -995,256 +849,6 @@ final class AppModel {
     }
 
     @discardableResult
-    func prepareLinkedTopicPage(topicID: TopicID, page: Int) async -> ThreadPage? {
-        guard let service = activeService,
-              let sourceTopicID = selectedTopicID,
-              sourceTopicID != topicID else {
-            return nil
-        }
-        let requestAccountID = service.accountID
-        let targetPage = max(1, page)
-        var loadedPage: ThreadPage?
-        let ticket = threadRequests.begin()
-        await session.withLoading(isCurrent: { ticket.isCurrent }) {
-            let result = try await service.threadPage(
-                topicID: topicID,
-                page: targetPage,
-                authorUID: nil
-            )
-            guard session.activeAccountID == requestAccountID,
-                  ticket.isCurrent,
-                  selectedTopicID == sourceTopicID,
-                  result.topic.id == topicID else {
-                return
-            }
-            loadedPage = result
-        }
-        return loadedPage
-    }
-
-    @discardableResult
-    func beginLinkedTopicNavigation(to destination: ThreadPage) -> Bool {
-        guard selectedTopicID != destination.topic.id, let currentTopic else {
-            return false
-        }
-        threadNavigationPath.append(ThreadNavigationSnapshot(
-            topic: currentTopic,
-            posts: posts,
-            hotReplies: hotReplies,
-            page: threadPage,
-            hasMore: threadHasMore,
-            totalPages: threadTotalPages,
-            showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
-        ))
-        threadRequests.invalidate()
-        var loadedTopic = destination.topic
-        loadedTopic.isFavorite = loadedTopic.isFavorite
-            || favoriteTopicIDs.contains(loadedTopic.id)
-        selectedTopicID = loadedTopic.id
-        self.currentTopic = loadedTopic
-        posts = destination.posts
-        hotReplies = destination.hotReplies
-        threadPage = destination.page
-        threadHasMore = destination.hasMore
-        threadTotalPages = max(destination.totalPages, destination.page)
-        isShowingOnlyTopicAuthor = false
-        return true
-    }
-
-    @discardableResult
-    func returnToPreviousThread() -> Bool {
-        guard let previous = threadNavigationPath.popLast() else { return false }
-        threadRequests.invalidate()
-        selectedTopicID = previous.topic.id
-        currentTopic = previous.topic
-        posts = previous.posts
-        hotReplies = previous.hotReplies
-        threadPage = previous.page
-        threadHasMore = previous.hasMore
-        threadTotalPages = previous.totalPages
-        isShowingOnlyTopicAuthor = previous.showsOnlyTopicAuthor
-        return true
-    }
-
-    func loadThread(
-        topicID: TopicID,
-        reset: Bool,
-        showsLoadingIndicator: Bool = true
-    ) async {
-        guard let service = activeService else { return }
-        let requestAccountID = service.accountID
-        let ticket = threadRequests.begin()
-        let page = reset ? 1 : threadPage + 1
-        let showsSkeleton = reset
-        if showsSkeleton {
-            isLoadingThreadContent = true
-        }
-        defer {
-            if ticket.isCurrent {
-                isLoadingThreadContent = false
-            }
-        }
-        await session.withLoading(
-            showsIndicator: showsLoadingIndicator,
-            isCurrent: { ticket.isCurrent }
-        ) {
-            let result = try await service.threadPage(
-                topicID: topicID,
-                page: page,
-                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
-            )
-            guard session.activeAccountID == requestAccountID,
-                  ticket.isCurrent,
-                  selectedTopicID == topicID else {
-                return
-            }
-            var loadedTopic = result.topic
-            loadedTopic.isFavorite = loadedTopic.isFavorite
-                || favoriteTopicIDs.contains(loadedTopic.id)
-            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
-            currentTopic = loadedTopic
-            posts = reset ? result.posts : merged(posts, result.posts)
-            if reset || !result.hotReplies.isEmpty {
-                hotReplies = result.hotReplies
-            }
-            threadPage = page
-            threadHasMore = result.hasMore
-            threadTotalPages = max(result.totalPages, page)
-        }
-    }
-
-    @discardableResult
-    func loadThreadPage(topicID: TopicID, page: Int) async -> Bool {
-        guard let service = activeService else { return false }
-        let requestAccountID = service.accountID
-        let ticket = threadRequests.begin()
-        let targetPage = max(1, page)
-        var didLoad = false
-        isLoadingThreadContent = true
-        defer {
-            if ticket.isCurrent {
-                isLoadingThreadContent = false
-            }
-        }
-        await session.withLoading(isCurrent: { ticket.isCurrent }) {
-            let result = try await service.threadPage(
-                topicID: topicID,
-                page: targetPage,
-                authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
-            )
-            guard session.activeAccountID == requestAccountID,
-                  ticket.isCurrent,
-                  selectedTopicID == topicID else {
-                return
-            }
-            var loadedTopic = result.topic
-            loadedTopic.isFavorite = loadedTopic.isFavorite
-                || favoriteTopicIDs.contains(loadedTopic.id)
-            loadedTopic.authorUID = loadedTopic.authorUID ?? currentTopic?.authorUID
-            currentTopic = loadedTopic
-            posts = result.posts
-            hotReplies = result.hotReplies
-            threadPage = result.page
-            threadHasMore = result.hasMore
-            threadTotalPages = max(result.totalPages, result.page)
-            didLoad = true
-        }
-        return didLoad
-    }
-
-    func vote(on postID: PostID, direction: PostVoteDirection) async {
-        guard let service = activeService,
-              let post = posts.first(where: { $0.id == postID })
-                ?? hotReplies.first(where: { $0.id == postID }),
-              !votingPostIDs.contains(postID) else {
-            return
-        }
-        votingPostIDs.insert(postID)
-        defer { votingPostIDs.remove(postID) }
-
-        let originalState = PostVoteState(
-            upvoteCount: post.upvoteCount,
-            downvoteCount: post.downvoteCount,
-            userVote: post.userVote
-        )
-        let optimisticState = originalState.optimisticallyApplying(direction)
-        updateVoteState(optimisticState, postID: postID, in: &posts)
-        updateVoteState(optimisticState, postID: postID, in: &hotReplies)
-
-        do {
-            let state = try await service.vote(
-                topicID: post.topicID,
-                postID: postID,
-                direction: direction
-            )
-            updateVoteState(state, postID: postID, in: &posts)
-            updateVoteState(state, postID: postID, in: &hotReplies)
-            session.statusMessage = "评价已更新"
-            session.statusMessageIsError = false
-        } catch {
-            if voteSubmissionMayHaveSucceeded(error) {
-                // NGA 偶尔会先执行点赞，再以 403 或无法解析的响应结束请求。
-                // 此时保留即时更新，避免误报失败及用户重复提交。
-                session.statusMessage = "评价已更新"
-                session.statusMessageIsError = false
-                return
-            }
-            updateVoteState(originalState, postID: postID, in: &posts)
-            updateVoteState(originalState, postID: postID, in: &hotReplies)
-            session.present(error)
-        }
-    }
-
-    func submitTopicPollVote(topicID: TopicID, selection: Set<String>) async -> Bool {
-        guard let service = activeService,
-              let poll = posts.lazy.compactMap(\.poll).first(where: { $0.id == topicID }),
-              !submittingPollTopicIDs.contains(topicID) else {
-            return false
-        }
-        guard poll.isAcceptingResponses(at: .now) else {
-            session.present(NGAServiceError.unsupported("该投票已经结束"))
-            return false
-        }
-        guard poll.containsValidSelection(selection) else {
-            session.present(NGAServiceError.unsupported("请选择有效的投票选项"))
-            return false
-        }
-
-        let optionIDs = poll.orderedOptionIDs(in: selection)
-        let requestAccountID = service.accountID
-        submittingPollTopicIDs.insert(topicID)
-        defer { submittingPollTopicIDs.remove(topicID) }
-
-        do {
-            try await service.submitTopicPollVote(
-                topicID: topicID,
-                optionIDs: optionIDs
-            )
-            guard session.activeAccountID == requestAccountID,
-                  selectedTopicID == topicID else {
-                return false
-            }
-            await loadThreadPage(topicID: topicID, page: threadPage)
-            session.statusMessage = "投票已提交"
-            session.statusMessageIsError = false
-            return true
-        } catch {
-            guard session.activeAccountID == requestAccountID,
-                  selectedTopicID == topicID else {
-                return false
-            }
-            if voteSubmissionMayHaveSucceeded(error) {
-                // 写请求不会自动重试。响应不明确时刷新话题，让服务器状态
-                // 决定后续显示，避免用户重复投票。
-                await loadThreadPage(topicID: topicID, page: threadPage)
-                session.statusMessage = "投票请求已提交，结果以刷新后的话题为准"
-                session.statusMessageIsError = false
-                return true
-            }
-            session.present(error)
-            return false
-        }
-    }
 
     func loadMessages(folder: MessageFolder, reset: Bool = true) async {
         guard let service = activeService else { return }
@@ -1288,9 +892,9 @@ final class AppModel {
     }
 
     func openMessage(_ message: ForumMessage) async {
-        resetThreadNavigationHistory()
-        selectedTopicID = nil
-        currentTopic = nil
+        thread.reset()
+        thread.selectedTopicID = nil
+        thread.currentTopic = nil
         selectedMessageID = message.id
         let folder = messageFolder
         if folder == .notifications {
@@ -1377,61 +981,11 @@ final class AppModel {
         try? session.context.save()
     }
 
-    func submitReply(
-        topicID: TopicID,
-        content: String,
-        replyTo: PostID?,
-        ratingScores: [String: Int] = [:]
-    ) async -> Bool {
-        guard let service = activeService,
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        if currentTopic?.id == topicID, currentTopic?.isLocked == true {
-            session.present(NGAServiceError.topicLocked)
-            return false
-        }
-        if !ratingScores.isEmpty {
-            guard let rating = currentTopic?.rating,
-                  currentTopic?.id == topicID else {
-                session.present(NGAServiceError.unsupported("当前话题没有可用的评分"))
-                return false
-            }
-            guard rating.isAcceptingResponses(at: .now) else {
-                session.present(NGAServiceError.unsupported("该评分已经结束"))
-                return false
-            }
-            guard rating.containsValidScores(ratingScores) else {
-                session.present(NGAServiceError.unsupported("请选择有效的评分"))
-                return false
-            }
-        }
-        isSubmitting = true
-        defer { isSubmitting = false }
-        do {
-            _ = try await service.submitReply(
-                topicID: topicID,
-                submission: ReplySubmission(
-                    content: content,
-                    replyTo: replyTo,
-                    ratingScores: ratingScores
-                )
-            )
-            deleteDraft(topicID: topicID)
-            session.statusMessage = ratingScores.isEmpty ? "回复已发送" : "回复和评分已发送"
-            session.statusMessageIsError = false
-            await loadThread(topicID: topicID, reset: true)
-            return true
-        } catch {
-            session.present(error)
-            return false
-        }
-    }
 
     func replyToMessage(id: MessageID, content: String) async -> Bool {
         guard let service = activeService, !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        isSubmitting = true
-        defer { isSubmitting = false }
+        thread.isSubmitting = true
+        defer { thread.isSubmitting = false }
         do {
             try await service.replyMessage(id: id, content: content)
             session.statusMessage = "私信回复已发送"
@@ -1646,8 +1200,8 @@ final class AppModel {
                 )
             }
             let remainsFavorite = favoriteTopicIDs.contains(topic.id)
-            if currentTopic?.id == topic.id {
-                currentTopic?.isFavorite = remainsFavorite
+            if thread.currentTopic?.id == topic.id {
+                thread.currentTopic?.isFavorite = remainsFavorite
             }
             if let index = topics.firstIndex(where: { $0.id == topic.id }) {
                 topics[index].isFavorite = remainsFavorite
@@ -1708,8 +1262,8 @@ final class AppModel {
             if favoriteTopicFolderIDsByTopic[topic.id]?.isEmpty != false {
                 favoriteTopicFolderIDsByTopic[topic.id] = nil
                 favoriteTopicIDs.remove(topic.id)
-                if currentTopic?.id == topic.id {
-                    currentTopic?.isFavorite = false
+                if thread.currentTopic?.id == topic.id {
+                    thread.currentTopic?.isFavorite = false
                 }
                 if let index = topics.firstIndex(where: { $0.id == topic.id }) {
                     topics[index].isFavorite = false
@@ -1872,8 +1426,8 @@ final class AppModel {
     }
 
     func refreshCurrentSelection() async {
-        if selectedTopicID != nil {
-            await refreshThreadContent()
+        if thread.selectedTopicID != nil {
+            await thread.refreshContent()
             return
         }
         switch sidebarSelection {
@@ -1912,24 +1466,6 @@ final class AppModel {
         await loadTopicPage(forumID: forumID, page: topicPage)
     }
 
-    func refreshThreadContent() async {
-        guard let selectedTopicID else { return }
-        await loadThreadPage(topicID: selectedTopicID, page: threadPage)
-    }
-
-    func toggleOnlyTopicAuthor() async {
-        guard let selectedTopicID,
-              isShowingOnlyTopicAuthor || currentTopicAuthorUID != nil else {
-            return
-        }
-        let previousValue = isShowingOnlyTopicAuthor
-        isShowingOnlyTopicAuthor.toggle()
-        let didLoad = await loadThreadPage(topicID: selectedTopicID, page: 1)
-        if !didLoad, self.selectedTopicID == selectedTopicID {
-            isShowingOnlyTopicAuthor = previousValue
-        }
-    }
-
     func handleNotification(
         accountIDString: String,
         messageIDString: String,
@@ -1948,24 +1484,6 @@ final class AppModel {
         }
     }
 
-    func draft(topicID: TopicID) -> DraftRecord? {
-        guard let activeAccountID = session.activeAccountID else { return nil }
-        return ((try? session.context.fetch(FetchDescriptor<DraftRecord>())) ?? []).first {
-            $0.accountIDString == activeAccountID.description && $0.topicID == topicID.rawValue
-        }
-    }
-
-    func saveDraft(topicID: TopicID, content: String, replyTo: PostID?) {
-        guard let activeAccountID = session.activeAccountID else { return }
-        if let draft = draft(topicID: topicID) {
-            draft.content = content
-            draft.replyToPostID = replyTo?.rawValue
-            draft.updatedAt = Date()
-        } else {
-            session.context.insert(DraftRecord(accountID: activeAccountID, topicID: topicID, replyToPostID: replyTo, content: content))
-        }
-        try? session.context.save()
-    }
 
     private func favoriteRecords(accountID: AccountID) -> [FavoriteRecord] {
         ((try? session.context.fetch(FetchDescriptor<FavoriteRecord>())) ?? [])
@@ -2116,16 +1634,9 @@ final class AppModel {
         }
     }
 
-    private func deleteDraft(topicID: TopicID) {
-        guard let draft = draft(topicID: topicID) else { return }
-        session.context.delete(draft)
-        try? session.context.save()
-    }
 
     private func clearVisibleContent() {
-        postAuthorLocationRequests.values.forEach { $0.task.cancel() }
-        postAuthorLocationRequests = [:]
-        postAuthorLocationCache = [:]
+        thread.reset()
         favorites = []
         recentForums = []
         favoriteTopicFolders = []
@@ -2139,11 +1650,11 @@ final class AppModel {
         includedSubforumIDs = []
         forumNavigationPath = []
         subforumSelectionForumID = nil
-        posts = []
-        hotReplies = []
+        thread.posts = []
+        thread.hotReplies = []
         messages = []
         currentForum = nil
-        currentTopic = nil
+        thread.currentTopic = nil
         currentMessage = nil
         currentProfile = nil
         userActivities = []
@@ -2153,13 +1664,10 @@ final class AppModel {
         userActivityHasMore = false
         userActivityTotalPages = 1
         clearForumSearch()
-        selectedTopicID = nil
+        thread.selectedTopicID = nil
         selectedMessageID = nil
-        resetThreadNavigationHistory()
+        thread.reset()
         previewImageURL = nil
-        threadPage = 1
-        threadHasMore = false
-        threadTotalPages = 1
         topicPage = 1
         topicHasMore = false
         topicTotalPages = 1
@@ -2169,13 +1677,8 @@ final class AppModel {
         unreadCount = 0
         messageUnreadCounts = [:]
         isRefreshingTopics = false
-        isLoadingThreadContent = false
     }
 
-    private func resetThreadNavigationHistory() {
-        threadNavigationPath = []
-        isShowingOnlyTopicAuthor = false
-    }
 
     private func merged<T: Identifiable>(_ existing: [T], _ incoming: [T]) -> [T] where T.ID: Hashable {
         var seen = Set(existing.map(\.id))
@@ -2304,28 +1807,6 @@ final class AppModel {
             .first { $0.accountID == id }
     }
 
-    private func updateVoteState(
-        _ state: PostVoteState,
-        postID: PostID,
-        in posts: inout [Post]
-    ) {
-        guard let index = posts.firstIndex(where: { $0.id == postID }) else { return }
-        posts[index].upvoteCount = state.upvoteCount
-        posts[index].downvoteCount = state.downvoteCount
-        posts[index].userVote = state.userVote
-    }
-
-    private func voteSubmissionMayHaveSucceeded(_ error: Error) -> Bool {
-        guard let serviceError = error as? NGAServiceError else { return false }
-        switch serviceError {
-        case .ambiguousWrite:
-            return true
-        case let .restricted(message):
-            return message.contains("HTTP 403")
-        default:
-            return false
-        }
-    }
 
 #if DEBUG
     private func seedUITestData() {

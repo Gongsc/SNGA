@@ -39,13 +39,13 @@ struct ThreadView: View {
         }
         .clipped()
         .sheet(item: $replyTarget) { post in
-            if let topic = model.currentTopic {
+            if let topic = model.thread.currentTopic {
                 ReplyComposerView(topic: topic, replyTo: post)
                     .environment(model)
             }
         }
         .sheet(isPresented: $writesNewReply) {
-            if let topic = model.currentTopic {
+            if let topic = model.thread.currentTopic {
                 ReplyComposerView(topic: topic, replyTo: nil)
                     .environment(model)
             }
@@ -67,14 +67,14 @@ struct ThreadView: View {
     }
 
     private var currentPresentation: ThreadPresentation? {
-        guard let topic = model.currentTopic else { return nil }
+        guard let topic = model.thread.currentTopic else { return nil }
         return ThreadPresentation(
             topic: topic,
-            posts: model.posts,
-            hotReplies: model.hotReplies,
-            page: model.threadPage,
-            totalPages: model.threadTotalPages,
-            previousTitle: model.previousThreadTitle
+            posts: model.thread.posts,
+            hotReplies: model.thread.hotReplies,
+            page: model.thread.page,
+            totalPages: model.thread.totalPages,
+            previousTitle: model.thread.previousThreadTitle
         )
     }
 
@@ -143,9 +143,9 @@ struct ThreadView: View {
                         isLoading: isThreadLoading,
                         showsLoadingIndicator: !showsThreadContentSkeleton,
                         navigate: { page in
-                            guard let topicID = model.selectedTopicID else { return }
+                            guard let topicID = model.thread.selectedTopicID else { return }
                             Task {
-                                await model.loadThreadPage(topicID: topicID, page: page)
+                                await model.thread.loadPage(topicID: topicID, page: page)
                                 await Task.yield()
                                 scrollToThreadTop(proxy: proxy)
                             }
@@ -158,7 +158,7 @@ struct ThreadView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help("回到话题内容顶部")
-                        .disabled(model.currentTopic == nil)
+                        .disabled(model.thread.currentTopic == nil)
                         .accessibilityIdentifier("thread-scroll-to-top")
 
                         Button {
@@ -168,7 +168,7 @@ struct ThreadView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help("复制话题链接或在浏览器中打开")
-                        .disabled(model.selectedTopicID == nil)
+                        .disabled(model.thread.selectedTopicID == nil)
                         .accessibilityIdentifier("thread-share")
                         .popover(isPresented: $showsTopicLinkActions, arrowEdge: .bottom) {
                             if let topicURL {
@@ -182,7 +182,7 @@ struct ThreadView: View {
                         }
 
                         Menu {
-                            if let topic = model.currentTopic {
+                            if let topic = model.thread.currentTopic {
                                 if model.favoriteTopicFolders.isEmpty {
                                     Text("正在加载收藏目录…")
                                 } else {
@@ -238,35 +238,35 @@ struct ThreadView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help("选择话题收藏夹")
-                        .disabled(model.currentTopic == nil)
+                        .disabled(model.thread.currentTopic == nil)
                         .accessibilityIdentifier("thread-topic-favorite")
 
                         Button {
                             Task {
-                                await model.toggleOnlyTopicAuthor()
+                                await model.thread.toggleOnlyTopicAuthor()
                                 await Task.yield()
                                 scrollToThreadTop(proxy: proxy)
                             }
                         } label: {
                             Label(
-                                model.isShowingOnlyTopicAuthor ? "查看全部回复" : "只看作者",
-                                systemImage: model.isShowingOnlyTopicAuthor
+                                model.thread.isShowingOnlyTopicAuthor ? "查看全部回复" : "只看作者",
+                                systemImage: model.thread.isShowingOnlyTopicAuthor
                                     ? "person.crop.circle.fill"
                                     : "person.crop.circle"
                             )
                         }
                         .labelStyle(.iconOnly)
                         .help(
-                            model.isShowingOnlyTopicAuthor
+                            model.thread.isShowingOnlyTopicAuthor
                                 ? "显示话题中的全部回复"
                                 : "只显示话题作者的回复"
                         )
-                        .disabled(model.currentTopicAuthorUID == nil || isThreadLoading)
-                        .accessibilityValue(model.isShowingOnlyTopicAuthor ? "已开启" : "已关闭")
+                        .disabled(model.thread.currentTopicAuthorUID == nil || isThreadLoading)
+                        .accessibilityValue(model.thread.isShowingOnlyTopicAuthor ? "已开启" : "已关闭")
                         .accessibilityIdentifier("thread-only-author")
 
                         Button {
-                            Task { await model.refreshThreadContent() }
+                            Task { await model.thread.refreshContent() }
                         } label: {
                             Label("刷新话题内容", systemImage: "arrow.clockwise.circle")
                         }
@@ -287,7 +287,7 @@ struct ThreadView: View {
                         }
                         .labelStyle(.iconOnly)
                         .help(presentation.topic.isLocked ? "话题已锁定" : "回复当前话题")
-                        .disabled(model.selectedTopicID == nil)
+                        .disabled(model.thread.selectedTopicID == nil)
                         .accessibilityIdentifier("thread-reply")
                     }
                 }
@@ -320,7 +320,7 @@ struct ThreadView: View {
     }
 
     private func startNewReply() {
-        guard model.currentTopic?.isLocked != true else {
+        guard model.thread.currentTopic?.isLocked != true else {
             showsLockedTopicAlert = true
             return
         }
@@ -328,7 +328,7 @@ struct ThreadView: View {
     }
 
     private func startReply(to post: Post) {
-        guard model.currentTopic?.isLocked != true else {
+        guard model.thread.currentTopic?.isLocked != true else {
             showsLockedTopicAlert = true
             return
         }
@@ -341,7 +341,7 @@ struct ThreadView: View {
 
     private var showsThreadContentSkeleton: Bool {
         guard let currentThreadContentIdentity else { return true }
-        return model.isLoadingThreadContent
+        return model.thread.isLoadingContent
             || isLinkedThreadTransitioning
             || preparedThreadContentIdentity != currentThreadContentIdentity
     }
@@ -365,13 +365,13 @@ struct ThreadView: View {
     }
 
     private func navigateBack() {
-        guard model.canReturnToPreviousThread, !isLinkedThreadTransitioning else { return }
+        guard model.thread.canReturnToPreviousThread, !isLinkedThreadTransitioning else { return }
         navigationDirection = .backward
         pendingLinkedPostID = nil
         var didReturn = false
         withAnimation(threadNavigationAnimation) {
             isLinkedThreadTransitioning = true
-            didReturn = model.returnToPreviousThread()
+            didReturn = model.thread.returnToPreviousThread()
         } completion: {
             finishLinkedThreadTransition()
         }
@@ -382,7 +382,7 @@ struct ThreadView: View {
 
     private func scrollToPendingLinkedPost(proxy: ScrollViewProxy) {
         guard let postID = pendingLinkedPostID,
-              model.posts.contains(where: { $0.id == postID }) else {
+              model.thread.posts.contains(where: { $0.id == postID }) else {
             return
         }
         Task { @MainActor in
@@ -401,12 +401,12 @@ struct ThreadView: View {
         proxy: ScrollViewProxy
     ) {
         Task { @MainActor in
-            if !model.posts.contains(where: { $0.id == postID }),
+            if !model.thread.posts.contains(where: { $0.id == postID }),
                let page {
-                await model.loadThreadPage(topicID: topicID, page: page)
+                await model.thread.loadPage(topicID: topicID, page: page)
             }
             await Task.yield()
-            if model.posts.contains(where: { $0.id == postID }) {
+            if model.thread.posts.contains(where: { $0.id == postID }) {
                 withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
                     proxy.scrollTo(postID, anchor: .top)
                 }
@@ -423,17 +423,17 @@ struct ThreadView: View {
     ) {
         switch destination {
         case let .post(postID, page):
-            guard let topicID = model.selectedTopicID else { return }
+            guard let topicID = model.thread.selectedTopicID else { return }
             revealPost(postID, page: page, topicID: topicID, proxy: proxy)
 
         case let .topic(topicID, page, postID):
             guard !isLinkedThreadTransitioning else { return }
-            if model.selectedTopicID == topicID {
+            if model.thread.selectedTopicID == topicID {
                 if let postID {
                     revealPost(postID, page: page, topicID: topicID, proxy: proxy)
-                } else if let page, page != model.threadPage {
+                } else if let page, page != model.thread.page {
                     Task { @MainActor in
-                        await model.loadThreadPage(topicID: topicID, page: page)
+                        await model.thread.loadPage(topicID: topicID, page: page)
                         await Task.yield()
                         scrollToThreadTop(proxy: proxy)
                     }
@@ -448,7 +448,7 @@ struct ThreadView: View {
                 withAnimation(motionAnimation(.easeOut(duration: 0.16))) {
                     isLinkedThreadTransitioning = true
                 }
-                guard let destination = await model.prepareLinkedTopicPage(
+                guard let destination = await model.thread.prepareLinkedTopicPage(
                     topicID: topicID,
                     page: targetPage
                 ) else {
@@ -458,7 +458,7 @@ struct ThreadView: View {
                 }
                 var didBegin = false
                 withAnimation(threadNavigationAnimation) {
-                    didBegin = model.beginLinkedTopicNavigation(to: destination)
+                    didBegin = model.thread.beginLinkedTopicNavigation(to: destination)
                 } completion: {
                     finishLinkedThreadTransition()
                 }
@@ -467,12 +467,12 @@ struct ThreadView: View {
                     finishLinkedThreadTransition()
                     return
                 }
-                guard model.selectedTopicID == topicID else { return }
+                guard model.thread.selectedTopicID == topicID else { return }
                 await Task.yield()
                 if postID == nil {
                     scrollToThreadTop(proxy: proxy)
                 } else if pendingLinkedPostID != nil,
-                          !model.posts.contains(where: { $0.id == postID }) {
+                          !model.thread.posts.contains(where: { $0.id == postID }) {
                     pendingLinkedPostID = nil
                     model.session.statusMessage = "未能在目标帖子页找到引用楼层"
                     model.session.statusMessageIsError = true
@@ -515,7 +515,7 @@ struct ThreadView: View {
     }
 
     private var topicURL: URL? {
-        model.selectedTopicID.map(NGAEndpoint.topicWebURL(topicID:))
+        model.thread.selectedTopicID.map(NGAEndpoint.topicWebURL(topicID:))
     }
 
     private func copyTopicLink() {
@@ -1015,7 +1015,7 @@ struct PostRow: View {
         }
         .task(id: authorUID) {
             guard post.authorInfo?.location == nil, let authorUID else { return }
-            await model.loadPostAuthorLocation(uid: authorUID)
+            await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
     }
 
@@ -1091,14 +1091,14 @@ struct PostRow: View {
         case (.down, false): systemImage = "hand.thumbsdown"
         }
         return Button {
-            Task { await model.vote(on: post.id, direction: direction) }
+            Task { await model.thread.vote(on: post.id, direction: direction) }
         } label: {
             Label("\(count)", systemImage: systemImage)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(isSelected ? theme.accentColor : Color.secondary)
         }
         .buttonStyle(.borderless)
-        .disabled(model.votingPostIDs.contains(post.id))
+        .disabled(model.thread.votingPostIDs.contains(post.id))
         .help(direction == .up ? "点赞" : "点踩")
     }
 }
@@ -1313,11 +1313,11 @@ struct ReplyComposerView: View {
                 Spacer()
                 Button("取消") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .disabled(model.isSubmitting)
+                    .disabled(model.thread.isSubmitting)
                 Button {
                     model.session.clearError()
                     Task {
-                        if await model.submitReply(
+                        if await model.thread.submitReply(
                             topicID: topic.id,
                             content: content,
                             replyTo: replyTo?.id,
@@ -1328,7 +1328,7 @@ struct ReplyComposerView: View {
                         }
                     }
                 } label: {
-                    if model.isSubmitting {
+                    if model.thread.isSubmitting {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
                             Text("发送中")
@@ -1339,7 +1339,7 @@ struct ReplyComposerView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSubmitting)
+                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.thread.isSubmitting)
             }
             .padding()
             Divider()
@@ -1402,7 +1402,7 @@ struct ReplyComposerView: View {
             .padding(.vertical, 7)
         }
         .frame(minWidth: 760, minHeight: 560)
-        .interactiveDismissDisabled(model.isSubmitting)
+        .interactiveDismissDisabled(model.thread.isSubmitting)
         .alert("回复发送失败", isPresented: Binding(
             get: { model.session.errorMessage != nil },
             set: { if !$0 { model.session.clearError() } }
@@ -1414,17 +1414,17 @@ struct ReplyComposerView: View {
         .task {
             guard !loadedDraft else { return }
             loadedDraft = true
-            if let draft = model.draft(topicID: topic.id) {
+            if let draft = model.thread.draft(topicID: topic.id) {
                 content = draft.content
             } else if let replyTo {
                 content = "[quote]\(replyTo.author) 于 #\(replyTo.floor) 的内容[/quote]\n"
             }
         }
         .onChange(of: content) { _, newValue in
-            model.saveDraft(topicID: topic.id, content: newValue, replyTo: replyTo?.id)
+            model.thread.saveDraft(topicID: topic.id, content: newValue, replyTo: replyTo?.id)
         }
         .onDisappear {
-            if !submitted { model.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
+            if !submitted { model.thread.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
         }
     }
 

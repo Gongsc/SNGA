@@ -229,7 +229,7 @@ private struct MessageReplyView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSubmitting)
+                .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.thread.isSubmitting)
             }
             .padding()
             Divider()

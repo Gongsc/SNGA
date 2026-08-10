@@ -164,7 +164,7 @@ struct TopicPollView: View {
     }
 
     private var isSubmitting: Bool {
-        model.submittingPollTopicIDs.contains(poll.id)
+        model.thread.submittingPollTopicIDs.contains(poll.id)
     }
 
     private var selectionLimitMessage: String {
@@ -242,7 +242,7 @@ struct TopicPollView: View {
     private func submitSelection() {
         let submittedSelection = selection
         Task {
-            if await model.submitTopicPollVote(
+            if await model.thread.submitTopicPollVote(
                 topicID: poll.id,
                 selection: submittedSelection
             ) {

@@ -376,7 +376,7 @@ struct SNGAApp: App {
             AboutCommands()
 
             CommandGroup(after: .sidebar) {
-                Button(model.selectedTopicID == nil ? "刷新" : "刷新话题内容") {
+                Button(model.thread.selectedTopicID == nil ? "刷新" : "刷新话题内容") {
                     Task { await model.refreshCurrentSelection() }
                 }
                 .keyboardShortcut("r", modifiers: .command)

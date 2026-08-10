@@ -374,7 +374,7 @@ private struct DetailColumnView: View {
     var body: some View {
         if model.sidebarSelection == .toolbox {
             ToolboxFeedView(feed: model.selectedToolboxFeed)
-        } else if model.selectedTopicID != nil {
+        } else if model.thread.selectedTopicID != nil {
             ThreadView()
         } else if model.selectedMessageID != nil {
             MessageDetailView()

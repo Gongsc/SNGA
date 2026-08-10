@@ -165,12 +165,12 @@ final class FavoriteAndCheckInTests: XCTestCase {
             author: "Alice",
             html: "<p>A</p>"
         )
-        model.selectedTopicID = topicA.id
-        model.currentTopic = topicA
-        model.posts = [postA]
-        model.threadPage = 2
-        model.threadHasMore = true
-        model.threadTotalPages = 4
+        model.thread.selectedTopicID = topicA.id
+        model.thread.currentTopic = topicA
+        model.thread.posts = [postA]
+        model.thread.page = 2
+        model.thread.hasMore = true
+        model.thread.totalPages = 4
 
         let topicB = Topic(
             id: TopicID(rawValue: 202),
@@ -187,7 +187,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             html: "<p>B</p>"
         )
         XCTAssertTrue(
-            model.beginLinkedTopicNavigation(to: ThreadPage(
+            model.thread.beginLinkedTopicNavigation(to: ThreadPage(
                 topic: topicB,
                 posts: [postB],
                 page: 3,
@@ -195,7 +195,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
                 totalPages: 3
             ))
         )
-        XCTAssertEqual(model.previousThreadTitle, "起始主题")
+        XCTAssertEqual(model.thread.previousThreadTitle, "起始主题")
 
         let topicC = Topic(
             id: TopicID(rawValue: 303),
@@ -204,24 +204,24 @@ final class FavoriteAndCheckInTests: XCTestCase {
             author: "Carol",
             replyCount: 0
         )
-        XCTAssertTrue(model.beginLinkedTopicNavigation(to: ThreadPage(
+        XCTAssertTrue(model.thread.beginLinkedTopicNavigation(to: ThreadPage(
             topic: topicC,
             posts: [],
             page: 1,
             hasMore: false,
             totalPages: 1
         )))
-        XCTAssertTrue(model.returnToPreviousThread())
-        XCTAssertEqual(model.currentTopic, topicB)
-        XCTAssertEqual(model.posts, [postB])
-        XCTAssertEqual(model.threadPage, 3)
+        XCTAssertTrue(model.thread.returnToPreviousThread())
+        XCTAssertEqual(model.thread.currentTopic, topicB)
+        XCTAssertEqual(model.thread.posts, [postB])
+        XCTAssertEqual(model.thread.page, 3)
 
-        XCTAssertTrue(model.returnToPreviousThread())
-        XCTAssertEqual(model.currentTopic, topicA)
-        XCTAssertEqual(model.posts, [postA])
-        XCTAssertEqual(model.threadPage, 2)
-        XCTAssertEqual(model.threadTotalPages, 4)
-        XCTAssertFalse(model.canReturnToPreviousThread)
+        XCTAssertTrue(model.thread.returnToPreviousThread())
+        XCTAssertEqual(model.thread.currentTopic, topicA)
+        XCTAssertEqual(model.thread.posts, [postA])
+        XCTAssertEqual(model.thread.page, 2)
+        XCTAssertEqual(model.thread.totalPages, 4)
+        XCTAssertFalse(model.thread.canReturnToPreviousThread)
     }
 
     func testOptimisticVoteStateUpdatesCountsAndSelection() {
