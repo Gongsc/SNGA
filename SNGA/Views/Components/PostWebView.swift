@@ -20,7 +20,10 @@ final class PostWebViewCache {
     static let shared = PostWebViewCache()
     private let entries = NSCache<NSString, Entry>()
 
-    init(countLimit: Int = 60) {
+    /// 缓存里每一项都是一个存活的 `WKWebView`，代价远高于普通的值缓存。
+    /// 楼层改为按需创建后，滚出视口的楼层会频繁进出这里，因此上限按
+    /// “回滚一两屏够用” 来定，而不是按整页楼层数。
+    init(countLimit: Int = 20) {
         entries.countLimit = countLimit
     }
 
@@ -772,14 +775,44 @@ struct PostBodyView: View {
     @Environment(\.sngaTheme) private var theme
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     var html: String
+    /// 可原生渲染的正文。为 nil 时回退到 `WKWebView`。
+    var nativeContent: PostContent? = nil
     var cacheKey: String? = nil
     var loadOrder: Int? = nil
     var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
     var onContentReady: @MainActor () -> Void = {}
+    private static let maximumStaggerSteps = 4
     @State private var height: CGFloat = 24
     @State private var isReadyToCreateWebView = false
 
     var body: some View {
+        // 原生分支只可能包含表情，而无图模式本就放行表情，因此不受该设置影响。
+        if let nativeContent {
+            nativeBody(nativeContent)
+        } else {
+            webViewBody
+        }
+    }
+
+    /// 原生分支不需要测高，也不产生 WKWebView，因此直接汇报就绪。
+    private func nativeBody(_ content: PostContent) -> some View {
+        PostContentView(
+            content: content,
+            onOpenLink: { url in
+                if let destination = NGAInternalLink.destination(for: url) {
+                    onOpenInternalLink(destination)
+                } else {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: content) {
+            onContentReady()
+        }
+    }
+
+    private var webViewBody: some View {
         Group {
             if loadOrder == nil || isReadyToCreateWebView {
                 PostWebView(
@@ -805,7 +838,13 @@ struct PostBodyView: View {
             .task(id: loadOrder) {
                 guard let loadOrder else { return }
                 isReadyToCreateWebView = false
-                try? await Task.sleep(for: .milliseconds(loadOrder * 20))
+                // 错峰只是为了避免同一个 runloop 周期内集中创建 WKWebView。
+                // 楼层改为按需创建后，滚动位置本身就带来了天然错峰，因此给延迟封顶 ——
+                // 否则滚到第 20 层时会凭空多等 400ms 才开始渲染。
+                let staggerSteps = min(loadOrder, Self.maximumStaggerSteps)
+                if staggerSteps > 0 {
+                    try? await Task.sleep(for: .milliseconds(staggerSteps * 20))
+                }
                 guard !Task.isCancelled else { return }
                 isReadyToCreateWebView = true
             }

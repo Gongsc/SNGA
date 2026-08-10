@@ -116,19 +116,19 @@ final class AppModel {
     @ObservationIgnored private var subforumSelectionForumID: ForumID?
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
-    @ObservationIgnored private var profileRequestID: UUID?
+    @ObservationIgnored private let profileRequests = RequestSlot()
     @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
     @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
-    @ObservationIgnored private var userActivityRequestID: UUID?
-    @ObservationIgnored private var forumDirectoryRequestID: UUID?
-    @ObservationIgnored private var forumSearchRequestID: UUID?
-    @ObservationIgnored private var topicListRequestID: UUID?
-    @ObservationIgnored private var threadRequestID: UUID?
-    @ObservationIgnored private var messageListRequestID: UUID?
-    @ObservationIgnored private var messageDetailRequestID: UUID?
-    @ObservationIgnored private var favoriteRequestID: UUID?
-    @ObservationIgnored private var favoriteTopicFolderRequestID: UUID?
-    @ObservationIgnored private var favoriteTopicRequestID: UUID?
+    @ObservationIgnored private let userActivityRequests = RequestSlot()
+    @ObservationIgnored private let forumDirectoryRequests = RequestSlot()
+    @ObservationIgnored private let forumSearchRequests = RequestSlot()
+    @ObservationIgnored private let topicListRequests = RequestSlot()
+    @ObservationIgnored private let threadRequests = RequestSlot()
+    @ObservationIgnored private let messageListRequests = RequestSlot()
+    @ObservationIgnored private let messageDetailRequests = RequestSlot()
+    @ObservationIgnored private let favoriteRequests = RequestSlot()
+    @ObservationIgnored private let favoriteTopicFolderRequests = RequestSlot()
+    @ObservationIgnored private let favoriteTopicRequests = RequestSlot()
     @ObservationIgnored private var messageUnreadCounts: [MessageFolder: Int] = [:]
     private var forumUserReturnSelection: SidebarSelection?
     private var threadNavigationPath: [ThreadNavigationSnapshot] = []
@@ -543,8 +543,7 @@ final class AppModel {
 
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        profileRequestID = requestID
+        let ticket = profileRequests.begin()
         beginLoading()
         do {
             var profile = try await service.profile(uid: uid)
@@ -555,7 +554,7 @@ final class AppModel {
                 profile.avatarURL = resolvedAvatarURL
             }
             if activeAccountID == requestAccountID,
-               profileRequestID == requestID,
+               ticket.isCurrent,
                displayedUserUID == uid {
                 currentProfile = profile
             }
@@ -564,7 +563,7 @@ final class AppModel {
         }
         endLoading()
         guard activeAccountID == requestAccountID,
-              profileRequestID == requestID,
+              ticket.isCurrent,
               displayedUserUID == uid else {
             return
         }
@@ -585,15 +584,14 @@ final class AppModel {
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        userActivityRequestID = requestID
+        let ticket = userActivityRequests.begin()
         let targetPage = max(1, page)
         userActivityUID = uid
         userActivityKind = kind
-        await withLoading(isCurrent: { self.userActivityRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.userActivities(uid: uid, kind: kind, page: targetPage)
             guard activeAccountID == requestAccountID,
-                  userActivityRequestID == requestID,
+                  ticket.isCurrent,
                   displayedUserUID == uid,
                   userActivityUID == uid,
                   userActivityKind == kind else {
@@ -621,13 +619,12 @@ final class AppModel {
     func loadForums() async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        forumDirectoryRequestID = requestID
-        await withLoading(isCurrent: { self.forumDirectoryRequestID == requestID }) {
+        let ticket = forumDirectoryRequests.begin()
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             // NGA 的接口顺序就是官网分组和版面顺序，不能在这里全局排序。
             let result = try await service.forums()
             guard activeAccountID == requestAccountID,
-                  forumDirectoryRequestID == requestID else {
+                  ticket.isCurrent else {
                 return
             }
             forums = result
@@ -688,17 +685,16 @@ final class AppModel {
     func searchForum(_ request: ForumSearchRequest, page: Int = 1) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
         let targetPage = max(1, page)
         if forumSearchRequest != request {
             forumSearchPage = nil
         }
-        forumSearchRequestID = requestID
+        let ticket = forumSearchRequests.begin()
         forumSearchRequest = request
         forumSearchErrorMessage = nil
         isSearchingForum = true
         defer {
-            if forumSearchRequestID == requestID {
+            if ticket.isCurrent {
                 isSearchingForum = false
             }
         }
@@ -706,7 +702,7 @@ final class AppModel {
         do {
             var result = try await service.search(request, page: targetPage)
             guard activeAccountID == requestAccountID,
-                  forumSearchRequestID == requestID,
+                  ticket.isCurrent,
                   forumSearchRequest == request else {
                 return
             }
@@ -716,7 +712,7 @@ final class AppModel {
             return
         } catch {
             guard activeAccountID == requestAccountID,
-                  forumSearchRequestID == requestID,
+                  ticket.isCurrent,
                   forumSearchRequest == request else {
                 return
             }
@@ -743,7 +739,7 @@ final class AppModel {
     }
 
     func clearForumSearch() {
-        forumSearchRequestID = nil
+        forumSearchRequests.invalidate()
         forumSearchRequest = nil
         forumSearchPage = nil
         forumSearchErrorMessage = nil
@@ -847,16 +843,15 @@ final class AppModel {
     func loadTopics(forumID: ForumID, reset: Bool) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        topicListRequestID = requestID
+        let ticket = topicListRequests.begin()
         isRefreshingTopics = true
         defer {
-            if topicListRequestID == requestID {
+            if ticket.isCurrent {
                 isRefreshingTopics = false
             }
         }
         let page = reset ? 1 : topicPage + 1
-        await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.topics(
                 forumID: forumID,
                 page: page,
@@ -864,7 +859,7 @@ final class AppModel {
                 featuredOnly: isShowingFeaturedTopics
             )
             guard activeAccountID == requestAccountID,
-                  topicListRequestID == requestID,
+                  ticket.isCurrent,
                   selectedForumID == forumID else {
                 return
             }
@@ -875,16 +870,15 @@ final class AppModel {
     func loadTopicPage(forumID: ForumID, page: Int) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        topicListRequestID = requestID
+        let ticket = topicListRequests.begin()
         isRefreshingTopics = true
         defer {
-            if topicListRequestID == requestID {
+            if ticket.isCurrent {
                 isRefreshingTopics = false
             }
         }
         let targetPage = max(1, min(page, topicTotalPages))
-        await withLoading(isCurrent: { self.topicListRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.topics(
                 forumID: forumID,
                 page: targetPage,
@@ -892,7 +886,7 @@ final class AppModel {
                 featuredOnly: isShowingFeaturedTopics
             )
             guard activeAccountID == requestAccountID,
-                  topicListRequestID == requestID,
+                  ticket.isCurrent,
                   selectedForumID == forumID else {
                 return
             }
@@ -1052,18 +1046,17 @@ final class AppModel {
             return nil
         }
         let requestAccountID = service.accountID
-        let requestID = UUID()
         let targetPage = max(1, page)
         var loadedPage: ThreadPage?
-        threadRequestID = requestID
-        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+        let ticket = threadRequests.begin()
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.threadPage(
                 topicID: topicID,
                 page: targetPage,
                 authorUID: nil
             )
             guard activeAccountID == requestAccountID,
-                  threadRequestID == requestID,
+                  ticket.isCurrent,
                   selectedTopicID == sourceTopicID,
                   result.topic.id == topicID else {
                 return
@@ -1087,7 +1080,7 @@ final class AppModel {
             totalPages: threadTotalPages,
             showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
         ))
-        threadRequestID = UUID()
+        threadRequests.invalidate()
         var loadedTopic = destination.topic
         loadedTopic.isFavorite = loadedTopic.isFavorite
             || favoriteTopicIDs.contains(loadedTopic.id)
@@ -1105,7 +1098,7 @@ final class AppModel {
     @discardableResult
     func returnToPreviousThread() -> Bool {
         guard let previous = threadNavigationPath.popLast() else { return false }
-        threadRequestID = UUID()
+        threadRequests.invalidate()
         selectedTopicID = previous.topic.id
         currentTopic = previous.topic
         posts = previous.posts
@@ -1124,21 +1117,20 @@ final class AppModel {
     ) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        threadRequestID = requestID
+        let ticket = threadRequests.begin()
         let page = reset ? 1 : threadPage + 1
         let showsSkeleton = reset
         if showsSkeleton {
             isLoadingThreadContent = true
         }
         defer {
-            if threadRequestID == requestID {
+            if ticket.isCurrent {
                 isLoadingThreadContent = false
             }
         }
         await withLoading(
             showsIndicator: showsLoadingIndicator,
-            isCurrent: { self.threadRequestID == requestID }
+            isCurrent: { ticket.isCurrent }
         ) {
             let result = try await service.threadPage(
                 topicID: topicID,
@@ -1146,7 +1138,7 @@ final class AppModel {
                 authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
             )
             guard activeAccountID == requestAccountID,
-                  threadRequestID == requestID,
+                  ticket.isCurrent,
                   selectedTopicID == topicID else {
                 return
             }
@@ -1169,24 +1161,23 @@ final class AppModel {
     func loadThreadPage(topicID: TopicID, page: Int) async -> Bool {
         guard let service = activeService else { return false }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        threadRequestID = requestID
+        let ticket = threadRequests.begin()
         let targetPage = max(1, page)
         var didLoad = false
         isLoadingThreadContent = true
         defer {
-            if threadRequestID == requestID {
+            if ticket.isCurrent {
                 isLoadingThreadContent = false
             }
         }
-        await withLoading(isCurrent: { self.threadRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.threadPage(
                 topicID: topicID,
                 page: targetPage,
                 authorUID: isShowingOnlyTopicAuthor ? currentTopicAuthorUID : nil
             )
             guard activeAccountID == requestAccountID,
-                  threadRequestID == requestID,
+                  ticket.isCurrent,
                   selectedTopicID == topicID else {
                 return
             }
@@ -1302,12 +1293,11 @@ final class AppModel {
     func loadMessages(folder: MessageFolder, reset: Bool = true) async {
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        messageListRequestID = requestID
+        let ticket = messageListRequests.begin()
         messageFolder = folder
         sidebarSelection = .messages(folder)
         let page = reset ? 1 : messagePage + 1
-        await withLoading(isCurrent: { self.messageListRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             var result: MessagePage
             if folder == .notifications {
                 result = try await unifiedMessageFeedPage(
@@ -1324,7 +1314,7 @@ final class AppModel {
                 )
             }
             guard activeAccountID == requestAccountID,
-                  messageListRequestID == requestID,
+                  ticket.isCurrent,
                   sidebarSelection == .messages(folder),
                   messageFolder == folder else {
                 return
@@ -1352,12 +1342,11 @@ final class AppModel {
             if message.kind == .privateMessage {
                 guard let service = activeService else { return }
                 let requestAccountID = service.accountID
-                let requestID = UUID()
-                messageDetailRequestID = requestID
-                await withLoading(isCurrent: { self.messageDetailRequestID == requestID }) {
+                let ticket = messageDetailRequests.begin()
+                await withLoading(isCurrent: { ticket.isCurrent }) {
                     let result = try await service.message(id: message.id)
                     guard activeAccountID == requestAccountID,
-                          messageDetailRequestID == requestID,
+                          ticket.isCurrent,
                           selectedMessageID == message.id else {
                         return
                     }
@@ -1380,12 +1369,11 @@ final class AppModel {
         }
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        messageDetailRequestID = requestID
-        await withLoading(isCurrent: { self.messageDetailRequestID == requestID }) {
+        let ticket = messageDetailRequests.begin()
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.message(id: message.id)
             guard activeAccountID == requestAccountID,
-                  messageDetailRequestID == requestID,
+                  ticket.isCurrent,
                   selectedMessageID == message.id else {
                 return
             }
@@ -1512,13 +1500,12 @@ final class AppModel {
         )
         favorites = local.filter { $0.state != .pendingRemove }.sorted { $0.order < $1.order }
         guard let service = services[accountID] else { return }
-        let requestID = UUID()
-        favoriteRequestID = requestID
+        let ticket = favoriteRequests.begin()
 
         do {
             let fetchedFavorites = try await service.favorites()
             guard activeAccountID == accountID,
-                  favoriteRequestID == requestID else {
+                  ticket.isCurrent else {
                 return
             }
             let server = fetchedFavorites.map(enrichingForumFromDirectory)
@@ -1567,12 +1554,11 @@ final class AppModel {
             return
         }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        favoriteTopicFolderRequestID = requestID
-        await withLoading(isCurrent: { self.favoriteTopicFolderRequestID == requestID }) {
+        let ticket = favoriteTopicFolderRequests.begin()
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let folders = try await service.favoriteTopicFolders()
             guard activeAccountID == requestAccountID,
-                  favoriteTopicFolderRequestID == requestID else {
+                  ticket.isCurrent else {
                 return
             }
             applyFavoriteTopicFolders(folders)
@@ -1603,13 +1589,12 @@ final class AppModel {
             return
         }
         let requestAccountID = service.accountID
-        let requestID = UUID()
-        favoriteTopicRequestID = requestID
+        let ticket = favoriteTopicRequests.begin()
         let targetPage = max(1, page)
-        await withLoading(isCurrent: { self.favoriteTopicRequestID == requestID }) {
+        await withLoading(isCurrent: { ticket.isCurrent }) {
             let result = try await service.favoriteTopics(folderID: folderID, page: targetPage)
             guard activeAccountID == requestAccountID,
-                  favoriteTopicRequestID == requestID,
+                  ticket.isCurrent,
                   selectedFavoriteTopicFolderID == folderID else {
                 return
             }

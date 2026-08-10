@@ -59,6 +59,11 @@ struct ThreadView: View {
             Text("该话题已锁定，无法回复。")
         }
         .ignoresSafeArea(.container, edges: .top)
+        .onDisappear {
+            // 缓存项都是存活的 WKWebView，且按话题作键。离开话题视图后这些
+            // 实例不会再被复用，留着只是白占内存。
+            PostWebViewCache.shared.removeAll()
+        }
     }
 
     private var currentPresentation: ThreadPresentation? {
@@ -963,6 +968,7 @@ struct PostRow: View {
             }
             PostBodyView(
                 html: post.html,
+                nativeContent: post.nativeContent,
                 cacheKey: "thread-\(post.topicID.rawValue)-post-\(post.id.rawValue)",
                 loadOrder: loadOrder,
                 onOpenInternalLink: { destination in

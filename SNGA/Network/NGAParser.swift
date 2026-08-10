@@ -1248,15 +1248,23 @@ struct NGAParser: Sendable {
         fileprivate let parser: NGAParser
         fileprivate let whitelist: Whitelist?
 
-        func callAsFunction(
+        /// 清洗出楼层正文，同时给出可原生渲染的结构（无法原生还原时为 nil）。
+        func post(
             _ source: String,
             topicRating: TopicRating? = nil
-        ) -> String {
-            parser.sanitizedPostHTML(
+        ) -> SanitizedPost {
+            parser.sanitizedPost(
                 source,
                 topicRating: topicRating,
                 whitelist: whitelist
             )
+        }
+
+        func callAsFunction(
+            _ source: String,
+            topicRating: TopicRating? = nil
+        ) -> String {
+            post(source, topicRating: topicRating).html
         }
     }
 
@@ -1268,11 +1276,14 @@ struct NGAParser: Sendable {
         _ source: String,
         topicRating: TopicRating? = nil
     ) -> String {
-        sanitizedPostHTML(
-            source,
-            topicRating: topicRating,
-            whitelist: try? Self.makePostWhitelist()
-        )
+        makePostHTMLSanitizer()(source, topicRating: topicRating)
+    }
+
+    func sanitizedPost(
+        _ source: String,
+        topicRating: TopicRating? = nil
+    ) -> SanitizedPost {
+        makePostHTMLSanitizer().post(source, topicRating: topicRating)
     }
 
     private static func makePostWhitelist() throws -> Whitelist {
@@ -1305,13 +1316,14 @@ struct NGAParser: Sendable {
             .addAttributes("th", "width", "colspan", "rowspan")
     }
 
-    private func sanitizedPostHTML(
+    private func sanitizedPost(
         _ source: String,
         topicRating: TopicRating?,
         whitelist: Whitelist?
-    ) -> String {
+    ) -> SanitizedPost {
         let rendered = renderBBCode(source, topicRating: topicRating)
         var clean: String
+        var nativeContent: PostContent?
         do {
             guard let whitelist else { throw NGAServiceError.invalidResponse }
             let document = try SwiftSoup.parseBodyFragment(rendered.html, NGAEndpoint.baseURL.absoluteString)
@@ -1348,16 +1360,20 @@ struct NGAParser: Sendable {
                 }
             }
 
-            clean = try SwiftSoup.clean(
-                try document.body()?.html() ?? rendered.html,
-                NGAEndpoint.baseURL.absoluteString,
-                whitelist
-            ) ?? "<p>内容无法显示</p>"
-            clean = compactedPostSpacing(clean)
+            // 直接清洗已解析的 DOM，而不是先序列化再交给 `SwiftSoup.clean` ——
+            // 后者会把同一份内容重新解析一遍，等于每个楼层解析两次。
+            // （`SwiftSoup.clean` 额外做的 nbsp 归一化只对纯文本白名单生效，这里不适用。）
+            let cleaner = Cleaner(headWhitelist: nil, bodyWhitelist: whitelist)
+            guard let cleanBody = try cleaner.clean(document).body() else {
+                throw NGAServiceError.invalidResponse
+            }
+            nativeContent = PostContentBuilder.content(from: cleanBody)
+            clean = compactedPostSpacing(try cleanBody.html())
         } catch {
             clean = "<p>内容无法显示</p>"
+            nativeContent = nil
         }
-        return """
+        let html = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
@@ -1385,6 +1401,7 @@ struct NGAParser: Sendable {
         \(rendered.additionalStyleSheet)
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
+        return SanitizedPost(html: html, nativeContent: nativeContent)
     }
 
     private func compactedPostSpacing(_ html: String) -> String {

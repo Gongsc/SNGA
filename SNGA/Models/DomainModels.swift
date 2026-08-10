@@ -140,6 +140,8 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var postedAt: Date? = nil
     var device: PostDevice? = nil
     var html: String
+    /// 可原生渲染的正文结构。为 nil 表示该层含图片、表格等复杂内容，需要 `WKWebView`。
+    var nativeContent: PostContent? = nil
     var quotedPostID: PostID? = nil
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0

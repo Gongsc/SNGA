@@ -137,18 +137,38 @@ actor LiveNGAForumService: NGAForumService {
                 throw error
             }
         }
+        // 展开「Reply to」抬头必须发生在清洗之前 —— 此时 html 还是原始 BBCode。
+        // 只用本页已有的楼层解析，不额外发请求：跨页引用取不到就保持原样。
+        var rawContentByID: [PostID: String] = [:]
+        for post in result.posts + result.hotReplies {
+            rawContentByID[post.id] = post.html
+        }
+        let resolve: (PostID) -> String? = { rawContentByID[$0] }
+        result.posts = PostQuoteExpander.expandingReferences(
+            in: result.posts,
+            resolve: resolve
+        )
+        result.hotReplies = PostQuoteExpander.expandingReferences(
+            in: result.hotReplies,
+            resolve: resolve
+        )
+
         let sanitize = parser.makePostHTMLSanitizer()
         result.posts = result.posts.map { post in
             var post = post
-            post.html = sanitize(
+            let sanitized = sanitize.post(
                 post.html,
                 topicRating: post.floor == 0 ? result.topic.rating : nil
             )
+            post.html = sanitized.html
+            post.nativeContent = sanitized.nativeContent
             return post
         }
         result.hotReplies = result.hotReplies.map { post in
             var post = post
-            post.html = sanitize(post.html)
+            let sanitized = sanitize.post(post.html)
+            post.html = sanitized.html
+            post.nativeContent = sanitized.nativeContent
             return post
         }
         return result
