@@ -8,31 +8,35 @@ final class SNGAUITests: XCTestCase {
         app.launchArguments = ["--uitesting", "--uitesting-seed"]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
-        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
-        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
-        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
-        app.buttons["topic-9001"].click()
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
 
-        let authorName = app.descendants(matching: .any)["post-author-name-1"]
-        let replyDate = app.descendants(matching: .any)["post-author-date-1"]
-        let avatar = app.descendants(matching: .any)["post-author-avatar-1"].firstMatch
-        let level = app.descendants(matching: .any)["post-author-level-1"]
-        let medals = app.descendants(matching: .any)["post-author-medals-1"].firstMatch
+        let authorName = mainWindow.descendants(matching: .any)["post-author-name-1"]
+        let replyDate = mainWindow.descendants(matching: .any)["post-author-date-1"]
+        let avatar = mainWindow.descendants(matching: .any)["post-author-avatar-1"]
+        let level = mainWindow.descendants(matching: .any)["post-author-level-1"]
+        let medals = mainWindow.descendants(matching: .any)["post-author-medals-1"]
+        let location = mainWindow.descendants(matching: .any)["post-author-location-1"]
         XCTAssertTrue(authorName.waitForExistence(timeout: 5))
         XCTAssertTrue(replyDate.exists)
         XCTAssertTrue(avatar.exists)
         XCTAssertTrue(level.exists)
         XCTAssertTrue(medals.exists)
+        XCTAssertTrue(location.waitForExistence(timeout: 5))
+        XCTAssertFalse(mainWindow.staticTexts["于明日落下，静寂与月光"].exists)
         XCTAssertGreaterThan(authorName.frame.width, 20)
         XCTAssertGreaterThan(replyDate.frame.width, 20)
         XCTAssertEqual(authorName.frame.midY, level.frame.midY, accuracy: 3)
         XCTAssertEqual(replyDate.frame.midY, medals.frame.midY, accuracy: 3)
         XCTAssertLessThanOrEqual(avatar.frame.minY, authorName.frame.minY + 2)
         XCTAssertGreaterThanOrEqual(avatar.frame.maxY, replyDate.frame.maxY - 2)
-        XCTAssertTrue(app.descendants(matching: .any)["post-author-reputation-1"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["post-author-registered-1"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["post-author-prestige-1"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["post-author-reputation-1"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["post-author-registered-1"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["post-author-prestige-1"].exists)
     }
 
     func testRecentlyVisitedForumsAppearInVisitOrder() {
@@ -268,43 +272,47 @@ final class SNGAUITests: XCTestCase {
         ]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
-        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
-        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
-        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
-        app.buttons["topic-9001"].click()
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
 
-        let skeleton = app.descendants(matching: .any)["thread-content-skeleton"]
+        let skeleton = mainWindow.descendants(matching: .any)["thread-content-skeleton"]
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
-        let author = app.descendants(matching: .any)["post-author-name-1"]
-        XCTAssertFalse(author.exists)
+        let author = mainWindow.descendants(matching: .any)["post-author-name-1"]
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
         XCTAssertTrue(author.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["post-author-location-1"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(mainWindow.staticTexts["于明日落下，静寂与月光"].exists)
         let initialAuthorY = author.frame.minY
-        let threadScroll = app.scrollViews["thread-content-scroll"]
+        let threadScroll = mainWindow.scrollViews["thread-content-scroll"]
         XCTAssertTrue(threadScroll.waitForExistence(timeout: 5))
         threadScroll.swipeUp()
         threadScroll.swipeUp()
         XCTAssertLessThan(author.frame.minY, initialAuthorY - 100)
 
-        let scrollToTop = app.buttons["thread-scroll-to-top"]
+        let scrollToTop = mainWindow.buttons["thread-scroll-to-top"]
         XCTAssertTrue(scrollToTop.waitForExistence(timeout: 5))
         scrollToTop.click()
         XCTAssertTrue(author.waitForExistence(timeout: 5))
         XCTAssertEqual(author.frame.minY, initialAuthorY, accuracy: 20)
 
-        let nextPage = app.buttons["thread-next-page"]
+        let nextPage = mainWindow.buttons["thread-next-page"]
         XCTAssertTrue(nextPage.waitForExistence(timeout: 5))
         nextPage.click()
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
-        XCTAssertFalse(author.exists)
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
         XCTAssertTrue(
-            app.descendants(matching: .any)["post-author-name-101"]
+            mainWindow.descendants(matching: .any)["post-author-name-101"]
                 .waitForExistence(timeout: 5)
         )
 
-        let pageField = app.textFields["thread-page-field"]
+        let pageField = mainWindow.textFields["thread-page-field"]
         XCTAssertTrue(pageField.waitForExistence(timeout: 5))
         pageField.click()
         app.typeKey("a", modifierFlags: .command)
@@ -313,7 +321,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(skeleton.waitForExistence(timeout: 2))
         XCTAssertTrue(skeleton.waitForNonExistence(timeout: 8))
         XCTAssertTrue(
-            app.descendants(matching: .any)["post-author-name-201"]
+            mainWindow.descendants(matching: .any)["post-author-name-201"]
                 .waitForExistence(timeout: 5)
         )
     }

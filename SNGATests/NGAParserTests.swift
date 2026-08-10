@@ -165,6 +165,7 @@ final class NGAParserTests: XCTestCase {
                 "medal": "386,45",
                 "site": "星辰驰骋终幕蔷薇",
                 "honor": " 1763083820 $notitle$ 于明日落下，静寂与月光",
+                "ipLoc": "上海市",
                 "regdate": 1487143790,
                 "rvrc": 297
               },
@@ -205,6 +206,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(authorInfo.userGroup, "Warden")
         XCTAssertEqual(authorInfo.registeredAt, Date(timeIntervalSince1970: 1_487_143_790))
         XCTAssertEqual(authorInfo.prestige, 29.7)
+        XCTAssertEqual(authorInfo.location, "上海市")
         XCTAssertEqual(authorInfo.honor, "于明日落下，静寂与月光")
         XCTAssertEqual(authorInfo.site, "星辰驰骋终幕蔷薇")
         XCTAssertEqual(authorInfo.medals.map(\.id), [386, 45])
@@ -1559,6 +1561,8 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("</blockquote><br>"))
         XCTAssertTrue(html.contains("</blockquote>回复内容"))
         XCTAssertTrue(html.contains("p{margin:6px 0}"))
+        XCTAssertTrue(html.contains("blockquote{margin:8px 0 12px"))
+        XCTAssertTrue(html.contains("#snga-post-content>:last-child:not(blockquote){margin-bottom:0}"))
     }
 
     func testRendersAdvancedNGAStyleCardWithoutLeakingLayoutUBB() {

@@ -12,6 +12,25 @@ private struct ThreadNavigationSnapshot: Sendable {
     let showsOnlyTopicAuthor: Bool
 }
 
+private struct PostAuthorLocationKey: Hashable, Sendable {
+    let accountID: AccountID
+    let uid: Int64
+}
+
+private struct CachedPostAuthorLocation: Sendable {
+    let value: String?
+}
+
+private enum PostAuthorLocationResult: Sendable {
+    case loaded(String?)
+    case failed
+}
+
+private struct PostAuthorLocationRequest {
+    let id: UUID
+    let task: Task<PostAuthorLocationResult, Never>
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -98,6 +117,8 @@ final class AppModel {
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
     @ObservationIgnored private var profileRequestID: UUID?
+    @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
+    @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
     @ObservationIgnored private var userActivityRequestID: UUID?
     @ObservationIgnored private var forumDirectoryRequestID: UUID?
     @ObservationIgnored private var forumSearchRequestID: UUID?
@@ -138,6 +159,74 @@ final class AppModel {
     var isDisplayingActiveAccount: Bool {
         guard let displayedUserUID, let activeAccount else { return false }
         return displayedUserUID == activeAccount.ngaUID
+    }
+
+    func loadPostAuthorLocation(uid: Int64) async {
+        guard uid > 0, let service = activeService else { return }
+        let key = PostAuthorLocationKey(accountID: service.accountID, uid: uid)
+        if let cached = postAuthorLocationCache[key] {
+            applyPostAuthorLocation(cached.value, to: uid)
+            return
+        }
+
+        let request: PostAuthorLocationRequest
+        if let existing = postAuthorLocationRequests[key] {
+            request = existing
+        } else {
+            let requestID = UUID()
+            let task = Task<PostAuthorLocationResult, Never> { [service] in
+                do {
+                    let profile = try await service.profile(uid: uid)
+                    return PostAuthorLocationResult.loaded(profile.location)
+                } catch {
+                    return PostAuthorLocationResult.failed
+                }
+            }
+            request = PostAuthorLocationRequest(id: requestID, task: task)
+            postAuthorLocationRequests[key] = request
+        }
+
+        let result = await request.task.value
+        if postAuthorLocationRequests[key]?.id == request.id {
+            postAuthorLocationRequests[key] = nil
+        }
+        guard activeAccountID == key.accountID else { return }
+
+        switch result {
+        case let .loaded(location):
+            let normalizedLocation = location?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let visibleLocation = normalizedLocation?.isEmpty == false
+                ? normalizedLocation
+                : nil
+            postAuthorLocationCache[key] = CachedPostAuthorLocation(
+                value: visibleLocation
+            )
+            applyPostAuthorLocation(visibleLocation, to: uid)
+        case .failed:
+            break
+        }
+    }
+
+    private func applyPostAuthorLocation(_ location: String?, to uid: Int64) {
+        guard let location else { return }
+
+        func enriching(_ values: [Post]) -> [Post] {
+            values.map { post in
+                guard post.authorUID == uid,
+                      post.authorInfo?.location != location else {
+                    return post
+                }
+                var updated = post
+                var authorInfo = updated.authorInfo ?? PostAuthorInfo()
+                authorInfo.location = location
+                updated.authorInfo = authorInfo
+                return updated
+            }
+        }
+
+        posts = enriching(posts)
+        hotReplies = enriching(hotReplies)
     }
 
     var canReturnFromUserCenterToTopicList: Bool {
@@ -2159,6 +2248,9 @@ final class AppModel {
     }
 
     private func clearVisibleContent() {
+        postAuthorLocationRequests.values.forEach { $0.task.cancel() }
+        postAuthorLocationRequests = [:]
+        postAuthorLocationCache = [:]
         favorites = []
         recentForums = []
         favoriteTopicFolders = []

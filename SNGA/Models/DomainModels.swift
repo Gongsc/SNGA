@@ -123,6 +123,7 @@ struct PostAuthorInfo: Hashable, Codable, Sendable {
     var userGroup: String? = nil
     var registeredAt: Date? = nil
     var prestige: Double? = nil
+    var location: String? = nil
     var medals: [UserMedal] = []
     var honor: String? = nil
     var site: String? = nil

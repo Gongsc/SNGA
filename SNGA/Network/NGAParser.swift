@@ -1282,11 +1282,11 @@ struct NGAParser: Sendable {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
         <style>
         :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
-        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child{margin-bottom:0}p{margin:6px 0}
+        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child:not(blockquote){margin-bottom:0}p{margin:6px 0}
         img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}.ubb-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ubb-split-left{text-align:left}.ubb-split-right{text-align:right}
         .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
         ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
-        blockquote{margin:8px 0;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
+        blockquote{margin:8px 0 12px;padding:6px 10px;border-left:3px solid var(--snga-highlight);background:color-mix(in srgb,CanvasText 7%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
         details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
         .nga-random-block-panel{display:none}.nga-random-block-panel.snga-is-active{display:block}.nga-random-block-controls{display:flex;align-items:center;justify-content:center;min-height:28px;margin:1px 0 4px;overflow:hidden}.nga-random-block-button{position:relative;width:44px;height:28px;margin:0 2px;padding:0;border:0;border-radius:8px;color:inherit;background:transparent;cursor:pointer}.nga-random-block-button::before{position:absolute;top:10px;left:10px;width:24px;height:8px;border-radius:999px;background:color-mix(in srgb,CanvasText 22%,transparent);content:""}.nga-random-block-button.snga-is-active::before{background:var(--snga-highlight)}.nga-random-block-button:hover::before{background:color-mix(in srgb,var(--snga-highlight) 72%,CanvasText)}.nga-random-block-button:focus-visible{outline:2px solid var(--snga-highlight);outline-offset:-3px}
         .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
@@ -3569,6 +3569,7 @@ struct NGAParser: Sendable {
                             ?? nonEmptyString(dictionary["group"]),
                         registeredAt: date(dictionary["regdate"]),
                         prestige: int(dictionary["rvrc"]).map { Double($0) / 10 },
+                        location: nonEmptyString(dictionary["ipLoc"]),
                         medals: medals,
                         honor: normalizedUserHonor(string(dictionary["honor"])),
                         site: nonEmptyString(dictionary["site"])
@@ -3738,6 +3739,7 @@ struct NGAParser: Sendable {
             info.userGroup != nil ||
             info.registeredAt != nil ||
             info.prestige != nil ||
+            info.location != nil ||
             !info.medals.isEmpty ||
             info.honor != nil ||
             info.site != nil

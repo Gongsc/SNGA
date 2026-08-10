@@ -958,8 +958,7 @@ struct PostRow: View {
                 }
                 .frame(height: PostAuthorHeaderLayout.rowHeight)
             }
-            if let authorInfo = post.authorInfo,
-               authorInfo.honor != nil || authorInfo.site != nil {
+            if let authorInfo = post.authorInfo, authorInfo.site != nil {
                 PostAuthorSupplementaryInfoView(info: authorInfo)
             }
             PostBodyView(
@@ -1007,6 +1006,10 @@ struct PostRow: View {
                         ? theme.accentColor.opacity(0.5)
                         : Color(nsColor: .separatorColor).opacity(0.5)
                 )
+        }
+        .task(id: authorUID) {
+            guard post.authorInfo?.location == nil, let authorUID else { return }
+            await model.loadPostAuthorLocation(uid: authorUID)
         }
     }
 
@@ -1140,29 +1143,35 @@ private struct PostAuthorInfoView: View {
             }
             .scrollIndicators(.hidden)
             .frame(height: PostAuthorHeaderLayout.rowHeight)
-            if !info.medals.isEmpty {
-                HStack(alignment: .center, spacing: 6) {
-                    Text("徽章:")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("post-author-medals-\(postID.rawValue)")
-                    ScrollView(.horizontal) {
-                        LazyHStack(spacing: 5) {
-                            ForEach(info.medals) { medal in
-                                medalImage(medal)
+            HStack(alignment: .center, spacing: 20) {
+                if let location = info.location {
+                    detail("IP 属地", value: location, identifier: "location")
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                if !info.medals.isEmpty {
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("徽章:")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("post-author-medals-\(postID.rawValue)")
+                        ScrollView(.horizontal) {
+                            LazyHStack(spacing: 5) {
+                                ForEach(info.medals) { medal in
+                                    medalImage(medal)
+                                }
                             }
                         }
+                        .scrollIndicators(.hidden)
+                        .frame(height: PostAuthorHeaderLayout.rowHeight)
                     }
-                    .scrollIndicators(.hidden)
-                    .frame(height: PostAuthorHeaderLayout.rowHeight)
                 }
-                .frame(height: PostAuthorHeaderLayout.rowHeight)
-            } else {
-                Color.clear
-                    .frame(height: PostAuthorHeaderLayout.rowHeight)
-                    .accessibilityHidden(true)
+                if info.location == nil, info.medals.isEmpty {
+                    Color.clear
+                        .accessibilityHidden(true)
+                }
             }
+            .frame(height: PostAuthorHeaderLayout.rowHeight)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -1211,10 +1220,6 @@ private struct PostAuthorSupplementaryInfoView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let honor = info.honor {
-                Text(honor)
-                    .textSelection(.enabled)
-            }
             if let site = info.site {
                 Text(site)
                     .padding(.horizontal, 7)
