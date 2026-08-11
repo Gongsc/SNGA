@@ -963,9 +963,6 @@ struct PostRow: View {
                 }
                 .frame(height: PostAuthorHeaderLayout.rowHeight)
             }
-            if let authorInfo = post.authorInfo, authorInfo.site != nil {
-                PostAuthorSupplementaryInfoView(info: authorInfo)
-            }
             PostBodyView(
                 html: post.html,
                 nativeContent: post.nativeContent,
@@ -1225,24 +1222,6 @@ private struct PostAuthorInfoView: View {
         .frame(width: 18, height: 18)
         .help(medal.detail.map { "\(medal.name)：\($0)" } ?? medal.name)
         .accessibilityLabel(medal.name)
-    }
-}
-
-private struct PostAuthorSupplementaryInfoView: View {
-    let info: PostAuthorInfo
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let site = info.site {
-                Text(site)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.leading, 40)
     }
 }
 

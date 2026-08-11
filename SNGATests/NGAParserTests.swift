@@ -208,7 +208,6 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(authorInfo.prestige, 29.7)
         XCTAssertEqual(authorInfo.location, "上海市")
         XCTAssertEqual(authorInfo.honor, "于明日落下，静寂与月光")
-        XCTAssertEqual(authorInfo.site, "星辰驰骋终幕蔷薇")
         XCTAssertEqual(authorInfo.medals.map(\.id), [386, 45])
         XCTAssertEqual(authorInfo.medals.map(\.name), ["流浪地球", "金质国家地理荣誉徽章"])
         XCTAssertEqual(

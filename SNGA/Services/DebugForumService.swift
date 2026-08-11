@@ -243,8 +243,7 @@ actor DebugForumService: NGAForumService {
                                 imageURL: URL(string: "https://img4.nga.cn/ngabbs/medal/386.gif")
                             )
                         ],
-                        honor: "于明日落下，静寂与月光",
-                        site: "星辰驰骋终幕蔷薇"
+                        honor: "于明日落下，静寂与月光"
                     )
                     : nil,
                 postedAt: Date(timeIntervalSince1970: 1_785_000_000),
