@@ -3689,8 +3689,7 @@ struct NGAParser: Sendable {
                         prestige: int(dictionary["rvrc"]).map { Double($0) / 10 },
                         location: nonEmptyString(dictionary["ipLoc"]),
                         medals: medals,
-                        honor: normalizedUserHonor(string(dictionary["honor"])),
-                        site: nonEmptyString(dictionary["site"])
+                        honor: normalizedUserHonor(string(dictionary["honor"]))
                     )
                     result[resolvedUID] = PostUser(
                         name: name,
@@ -3859,8 +3858,7 @@ struct NGAParser: Sendable {
             info.prestige != nil ||
             info.location != nil ||
             !info.medals.isEmpty ||
-            info.honor != nil ||
-            info.site != nil
+            info.honor != nil
     }
 
     private func message(from dictionary: [String: Any], folder: MessageFolder) -> ForumMessage? {

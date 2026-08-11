@@ -126,7 +126,6 @@ struct PostAuthorInfo: Hashable, Codable, Sendable {
     var location: String? = nil
     var medals: [UserMedal] = []
     var honor: String? = nil
-    var site: String? = nil
 }
 
 struct Post: Identifiable, Hashable, Codable, Sendable {
