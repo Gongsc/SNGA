@@ -74,6 +74,42 @@ final class PostContentBuilderTests: XCTestCase {
         XCTAssertTrue(plainText(of: content).contains("我的回复"))
     }
 
+    /// 引用块和正文之间的 `<br>` 在网页上不产生空行（`compactedPostSpacing` 会
+    /// 清掉它们），原生分支也不能把它们留成段首换行：整段正文是一个 `Text`，
+    /// 段首空行既凭空多出两行，又会让文字在鼠标点击后重排丢字。
+    func testBreaksAroundQuoteDoNotBecomeBlankLines() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/><br/>我的回复<br/><br/>")
+        )
+        let body = content.blocks.compactMap { block -> PostParagraph? in
+            guard case let .paragraph(paragraph) = block else { return nil }
+            return paragraph
+        }
+        let text = body.flatMap(\.segments).reduce(into: "") {
+            if case let .text(value, _) = $1 { $0 += value }
+        }
+        XCTAssertEqual(text, "我的回复", "段落首尾不应残留换行")
+    }
+
+    /// 段落内部的空行是作者写的排版，必须原样保留。
+    func testBreaksInsideParagraphSurvive() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/>第一行<br/><br/>第二行")
+        )
+        XCTAssertTrue(
+            plainText(of: content).contains("第一行\n\n第二行"),
+            "段中空行属于正文排版"
+        )
+    }
+
+    /// 全角空格是 NGA 正文里的缩进，清理换行时不能顺手吃掉。
+    func testIdeographicIndentSurvivesBreakTrimming() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/>\u{3000}\u{3000}缩进正文")
+        )
+        XCTAssertTrue(plainText(of: content).contains("\u{3000}\u{3000}缩进正文"))
+    }
+
     // MARK: - 必须回退到 WKWebView 的内容
 
     func testRemoteImageFallsBackToWebView() {

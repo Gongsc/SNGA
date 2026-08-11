@@ -220,6 +220,11 @@ actor DebugForumService: NGAForumService {
         } else {
             renderedFirstPostHTML = sanitizedFirstPostHTML
         }
+        // 走原生渲染的楼层：引用块、正文和一个站内链接，覆盖 PostContentView 的
+        // 主要分支（第一层的正文里没有这些，它落在 WKWebView 分支上）。
+        let nativeReply = NGAParser().sanitizedPost(
+            "[quote]引用内容[/quote]回复成功。<br/>[url=https://bbs.nga.cn/read.php?tid=9002]打开原生关联话题[/url]"
+        )
         let postIDOffset = page == 1 ? 0 : Int64((page - 1) * 100)
         let allPosts = [
             Post(
@@ -276,12 +281,32 @@ actor DebugForumService: NGAForumService {
                 floor: 1,
                 author: "回复用户",
                 authorUID: 2001,
-                html: NGAParser().sanitizedPostHTML(
-                    "<blockquote>引用内容</blockquote><p>回复成功。</p>"
-                ),
+                html: nativeReply.html,
+                nativeContent: nativeReply.nativeContent,
                 ratingScores: isPrimaryTopic ? ["100": 8] : [:]
             )
-        ]
+        ] + debugShapes.enumerated().map { index, shape in
+            let sanitized = NGAParser().sanitizedPost(shape.raw)
+            return Post(
+                id: PostID(rawValue: Int64(40 + index) + postIDOffset),
+                topicID: topicID,
+                floor: 40 + index,
+                author: shape.name,
+                authorUID: Int64(4000 + index),
+                postedAt: Date(timeIntervalSince1970: 1_786_000_000),
+                html: sanitized.html,
+                nativeContent: sanitized.nativeContent
+            )
+        }
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-shapes") {
+            return ThreadPage(
+                topic: topic,
+                posts: Array(allPosts.dropFirst(2)),
+                page: page,
+                hasMore: false,
+                totalPages: 1
+            )
+        }
         let visiblePosts = authorUID.map { targetUID in
             allPosts.filter { $0.authorUID == targetUID }
         } ?? allPosts
@@ -294,6 +319,72 @@ actor DebugForumService: NGAForumService {
             totalPages: totalPages
         )
     }
+
+    private struct DebugShape {
+        let name: String
+        let raw: String
+    }
+
+    private static let quoteHead = "[quote][pid=877855763,47337610,2]Reply[/pid] [b]Post by [uid=62442264]有个账号[/uid] (2026-08-10 21:42):[/b]"
+
+    private var debugShapes: [DebugShape] {
+        let head = Self.quoteHead
+        return [
+            // A：引用块自己的正文。抬头短、被引正文长，首行不是最长行。
+            DebugShape(
+                name: "A引用块正文",
+                raw: "\(head)<br/><br/>为什么解散了一批还得再组织一批？这样解散了还有什么意义？是亚足联还是国际足联拿枪逼着你必须去比赛？[/quote]<br/><br/>短回复。"
+            ),
+            // B：正文末行最长。
+            DebugShape(
+                name: "B末行最长",
+                raw: "\(head)<br/><br/>被引用的话[/quote]<br/><br/>短的一行。<br/>这一行要写得明显更长一些，长到成为整段里最长的那一行才行。"
+            ),
+            // C：同一行里混排粗体、颜色和链接。
+            DebugShape(
+                name: "C混排样式",
+                raw: "\(head)<br/><br/>被引用的话[/quote]<br/><br/>[b]加粗开头[/b]普通文字[color=red]红字[/color][url=https://example.com]一个外链[/url]收尾的一行。<br/>第二行写得更长一点，看看混排之后测量还准不准。"
+            ),
+            // D：正文里带表情。
+            DebugShape(
+                name: "D带表情",
+                raw: "\(head)<br/><br/>被引用的话[/quote]<br/><br/>这一行带表情[s:ac:茶]，后面还要再写一些字把它撑长。<br/>第二行是纯文字，写得比上面那行更长一些用来对比。"
+            ),
+            // E：正文需要折行，折行之后还有一行。
+            DebugShape(
+                name: "E长段折行",
+                raw: "\(head)<br/><br/>被引用的话[/quote]<br/><br/>这一段本身就很长，长到在窗口里放不下必须自动折行，折行之后下面还跟着一行独立的文字，用来观察点击之后尾巴会不会被裁掉，所以这里要一直写到超过一行为止。<br/>这是折行段落后面的那一行。"
+            ),
+            // F：嵌套引用。
+            DebugShape(
+                name: "F嵌套引用",
+                raw: "\(head)<br/><br/>[quote][b]Post by 另一个人 (2026-08-09 10:00):[/b]<br/><br/>最里面的被引用内容，写长一些让它折行或者接近折行的边缘。[/quote]<br/><br/>中间层的话[/quote]<br/><br/>最外层的回复。"
+            ),
+            // G：真实 #48。没有引用块，抬头是一整行加粗 + 回链，正文十来行都在同一段里。
+            DebugShape(name: "G真实48层", raw: Self.floor48Raw),
+            // H：真实 #49。同样的长正文，这次整个塞进引用块。
+            DebugShape(
+                name: "H真实49层",
+                raw: "[quote][pid=877856100,47336184,3]Reply[/pid] [b]Post by [uid=42545847]Abrahim36[/uid] (2026-08-11 13:33):[/b]<br/><br/>\(Self.floor48Body)[/quote]<br/><br/>短回复。"
+            )
+        ]
+    }
+
+    private static let floor48Body = [
+        "甲A之后就全是职业队了",
+        "你连体工队和职业队的区别都分不清楚。怎么好意思说别人不会查的?",
+        "我不和你掰扯那些分不分主次的话题，我再重申一点",
+        "",
+        "国内无论是千万百万年薪，还是3000月薪的足球运动员",
+        "他们的薪水99%都是俱乐部发的。钱都是俱乐部通过商业运营赚的，",
+        "也就是说，他们是在给单位打工，和你在单位打工是一样的概念。",
+        "他们所有人的收入都是单位给的，和你的缴纳的税最多也只有半毛钱关系。",
+        "",
+        "体彩这几千万，基本上养的都是奥运项目。",
+        "足球这种职业比赛，根本不可能靠这些九牛一毛的钱养。"
+    ].joined(separator: "<br/>")
+
+    private static let floor48Raw = "[b]Reply to [pid=877856000,47336184,3]Reply[/pid] Post by [uid=42545847]柳灬梦璃[/uid] (2026-08-11 10:12)[/b]<br/>\(floor48Body)"
 
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
         PostID(rawValue: 3)

@@ -41,7 +41,7 @@ enum PostContentBuilder {
 
         func flushPendingSegments(alignment: PostTextAlignment = .leading) {
             let paragraph = PostParagraph(
-                segments: normalized(pendingSegments),
+                segments: trimmingOuterBreaks(normalized(pendingSegments)),
                 alignment: alignment
             )
             pendingSegments = []
@@ -243,6 +243,80 @@ enum PostContentBuilder {
             || source.localizedCaseInsensitiveContains("/ngabbs/post/smile/")
         guard isEmoticon, let url = URL(string: source) else { return nil }
         return url
+    }
+
+    /// 去掉段落首尾的换行。
+    ///
+    /// NGA 习惯用 `<br>` 把引用块和正文隔开，块级标签两侧的这些换行在网页上不
+    /// 产生空行 —— `compactedPostSpacing` 正是为 `WKWebView` 分支这么清理的。
+    /// 原生分支把 `<br>` 直接转成 "\n"，不清理就会在段落前后凭空多出空行，
+    /// 而且整段正文是一个 `Text`，空行还会一并撑高它的版面。
+    private static func trimmingOuterBreaks(_ segments: [PostSegment]) -> [PostSegment] {
+        var segments = segments
+        while let first = segments.first {
+            guard case let .text(value, style) = first else { break }
+            let trimmed = trimmingLeadingBreaks(value)
+            guard trimmed != value else { break }
+            if trimmed.isEmpty {
+                segments.removeFirst()
+            } else {
+                segments[0] = .text(trimmed, style)
+                break
+            }
+        }
+        while let last = segments.last {
+            guard case let .text(value, style) = last else { break }
+            let trimmed = trimmingTrailingBreaks(value)
+            guard trimmed != value else { break }
+            if trimmed.isEmpty {
+                segments.removeLast()
+            } else {
+                segments[segments.count - 1] = .text(trimmed, style)
+                break
+            }
+        }
+        return segments
+    }
+
+    private static func trimmingLeadingBreaks(_ value: String) -> String {
+        var trimmed: Substring?
+        var cursor = Substring(value)
+        while true {
+            let afterPadding = cursor.drop(while: isBreakPadding)
+            guard afterPadding.first?.isNewline == true else { break }
+            cursor = afterPadding.dropFirst()
+            trimmed = cursor.drop(while: isBreakPadding)
+        }
+        return trimmed.map(String.init) ?? value
+    }
+
+    private static func trimmingTrailingBreaks(_ value: String) -> String {
+        var trimmed: Substring?
+        var cursor = Substring(value)
+        while true {
+            let beforePadding = droppingLast(from: cursor, while: isBreakPadding)
+            guard beforePadding.last?.isNewline == true else { break }
+            cursor = beforePadding.dropLast()
+            trimmed = droppingLast(from: cursor, while: isBreakPadding)
+        }
+        return trimmed.map(String.init) ?? value
+    }
+
+    private static func droppingLast(
+        from value: Substring,
+        while predicate: (Character) -> Bool
+    ) -> Substring {
+        var value = value
+        while let last = value.last, predicate(last) {
+            value = value.dropLast()
+        }
+        return value
+    }
+
+    /// 只吃掉贴着换行的普通空格 —— `compactedPostSpacing` 里的 `\s` 同样不含全角
+    /// 空格，而全角空格在 NGA 正文里是缩进，属于内容。
+    private static func isBreakPadding(_ character: Character) -> Bool {
+        character == " " || character == "\t"
     }
 
     /// 合并相邻的同样式文本，减少渲染时的 `Text` 拼接数量。
