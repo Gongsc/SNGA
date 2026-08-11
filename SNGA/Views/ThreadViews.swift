@@ -969,7 +969,7 @@ struct PostRow: View {
             PostBodyView(
                 html: post.html,
                 nativeContent: post.nativeContent,
-                cacheKey: "thread-\(post.topicID.rawValue)-post-\(post.id.rawValue)",
+                cacheKey: contentCacheKey,
                 loadOrder: loadOrder,
                 onOpenInternalLink: { destination in
                     switch destination {
@@ -1017,6 +1017,13 @@ struct PostRow: View {
             guard post.authorInfo?.location == nil, let authorUID else { return }
             await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
+    }
+
+    /// 热点回复区有自己的内边距，同一楼层在两处的排版宽度并不相同，
+    /// 因而测得的高度也不同 —— 两者不能共用一份缓存。
+    private var contentCacheKey: String {
+        let section = isHotReply ? "hot" : "post"
+        return "thread-\(post.topicID.rawValue)-\(section)-\(post.id.rawValue)"
     }
 
     private var authorUID: Int64? {

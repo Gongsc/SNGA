@@ -52,13 +52,22 @@ struct ThreadPageContentView: View {
     @State private var didReportReady = false
 
     var body: some View {
-        // 惰性布局：整页楼层原先会被一次性实例化，而每个 PostRow 内嵌一个 WKWebView，
-        // 一页二十余层就是二十余个渲染实例。
-        LazyVStack(spacing: 12) {
+        // 顶部锚点留在惰性布局之外。作为 `LazyVStack` 的首个子视图时，滚到下方后
+        // 它并未实例化，`scrollTo` 只能按估算位置解析目标 —— 而楼层高度恰恰是
+        // 边滚边测出来的，估算并不可信。放在外层则任何滚动位置下都是实位。
+        VStack(spacing: 0) {
             Color.clear
                 .frame(height: 0)
                 .id(topAnchor)
 
+            content
+        }
+    }
+
+    private var content: some View {
+        // 惰性布局：整页楼层原先会被一次性实例化，而每个 PostRow 内嵌一个 WKWebView，
+        // 一页二十余层就是二十余个渲染实例。
+        LazyVStack(spacing: 12) {
             ForEach(posts.indices, id: \.self) { index in
                 let post = posts[index]
                 PostRow(

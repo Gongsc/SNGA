@@ -51,6 +51,37 @@ final class PostWebViewCache {
     }
 }
 
+/// 楼层测得的高度。
+///
+/// 高度原先只存在楼层视图的 `@State` 里，而 `LazyVStack` 会在楼层滚出视口后销毁
+/// 该视图，测量结果随之丢失；滚回来时楼层从占位高度重新长起来，整页内容高度便
+/// 持续伸缩 —— 表现为滚动条长度乱跳、滚动位置被反复挤动、回不到顶部。图片楼层
+/// 最明显：图片本身不占位（`height:auto`），一层的最终高度要等所有图片到达才成形。
+///
+/// 把高度按楼层键留在视图之外，重建的楼层就能直接以上次的高度落位。
+@MainActor
+final class PostContentHeightCache {
+    static let shared = PostContentHeightCache()
+    private let heights = NSCache<NSString, NSNumber>()
+
+    /// 每项只是一个数字，因此上限按 “整个话题的楼层数” 来定，而不是可见楼层数。
+    init(countLimit: Int = 600) {
+        heights.countLimit = countLimit
+    }
+
+    func height(for key: String) -> CGFloat? {
+        heights.object(forKey: key as NSString).map { CGFloat($0.doubleValue) }
+    }
+
+    func store(_ height: CGFloat, for key: String) {
+        heights.setObject(NSNumber(value: Double(height)), forKey: key as NSString)
+    }
+
+    func removeAll() {
+        heights.removeAllObjects()
+    }
+}
+
 enum PostImagePolicy {
     static func applying(to html: String, hidesRemoteImages: Bool) -> String {
         guard hidesRemoteImages else { return html }
@@ -782,8 +813,32 @@ struct PostBodyView: View {
     var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
     var onContentReady: @MainActor () -> Void = {}
     private static let maximumStaggerSteps = 4
-    @State private var height: CGFloat = 24
+    private static let placeholderHeight: CGFloat = 24
+    @State private var height: CGFloat
     @State private var isReadyToCreateWebView = false
+
+    @MainActor
+    init(
+        html: String,
+        nativeContent: PostContent? = nil,
+        cacheKey: String? = nil,
+        loadOrder: Int? = nil,
+        onOpenInternalLink: @escaping @MainActor (NGAInternalDestination) -> Void = { _ in },
+        onContentReady: @escaping @MainActor () -> Void = {}
+    ) {
+        self.html = html
+        self.nativeContent = nativeContent
+        self.cacheKey = cacheKey
+        self.loadOrder = loadOrder
+        self.onOpenInternalLink = onOpenInternalLink
+        self.onContentReady = onContentReady
+        // 惰性布局重建楼层时直接落回上次测得的高度：先摆成占位高度再测一遍，
+        // 会让滚动内容的总高度在每次回滚时塌陷又长回来。
+        _height = State(
+            initialValue: cacheKey.flatMap(PostContentHeightCache.shared.height(for:))
+                ?? Self.placeholderHeight
+        )
+    }
 
     var body: some View {
         // 原生分支只可能包含表情，而无图模式本就放行表情，因此不受该设置影响。
@@ -829,12 +884,15 @@ struct PostBodyView: View {
                 )
             } else {
                 Color.clear
-                    .frame(height: 24)
                     .accessibilityHidden(true)
             }
         }
             .frame(maxWidth: .infinity)
-            .frame(height: max(height, 24))
+            .frame(height: max(height, Self.placeholderHeight))
+            .onChange(of: height) { _, measured in
+                guard let cacheKey else { return }
+                PostContentHeightCache.shared.store(measured, for: cacheKey)
+            }
             .task(id: loadOrder) {
                 guard let loadOrder else { return }
                 isReadyToCreateWebView = false
