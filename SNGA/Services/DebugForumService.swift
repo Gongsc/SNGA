@@ -285,23 +285,11 @@ actor DebugForumService: NGAForumService {
                 nativeContent: nativeReply.nativeContent,
                 ratingScores: isPrimaryTopic ? ["100": 8] : [:]
             )
-        ] + debugShapes.enumerated().map { index, shape in
-            let sanitized = NGAParser().sanitizedPost(shape.raw)
-            return Post(
-                id: PostID(rawValue: Int64(40 + index) + postIDOffset),
-                topicID: topicID,
-                floor: 40 + index,
-                author: shape.name,
-                authorUID: Int64(4000 + index),
-                postedAt: Date(timeIntervalSince1970: 1_786_000_000),
-                html: sanitized.html,
-                nativeContent: sanitized.nativeContent
-            )
-        }
+        ]
         if ProcessInfo.processInfo.arguments.contains("--uitesting-shapes") {
             return ThreadPage(
                 topic: topic,
-                posts: Array(allPosts.dropFirst(2)),
+                posts: debugShapePosts(topicID: topicID, idOffset: postIDOffset),
                 page: page,
                 hasMore: false,
                 totalPages: 1
@@ -323,6 +311,27 @@ actor DebugForumService: NGAForumService {
     private struct DebugShape {
         let name: String
         let raw: String
+    }
+
+    /// 段落形状楼层只在 `--uitesting-shapes` 下单独成页。
+    ///
+    /// 混进默认话题会把它从两层变成十层，滚动类用例的内容高度随之改变 ——
+    /// testImageHeavyThreadCanReturnToTop 原本两次上滑就到底了，多出来的楼层
+    /// 让它一路滑过首楼，首楼被惰性布局回收，用例就找不到楼主信息了。
+    private func debugShapePosts(topicID: TopicID, idOffset: Int64) -> [Post] {
+        debugShapes.enumerated().map { index, shape in
+            let sanitized = NGAParser().sanitizedPost(shape.raw)
+            return Post(
+                id: PostID(rawValue: Int64(40 + index) + idOffset),
+                topicID: topicID,
+                floor: 40 + index,
+                author: shape.name,
+                authorUID: Int64(4000 + index),
+                postedAt: Date(timeIntervalSince1970: 1_786_000_000),
+                html: sanitized.html,
+                nativeContent: sanitized.nativeContent
+            )
+        }
     }
 
     private static let quoteHead = "[quote][pid=877855763,47337610,2]Reply[/pid] [b]Post by [uid=62442264]有个账号[/uid] (2026-08-10 21:42):[/b]"

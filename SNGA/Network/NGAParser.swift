@@ -2358,13 +2358,7 @@ struct NGAParser: Sendable {
             let body = captures.count > 1 ? captures[1] : ""
             return "<details><summary>\(htmlEscaped(title))</summary>\(body)</details>"
         }
-        output = replacingMatches(
-            in: output,
-            pattern: #"\[quote[^\]]*\](.*?)\[/quote\]"#,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) { captures in
-            "<blockquote>\(captures.first ?? "")</blockquote>"
-        }
+        output = renderQuoteBBCode(output)
         output = renderListBBCode(output)
         output = renderDirectionalBBCode(output)
         output = renderTableBBCode(output)
@@ -2495,6 +2489,71 @@ struct NGAParser: Sendable {
             }
         }
         return output
+    }
+
+    /// `[quote]...[/quote]` 转 `<blockquote>`。
+    ///
+    /// 引用是可以套引用的（引用的那层自己也带着上一层的引用），所以不能用
+    /// `\[quote\](.*?)\[/quote\]` 这种非贪婪匹配去配对：它会拿最里面的
+    /// `[/quote]` 去闭合最外面的 `[quote]`，剩下的标记原样漏进正文，读者看到的
+    /// 就是满屏的 `[quote]`。这里按栈配对，只有真正成对的标记才会成块。
+    ///
+    /// 落单的标记（跨页截断、作者手写错）保持字面量，不吞掉任何正文。
+    private func renderQuoteBBCode(_ source: String) -> String {
+        guard let expression = CachedRegularExpressions.shared.expression(
+            pattern: #"\[quote[^\]]*\]|\[/quote\]"#,
+            options: [.caseInsensitive]
+        ) else {
+            return source
+        }
+        let original = source as NSString
+        let matches = expression.matches(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        )
+        guard !matches.isEmpty else { return source }
+
+        // 每一层未闭合的引用占一格：`openings` 是它的开标记原文，`levels` 是
+        // 已经收集到的内容。栈底那格是最终输出，没有对应的开标记。
+        var openings: [String] = []
+        var levels: [String] = [""]
+        var cursor = 0
+
+        func appendToCurrentLevel(_ text: String) {
+            levels[levels.count - 1] += text
+        }
+
+        for match in matches {
+            let token = original.substring(with: match.range)
+            appendToCurrentLevel(
+                original.substring(
+                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                )
+            )
+            cursor = match.range.location + match.range.length
+
+            guard token.hasPrefix("[/") else {
+                openings.append(token)
+                levels.append("")
+                continue
+            }
+            guard !openings.isEmpty else {
+                // 没有开标记可配对，这个 `[/quote]` 只是一段普通文字。
+                appendToCurrentLevel(token)
+                continue
+            }
+            openings.removeLast()
+            let quoted = levels.removeLast()
+            appendToCurrentLevel("<blockquote>\(quoted)</blockquote>")
+        }
+        appendToCurrentLevel(original.substring(from: cursor))
+
+        // 还开着的层：把开标记和它收集到的内容原样还回去。
+        while let opening = openings.popLast() {
+            let unclosed = levels.removeLast()
+            appendToCurrentLevel(opening + unclosed)
+        }
+        return levels[0]
     }
 
     private func renderTableBBCode(_ source: String) -> String {

@@ -110,6 +110,27 @@ final class PostContentBuilderTests: XCTestCase {
         XCTAssertTrue(plainText(of: content).contains("\u{3000}\u{3000}缩进正文"))
     }
 
+    /// 引用套引用：内层必须成为外层的子块，而不是一段带着 `[quote]` 字样的文字。
+    func testNestedQuoteBecomesNestedQuoteBlock() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]外层开头[quote]最里面的话[/quote]外层结尾[/quote]我的回复")
+        )
+        let outer = content.blocks.compactMap { block -> [PostBlock]? in
+            guard case let .quote(nested) = block else { return nil }
+            return nested
+        }
+        XCTAssertEqual(outer.count, 1, "应当只有一个外层引用")
+        let inner = (outer.first ?? []).compactMap { block -> [PostBlock]? in
+            guard case let .quote(nested) = block else { return nil }
+            return nested
+        }
+        XCTAssertEqual(inner.count, 1, "内层引用应当嵌在外层引用里")
+        XCTAssertFalse(plainText(of: content).contains("[quote]"))
+        XCTAssertFalse(plainText(of: content).contains("[/quote]"))
+        XCTAssertTrue(plainText(of: content).contains("最里面的话"))
+        XCTAssertTrue(plainText(of: content).contains("我的回复"))
+    }
+
     // MARK: - 必须回退到 WKWebView 的内容
 
     func testRemoteImageFallsBackToWebView() {

@@ -1580,6 +1580,37 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("[align="))
     }
 
+    /// 引用可以套引用（引用的那层自己也带着引用）。非贪婪的正则会拿最内层的
+    /// `[/quote]` 去闭合最外层的 `[quote]`，剩下的标记就以字面量漏进正文。
+    func testNestedQuotesBecomeNestedBlockquotes() {
+        let html = parser.sanitizedPostHTML(
+            "[quote]外层开头[quote]最里面的话[/quote]外层结尾[/quote]我的回复"
+        )
+
+        XCTAssertFalse(html.contains("[quote]"), "不应有残留的引用标记")
+        XCTAssertFalse(html.contains("[/quote]"), "不应有残留的引用标记")
+        // SwiftSoup 序列化时会在块级标签之间补缩进，比较前先去掉空白。
+        let compact = html.filter { !$0.isWhitespace }
+        XCTAssertTrue(
+            compact.contains(
+                "<blockquote>外层开头<blockquote>最里面的话</blockquote>外层结尾</blockquote>"
+            ),
+            "内层引用应当嵌在外层引用里"
+        )
+        XCTAssertTrue(compact.contains("</blockquote>我的回复"))
+    }
+
+    /// 没有配对的标记不能吞掉正文 —— 宁可把标记本身当字面量留下。
+    func testUnbalancedQuoteMarkersKeepTheirText() {
+        let unopened = parser.sanitizedPostHTML("正文在前[/quote]正文在后")
+        XCTAssertTrue(unopened.contains("正文在前"))
+        XCTAssertTrue(unopened.contains("正文在后"))
+
+        let unclosed = parser.sanitizedPostHTML("[quote]被引用的话\n还有下一行")
+        XCTAssertTrue(unclosed.contains("被引用的话"))
+        XCTAssertTrue(unclosed.contains("还有下一行"))
+    }
+
     func testCompactsRedundantSpacingAroundQuotedReplies() {
         let html = parser.sanitizedPostHTML(
             "\n\n[quote]引用内容[/quote]\n\n回复内容\n\n"
