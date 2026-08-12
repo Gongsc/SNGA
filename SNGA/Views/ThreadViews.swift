@@ -989,6 +989,16 @@ struct PostRow: View {
                     .help("发自 \(postDevice.title)")
                     .accessibilityLabel("发自 \(postDevice.title)")
                     .accessibilityIdentifier("post-device-\(post.id.rawValue)")
+                if let latestEdit = post.edits.last {
+                    Label(editLabel(latestEdit), systemImage: "pencil")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        // 改动不止一次时，网页版会把每一条并排列出；这里只显示最近
+                        // 的一条，其余留给悬停。
+                        .help(post.edits.map(editLabel).joined(separator: "\n"))
+                        .accessibilityIdentifier("post-edited-\(post.id.rawValue)")
+                }
                 Spacer()
                 voteButton(direction: .up)
                 voteButton(direction: .down)
@@ -1009,6 +1019,22 @@ struct PostRow: View {
             guard post.authorInfo?.location == nil, let authorUID else { return }
             await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
+    }
+
+    /// 「2026/08/11 12:38 修改」，被人代改时补上改动者，与网页版的措辞一致。
+    private func editLabel(_ edit: PostEdit) -> String {
+        let time = edit.editedAt.formatted(
+            .dateTime
+                .year()
+                .month(.twoDigits)
+                .day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits)
+        )
+        guard let editorName = edit.editorName, !editorName.isEmpty else {
+            return "\(time) 修改"
+        }
+        return "\(editorName) 于 \(time) 修改"
     }
 
     private var postBody: some View {

@@ -142,6 +142,8 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     /// 可原生渲染的正文结构。为 nil 表示该层含图片、表格等复杂内容，需要 `WKWebView`。
     var nativeContent: PostContent? = nil
     var quotedPostID: PostID? = nil
+    /// 该层发出之后的改动记录，按 NGA 下发的先后顺序排列。
+    var edits: [PostEdit] = []
     /// 该层被管理操作折叠的原因。为 nil 表示正常楼层。
     var punishment: PostPunishment? = nil
     var upvoteCount: Int = 0
@@ -149,6 +151,16 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var userVote: PostVoteDirection? = nil
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
+}
+
+/// 楼层的一次改动，对应网页版楼层末尾「改动」栏里的一条「在 … 修改」。
+///
+/// 来自 `alterinfo` 里的 `E` 条目。同一层可以有多条：每改一次追加一条。
+struct PostEdit: Hashable, Codable, Sendable {
+    var editedAt: Date
+    /// 代为改动的人。楼主改自己的楼层时两者都为 nil，网页版此时也只写时间。
+    var editorUID: Int64? = nil
+    var editorName: String? = nil
 }
 
 /// 楼层被管理操作折叠的原因，对应网页版的 `lessernuke` 提示条。

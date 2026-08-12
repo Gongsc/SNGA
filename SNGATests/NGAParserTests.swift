@@ -834,6 +834,88 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.posts.map(\.punishment), [nil, .topic])
     }
 
+    func testParsesFloorEditRecordsFromAlterInfo() throws {
+        // 脱敏自 NGA tid=47336184 的 #45：改动记录压在 alterinfo 里，
+        // `[E<时间戳> <改动者UID> <标记>]`，制表符分隔。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47336184,
+              "fid": -81981,
+              "subject": "改动记录测试",
+              "authorid": 100,
+              "author": "楼主用户",
+              "replies": 4
+            },
+            "__R": [
+              {"pid": 0, "tid": 47336184, "lou": 0, "authorid": 100, "content": "主题首帖", "alterinfo": ""},
+              {"pid": 901, "tid": 47336184, "lou": 1, "authorid": 200, "content": "自己改过", "alterinfo": "[E1786423085 0 0]\\t"},
+              {"pid": 902, "tid": 47336184, "lou": 2, "authorid": 200, "content": "被版主改过", "alterinfo": "[E1786423085 300 版主甲]\\t"},
+              {"pid": 903, "tid": 47336184, "lou": 3, "authorid": 200, "content": "改过两次", "alterinfo": "[E1786423085 0 0]\\t[E1786430359 0 0]\\t"},
+              {"pid": 904, "tid": 47336184, "lou": 4, "authorid": 200, "content": "只有占位", "alterinfo": "[E0 0 0]\\t"}
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+        let edits = thread.posts.map(\.edits)
+
+        XCTAssertEqual(edits.map(\.count), [0, 1, 1, 2, 0])
+        XCTAssertEqual(
+            edits[1].first,
+            PostEdit(editedAt: Date(timeIntervalSince1970: 1_786_423_085))
+        )
+        XCTAssertEqual(
+            edits[2].first,
+            PostEdit(
+                editedAt: Date(timeIntervalSince1970: 1_786_423_085),
+                editorUID: 300,
+                editorName: "版主甲"
+            )
+        )
+        XCTAssertEqual(
+            edits[3].map(\.editedAt),
+            [
+                Date(timeIntervalSince1970: 1_786_423_085),
+                Date(timeIntervalSince1970: 1_786_430_359)
+            ]
+        )
+    }
+
+    func testReadsFloorEditRecordsFromLegacyThreadHTML() throws {
+        let page = """
+        <html><body>
+        <table><tr id='post1strow45' class='postrow'>
+        <td><a name='l45'></a><span id='postcontent45' class='postcontent'>改过的四十五楼</span>
+        <h4 class='silver subtitle postbodysubtitle'>改动</h4><span id='alertc45'></span>
+        <script>commonui.loadAlertInfo('[E1786423085 0 0]\t','alertc45')</script>
+        </td>
+        </tr></table>
+        <table><tr id='post1strow47' class='postrow'>
+        <td><a name='l47'></a><span id='postcontent47' class='postcontent'>没改过的四十七楼</span></td>
+        </tr></table>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(page, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.floor), [45, 47])
+        XCTAssertEqual(
+            thread.posts.map(\.edits),
+            [[PostEdit(editedAt: Date(timeIntervalSince1970: 1_786_423_085))], []]
+        )
+    }
+
     func testStripsLesserNukeWrapperAndReportsItsPunishment() {
         let topic = parser.sanitizedPost("[lessernuke2]被折叠的正文[/lessernuke2]")
         let post = parser.sanitizedPost("[lessernuke]被折叠的正文[/lessernuke]")

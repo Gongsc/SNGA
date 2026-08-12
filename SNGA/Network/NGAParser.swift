@@ -661,6 +661,7 @@ struct NGAParser: Sendable {
         let htmlTopicPoll = htmlTopicPoll(in: text, topicID: topicID)
         let htmlRatings = htmlRatings(in: text, topicID: topicID)
         let punishedUIDs = htmlPunishedUserIDs(in: text)
+        let htmlPostEdits = htmlPostEdits(in: text)
         var posts: [Post] = []
         let rows = try document.select("tr.postrow, .postrow, .post-row")
         if !rows.isEmpty {
@@ -688,6 +689,7 @@ struct NGAParser: Sendable {
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
+                    edits: htmlPostEdits[floor] ?? [],
                     punishment: postPunishment(
                         type: nil,
                         authorUID: authorUID,
@@ -3346,6 +3348,71 @@ struct NGAParser: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 楼层的改动记录。
+    ///
+    /// NGA 把一层的管理与改动记录压在 `alterinfo` 一个字段里，条目之间用制表符或
+    /// 换行分隔，每条形如 `[<类型><空格分隔的字段>]`；网页版的
+    /// `commonui.loadAlterInfo` 按类型分别渲染。这里只取改动记录 `E`，它的字段是
+    /// 「时间戳 改动者UID 标记」——`[E1786423085 0 0]` 就是楼主自己在
+    /// 2026-08-11 12:38 改的。其余类型（禁言 `L`、加分 `A` 等）不在楼层里展示。
+    private func postEdits(in rawValue: String?) -> [PostEdit] {
+        guard let rawValue, !rawValue.isEmpty else { return [] }
+        return rawValue
+            .split(whereSeparator: { $0 == "\t" || $0 == "\n" })
+            .compactMap { entry -> PostEdit? in
+                let trimmed = entry.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("[E"),
+                      let close = trimmed.firstIndex(of: "]") else {
+                    return nil
+                }
+                let fields = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 2)..<close]
+                    .split(separator: " ")
+                    .map(String.init)
+                // `[E0 …]` 是记录过多时的「更多」占位，本身不是一次改动。
+                guard let timestamp = fields.first.flatMap(TimeInterval.init),
+                      timestamp > 0 else {
+                    return nil
+                }
+                let editorUID = fields.count > 1
+                    ? Int64(fields[1]).flatMap { $0 > 0 ? $0 : nil }
+                    : nil
+                let trailing = fields.dropFirst(2).joined(separator: " ")
+                let editorName: String?
+                if trailing == "#ANONYMOUS#" {
+                    editorName = "匿名用户"
+                } else if editorUID != nil, !trailing.isEmpty, trailing != "0" {
+                    editorName = trailing
+                } else {
+                    editorName = nil
+                }
+                return PostEdit(
+                    editedAt: Date(timeIntervalSince1970: timestamp),
+                    editorUID: editorUID,
+                    editorName: editorName
+                )
+            }
+    }
+
+    /// 网页版把每层的 `alterinfo` 交给 `commonui.loadAlertInfo(记录, 'alertc<楼层>')`。
+    private func htmlPostEdits(in source: String) -> [Int: [PostEdit]] {
+        var result: [Int: [PostEdit]] = [:]
+        for call in javaScriptCallArguments(
+            in: source,
+            marker: "commonui.loadAlertInfo("
+        ) {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count >= 2,
+                  let floor = digits(in: normalizedJavaScriptLiteral(arguments[1]))
+                    .flatMap(Int.init) else {
+                continue
+            }
+            let edits = postEdits(in: normalizedJavaScriptLiteral(arguments[0]))
+            guard !edits.isEmpty else { continue }
+            result[floor, default: []].append(contentsOf: edits)
+        }
+        return result
+    }
+
     /// 主题里被禁言的用户。他们在本主题的每一层都要挂上「用户在主题中被处罚」。
     ///
     /// 网页版把这份名单当作 `commonui.postArg.setDefault` 的第六个参数下发；
@@ -3434,6 +3501,7 @@ struct NGAParser: Sendable {
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
             ).map(PostID.init(rawValue:)),
+            edits: postEdits(in: string(dictionary["alterinfo"])),
             punishment: postPunishment(
                 type: int(dictionary["type"]),
                 authorUID: authorUID,
