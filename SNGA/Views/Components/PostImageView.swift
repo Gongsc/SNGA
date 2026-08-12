@@ -1,0 +1,257 @@
+import AppKit
+import SwiftUI
+
+/// 正文里的一张配图。
+///
+/// 图多的楼层能不能滚得动，取决于三件事，这个视图各管一件：
+/// - **先占位，再加载。** 高度取自 `<img>` 自带的尺寸、或 `PostImageStore` 上次量到
+///   的原始尺寸；有了高度，图片到达时就不会把下方内容顶走，滚动条也不再乱跳。
+/// - **只加载视口附近的图。** 一层里几十张截图不会同时下载解码，滚远之后立刻松开
+///   位图，让缓存有机会把它腾掉。松开的距离比加载的距离远一截，来回小幅滚动时
+///   不会反复装卸。
+/// - **按显示宽度解码。** 原图多大都只解到正文栏用得上的分辨率。
+struct PostImageView: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    let image: PostImage
+    var imageFreeMode = false
+
+    /// 提前多远开始加载。约一屏，滚到眼前时通常已经落位。
+    private nonisolated static let loadMargin: CGFloat = 900
+    /// 滚出多远之后松开位图。留出滞后区间，小幅回滚不会重来一遍。
+    private nonisolated static let releaseMargin: CGFloat = 2400
+    /// 尚不知道比例时按 4:3 预留。NGA 的 `[img]` 不带尺寸，占位和真实高度总会有
+    /// 出入；取一个接近常见配图的比例，图片到达时下方内容的位移最小。
+    private static let unknownAspectRatio: CGFloat = 4.0 / 3.0
+    private static let minimumUnknownHeight: CGFloat = 140
+    /// 无图模式下的占位高度，与样式表里的 `.snga-image-placeholder` 一致。
+    private static let deferredHeight: CGFloat = 58
+
+    @State private var rendered: NSImage?
+    /// `rendered` 是按多宽解出来的。窗口变宽时才值得重解一次。
+    @State private var renderedWidth: CGFloat = 0
+    @State private var measuredPixelSize: CGSize?
+    @State private var availableWidth: CGFloat = 0
+    @State private var visibility = Visibility()
+    @State private var didFail = false
+    /// 无图模式下用户点开了这一张。
+    @State private var isRevealed = false
+
+    private struct Visibility: Equatable {
+        var shouldLoad = false
+        var shouldRetain = false
+    }
+
+    private struct LoadTicket: Equatable {
+        let url: URL
+        let width: CGFloat
+        let isEnabled: Bool
+        let attempt: Int
+    }
+
+    @State private var attempt = 0
+
+    var body: some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: reservedHeight)
+            .overlay(alignment: overlayAlignment) { visual }
+            .onGeometryChange(for: Measurements.self) { Self.measurements($0) } action: {
+                update($0)
+            }
+            .task(id: loadTicket) { await load() }
+            .onChange(of: visibility.shouldRetain) { _, shouldRetain in
+                // 位图只在视口附近留着。尺寸留下，版面不会因此变化。
+                guard !shouldRetain else { return }
+                rendered = nil
+                renderedWidth = 0
+            }
+    }
+
+    // MARK: - 版面
+
+    /// 网页上 `img{max-width:100%;height:auto}`：图片按自身像素宽度显示，
+    /// 超过正文栏才缩到栏宽。原生分支要照着来，否则小图会被拉大。
+    private var displayWidth: CGFloat {
+        guard availableWidth > 0 else { return 0 }
+        guard let naturalWidth else { return availableWidth }
+        return min(naturalWidth, availableWidth)
+    }
+
+    private var naturalWidth: CGFloat? {
+        if let pixelSize { return pixelSize.width }
+        return image.pixelWidth.map(CGFloat.init)
+    }
+
+    private var pixelSize: CGSize? {
+        measuredPixelSize ?? PostImageStore.shared.pixelSize(for: image.url)
+    }
+
+    private var aspectRatio: CGFloat? {
+        if let pixelSize, pixelSize.width > 0, pixelSize.height > 0 {
+            return pixelSize.width / pixelSize.height
+        }
+        return image.aspectRatio
+    }
+
+    private var reservedHeight: CGFloat {
+        if isDeferred { return Self.deferredHeight }
+        // 加载失败又不知道原尺寸时不必空出一大片，收成一条提示的高度。
+        if didFail, aspectRatio == nil { return Self.deferredHeight }
+        guard displayWidth > 0 else { return Self.minimumUnknownHeight }
+        guard let aspectRatio, aspectRatio > 0 else {
+            return max(
+                Self.minimumUnknownHeight,
+                (displayWidth / Self.unknownAspectRatio).rounded()
+            )
+        }
+        return max(1, (displayWidth / aspectRatio).rounded())
+    }
+
+    private var overlayAlignment: Alignment {
+        switch image.alignment {
+        case .leading: .topLeading
+        case .center: .top
+        case .trailing: .topTrailing
+        }
+    }
+
+    /// 无图模式下还没被点开。
+    private var isDeferred: Bool { imageFreeMode && !isRevealed }
+
+    // MARK: - 可见性
+
+    private struct Measurements: Equatable {
+        var width: CGFloat = 0
+        var visibility = Visibility()
+    }
+
+    private nonisolated static func measurements(_ proxy: GeometryProxy) -> Measurements {
+        var result = Measurements(width: proxy.size.width.rounded())
+        guard let visible = proxy.bounds(of: .scrollView(axis: .vertical)) else {
+            // 不在滚动视图里（回复预览等）就没有远近之分，照常加载。
+            result.visibility = Visibility(shouldLoad: true, shouldRetain: true)
+            return result
+        }
+        let local = CGRect(origin: .zero, size: proxy.size)
+        result.visibility = Visibility(
+            shouldLoad: visible.insetBy(dx: 0, dy: -Self.loadMargin).intersects(local),
+            shouldRetain: visible.insetBy(dx: 0, dy: -Self.releaseMargin).intersects(local)
+        )
+        return result
+    }
+
+    private func update(_ measurements: Measurements) {
+        availableWidth = measurements.width
+        visibility = measurements.visibility
+    }
+
+    // MARK: - 加载
+
+    private var loadTicket: LoadTicket {
+        LoadTicket(
+            url: image.url,
+            width: displayWidth,
+            isEnabled: visibility.shouldLoad && !isDeferred,
+            attempt: attempt
+        )
+    }
+
+    private func load() async {
+        let width = displayWidth
+        guard loadTicket.isEnabled, width > 0 else { return }
+        // 已经有位图时只有变宽才值得重解：图片到达后 `displayWidth` 会收窄到图片
+        // 自身的宽度，那不是重解的理由。
+        guard rendered == nil || width > renderedWidth + 1 else { return }
+        if let cached = PostImageStore.shared.cachedImage(for: image.url, displayWidth: width) {
+            apply(cached, width: width)
+            return
+        }
+        didFail = PostImageStore.shared.hasFailed(image.url)
+        guard !didFail else { return }
+        guard let result = await PostImageStore.shared.image(
+            for: image.url,
+            displayWidth: width
+        ) else {
+            didFail = true
+            return
+        }
+        guard !Task.isCancelled else { return }
+        apply(result, width: width)
+    }
+
+    private func apply(_ result: PostImageStore.Rendered, width: CGFloat) {
+        rendered = result.image
+        renderedWidth = width
+        measuredPixelSize = result.pixelSize
+        didFail = false
+    }
+
+    private func retry() {
+        // 失败是记在 store 里的，不清掉的话下一轮 `load()` 会立刻又判定为失败。
+        PostImageStore.shared.forgetFailure(image.url)
+        didFail = false
+        attempt += 1
+    }
+
+    // MARK: - 绘制
+
+    @ViewBuilder
+    private var visual: some View {
+        if isDeferred {
+            placeholder(
+                title: "▧ 图片 · 点击加载",
+                systemImage: nil,
+                action: { isRevealed = true }
+            )
+            .help("点击加载图片")
+        } else if let rendered {
+            Image(nsImage: rendered)
+                .resizable()
+                .frame(width: displayWidth, height: reservedHeight)
+                .accessibilityLabel(image.alt.isEmpty ? "帖子图片" : image.alt)
+                .accessibilityAddTraits(.isButton)
+                .contentShape(.rect)
+                .onTapGesture { model.previewImageURL = image.url }
+                .pointerStyle(.link)
+                .help("点击查看大图")
+        } else if didFail {
+            placeholder(
+                title: "图片加载失败 · 点击重试",
+                systemImage: "arrow.clockwise",
+                action: retry
+            )
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.primary.opacity(0.06))
+                .frame(width: max(displayWidth, 1), height: reservedHeight)
+                .accessibilityLabel("图片加载中")
+        }
+    }
+
+    private func placeholder(
+        title: String,
+        systemImage: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                }
+                Text(title)
+            }
+            .font(.callout)
+            .foregroundStyle(theme.accentColor)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .frame(minWidth: 132, minHeight: Self.deferredHeight)
+            .background(theme.accentColor.opacity(0.08), in: .rect(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(theme.accentColor.opacity(0.45), style: .init(dash: [4, 3]))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}

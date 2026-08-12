@@ -20,11 +20,15 @@ final class PostWebViewCache {
     static let shared = PostWebViewCache()
     private let entries = NSCache<NSString, Entry>()
 
-    /// 缓存里每一项都是一个存活的 `WKWebView`，代价远高于普通的值缓存。
-    /// 楼层改为按需创建后，滚出视口的楼层会频繁进出这里，因此上限按
-    /// “回滚一两屏够用” 来定，而不是按整页楼层数。
-    init(countLimit: Int = 20) {
+    /// 缓存里每一项都是一个存活的 `WKWebView`，连同它已经解码的图片一起留在内存里，
+    /// 代价远高于普通的值缓存。因此除了个数上限，还按楼层高度计费：一层几千点高的
+    /// 图片楼几乎必然是重的，留一层就顶得上十几层普通回复。
+    ///
+    /// 高度缓存（`PostContentHeightCache`）会让重建的楼层直接落回原来的高度，
+    /// 没被留住的楼层重新加载也不会让版面跳动。
+    init(countLimit: Int = 20, totalHeightLimit: Int = 24_000) {
         entries.countLimit = countLimit
+        entries.totalCostLimit = totalHeightLimit
     }
 
     func take(for key: String, matching html: String) -> Entry? {
@@ -42,7 +46,8 @@ final class PostWebViewCache {
     ) {
         entries.setObject(
             Entry(webView: webView, html: html, height: height),
-            forKey: key as NSString
+            forKey: key as NSString,
+            cost: Int(max(1, height.rounded()))
         )
     }
 
@@ -223,23 +228,19 @@ struct PostWebView: NSViewRepresentable {
 
         const images = Array.from(document.images);
         images.forEach((image) => {
-            image.loading = "eager";
             image.decoding = "async";
         });
 
+        // 只等 `load`，不主动 `decode()`。楼层的网页视图高度等于正文全高，
+        // WebKit 把整篇文档都算作可见区域，逐张 `decode()` 会在这一刻把一层里
+        // 所有图片按原始像素展开成位图 —— 图大量多时就是这一下把界面顶住的。
+        // 高度只需要图片的尺寸，`load` 已经够了，位图交给绘制时按需解。
         const waitForImage = (image) => new Promise((resolve) => {
-            const finish = () => {
-                if (typeof image.decode !== "function") {
-                    resolve();
-                    return;
-                }
-                image.decode().catch(() => {}).finally(resolve);
-            };
             if (image.complete) {
-                finish();
+                resolve();
                 return;
             }
-            image.addEventListener("load", finish, { once: true });
+            image.addEventListener("load", resolve, { once: true });
             image.addEventListener("error", resolve, { once: true });
         });
 
@@ -841,7 +842,6 @@ struct PostBodyView: View {
     }
 
     var body: some View {
-        // 原生分支只可能包含表情，而无图模式本就放行表情，因此不受该设置影响。
         if let nativeContent {
             nativeBody(nativeContent)
         } else {
@@ -849,10 +849,12 @@ struct PostBodyView: View {
         }
     }
 
-    /// 原生分支不需要测高，也不产生 WKWebView，因此直接汇报就绪。
+    /// 原生分支不需要测高，也不产生 WKWebView，因此直接汇报就绪 ——
+    /// 配图各自按需加载，骨架屏不必等它们。
     private func nativeBody(_ content: PostContent) -> some View {
         PostContentView(
             content: content,
+            imageFreeMode: imageFreeMode,
             onOpenLink: { url in
                 if let destination = NGAInternalLink.destination(for: url) {
                     onOpenInternalLink(destination)

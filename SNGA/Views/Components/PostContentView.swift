@@ -3,15 +3,21 @@ import SwiftUI
 
 /// 楼层正文的原生渲染。
 ///
-/// 只负责 `PostContentBuilder` 能够完整还原的内容（文字样式、链接、表情、引用）。
-/// 复杂楼层不会走到这里，而是继续由 `PostWebView` 渲染。
+/// 只负责 `PostContentBuilder` 能够完整还原的内容（文字样式、链接、表情、引用、
+/// 配图）。含表格、折叠块、游戏卡片等复杂结构的楼层不会走到这里，而是继续由
+/// `PostWebView` 渲染。
 struct PostContentView: View {
     let content: PostContent
+    var imageFreeMode = false
     var onOpenLink: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            PostBlockListView(blocks: content.blocks, onOpenLink: onOpenLink)
+            PostBlockListView(
+                blocks: content.blocks,
+                imageFreeMode: imageFreeMode,
+                onOpenLink: onOpenLink
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -20,6 +26,7 @@ struct PostContentView: View {
 private struct PostBlockListView: View {
     @Environment(\.sngaTheme) private var theme
     let blocks: [PostBlock]
+    let imageFreeMode: Bool
     let onOpenLink: @MainActor (URL) -> Void
 
     var body: some View {
@@ -29,13 +36,19 @@ private struct PostBlockListView: View {
                 PostParagraphView(paragraph: paragraph, onOpenLink: onOpenLink)
             case let .quote(nested):
                 quote(nested)
+            case let .image(image):
+                PostImageView(image: image, imageFreeMode: imageFreeMode)
             }
         }
     }
 
     private func quote(_ nested: [PostBlock]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            PostBlockListView(blocks: nested, onOpenLink: onOpenLink)
+            PostBlockListView(
+                blocks: nested,
+                imageFreeMode: imageFreeMode,
+                onOpenLink: onOpenLink
+            )
         }
         .padding(.vertical, 6)
         .padding(.leading, 10)

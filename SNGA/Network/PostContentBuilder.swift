@@ -10,7 +10,8 @@ enum PostContentBuilder {
     /// 能够原生还原的块级标签。
     private static let blockTags: Set<String> = ["p", "div", "blockquote", "body"]
 
-    /// 能够原生还原的内联标签。
+    /// 能够原生还原的内联标签。`img` 不在其列：表情在 `inlineSegments` 里单独处理，
+    /// 正文配图则由 `blocks(in:style:)` 提成独立的块。
     private static let inlineTags: Set<String> = [
         "a", "b", "strong", "i", "em", "u",
         "strike", "s", "del", "span", "br", "code", "font"
@@ -23,7 +24,7 @@ enum PostContentBuilder {
         let meaningful = blocks.filter { block in
             switch block {
             case let .paragraph(paragraph): !paragraph.isEmpty
-            case .quote: true
+            case .quote, .image: true
             }
         }
         guard !meaningful.isEmpty else { return nil }
@@ -81,7 +82,24 @@ enum PostContentBuilder {
                 continue
             }
 
-            if inlineTags.contains(tag) || tag == "img" {
+            if tag == "img" {
+                if let emoticon = emoticonURL(of: element) {
+                    pendingSegments.append(.emoticon(emoticon))
+                    continue
+                }
+                // 正文配图自成一块，因此只接受本来就独占一行的图片；和文字挤在
+                // 同一行的图片改成块会挪动版面，宁可整层退回 WKWebView。
+                guard let image = image(of: element),
+                      startsOnNewLine(pendingSegments),
+                      endsLine(after: node) else {
+                    return nil
+                }
+                flushPendingSegments()
+                blocks.append(.image(image))
+                continue
+            }
+
+            if inlineTags.contains(tag) {
                 guard let segments = inlineSegments(of: element, style: style) else {
                     return nil
                 }
@@ -215,9 +233,16 @@ enum PostContentBuilder {
     ) -> [PostBlock] {
         guard alignment != .leading else { return blocks }
         return blocks.map { block in
-            guard case var .paragraph(paragraph) = block else { return block }
-            paragraph.alignment = alignment
-            return .paragraph(paragraph)
+            switch block {
+            case var .paragraph(paragraph):
+                paragraph.alignment = alignment
+                return .paragraph(paragraph)
+            case var .image(image):
+                image.alignment = alignment
+                return .image(image)
+            case .quote:
+                return block
+            }
         }
     }
 
@@ -234,7 +259,80 @@ enum PostContentBuilder {
         return Int(className.dropFirst(prefix.count))
     }
 
-    /// 表情是固定集合里的小图，可以原生渲染；其余图片一律回退。
+    /// 动图的原生分支只能解出静止的第一帧，这类图片整层交回 `WKWebView`。
+    private static let animatableImageExtensions: Set<String> = ["gif", "webp", "apng"]
+
+    /// 一张可以原生渲染的正文配图。
+    private static func image(of element: Element) -> PostImage? {
+        guard let source = try? element.attr("src"), !source.isEmpty,
+              let url = URL(string: source),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            return nil
+        }
+        guard !animatableImageExtensions.contains(url.pathExtension.lowercased()) else {
+            return nil
+        }
+        // 带样式类的图片来自 `[style]`，它的定位和尺寸由生成的样式表决定，
+        // 原生分支还原不了。
+        guard classNames(of: element).isEmpty else { return nil }
+        return PostImage(
+            url: url,
+            alt: (try? element.attr("alt")) ?? "",
+            pixelWidth: positiveInteger(try? element.attr("width")),
+            pixelHeight: positiveInteger(try? element.attr("height"))
+        )
+    }
+
+    private static func positiveInteger(_ rawValue: String?) -> Int? {
+        guard let value = rawValue.flatMap({ Int($0) }), value > 0 else { return nil }
+        return value
+    }
+
+    /// 目前累积的内联内容是否停在行首 —— 也就是这张图片前面没有同一行的文字。
+    private static func startsOnNewLine(_ segments: [PostSegment]) -> Bool {
+        for segment in segments.reversed() {
+            switch segment {
+            case let .text(value, _):
+                guard let character = value.reversed().drop(while: isBreakPadding).first else {
+                    continue
+                }
+                return character.isNewline
+            case .emoticon:
+                return false
+            }
+        }
+        return true
+    }
+
+    /// 该节点之后是否直接换行 —— 也就是这张图片后面没有同一行的文字。
+    private static func endsLine(after node: Node) -> Bool {
+        var sibling = node.nextSibling()
+        while let current = sibling {
+            if let textNode = current as? TextNode {
+                if let character = textNode.getWholeText().drop(while: isBreakPadding).first {
+                    return character.isNewline
+                }
+                sibling = current.nextSibling()
+                continue
+            }
+            if let element = current as? Element {
+                let tag = element.tagName().lowercased()
+                if tag == "br" { return true }
+                // 紧挨着的下一张配图同样自成一块。宽图在网页上本来也是各占一行，
+                // 窄图会因此从并排变成上下排 —— 这是原生分支唯一放行的排版差异。
+                if tag == "img" { return emoticonURL(of: element) == nil }
+                return blockTags.contains(tag)
+            }
+            if current is Comment || current is DataNode {
+                sibling = current.nextSibling()
+                continue
+            }
+            return false
+        }
+        return true
+    }
+
+    /// 表情是固定集合里的小图，作为内联片段渲染；其余图片走 `image(of:)`。
     private static func emoticonURL(of element: Element) -> URL? {
         guard let source = try? element.attr("src"), !source.isEmpty else {
             return nil
