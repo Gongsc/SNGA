@@ -963,21 +963,16 @@ struct PostRow: View {
                 }
                 .frame(height: PostAuthorHeaderLayout.rowHeight)
             }
-            PostBodyView(
-                html: post.html,
-                nativeContent: post.nativeContent,
-                cacheKey: contentCacheKey,
-                loadOrder: loadOrder,
-                onOpenInternalLink: { destination in
-                    switch destination {
-                    case let .post(postID, page):
-                        openPost(postID, page)
-                    default:
-                        openInternalLink(destination)
-                    }
-                },
-                onContentReady: onContentReady
-            )
+            if let punishment = post.punishment {
+                PostPunishmentNotice(punishment: punishment) {
+                    postBody
+                }
+                // 折叠状态下 `PostBodyView` 根本没有实例化，页面就绪要在这里汇报，
+                // 否则首楼恰好被折叠时骨架屏只能等超时。
+                .task(id: post.id) { onContentReady() }
+            } else {
+                postBody
+            }
             if let poll = post.poll {
                 TopicPollView(poll: poll)
             }
@@ -1014,6 +1009,24 @@ struct PostRow: View {
             guard post.authorInfo?.location == nil, let authorUID else { return }
             await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
+    }
+
+    private var postBody: some View {
+        PostBodyView(
+            html: post.html,
+            nativeContent: post.nativeContent,
+            cacheKey: contentCacheKey,
+            loadOrder: loadOrder,
+            onOpenInternalLink: { destination in
+                switch destination {
+                case let .post(postID, page):
+                    openPost(postID, page)
+                default:
+                    openInternalLink(destination)
+                }
+            },
+            onContentReady: onContentReady
+        )
     }
 
     /// 热点回复区有自己的内边距，同一楼层在两处的排版宽度并不相同，

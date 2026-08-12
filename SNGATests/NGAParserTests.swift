@@ -762,6 +762,98 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.totalPages, 2)
     }
 
+    func testMarksEveryFloorOfAUserPunishedInTheTopic() throws {
+        // 脱敏自 NGA tid=47336184：主题里被禁言的用户写在 post_misc_var 的 "16" 里，
+        // 网页版据此把这些用户在本主题的每一层都收进「用户在主题中被处罚」提示框。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47336184,
+              "fid": -81981,
+              "subject": "处罚名单测试",
+              "authorid": 100,
+              "author": "楼主用户",
+              "replies": 3,
+              "post_misc_var": {"16": "300", "17": ",901,902"}
+            },
+            "__U": {
+              "100": {"uid": 100, "username": "楼主用户"},
+              "200": {"uid": 200, "username": "正常用户"},
+              "300": {"uid": 300, "username": "被禁言用户"}
+            },
+            "__R": [
+              {"pid": 0, "tid": 47336184, "lou": 0, "authorid": 100, "content": "主题首帖"},
+              {"pid": 901, "tid": 47336184, "lou": 1, "authorid": 200, "content": "正常一楼"},
+              {"pid": 902, "tid": 47336184, "lou": 2, "authorid": 300, "content": "被处罚的二楼"},
+              {"pid": 903, "tid": 47336184, "lou": 3, "authorid": 300, "content": "被处罚的三楼"},
+              {"pid": 904, "tid": 47336184, "lou": 4, "authorid": 200, "type": 2048, "content": "此帖发言被处罚"}
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(
+            thread.posts.map(\.punishment),
+            [nil, nil, .topic, .topic, .post]
+        )
+    }
+
+    func testReadsTopicPunishmentListFromLegacyThreadHTML() throws {
+        let page = """
+        <html><body>
+        <script>
+        commonui.postArg.setDefault(-81981,0,47336184,100,0,"300,400","",",1392665,",'',null,4096,2,1786456990,20)
+        </script>
+        <table><tr id='post1strow1' class='postrow'>
+        <td><a name='l1'></a><span id='postcontent1' class='postcontent'>正常一楼</span></td>
+        </tr></table>
+        <table><tr id='post1strow2' class='postrow'>
+        <td><a name='l2'></a><span id='postcontent2' class='postcontent'>被处罚的二楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc(1,null,null,null,null,null,null,null,null,null,901,0,null,'200',1786415608,'0,0,0','80','','','8 Android','',null,0)
+        commonui.postArg.proc(2,null,null,null,null,null,null,null,null,null,902,0,null,'300',1786415708,'0,0,0','80','','','8 Android','',null,0)
+        </script>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(page, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.floor), [1, 2])
+        XCTAssertEqual(thread.posts.map(\.punishment), [nil, .topic])
+    }
+
+    func testStripsLesserNukeWrapperAndReportsItsPunishment() {
+        let topic = parser.sanitizedPost("[lessernuke2]被折叠的正文[/lessernuke2]")
+        let post = parser.sanitizedPost("[lessernuke]被折叠的正文[/lessernuke]")
+        let locked = parser.sanitizedPost("[lessernuke3]被折叠的正文[/lessernuke3]")
+        let plain = parser.sanitizedPost("普通正文")
+        // 包裹只认贴着首尾的标记；中间冒出来的（多半来自内联的被引楼层）不成包裹，
+        // 但也不该漏成可见文字。
+        let inlined = parser.sanitizedPost("引用：[lessernuke2]别人的正文[/lessernuke2] 我的回复")
+
+        XCTAssertEqual(topic.punishment, .topic)
+        XCTAssertEqual(post.punishment, .post)
+        XCTAssertEqual(locked.punishment, .lockedAccount)
+        XCTAssertNil(plain.punishment)
+        XCTAssertNil(inlined.punishment)
+        for sanitized in [topic, post, locked, inlined] {
+            XCTAssertFalse(sanitized.html.localizedCaseInsensitiveContains("lessernuke"))
+            XCTAssertTrue(sanitized.html.contains("正文"))
+        }
+    }
+
     func testThreadPaginationUsesFilteredResponseRowCount() throws {
         let payload = """
         {

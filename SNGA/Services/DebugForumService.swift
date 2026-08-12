@@ -329,7 +329,8 @@ actor DebugForumService: NGAForumService {
                 authorUID: Int64(4000 + index),
                 postedAt: Date(timeIntervalSince1970: 1_786_000_000),
                 html: sanitized.html,
-                nativeContent: sanitized.nativeContent
+                nativeContent: sanitized.nativeContent,
+                punishment: sanitized.punishment
             )
         }
     }
@@ -375,6 +376,16 @@ actor DebugForumService: NGAForumService {
             DebugShape(
                 name: "H真实49层",
                 raw: "[quote][pid=877856100,47336184,3]Reply[/pid] [b]Post by [uid=42545847]Abrahim36[/uid] (2026-08-11 13:33):[/b]<br/><br/>\(Self.floor48Body)[/quote]<br/><br/>短回复。"
+            ),
+            // I：作者在主题里被禁言，整层默认折叠。
+            DebugShape(
+                name: "I主题内被处罚",
+                raw: "[lessernuke2]被处罚的正文，展开之后才看得见。<br/>第二行写长一点，看看展开后行高对不对得上。[/lessernuke2]"
+            ),
+            // J：因本层发言被处罚。
+            DebugShape(
+                name: "J本层被处罚",
+                raw: "[lessernuke]因为这层的发言被处罚，正文同样默认折叠。[/lessernuke]"
             )
         ]
     }

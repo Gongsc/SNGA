@@ -142,11 +142,44 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     /// 可原生渲染的正文结构。为 nil 表示该层含图片、表格等复杂内容，需要 `WKWebView`。
     var nativeContent: PostContent? = nil
     var quotedPostID: PostID? = nil
+    /// 该层被管理操作折叠的原因。为 nil 表示正常楼层。
+    var punishment: PostPunishment? = nil
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0
     var userVote: PostVoteDirection? = nil
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
+}
+
+/// 楼层被管理操作折叠的原因，对应网页版的 `lessernuke` 提示条。
+///
+/// NGA 不删除这类楼层，而是把正文收进一个带提示的框里默认折叠，读者点一下才展开。
+/// 三种提示语和 `js_bbscode_core.js` 里的 `ubbcode.lesserNuke` 一一对应。
+enum PostPunishment: String, Hashable, Codable, Sendable, CaseIterable {
+    /// 用户因此帖中的发言被处罚。来自楼层 `type` 的处罚位，或 `[lessernuke]` / `[lessernuke1]`。
+    case post
+    /// 用户在主题中被处罚。来自主题的禁言名单，或 `[lessernuke2]`。
+    case topic
+    /// 被锁定账号发布的内容无法查看。来自 `[lessernuke3]`。
+    case lockedAccount
+
+    /// `[lessernuke2]` 里的那个数字。缺省和未知取值都按最普通的处罚处理，
+    /// 与网页版把 `[lessernuke]` 当作 `1` 的做法一致。
+    init(lesserNukeMarker marker: String) {
+        switch marker {
+        case "2": self = .topic
+        case "3": self = .lockedAccount
+        default: self = .post
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .post: "用户因此帖中的发言被处罚"
+        case .topic: "用户在主题中被处罚"
+        case .lockedAccount: "被锁定账号发布的内容无法查看"
+        }
+    }
 }
 
 struct ThreadPage: Hashable, Codable, Sendable {

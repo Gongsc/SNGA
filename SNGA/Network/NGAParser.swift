@@ -602,6 +602,10 @@ struct NGAParser: Sendable {
                 }
             }
             let postValues = postDictionaries(in: root, payload: payload)
+            // 主题元数据缺失时（页面变体），首帖也带着同一份禁言名单。
+            let punishedUIDs = punishedUserIDs(in: topicMetadata).union(
+                postValues.first.map(punishedUserIDs(in:)) ?? []
+            )
             topic.rating = topicMetadata
                 .flatMap(topicVoteValue)
                 .flatMap { topicRating(from: $0, topicID: topicID) }
@@ -615,7 +619,8 @@ struct NGAParser: Sendable {
                     from: dictionary,
                     topicID: topicID,
                     users: users,
-                    topicAuthor: topic.author
+                    topicAuthor: topic.author,
+                    punishedUserIDs: punishedUIDs
                 )
             }
                 .sorted(by: postOrder)
@@ -625,7 +630,8 @@ struct NGAParser: Sendable {
                         from: dictionary,
                         topicID: topicID,
                         users: users,
-                        topicAuthor: topic.author
+                        topicAuthor: topic.author,
+                        punishedUserIDs: punishedUIDs
                     )
                 }
                 let totalPages = threadPageCount(
@@ -654,6 +660,7 @@ struct NGAParser: Sendable {
         let htmlPostMetadata = htmlPostMetadata(in: text)
         let htmlTopicPoll = htmlTopicPoll(in: text, topicID: topicID)
         let htmlRatings = htmlRatings(in: text, topicID: topicID)
+        let punishedUIDs = htmlPunishedUserIDs(in: text)
         var posts: [Post] = []
         let rows = try document.select("tr.postrow, .postrow, .post-row")
         if !rows.isEmpty {
@@ -681,6 +688,11 @@ struct NGAParser: Sendable {
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
+                    punishment: postPunishment(
+                        type: nil,
+                        authorUID: authorUID,
+                        punishedUserIDs: punishedUIDs
+                    ),
                     upvoteCount: metadata?.upvoteCount ?? 0,
                     downvoteCount: metadata?.downvoteCount ?? 0,
                     poll: floor == 0 ? htmlTopicPoll : nil,
@@ -1401,7 +1413,11 @@ struct NGAParser: Sendable {
         \(rendered.additionalStyleSheet)
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
-        return SanitizedPost(html: html, nativeContent: nativeContent)
+        return SanitizedPost(
+            html: html,
+            nativeContent: nativeContent,
+            punishment: rendered.punishment
+        )
     }
 
     private func compactedPostSpacing(_ html: String) -> String {
@@ -1436,6 +1452,7 @@ struct NGAParser: Sendable {
     private struct RenderedPostContent {
         let html: String
         let additionalStyleSheet: String
+        let punishment: PostPunishment?
     }
 
     private struct PostStyleRegistry {
@@ -2166,7 +2183,8 @@ struct NGAParser: Sendable {
         topicRating: TopicRating?
     ) -> RenderedPostContent {
         var styleRegistry = PostStyleRegistry(source: source)
-        var output = renderGameCards(in: source, topicRating: topicRating)
+        let lesserNuke = extractingLesserNuke(from: source)
+        var output = renderGameCards(in: lesserNuke.body, topicRating: topicRating)
         output = renderFixedStyleBlocks(in: output, styles: &styleRegistry)
         output = removingStripBreakMarkers(from: output)
 
@@ -2461,8 +2479,38 @@ struct NGAParser: Sendable {
         )
         return RenderedPostContent(
             html: html,
-            additionalStyleSheet: styleRegistry.styleSheet
+            additionalStyleSheet: styleRegistry.styleSheet,
+            punishment: lesserNuke.punishment
         )
+    }
+
+    /// 剥掉整层正文外面的 `[lessernuke]` 包裹，并给出它代表的处罚类型。
+    ///
+    /// 网页版的 `ubbcode.lesserNuke` 只认贴着正文首尾的这对标记
+    /// （`/^\s*\[lessernuke(\d)?\]|\[\/lessernuke(\d)?\]\s*$/`），把整层收进一个
+    /// 默认折叠的提示框；这里照搬同样的锚定规则。正文中间冒出来的同名标记不是
+    /// 包裹（多半来自被引楼层的内联片段），一并抹掉即可，不该漏成可见文字。
+    private func extractingLesserNuke(
+        from source: String
+    ) -> (body: String, punishment: PostPunishment?) {
+        guard source.range(of: "[lessernuke", options: .caseInsensitive) != nil else {
+            return (source, nil)
+        }
+        var punishment: PostPunishment?
+        var body = replacingMatches(
+            in: source,
+            pattern: #"^\s*\[lessernuke(\d)?\]"#,
+            options: [.caseInsensitive]
+        ) { captures in
+            punishment = PostPunishment(lesserNukeMarker: captures.first ?? "")
+            return ""
+        }
+        body = body.replacingOccurrences(
+            of: #"\[/?lessernuke\d?\]"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return (body, punishment)
     }
 
     private func renderDirectionalBBCode(_ source: String) -> String {
@@ -3298,11 +3346,45 @@ struct NGAParser: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 主题里被禁言的用户。他们在本主题的每一层都要挂上「用户在主题中被处罚」。
+    ///
+    /// 网页版把这份名单当作 `commonui.postArg.setDefault` 的第六个参数下发；
+    /// 结构化响应则塞在主题元数据（或首帖）的 `post_misc_var` 的 "16" 字段里，
+    /// 取值是一串逗号分隔的 UID。
+    private func punishedUserIDs(in dictionary: [String: Any]?) -> Set<Int64> {
+        guard let dictionary else { return [] }
+        let raw = (dictionary["post_misc_var"] as? [String: Any])
+            .flatMap { string($0["16"]) }
+            ?? string(dictionary["16"])
+        return raw.map(userIDSet(in:)) ?? []
+    }
+
+    private func htmlPunishedUserIDs(in source: String) -> Set<Int64> {
+        for call in javaScriptCallArguments(
+            in: source,
+            marker: "commonui.postArg.setDefault("
+        ) {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count > 5 else { continue }
+            let ids = userIDSet(in: normalizedJavaScriptLiteral(arguments[5]))
+            if !ids.isEmpty { return ids }
+        }
+        return []
+    }
+
+    private func userIDSet(in rawValue: String) -> Set<Int64> {
+        Set(rawValue.split(whereSeparator: { !$0.isNumber }).compactMap { Int64($0) })
+    }
+
+    /// 楼层 `type` 里的处罚位：置位表示「用户因此帖中的发言被处罚」。
+    private static let punishedPostTypeBit = 2048
+
     private func post(
         from dictionary: [String: Any],
         topicID: TopicID,
         users: [Int64: PostUser],
-        topicAuthor: String = ""
+        topicAuthor: String = "",
+        punishedUserIDs: Set<Int64> = []
     ) -> Post? {
         guard let content = postContent(in: dictionary) else { return nil }
         let rawPID = int64(dictionary["pid"]) ?? int64(dictionary["postid"])
@@ -3352,6 +3434,11 @@ struct NGAParser: Sendable {
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
             ).map(PostID.init(rawValue:)),
+            punishment: postPunishment(
+                type: int(dictionary["type"]),
+                authorUID: authorUID,
+                punishedUserIDs: punishedUserIDs
+            ),
             upvoteCount: max(
                 0,
                 int(dictionary["vote_up"])
@@ -3373,6 +3460,22 @@ struct NGAParser: Sendable {
             },
             ratingScores: rawVote.flatMap(postRatingScores) ?? [:]
         )
+    }
+
+    /// 楼层元数据里的处罚标记。优先级与网页版的
+    /// `isNukePost = (type & 2048) ? 1 : (punUsers[aid] ? 2 : 0)` 一致。
+    private func postPunishment(
+        type: Int?,
+        authorUID: Int64?,
+        punishedUserIDs: Set<Int64>
+    ) -> PostPunishment? {
+        if let type, type & Self.punishedPostTypeBit != 0 {
+            return .post
+        }
+        if let authorUID, punishedUserIDs.contains(authorUID) {
+            return .topic
+        }
+        return nil
     }
 
     private func postDevice(from rawValue: String?) -> PostDevice {

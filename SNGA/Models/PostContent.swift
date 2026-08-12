@@ -4,6 +4,8 @@ import Foundation
 struct SanitizedPost: Hashable, Sendable {
     var html: String
     var nativeContent: PostContent?
+    /// 正文自带的 `[lessernuke]` 包裹所表示的处罚。楼层元数据里的处罚标记不走这条路。
+    var punishment: PostPunishment?
 }
 
 /// 楼层正文的原生表示。
