@@ -355,6 +355,12 @@ final class ThreadStore {
             currentTopic = loadedTopic
             posts = result.posts
             hotReplies = result.hotReplies
+            PostContentDiagnostics.recordPage(
+                topicID: topicID.rawValue,
+                page: result.page,
+                posts: result.posts,
+                hotReplies: result.hotReplies
+            )
             self.page = result.page
             hasMore = result.hasMore
             totalPages = max(result.totalPages, result.page)

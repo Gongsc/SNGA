@@ -26,10 +26,33 @@ enum PostContentDiagnostics {
             return true
         }
         guard shouldWrite else { return }
+        append("floor  blocks=\(blocks) quoteDepth=\(depth)")
+    }
 
+    /// 每加载一页楼层记一行：这一页到底长什么样 —— 多少层、几层走原生、
+    /// 几层退回网页视图、最大的一层有多大。卡死时屏幕上是什么，看这行就知道。
+    static func recordPage(
+        topicID: Int64,
+        page: Int,
+        posts: [Post],
+        hotReplies: [Post]
+    ) {
+        let all = posts + hotReplies
+        let native = all.filter { $0.nativeContent != nil }
+        let web = all.filter { $0.nativeContent == nil }
+        let largestHTML = web.map(\.html.utf8.count).max() ?? 0
+        let totalHTML = web.reduce(0) { $0 + $1.html.utf8.count }
+        append(
+            "page   tid=\(topicID) page=\(page) floors=\(posts.count)"
+                + " hot=\(hotReplies.count) native=\(native.count) webview=\(web.count)"
+                + " largestWebHTML=\(largestHTML)B totalWebHTML=\(totalHTML)B"
+        )
+    }
+
+    private static func append(_ message: String) {
         let directory = RuntimeLogSettings.defaultDirectoryURL
         let file = directory.appending(path: "native-content-scale.log")
-        let line = "\(ISO8601DateFormatter().string(from: Date()))  blocks=\(blocks) quoteDepth=\(depth)\n"
+        let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
         try? FileManager.default.createDirectory(
             at: directory,
@@ -45,5 +68,6 @@ enum PostContentDiagnostics {
     }
     #else
     static func record(blocks: Int, depth: Int) {}
+    static func recordPage(topicID: Int64, page: Int, posts: [Post], hotReplies: [Post]) {}
     #endif
 }
