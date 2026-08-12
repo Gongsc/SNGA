@@ -256,6 +256,7 @@ final class ThreadStore {
         posts = destination.posts
         hotReplies = destination.hotReplies
         PostContentDiagnostics.recordPage(
+            source: "linkedNavigation",
             topicID: loadedTopic.id.rawValue,
             page: destination.page,
             posts: destination.posts,
@@ -325,6 +326,7 @@ final class ThreadStore {
                 hotReplies = result.hotReplies
             }
             PostContentDiagnostics.recordPage(
+                source: reset ? "refresh" : "loadMore",
                 topicID: topicID.rawValue,
                 page: targetPage,
                 posts: posts,
@@ -368,6 +370,7 @@ final class ThreadStore {
             posts = result.posts
             hotReplies = result.hotReplies
             PostContentDiagnostics.recordPage(
+                source: "loadPage",
                 topicID: topicID.rawValue,
                 page: result.page,
                 posts: result.posts,

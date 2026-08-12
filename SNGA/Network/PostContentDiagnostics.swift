@@ -32,6 +32,7 @@ enum PostContentDiagnostics {
     /// 每加载一页楼层记一行：这一页到底长什么样 —— 多少层、几层走原生、
     /// 几层退回网页视图、最大的一层有多大。卡死时屏幕上是什么，看这行就知道。
     static func recordPage(
+        source: String,
         topicID: Int64,
         page: Int,
         posts: [Post],
@@ -43,7 +44,7 @@ enum PostContentDiagnostics {
         let largestHTML = web.map(\.html.utf8.count).max() ?? 0
         let totalHTML = web.reduce(0) { $0 + $1.html.utf8.count }
         append(
-            "page   tid=\(topicID) page=\(page) floors=\(posts.count)"
+            "page   from=\(source) tid=\(topicID) page=\(page) floors=\(posts.count)"
                 + " hot=\(hotReplies.count) native=\(native.count) webview=\(web.count)"
                 + " largestWebHTML=\(largestHTML)B totalWebHTML=\(totalHTML)B"
         )
@@ -91,7 +92,7 @@ enum PostContentDiagnostics {
     }
     #else
     static func record(blocks: Int, depth: Int) {}
-    static func recordPage(topicID: Int64, page: Int, posts: [Post], hotReplies: [Post]) {}
+    static func recordPage(source: String, topicID: Int64, page: Int, posts: [Post], hotReplies: [Post]) {}
     static func recordHeightChange(key: String, to newValue: CGFloat) {}
     #endif
 }
