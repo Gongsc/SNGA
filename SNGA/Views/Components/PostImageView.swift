@@ -25,6 +25,11 @@ struct PostImageView: View {
     private nonisolated static let loadMargin: CGFloat = 900
     /// 滚出多远之后松开位图。留出滞后区间，小幅回滚不会重来一遍。
     private nonisolated static let releaseMargin: CGFloat = 2400
+    /// 长图的段要提前多远开始画。够快滚时也不露白，又不至于多画太多。
+    private nonisolated static let sliceMargin: CGFloat = 800
+    /// 视口范围按这个步长归档。不归档的话滚动每一帧都会改状态，
+    /// 一屏几十张图就是每帧几十次重新求值。
+    private nonisolated static let windowStep: CGFloat = 200
     /// 尚不知道比例时按 4:3 预留。NGA 的 `[img]` 不带尺寸，占位和真实高度总会有
     /// 出入；取一个接近常见配图的比例，图片到达时下方内容的位移最小。
     private static let unknownAspectRatio: CGFloat = 4.0 / 3.0
@@ -46,6 +51,9 @@ struct PostImageView: View {
     private struct Visibility: Equatable {
         var shouldLoad = false
         var shouldRetain = false
+        /// 视口在本视图坐标系里的纵向范围，已经外扩了一段余量。nil 表示无从判断，
+        /// 此时所有段都照画。按 `windowStep` 归档，滚动时不会每帧都触发状态更新。
+        var window: ClosedRange<CGFloat>?
     }
 
     private struct LoadTicket: Equatable {
@@ -140,9 +148,13 @@ struct PostImageView: View {
             return result
         }
         let local = CGRect(origin: .zero, size: proxy.size)
+        let step = Self.windowStep
+        let top = ((visible.minY - Self.sliceMargin) / step).rounded(.down) * step
+        let bottom = ((visible.maxY + Self.sliceMargin) / step).rounded(.up) * step
         result.visibility = Visibility(
             shouldLoad: visible.insetBy(dx: 0, dy: -Self.loadMargin).intersects(local),
-            shouldRetain: visible.insetBy(dx: 0, dy: -Self.releaseMargin).intersects(local)
+            shouldRetain: visible.insetBy(dx: 0, dy: -Self.releaseMargin).intersects(local),
+            window: top...max(top, bottom)
         )
         return result
     }
@@ -236,7 +248,13 @@ struct PostImageView: View {
     }
 
     /// 图片本体。矮图一个 `Image` 就够；高图必须切段，否则一整张的绘制缓冲
-    /// 会把内存吃穿。段放在 `LazyVStack` 里，视口外的段不会被实例化。
+    /// 会把内存吃穿。
+    ///
+    /// 段用普通 `VStack` 而不是 `LazyVStack`：惰性堆栈得替没实例化的段估高度，
+    /// 而估值和实测对不上时，实例化会改变内容高度、进而改变滚动位置、再触发
+    /// 新一轮实例化 —— 一层套一层的惰性堆栈很容易就这么自激起来。这里每段的
+    /// 高度都是算好的，版面精确；省内存靠的是视口外的段画 `Color.clear`：
+    /// 没有位图内容就没有绘制缓冲，实测和惰性堆栈一样是 +1 MB。
     @ViewBuilder
     private var picture: some View {
         if slices.count <= 1 {
@@ -248,21 +266,29 @@ struct PostImageView: View {
         } else {
             let total = reservedHeight
             let pixelHeight = slices[slices.count - 1].pixelRange.upperBound
-            LazyVStack(spacing: 0) {
+            VStack(spacing: 0) {
                 ForEach(slices) { slice in
-                    Image(nsImage: slice.image)
-                        .resizable()
-                        .frame(
-                            width: displayWidth,
-                            height: PostImageSlicer.displayHeight(
-                                of: slice,
-                                totalHeight: total,
-                                pixelHeight: pixelHeight
-                            )
-                        )
+                    let layout = PostImageSlicer.layout(
+                        of: slice,
+                        totalHeight: total,
+                        pixelHeight: pixelHeight
+                    )
+                    if isVisible(layout) {
+                        Image(nsImage: slice.image)
+                            .resizable()
+                            .frame(width: displayWidth, height: layout.height)
+                    } else {
+                        Color.clear
+                            .frame(width: displayWidth, height: layout.height)
+                    }
                 }
             }
         }
+    }
+
+    private func isVisible(_ layout: PostImageSlicer.SliceLayout) -> Bool {
+        guard let window = visibility.window else { return true }
+        return layout.top <= window.upperBound && layout.top + layout.height >= window.lowerBound
     }
 
     private func placeholder(
@@ -351,18 +377,31 @@ enum PostImageSlicer {
         return result
     }
 
-    /// 一段该画多高。同样按边界取整，各段加起来正好是整张的高度，
-    /// 不会因为逐段取整攒出几点误差把版面顶歪。
+    /// 一段画在哪、画多高。边界按比例取整，相邻两段共用同一条边，
+    /// 各段加起来正好是整张的高度，不会因为逐段取整攒出几点误差把版面顶歪。
+    struct SliceLayout: Equatable {
+        let top: CGFloat
+        let height: CGFloat
+    }
+
+    static func layout(
+        of slice: PostImageSlice,
+        totalHeight: CGFloat,
+        pixelHeight: Int
+    ) -> SliceLayout {
+        guard pixelHeight > 0 else { return SliceLayout(top: 0, height: 0) }
+        let top = (totalHeight * CGFloat(slice.pixelRange.lowerBound) / CGFloat(pixelHeight))
+            .rounded()
+        let bottom = (totalHeight * CGFloat(slice.pixelRange.upperBound) / CGFloat(pixelHeight))
+            .rounded()
+        return SliceLayout(top: top, height: max(1, bottom - top))
+    }
+
     static func displayHeight(
         of slice: PostImageSlice,
         totalHeight: CGFloat,
         pixelHeight: Int
     ) -> CGFloat {
-        guard pixelHeight > 0 else { return 0 }
-        let top = (totalHeight * CGFloat(slice.pixelRange.lowerBound) / CGFloat(pixelHeight))
-            .rounded()
-        let bottom = (totalHeight * CGFloat(slice.pixelRange.upperBound) / CGFloat(pixelHeight))
-            .rounded()
-        return max(1, bottom - top)
+        layout(of: slice, totalHeight: totalHeight, pixelHeight: pixelHeight).height
     }
 }

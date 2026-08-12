@@ -230,6 +230,45 @@ final class PostContentBuilderTests: XCTestCase {
         }
     }
 
+    // MARK: - 规模上限
+
+    /// 一层楼的块是一次性实例化的，外层 `LazyVStack` 只按楼层惰性化。实测单层
+    /// 2000 块首次布局 6.7 秒、每次重排 383 ms，而布局每个显示周期都要跑一遍 ——
+    /// 主线程再也追不上，界面就此卡死。畸形楼层必须交回 WKWebView。
+    func testFloorWithTooManyBlocksFallsBackToWebView() {
+        let ordinary = (0..<40).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        XCTAssertNotNil(
+            nativeContent(for: "<p>\(ordinary)</p>"),
+            "普通长帖仍应原生渲染"
+        )
+        let huge = (0..<400).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        XCTAssertNil(
+            nativeContent(for: "<p>\(huge)</p>"),
+            "块数过多的楼层应当回退"
+        )
+    }
+
+    func testDeeplyNestedQuotesFallBackToWebView() {
+        func nested(_ depth: Int) -> String {
+            var source = "最里面"
+            for level in 0..<depth {
+                source = "[quote]第 \(level) 层\(source)[/quote]"
+            }
+            return source
+        }
+        XCTAssertNotNil(nativeContent(for: nested(6)), "常见的引用链仍应原生渲染")
+        XCTAssertNil(nativeContent(for: nested(40)), "引用套得过深应当回退")
+    }
+
+    /// 回退之后 HTML 分支必须完好，否则这类楼层就彻底空白了。
+    func testOversizedFloorStillProducesRenderableHTML() {
+        let huge = (0..<400).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        let sanitized = parser.sanitizedPost("<p>\(huge)</p>")
+        XCTAssertNil(sanitized.nativeContent)
+        XCTAssertTrue(sanitized.html.contains(#"<main id="snga-post-content">"#))
+        XCTAssertTrue(sanitized.html.contains("第 399 段"))
+    }
+
     // MARK: - 必须回退到 WKWebView 的内容
 
     func testTableFallsBackToWebView() {

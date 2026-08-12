@@ -17,6 +17,18 @@ enum PostContentBuilder {
         "strike", "s", "del", "span", "br", "code", "font"
     ]
 
+    /// 原生渲染的规模上限。
+    ///
+    /// 一层楼的所有块是一次性实例化的 —— 外层 `LazyVStack` 只按楼层惰性化，管不到
+    /// 楼内。实测单层的首次布局和每次重排：200 块是 117 ms / 34 ms，800 块是
+    /// 1.1 s / 74 ms，2000 块是 6.7 s / 383 ms；引用嵌套 120 层是 526 ms / 43 ms。
+    /// 布局每个显示周期都要跑一遍，到这个量级主线程就再也追不上，界面直接卡死。
+    ///
+    /// 超过上限的楼层交回 `WKWebView`。原生分支的前提是「楼层都不大，不值得为每层
+    /// 付一个网页视图」，这个前提在畸形楼层上不成立，而大文档正是 WebKit 擅长的。
+    private static let maximumBlocks = 150
+    private static let maximumQuoteDepth = 16
+
     static func content(from body: Element) -> PostContent? {
         guard let blocks = blocks(in: body, style: PostTextStyle()) else {
             return nil
@@ -28,7 +40,26 @@ enum PostContentBuilder {
             }
         }
         guard !meaningful.isEmpty else { return nil }
+        let scale = scale(of: meaningful)
+        PostContentDiagnostics.record(blocks: scale.count, depth: scale.depth)
+        guard scale.count <= maximumBlocks, scale.depth <= maximumQuoteDepth else {
+            return nil
+        }
         return PostContent(blocks: meaningful)
+    }
+
+    /// 一层楼展开成多少个块、引用套了多深。
+    private static func scale(of blocks: [PostBlock]) -> (count: Int, depth: Int) {
+        var count = 0
+        var depth = 1
+        for block in blocks {
+            count += 1
+            guard case let .quote(children) = block else { continue }
+            let nested = scale(of: children)
+            count += nested.count
+            depth = max(depth, nested.depth + 1)
+        }
+        return (count, depth)
     }
 
     /// 把一个容器的子节点切成块。连续的内联内容会被并成一个隐式段落 ——
