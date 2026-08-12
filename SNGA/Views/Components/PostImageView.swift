@@ -3,13 +3,18 @@ import SwiftUI
 
 /// 正文里的一张配图。
 ///
-/// 图多的楼层能不能滚得动，取决于三件事，这个视图各管一件：
+/// 图多的楼层能不能滚得动，取决于四件事，这个视图各管一件：
 /// - **先占位，再加载。** 高度取自 `<img>` 自带的尺寸、或 `PostImageStore` 上次量到
 ///   的原始尺寸；有了高度，图片到达时就不会把下方内容顶走，滚动条也不再乱跳。
 /// - **只加载视口附近的图。** 一层里几十张截图不会同时下载解码，滚远之后立刻松开
 ///   位图，让缓存有机会把它腾掉。松开的距离比加载的距离远一截，来回小幅滚动时
 ///   不会反复装卸。
 /// - **按显示宽度解码。** 原图多大都只解到正文栏用得上的分辨率。
+/// - **很高的图切成段画。** 一张图一个 `Image` 就是一个和整图一样高的图层，
+///   Core Animation 要为它备下整张的绘制缓冲：1080×16000 的长截图实测占 206 MB，
+///   足够把应用拖死。切成十几段放进 `LazyVStack` 之后只剩 1 MB —— 视口外的段
+///   压根不会被实例化，更不会被栅格化。这正是 `WKWebView` 里 WebKit 分块绘制
+///   在做的事。
 struct PostImageView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
@@ -27,8 +32,9 @@ struct PostImageView: View {
     /// 无图模式下的占位高度，与样式表里的 `.snga-image-placeholder` 一致。
     private static let deferredHeight: CGFloat = 58
 
-    @State private var rendered: NSImage?
-    /// `rendered` 是按多宽解出来的。窗口变宽时才值得重解一次。
+    /// 已解码的位图，按段切好。空表示还没有可画的内容。
+    @State private var slices: [PostImageSlice] = []
+    /// `slices` 是按多宽解出来的。窗口变宽时才值得重解一次。
     @State private var renderedWidth: CGFloat = 0
     @State private var measuredPixelSize: CGSize?
     @State private var availableWidth: CGFloat = 0
@@ -63,7 +69,7 @@ struct PostImageView: View {
             .onChange(of: visibility.shouldRetain) { _, shouldRetain in
                 // 位图只在视口附近留着。尺寸留下，版面不会因此变化。
                 guard !shouldRetain else { return }
-                rendered = nil
+                slices = []
                 renderedWidth = 0
             }
     }
@@ -162,7 +168,7 @@ struct PostImageView: View {
         guard loadTicket.isEnabled, width > 0 else { return }
         // 已经有位图时只有变宽才值得重解：图片到达后 `displayWidth` 会收窄到图片
         // 自身的宽度，那不是重解的理由。
-        guard rendered == nil || width > renderedWidth + 1 else { return }
+        guard slices.isEmpty || width > renderedWidth + 1 else { return }
         if let cached = PostImageStore.shared.cachedImage(for: image.url, displayWidth: width) {
             apply(cached, width: width)
             return
@@ -181,7 +187,7 @@ struct PostImageView: View {
     }
 
     private func apply(_ result: PostImageStore.Rendered, width: CGFloat) {
-        rendered = result.image
+        slices = PostImageSlicer.slices(of: result.cgImage)
         renderedWidth = width
         measuredPixelSize = result.pixelSize
         didFail = false
@@ -205,10 +211,10 @@ struct PostImageView: View {
                 action: { isRevealed = true }
             )
             .help("点击加载图片")
-        } else if let rendered {
-            Image(nsImage: rendered)
-                .resizable()
+        } else if !slices.isEmpty {
+            picture
                 .frame(width: displayWidth, height: reservedHeight)
+                .accessibilityElement()
                 .accessibilityLabel(image.alt.isEmpty ? "帖子图片" : image.alt)
                 .accessibilityAddTraits(.isButton)
                 .contentShape(.rect)
@@ -226,6 +232,36 @@ struct PostImageView: View {
                 .fill(Color.primary.opacity(0.06))
                 .frame(width: max(displayWidth, 1), height: reservedHeight)
                 .accessibilityLabel("图片加载中")
+        }
+    }
+
+    /// 图片本体。矮图一个 `Image` 就够；高图必须切段，否则一整张的绘制缓冲
+    /// 会把内存吃穿。段放在 `LazyVStack` 里，视口外的段不会被实例化。
+    @ViewBuilder
+    private var picture: some View {
+        if slices.count <= 1 {
+            slices.first.map { slice in
+                Image(nsImage: slice.image)
+                    .resizable()
+                    .frame(width: displayWidth, height: reservedHeight)
+            }
+        } else {
+            let total = reservedHeight
+            let pixelHeight = slices[slices.count - 1].pixelRange.upperBound
+            LazyVStack(spacing: 0) {
+                ForEach(slices) { slice in
+                    Image(nsImage: slice.image)
+                        .resizable()
+                        .frame(
+                            width: displayWidth,
+                            height: PostImageSlicer.displayHeight(
+                                of: slice,
+                                totalHeight: total,
+                                pixelHeight: pixelHeight
+                            )
+                        )
+                }
+            }
         }
     }
 
@@ -253,5 +289,80 @@ struct PostImageView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// 一张图切出来的一段。
+struct PostImageSlice: Identifiable {
+    let id: Int
+    let image: NSImage
+    /// 这一段在整张位图里占的像素行，显示高度按它等比例算。
+    let pixelRange: Range<Int>
+}
+
+/// 把很高的位图横着切成段。
+///
+/// 一个 `Image` 就是一个和它一样高的图层，Core Animation 要为整张备下绘制缓冲，
+/// 而不管当下看得见多少。切段之后每段各是一层，`LazyVStack` 只实例化视口附近的
+/// 那几层 —— 1080×16000 的长截图实测从 206 MB 降到 1 MB。
+enum PostImageSlicer {
+    /// 一段最多这么高。取一屏左右：再小只会徒增层数，再大就退回原来的问题。
+    static let maximumSlicePixels = 1600
+
+    static func slices(of cgImage: CGImage) -> [PostImageSlice] {
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return [] }
+        let count = max(1, Int((Double(height) / Double(maximumSlicePixels)).rounded(.up)))
+        guard count > 1 else {
+            return [PostImageSlice(
+                id: 0,
+                image: NSImage(
+                    cgImage: cgImage,
+                    size: NSSize(width: width, height: height)
+                ),
+                pixelRange: 0..<height
+            )]
+        }
+
+        var result: [PostImageSlice] = []
+        result.reserveCapacity(count)
+        for index in 0..<count {
+            // 边界按比例取整，相邻两段共用同一条边，整体严丝合缝地铺满原图。
+            let top = height * index / count
+            let bottom = height * (index + 1) / count
+            guard bottom > top else { continue }
+            // `CGImage` 的坐标原点在左上角，`top` 就是从上往下数的像素行。
+            guard let piece = cgImage.cropping(to: CGRect(
+                x: 0,
+                y: top,
+                width: width,
+                height: bottom - top
+            )) else { continue }
+            result.append(PostImageSlice(
+                id: index,
+                image: NSImage(
+                    cgImage: piece,
+                    size: NSSize(width: width, height: bottom - top)
+                ),
+                pixelRange: top..<bottom
+            ))
+        }
+        return result
+    }
+
+    /// 一段该画多高。同样按边界取整，各段加起来正好是整张的高度，
+    /// 不会因为逐段取整攒出几点误差把版面顶歪。
+    static func displayHeight(
+        of slice: PostImageSlice,
+        totalHeight: CGFloat,
+        pixelHeight: Int
+    ) -> CGFloat {
+        guard pixelHeight > 0 else { return 0 }
+        let top = (totalHeight * CGFloat(slice.pixelRange.lowerBound) / CGFloat(pixelHeight))
+            .rounded()
+        let bottom = (totalHeight * CGFloat(slice.pixelRange.upperBound) / CGFloat(pixelHeight))
+            .rounded()
+        return max(1, bottom - top)
     }
 }

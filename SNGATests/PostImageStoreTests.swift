@@ -27,7 +27,10 @@ final class PostImageStoreTests: XCTestCase {
         let rendered = try XCTUnwrap(result)
         XCTAssertEqual(rendered.pixelSize, CGSize(width: 3000, height: 2000), "原始尺寸要如实报出来")
 
-        let decoded = rendered.image.size
+        let decoded = CGSize(
+            width: CGFloat(rendered.cgImage.width),
+            height: CGFloat(rendered.cgImage.height)
+        )
         XCTAssertLessThan(decoded.width, 3000, "3000px 宽的原图不应该按原尺寸进内存")
         XCTAssertGreaterThanOrEqual(decoded.width, 570, "解码宽度不能低于显示宽度，否则会糊")
         XCTAssertEqual(
@@ -47,11 +50,44 @@ final class PostImageStoreTests: XCTestCase {
 
         let result = await store.image(for: url, displayWidth: 570)
         let rendered = try XCTUnwrap(result)
-        XCTAssertGreaterThanOrEqual(rendered.image.size.width, 570)
+        XCTAssertGreaterThanOrEqual(rendered.cgImage.width, 570)
         XCTAssertEqual(
-            rendered.image.size.width / rendered.image.size.height,
+            CGFloat(rendered.cgImage.width) / CGFloat(rendered.cgImage.height),
             1170.0 / 2532.0,
             accuracy: 0.02
+        )
+    }
+
+    /// 长截图（1080×16000 这类）宽度本来就不到正文栏，只按宽度缩码等于没缩，
+    /// 解出来 66 MB —— tid=47355984 就是被这种图卡死的。像素总量上限必须兜住它。
+    func testVeryTallImageIsCappedByTotalPixels() async throws {
+        let url = try imageURL("long.png")
+        StubImageProtocol.stub(url, data: try Self.pngData(width: 1080, height: 16000))
+        let store = PostImageStore(session: Self.makeSession())
+
+        let result = await store.image(for: url, displayWidth: 570)
+        let rendered = try XCTUnwrap(result)
+        let pixels = rendered.cgImage.width * rendered.cgImage.height
+        XCTAssertLessThanOrEqual(
+            pixels,
+            12_000_000,
+            "解码结果超过像素上限，长截图会把内存吃穿"
+        )
+        XCTAssertGreaterThanOrEqual(
+            rendered.cgImage.width,
+            570,
+            "缩过头会糊：宽度仍要够显示宽度"
+        )
+        XCTAssertEqual(
+            CGFloat(rendered.cgImage.width) / CGFloat(rendered.cgImage.height),
+            1080.0 / 16000.0,
+            accuracy: 0.001,
+            "整体缩一档，长宽比不能变"
+        )
+        XCTAssertEqual(
+            rendered.pixelSize,
+            CGSize(width: 1080, height: 16000),
+            "版面仍按原始尺寸算比例"
         )
     }
 
@@ -62,7 +98,8 @@ final class PostImageStoreTests: XCTestCase {
 
         let result = await store.image(for: url, displayWidth: 570)
         let rendered = try XCTUnwrap(result)
-        XCTAssertEqual(rendered.image.size, CGSize(width: 120, height: 90))
+        XCTAssertEqual(rendered.cgImage.width, 120)
+        XCTAssertEqual(rendered.cgImage.height, 90)
     }
 
     func testDecodedImageIsReusedWithoutRefetching() async throws {

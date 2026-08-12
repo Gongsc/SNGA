@@ -9,9 +9,12 @@ import ImageIO
 /// 同时按原始像素解码，一张 1170×2532 的截图解出来就是 12 MB，几十张足以
 /// 把内存吃穿，滚动随之卡死。
 ///
-/// 这里做三件事：
+/// 这里做四件事：
 /// - 按显示宽度缩码。一张 4000px 宽的原图在 570pt 的正文栏里只需要解到 1140px，
 ///   内存差着一个数量级。
+/// - 给解码结果封一个像素总量上限。缩到显示宽度只对「宽」的图有用，一张
+///   1080×24000 的长截图宽度本来就不到栏宽，缩码等于没做，解出来将近 100 MB；
+///   超过上限的图整体按比例再缩一档，宁可略糊也不能把内存吃穿。
 /// - 解码串行化（`ImageDecoder` 是 actor），快速滚动不会同时炸开一批解码。
 /// - 位图放进有总量上限的 `NSCache`，滚过去的图片会被自动腾掉。
 ///
@@ -22,24 +25,24 @@ final class PostImageStore {
     static let shared = PostImageStore()
 
     struct Rendered {
-        let image: NSImage
-        /// 图片的原始像素尺寸，不是解码后的尺寸。
+        let cgImage: CGImage
+        /// 图片的原始像素尺寸，不是解码后的尺寸。版面按它算比例和固有宽度。
         let pixelSize: CGSize
     }
 
     /// 已解码位图的总量上限，按像素字节数计。
-    private static let totalCostLimit = 64 << 20
+    private static let totalCostLimit = 96 << 20
     /// 记住的原始尺寸数量上限。每项只是两个数字，可以放得比位图宽松得多。
     private static let pixelSizeCapacity = 3000
     /// 解码宽度按此步长归档，窗口宽度的细微变化不会让同一张图反复重解。
     private static let decodeWidthStep = 256
 
     private final class CacheEntry {
-        let image: NSImage
+        let cgImage: CGImage
         let pixelSize: CGSize
 
-        init(image: NSImage, pixelSize: CGSize) {
-            self.image = image
+        init(cgImage: CGImage, pixelSize: CGSize) {
+            self.cgImage = cgImage
             self.pixelSize = pixelSize
         }
     }
@@ -88,7 +91,7 @@ final class PostImageStore {
         guard let entry = cache.object(forKey: cacheKey(url, displayWidth) as NSString) else {
             return nil
         }
-        return Rendered(image: entry.image, pixelSize: entry.pixelSize)
+        return Rendered(cgImage: entry.cgImage, pixelSize: entry.pixelSize)
     }
 
     /// 取一张按显示宽度缩码后的图片。同一张图的并发请求会合流到同一个任务上。
@@ -138,23 +141,16 @@ final class PostImageStore {
             failedURLs.insert(url)
             return nil
         }
-        let image = NSImage(
-            cgImage: decoded.cgImage,
-            size: NSSize(
-                width: CGFloat(decoded.cgImage.width),
-                height: CGFloat(decoded.cgImage.height)
-            )
-        )
         if pixelSizes.count >= Self.pixelSizeCapacity {
             pixelSizes.removeAll(keepingCapacity: true)
         }
         pixelSizes[url] = decoded.pixelSize
         cache.setObject(
-            CacheEntry(image: image, pixelSize: decoded.pixelSize),
+            CacheEntry(cgImage: decoded.cgImage, pixelSize: decoded.pixelSize),
             forKey: key as NSString,
             cost: decoded.cgImage.width * decoded.cgImage.height * 4
         )
-        return Rendered(image: image, pixelSize: decoded.pixelSize)
+        return Rendered(cgImage: decoded.cgImage, pixelSize: decoded.pixelSize)
     }
 
     /// 位图按解码宽度分档缓存：同一张图在正文栏和热点回复区的宽度不同，
@@ -190,6 +186,13 @@ private struct DecodedImage: @unchecked Sendable {
 /// actor 的隔离顺带把解码排成了队：一次只解一张，滚得再快也不会同时展开
 /// 十几张位图。解码本身在协作线程池上跑，不占主线程。
 private actor ImageDecoder {
+    /// 解码结果的像素总量上限（约 12 MP，48 MB）。
+    ///
+    /// 只按显示宽度缩码是不够的：长截图（1080×24000 这种）宽度本来就不到正文栏，
+    /// 宽度比例算下来是 1，等于完全不缩，解出来将近 100 MB。这类图整体再缩一档，
+    /// 分辨率仍高于一倍图，但内存回到可控范围。
+    static let maximumDecodedPixels = 12_000_000
+
     func decode(_ data: Data, targetWidth: Int) -> DecodedImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [
             kCGImageSourceShouldCache: false
@@ -204,9 +207,16 @@ private actor ImageDecoder {
         // `kCGImageSourceThumbnailMaxPixelSize` 限的是长边，而我们要控的是显示
         // 宽度：竖着的手机截图长边是高，直接把宽度填进去会把它压成半宽的糊图。
         let widthRatio = min(1, CGFloat(targetWidth) / CGFloat(pixelWidth))
+        // 长截图的宽度比例是 1，这一档才是真正管住它的那个。
+        let area = CGFloat(pixelWidth) * CGFloat(pixelHeight) * widthRatio * widthRatio
+        let areaRatio = area > CGFloat(Self.maximumDecodedPixels)
+            ? (CGFloat(Self.maximumDecodedPixels) / area).squareRoot()
+            : 1
+        let ratio = widthRatio * areaRatio
+        // 向下取整：往上凑那一个像素会让结果刚好越过总量上限。
         let maxPixelSize = max(
             1,
-            Int((CGFloat(max(pixelWidth, pixelHeight)) * widthRatio).rounded(.up))
+            Int((CGFloat(max(pixelWidth, pixelHeight)) * ratio).rounded(.down))
         )
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
