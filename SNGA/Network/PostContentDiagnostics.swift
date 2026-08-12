@@ -49,6 +49,29 @@ enum PostContentDiagnostics {
         )
     }
 
+    /// 楼层测得的高度每变一次记一次。
+    ///
+    /// 采样显示时间全花在「整窗布局反复重跑」上，而 `NSHostingView`
+    /// `invalidateSizeConstraintsIfNecessary` 出现得很密 —— 说明内容总高一直在变。
+    /// 某一层的高度如果在两个值之间来回跳，那就是自激的源头：高度变 → 重排 →
+    /// 网页视图重测 → 高度又变。这里就是要把这种层抓出来。
+    private nonisolated(unsafe) static var heightChanges: [String: (count: Int, recent: [CGFloat])] = [:]
+
+    static func recordHeightChange(key: String, to newValue: CGFloat) {
+        let report: String? = lock.withLock {
+            var entry = heightChanges[key] ?? (0, [])
+            entry.count += 1
+            entry.recent.append(newValue.rounded())
+            if entry.recent.count > 8 { entry.recent.removeFirst() }
+            heightChanges[key] = entry
+            // 前几次是正常的（占位 → 图片到齐），之后每 20 次报一行。
+            guard entry.count >= 20, entry.count % 20 == 0 else { return nil }
+            return "height key=\(key) changes=\(entry.count) recent=\(entry.recent.map { Int($0) })"
+        }
+        guard let report else { return }
+        append(report)
+    }
+
     private static func append(_ message: String) {
         let directory = RuntimeLogSettings.defaultDirectoryURL
         let file = directory.appending(path: "native-content-scale.log")
@@ -69,5 +92,6 @@ enum PostContentDiagnostics {
     #else
     static func record(blocks: Int, depth: Int) {}
     static func recordPage(topicID: Int64, page: Int, posts: [Post], hotReplies: [Post]) {}
+    static func recordHeightChange(key: String, to newValue: CGFloat) {}
     #endif
 }

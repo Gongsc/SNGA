@@ -894,6 +894,7 @@ struct PostBodyView: View {
             .onChange(of: height) { _, measured in
                 guard let cacheKey else { return }
                 PostContentHeightCache.shared.store(measured, for: cacheKey)
+                PostContentDiagnostics.recordHeightChange(key: cacheKey, to: measured)
             }
             .task(id: loadOrder) {
                 guard let loadOrder else { return }

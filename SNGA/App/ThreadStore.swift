@@ -255,6 +255,12 @@ final class ThreadStore {
         self.currentTopic = loadedTopic
         posts = destination.posts
         hotReplies = destination.hotReplies
+        PostContentDiagnostics.recordPage(
+            topicID: loadedTopic.id.rawValue,
+            page: destination.page,
+            posts: destination.posts,
+            hotReplies: destination.hotReplies
+        )
         page = destination.page
         hasMore = destination.hasMore
         totalPages = max(destination.totalPages, destination.page)
@@ -318,6 +324,12 @@ final class ThreadStore {
             if reset || !result.hotReplies.isEmpty {
                 hotReplies = result.hotReplies
             }
+            PostContentDiagnostics.recordPage(
+                topicID: topicID.rawValue,
+                page: targetPage,
+                posts: posts,
+                hotReplies: hotReplies
+            )
             page = targetPage
             hasMore = result.hasMore
             totalPages = max(result.totalPages, targetPage)
