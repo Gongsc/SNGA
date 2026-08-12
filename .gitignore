@@ -3,4 +3,4 @@
 DerivedData/
 *.xcuserstate
 xcuserdata/
-
+.agents/
