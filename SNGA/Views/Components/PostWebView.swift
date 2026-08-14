@@ -58,12 +58,14 @@ final class PostWebViewCache {
 
 /// 楼层测得的高度。
 ///
-/// 高度原先只存在楼层视图的 `@State` 里，而 `LazyVStack` 会在楼层滚出视口后销毁
-/// 该视图，测量结果随之丢失；滚回来时楼层从占位高度重新长起来，整页内容高度便
-/// 持续伸缩 —— 表现为滚动条长度乱跳、滚动位置被反复挤动、回不到顶部。图片楼层
-/// 最明显：图片本身不占位（`height:auto`），一层的最终高度要等所有图片到达才成形。
+/// 高度原先只存在楼层视图的 `@State` 里，楼层视图一销毁，测量结果就随之丢失；
+/// 重建时楼层从占位高度重新长起来，整页内容高度便持续伸缩 —— 表现为滚动条长度
+/// 乱跳、滚动位置被反复挤动、回不到顶部。图片楼层最明显：图片本身不占位
+/// （`height:auto`），一层的最终高度要等所有图片到达才成形。
 ///
-/// 把高度按楼层键留在视图之外，重建的楼层就能直接以上次的高度落位。
+/// 整页楼层现在一次性实例化，翻页之内不再销毁重建；但翻页、切话题、返回上一个
+/// 话题都会重建整页楼层，届时把高度按楼层键留在视图之外，楼层就能直接以上次的
+/// 高度落位。
 @MainActor
 final class PostContentHeightCache {
     static let shared = PostContentHeightCache()
@@ -833,8 +835,8 @@ struct PostBodyView: View {
         self.loadOrder = loadOrder
         self.onOpenInternalLink = onOpenInternalLink
         self.onContentReady = onContentReady
-        // 惰性布局重建楼层时直接落回上次测得的高度：先摆成占位高度再测一遍，
-        // 会让滚动内容的总高度在每次回滚时塌陷又长回来。
+        // 重建楼层时直接落回上次测得的高度：先摆成占位高度再测一遍，
+        // 会让滚动内容的总高度在每次重建时塌陷又长回来。
         _height = State(
             initialValue: cacheKey.flatMap(PostContentHeightCache.shared.height(for:))
                 ?? Self.placeholderHeight
@@ -899,9 +901,11 @@ struct PostBodyView: View {
             .task(id: loadOrder) {
                 guard let loadOrder else { return }
                 isReadyToCreateWebView = false
-                // 错峰只是为了避免同一个 runloop 周期内集中创建 WKWebView。
-                // 楼层改为按需创建后，滚动位置本身就带来了天然错峰，因此给延迟封顶 ——
-                // 否则滚到第 20 层时会凭空多等 400ms 才开始渲染。
+                // 错峰只是为了避免同一个 runloop 周期内集中创建 WKWebView。整页楼层
+                // 一次性实例化，这些任务都在同一拍启动，但绝大多数楼层走原生渲染，
+                // 一页通常只剩一两层网页视图，要错开的量本就不大，因此给延迟封顶 ——
+                // 不封顶的话，一页里唯一那层网页视图只因为排在第 20 层，就要凭空
+                // 多等 400ms 才开始渲染。
                 let staggerSteps = min(loadOrder, Self.maximumStaggerSteps)
                 if staggerSteps > 0 {
                     try? await Task.sleep(for: .milliseconds(staggerSteps * 20))

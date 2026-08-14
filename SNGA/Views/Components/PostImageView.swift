@@ -12,9 +12,8 @@ import SwiftUI
 /// - **按显示宽度解码。** 原图多大都只解到正文栏用得上的分辨率。
 /// - **很高的图切成段画。** 一张图一个 `Image` 就是一个和整图一样高的图层，
 ///   Core Animation 要为它备下整张的绘制缓冲：1080×16000 的长截图实测占 206 MB，
-///   足够把应用拖死。切成十几段放进 `LazyVStack` 之后只剩 1 MB —— 视口外的段
-///   压根不会被实例化，更不会被栅格化。这正是 `WKWebView` 里 WebKit 分块绘制
-///   在做的事。
+///   足够把应用拖死。切成十几段、视口外的段只画 `Color.clear` 之后只剩 1 MB ——
+///   没有位图内容就没有绘制缓冲。这正是 `WKWebView` 里 WebKit 分块绘制在做的事。
 struct PostImageView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
@@ -329,8 +328,8 @@ struct PostImageSlice: Identifiable {
 /// 把很高的位图横着切成段。
 ///
 /// 一个 `Image` 就是一个和它一样高的图层，Core Animation 要为整张备下绘制缓冲，
-/// 而不管当下看得见多少。切段之后每段各是一层，`LazyVStack` 只实例化视口附近的
-/// 那几层 —— 1080×16000 的长截图实测从 206 MB 降到 1 MB。
+/// 而不管当下看得见多少。切段之后每段各是一层，视口外的段只画 `Color.clear`，
+/// 不带位图内容也就不占绘制缓冲 —— 1080×16000 的长截图实测从 206 MB 降到 1 MB。
 enum PostImageSlicer {
     /// 一段最多这么高。取一屏左右：再小只会徒增层数，再大就退回原来的问题。
     static let maximumSlicePixels = 1600
