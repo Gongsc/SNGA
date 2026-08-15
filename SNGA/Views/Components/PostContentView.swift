@@ -199,11 +199,45 @@ private struct PostParagraphText: NSViewRepresentable {
 
 /// 段落的文本视图。
 final class PostParagraphTextView: NSTextView {
+    /// 测高专用的排版栈：和渲染共用同一份 `NSTextStorage`，但有自己的
+    /// `NSLayoutManager` 和 `NSTextContainer`。
+    ///
+    /// 测量不能碰渲染用的那个容器。SwiftUI 求一个视图的尺寸时，会拿多个候选宽度
+    /// 反复调用 `sizeThatFits`（包括 10 点这种探测值），谁最后一个调用，谁留下的
+    /// 宽度就成了这一段真正的排版宽度 —— 而那通常不是视图最终拿到的宽度。于是
+    /// 文字按一个更窄的宽度折行：右边空出一大片，同时画出来比上报的高度更高，
+    /// 压住下面的图片、把表情挤出楼层边框。
+    ///
+    /// `layout()` 会把排版宽度改回 `bounds.width`，但那要等 AppKit 真的重新布局
+    /// 这个视图。楼层按需创建时，每层建好都紧跟一次布局，测量留下的宽度总会被
+    /// 覆盖掉；整页一次性创建时则不一定，这个隐患才显出来。
+    private let measuringLayoutManager = NSLayoutManager()
+    private let measuringContainer = NSTextContainer(
+        size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+    )
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        measuringContainer.lineFragmentPadding = 0
+        measuringContainer.widthTracksTextView = false
+        measuringLayoutManager.addTextContainer(measuringContainer)
+        // 同一份文本存储可以挂多个排版栈，内容变化会同时通知两边，
+        // 测高这边不必再复制一份文本。
+        textStorage?.addLayoutManager(measuringLayoutManager)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     func height(fittingWidth width: CGFloat) -> CGFloat {
-        guard let container = textContainer, let layoutManager else { return 0 }
-        container.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: container)
-        return ceil(layoutManager.usedRect(for: container).height)
+        measuringContainer.size = NSSize(
+            width: width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        measuringLayoutManager.ensureLayout(for: measuringContainer)
+        return ceil(measuringLayoutManager.usedRect(for: measuringContainer).height)
     }
 
     override func layout() {
