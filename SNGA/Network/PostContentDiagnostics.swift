@@ -73,6 +73,37 @@ enum PostContentDiagnostics {
         append(report)
     }
 
+    /// 段落画出来的时候，它真正需要的高度和视图分到的框对不对得上。
+    ///
+    /// tid=47361795 #16、#17 表现为：文字整体下移、表情压出楼层边框。日志显示这两段
+    /// 的框会从「带表情」的高度（56 / 75）塌回「没有表情」的高度（17 / 36），而表情
+    /// 照样画着 —— 也就是量高度的那一刻内容和画的那一刻不是同一份。
+    ///
+    /// 这里记的就是这件事：框高、按当前宽度真正需要的高度、以及所画的这份内容里
+    /// 到底有几个表情附件。只记对不上的，只记正文长度不记正文。
+    private nonisolated(unsafe) static var reportedParagraphs: Set<String> = []
+
+    static func recordParagraphDraw(
+        bounds: CGRect,
+        requiredHeight: CGFloat,
+        attachmentCount: Int,
+        characterCount: Int
+    ) {
+        guard abs(requiredHeight - bounds.height) > 1 else { return }
+        let key = "\(characterCount)|\(Int(bounds.width))x\(Int(bounds.height))|\(attachmentCount)"
+        let shouldWrite: Bool = lock.withLock {
+            guard !reportedParagraphs.contains(key) else { return false }
+            reportedParagraphs.insert(key)
+            return true
+        }
+        guard shouldWrite else { return }
+        append(
+            "paragraph 框=\(Int(bounds.width))x\(Int(bounds.height))"
+                + " 应有高=\(Int(requiredHeight)) 表情数=\(attachmentCount)"
+                + " 字数=\(characterCount)"
+        )
+    }
+
     private static func append(_ message: String) {
         let directory = RuntimeLogSettings.defaultDirectoryURL
         let file = directory.appending(path: "native-content-scale.log")
@@ -94,5 +125,11 @@ enum PostContentDiagnostics {
     static func record(blocks: Int, depth: Int) {}
     static func recordPage(source: String, topicID: Int64, page: Int, posts: [Post], hotReplies: [Post]) {}
     static func recordHeightChange(key: String, to newValue: CGFloat) {}
+    static func recordParagraphDraw(
+        bounds: CGRect,
+        requiredHeight: CGFloat,
+        attachmentCount: Int,
+        characterCount: Int
+    ) {}
     #endif
 }

@@ -87,12 +87,23 @@ private struct PostParagraphView: View {
             guard case let .emoticon(url) = segment else { return }
             result[url] = emoticons.image(for: url)
         }
+        let loaded = images.compactMapValues { $0 }
         PostParagraphText(
             paragraph: paragraph,
             theme: theme,
-            images: images.compactMapValues { $0 },
+            images: loaded,
             onOpenLink: onOpenLink
         )
+        // 表情到齐要算换了一份内容，而不只是刷新同一个视图。
+        //
+        // 表情是行内附件，一张 64×56 的图能把一行从 17 点撑到 56 点。而附件是在
+        // `updateNSView` 里写进共享文本存储的 —— 那一刻本轮测量已经过去，SwiftUI
+        // 手上还是「没有表情」时量出来的高度：框按 36 排，内容按 75 画，文字被压
+        // 到框外、表情戳出楼层边框。拉一下窗口给出新宽度、逼它重量一次才恢复。
+        //
+        // 把已加载的表情并进视图标识，图片到达就是一次重建，测量和绘制必然用的是
+        // 同一份内容。表情一旦缓存住就不再变，因此每段最多重建一次。
+        .id(Set(loaded.keys))
     }
 }
 
@@ -238,6 +249,25 @@ final class PostParagraphTextView: NSTextView {
         )
         measuringLayoutManager.ensureLayout(for: measuringContainer)
         return ceil(measuringLayoutManager.usedRect(for: measuringContainer).height)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if let storage = textStorage {
+            var attachments = 0
+            storage.enumerateAttribute(
+                .attachment,
+                in: NSRange(location: 0, length: storage.length)
+            ) { value, _, _ in
+                if value != nil { attachments += 1 }
+            }
+            PostContentDiagnostics.recordParagraphDraw(
+                bounds: bounds,
+                requiredHeight: height(fittingWidth: bounds.width),
+                attachmentCount: attachments,
+                characterCount: storage.length
+            )
+        }
+        super.draw(dirtyRect)
     }
 
     override func layout() {
