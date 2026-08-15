@@ -28,6 +28,35 @@ final class PostQuoteExpanderTests: XCTestCase {
         XCTAssertTrue(expanded.hasSuffix("就是钱给到位了"))
     }
 
+    func testExpandsHeaderCarryingTheReplyBodyInside() {
+        // tid=47361795 #18：正文没有跟在 `[/b]` 之后，而是和抬头共用一个 `[b]`，
+        // 直接接在时间戳后面。网页版照样把它显示在引用块下面。
+        let expanded = PostQuoteExpander.expanded(Self.inlineBodyFloor) { _ in "被引用的话" }
+
+        XCTAssertTrue(expanded.hasPrefix("[quote]"))
+        XCTAssertTrue(expanded.contains("被引用的话"))
+        XCTAssertTrue(
+            expanded.hasSuffix("真的假的哦"),
+            "本层正文必须留在引用块之后，而不是被并进抬头"
+        )
+        XCTAssertFalse(
+            expanded.contains("15:48)真的假的哦"),
+            "正文不能留在抬头里"
+        )
+    }
+
+    func testReferencedHeaderCarryingBodyInsideStillInlines() {
+        // 被引楼层本身也是这种写法时，去抬头不能把它的正文一起抹掉。
+        let expanded = PostQuoteExpander.expanded(floor5) { _ in Self.inlineBodyFloor }
+
+        XCTAssertTrue(expanded.contains("真的假的哦"), "被引楼层的正文必须内联进来")
+        XCTAssertFalse(expanded.contains("[pid=878530259"), "被引楼层的抬头应当被剥掉")
+        XCTAssertTrue(expanded.hasSuffix("我一直没搞懂内马尔"))
+    }
+
+    /// 取自 tid=47361795 #18 的真实原文。
+    private static let inlineBodyFloor = "[b]Reply to [pid=878530259,47361795,1]Reply[/pid] Post by [uid=37615891]iyorny[/uid] (2026-08-15 15:48)真的假的哦[/b]"
+
     // MARK: - 必须保持原样的情况
 
     func testUnresolvedReferenceIsLeftUnchanged() {
