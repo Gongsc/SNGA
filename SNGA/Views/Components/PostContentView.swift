@@ -251,25 +251,6 @@ final class PostParagraphTextView: NSTextView {
         return ceil(measuringLayoutManager.usedRect(for: measuringContainer).height)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        if let storage = textStorage {
-            var attachments = 0
-            storage.enumerateAttribute(
-                .attachment,
-                in: NSRange(location: 0, length: storage.length)
-            ) { value, _, _ in
-                if value != nil { attachments += 1 }
-            }
-            PostContentDiagnostics.recordParagraphDraw(
-                bounds: bounds,
-                requiredHeight: height(fittingWidth: bounds.width),
-                attachmentCount: attachments,
-                characterCount: storage.length
-            )
-        }
-        super.draw(dirtyRect)
-    }
-
     override func layout() {
         // 排版宽度始终跟着视图走，`sizeThatFits` 量出来的高度才对得上实际绘制。
         textContainer?.size = NSSize(
