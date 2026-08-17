@@ -1127,6 +1127,177 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.posts.map(\.author), ["甲王王甲王王", "乙何何乙何何"])
     }
 
+    func testMarksAnonymousTopicAndFloorFromTypeBit() throws {
+        // 取自 tid=47374088：楼主匿名、回复实名。主题和首帖的 type 都带
+        // 匿名位 262144，首帖还叠着 33554432（无图模式），必须按位判断。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47374088,
+              "fid": 1459709,
+              "subject": "忘记给承包商跑结算流程了，影响很大吗？",
+              "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+              "authorid": -1,
+              "type": 262144,
+              "replies": 1
+            },
+            "__U": {
+              "-1": {
+                "uid": 0,
+                "username": "#anony_7eddd4b929ce50fb28af04f42b520952"
+              },
+              "36154522": {
+                "uid": 36154522,
+                "username": "实名回复的人"
+              }
+            },
+            "__R": [
+              {
+                "pid": 0,
+                "tid": 47374088,
+                "lou": 0,
+                "authorid": -1,
+                "type": 33816576,
+                "content": "主楼"
+              },
+              {
+                "pid": 878481149,
+                "tid": 47374088,
+                "lou": 1,
+                "authorid": 36154522,
+                "type": 0,
+                "content": "一楼"
+              }
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertTrue(thread.topic.isAnonymous)
+        // 匿名位不是置顶位：匿名主题在版面里和普通主题排在一起。
+        XCTAssertFalse(thread.topic.isPinned)
+        XCTAssertEqual(thread.topic.author, "辛巫臧丑梅苗")
+        XCTAssertEqual(thread.posts.map(\.author), ["辛巫臧丑梅苗", "实名回复的人"])
+        XCTAssertEqual(thread.posts.map(\.isAnonymous), [true, false])
+    }
+
+    func testMarksAnonymousTopicWhoseMetadataOnlyCarriesTheAnonymousName() throws {
+        // 页面变体不下发 type 时，`#anony_` 前缀是唯一的线索。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47374088,
+              "fid": 1459709,
+              "subject": "只有匿名用户名的主题",
+              "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+              "replies": 0
+            },
+            "__R": [
+              {
+                "pid": 0,
+                "tid": 47374088,
+                "lou": 0,
+                "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+                "content": "主楼"
+              }
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertTrue(thread.topic.isAnonymous)
+        XCTAssertFalse(thread.topic.isPinned)
+        XCTAssertEqual(thread.posts.first?.isAnonymous, true)
+        XCTAssertEqual(thread.posts.first?.author, "辛巫臧丑梅苗")
+    }
+
+    func testMarksAnonymousTopicInForumListWithoutTreatingItAsPinned() throws {
+        let payload = """
+        {
+          "data": {
+            "__F": {"fid": 1459709, "name": "职场人生"},
+            "__T": [
+              {
+                "tid": 43936501,
+                "fid": 1459709,
+                "subject": "版规",
+                "author": "版主",
+                "type": 64,
+                "replies": 766
+              },
+              {
+                "tid": 47374088,
+                "fid": 1459709,
+                "subject": "忘记给承包商跑结算流程了，影响很大吗？",
+                "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+                "type": 262144,
+                "replies": 5
+              }
+            ]
+          }
+        }
+        """
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 1_459_709),
+            page: 1
+        )
+
+        XCTAssertEqual(page.topics.map(\.isAnonymous), [false, true])
+        XCTAssertEqual(page.topics.map(\.isPinned), [true, false])
+        XCTAssertEqual(page.topics.last?.author, "辛巫臧丑梅苗")
+    }
+
+    func testMarksAnonymousFloorFromHTMLPostArguments() throws {
+        let html = """
+        <html><head><title>匿名主题 - NGA玩家社区</title></head><body>
+        <script>
+        commonui.userInfo.setAll({"-1":{"uid":0,"username":"#anony_7eddd4b929ce50fb28af04f42b520952"},
+        "36154522":{"uid":36154522,"username":"实名回复的人"}})
+        </script>
+        <table><tr class="postrow" id="post1strow0">
+        <td><a name="l0"></a><span id="postcontent0" class="postcontent">主楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc( 0,null,null,null,null,null,null,null,
+        null,null,0,33816576,null,'-1',1786720671,'0,0,0','166','','','8 Android','',null,0 )
+        </script>
+        <table><tr class="postrow" id="post1strow1">
+        <td><a name="l1"></a><span id="postcontent1" class="postcontent">一楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc( 1,null,null,null,null,null,null,null,
+        null,null,878481149,0,null,'36154522',1786721847,'0,7,0','12','','','8 Android','',null,0 )
+        </script>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(html, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.isAnonymous), [true, false])
+        XCTAssertEqual(thread.posts.map(\.author), ["辛巫臧丑梅苗", "实名回复的人"])
+        XCTAssertTrue(thread.topic.isAnonymous)
+    }
+
     func testParsesSubforumsAndMarksTopicsWithTheirSource() throws {
         let payload = """
         {

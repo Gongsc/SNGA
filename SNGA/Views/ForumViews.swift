@@ -1838,6 +1838,10 @@ private struct TopicRow: View {
                         .foregroundStyle(theme.accentColor)
                         .background(theme.accentColor.opacity(0.12), in: Capsule())
                 }
+                if topic.isAnonymous {
+                    AnonymousBadge()
+                        .accessibilityIdentifier("topic-anonymous-\(topic.id.rawValue)")
+                }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
                     .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)

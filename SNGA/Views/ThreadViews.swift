@@ -603,10 +603,17 @@ private struct ThreadTitleHeader: View {
     let navigateBack: () -> Void
 
     var body: some View {
-        let title = ThreadTitleText(text: normalizedTitle)
-            .accessibilityLabel(normalizedTitle)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("thread-topic-title")
+        let title = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if topic.isAnonymous {
+                AnonymousBadge(scale: .medium)
+                    .font(.title2)
+                    .accessibilityIdentifier("thread-topic-anonymous")
+            }
+            ThreadTitleText(text: normalizedTitle)
+                .accessibilityLabel(normalizedTitle)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("thread-topic-title")
+        }
 
         Group {
             if let previousTitle {
@@ -902,25 +909,13 @@ struct PostRow: View {
                         Button {
                             openAuthorProfile(uid: authorUID)
                         } label: {
-                            Text(post.author.isEmpty ? "未知用户" : post.author)
-                                .fontWeight(.semibold)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .frame(
-                                    height: PostAuthorHeaderLayout.rowHeight,
-                                    alignment: .leading
-                                )
+                            authorNameLabel
                         }
                         .buttonStyle(.plain)
                         .help("查看用户信息")
                         .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     } else {
-                        Text(post.author.isEmpty ? "未知用户" : post.author)
-                            .fontWeight(.semibold)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(
-                                height: PostAuthorHeaderLayout.rowHeight,
-                                alignment: .leading
-                            )
+                        authorNameLabel
                             .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     }
                     if let date = post.postedAt {
@@ -1069,6 +1064,19 @@ struct PostRow: View {
 
     private var authorDisplayName: String {
         post.author.isEmpty ? "未知用户" : post.author
+    }
+
+    private var authorNameLabel: some View {
+        HStack(spacing: 4) {
+            Text(authorDisplayName)
+                .fontWeight(.semibold)
+                .fixedSize(horizontal: true, vertical: false)
+            if post.isAnonymous {
+                AnonymousBadge()
+                    .accessibilityIdentifier("post-author-anonymous-\(post.id.rawValue)")
+            }
+        }
+        .frame(height: PostAuthorHeaderLayout.rowHeight, alignment: .leading)
     }
 
     private var authorAvatar: some View {

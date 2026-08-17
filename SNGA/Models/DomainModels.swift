@@ -69,6 +69,8 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var lastReplyAt: Date? = nil
     var isPinned: Bool = false
     var isLocked: Bool = false
+    /// 匿名话题：NGA 不公开楼主身份，只按话题给出一个固定的化名。
+    var isAnonymous: Bool = false
     var sourceForumID: ForumID? = nil
     var sourceParentForumID: ForumID? = nil
     var sourceForumName: String? = nil
@@ -136,6 +138,8 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var authorUID: Int64? = nil
     var avatarURL: URL? = nil
     var authorInfo: PostAuthorInfo? = nil
+    /// 匿名楼层：作者只有化名，没有可以打开的用户资料。
+    var isAnonymous: Bool = false
     var postedAt: Date? = nil
     var device: PostDevice? = nil
     var html: String

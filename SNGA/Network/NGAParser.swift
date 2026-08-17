@@ -417,16 +417,18 @@ struct NGAParser: Sendable {
             let subject = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !subject.isEmpty else { continue }
             let containerText = try link.parent()?.parent()?.text() ?? subject
+            let rawAuthor = extractAuthor(from: containerText)
             topics.append(Topic(
                 id: TopicID(rawValue: tid),
                 forumID: forumID,
                 subject: subject,
-                author: extractAuthor(from: containerText),
+                author: normalizedUsername(rawAuthor) ?? rawAuthor,
                 replyCount: extractReplyCount(from: containerText),
                 publishedAt: nil,
                 lastReplyAt: nil,
                 isPinned: containerText.contains("置顶"),
-                isLocked: containerText.contains("锁定")
+                isLocked: containerText.contains("锁定"),
+                isAnonymous: isAnonymousUsername(rawAuthor)
             ))
         }
         guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
@@ -625,6 +627,9 @@ struct NGAParser: Sendable {
             }
                 .sorted(by: postOrder)
             if !posts.isEmpty {
+                // 话题元数据缺失的页面变体里，匿名身份只能从首帖看出来。
+                topic.isAnonymous = topic.isAnonymous
+                    || posts.first { $0.floor == 0 }?.isAnonymous == true
                 let hotReplies = hotReplyDictionaries(in: payload).compactMap { dictionary in
                     post(
                         from: dictionary,
@@ -686,6 +691,9 @@ struct NGAParser: Sendable {
                     authorUID: authorUID,
                     avatarURL: user?.avatarURL,
                     authorInfo: user?.authorInfo,
+                    isAnonymous: metadata?.isAnonymous == true
+                        || user?.isAnonymous == true
+                        || isAnonymousUsername(inlineAuthor),
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
@@ -720,6 +728,7 @@ struct NGAParser: Sendable {
                     topicID: topicID,
                     floor: floor,
                     author: normalizedUsername(author) ?? "",
+                    isAnonymous: isAnonymousUsername(author),
                     postedAt: nil,
                     device: .desktop,
                     html: try element.html(),
@@ -739,6 +748,7 @@ struct NGAParser: Sendable {
             replyCount: max(0, posts.map(\.floor).max() ?? 0),
             isPinned: false,
             isLocked: false,
+            isAnonymous: posts.first { $0.floor == 0 }?.isAnonymous ?? false,
             rating: htmlRatings.topicRating
         )
         let linkedPages = try document.select("a[href*='page=']").compactMap { element -> Int? in
@@ -2897,6 +2907,10 @@ struct NGAParser: Sendable {
         return components?.url
     }
 
+    /// 匿名标记位。话题和楼层的 `type` 共用它，对应网页版 `commonui.PB`
+    /// 里的「匿名 / 不显示发帖人信息」。
+    private static let anonymousTypeBit = 262_144
+
     private func parseTopic(from dictionary: [String: Any], fallbackForumID: ForumID) -> Topic? {
         guard let tid = int64(dictionary["tid"]),
               let rawSubject = string(dictionary["subject"]) else { return nil }
@@ -2905,6 +2919,7 @@ struct NGAParser: Sendable {
         let sourceForum = topicSourceForum(in: dictionary)
         let mirroredForumID = mirroredForumID(in: dictionary)
         let subjectColor = topicSubjectColor(in: dictionary)
+        let type = int(dictionary["type"]) ?? 0
         return Topic(
             id: TopicID(rawValue: tid),
             forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
@@ -2914,9 +2929,12 @@ struct NGAParser: Sendable {
             replyCount: int(dictionary["replies"]) ?? int(dictionary["replyCount"]) ?? 0,
             publishedAt: date(dictionary["postdate"]),
             lastReplyAt: date(dictionary["lastpost"]),
+            // 匿名位不代表置顶：匿名话题在版面里和普通话题排在一起。
             isPinned: mirroredForumID == nil &&
-                ((int(dictionary["type"]) ?? 0) > 0 || bool(dictionary["pinned"])),
+                (type & ~Self.anonymousTypeBit > 0 || bool(dictionary["pinned"])),
             isLocked: bool(dictionary["locked"]) || (int(dictionary["locked"]) ?? 0) > 0,
+            isAnonymous: type & Self.anonymousTypeBit != 0
+                || isAnonymousUsername(string(dictionary["author"])),
             sourceForumID: sourceForum?.id,
             sourceParentForumID: sourceForum?.parentID,
             sourceForumName: sourceForum?.name,
@@ -3077,6 +3095,7 @@ struct NGAParser: Sendable {
         var name: String
         var avatarURL: URL?
         var authorInfo: PostAuthorInfo?
+        var isAnonymous: Bool = false
     }
 
     private struct ForumLevelRule {
@@ -3093,10 +3112,13 @@ struct NGAParser: Sendable {
     private struct HTMLPostMetadata {
         var pid: Int64?
         var authorUID: Int64?
+        var type: Int
         var postedAt: Date?
         var device: PostDevice
         var upvoteCount: Int
         var downvoteCount: Int
+
+        var isAnonymous: Bool { type & NGAParser.anonymousTypeBit != 0 }
     }
 
     private func htmlFloor(in row: Element) throws -> Int? {
@@ -3180,6 +3202,7 @@ struct NGAParser: Sendable {
             result[floor] = HTMLPostMetadata(
                 pid: Int64(normalizedJavaScriptLiteral(arguments[10])),
                 authorUID: Int64(normalizedJavaScriptLiteral(arguments[13])),
+                type: Int(normalizedJavaScriptLiteral(arguments[11])) ?? 0,
                 postedAt: timestamp.flatMap {
                     $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
                 },
@@ -3463,11 +3486,12 @@ struct NGAParser: Sendable {
             ?? stableID(for: "\(topicID.rawValue):\(floor):\(content)")
         let authorUID = postAuthorID(in: dictionary)
         let user = authorUID.flatMap { users[$0] }
-        let inlineAuthor = [
+        let rawInlineAuthor = [
             "author", "username", "author_name", "authorName"
         ].lazy.compactMap {
-            normalizedUsername(string(dictionary[$0]))
-        }.first
+            string(dictionary[$0])
+        }.first { normalizedUsername($0) != nil }
+        let inlineAuthor = rawInlineAuthor.flatMap(normalizedUsername)
         let author: String
         if let inlineAuthor, !inlineAuthor.isEmpty {
             author = inlineAuthor
@@ -3481,6 +3505,9 @@ struct NGAParser: Sendable {
             author = "未知用户"
         }
         let inlineAvatar = remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
+        let isAnonymous = (int(dictionary["type"]) ?? 0) & Self.anonymousTypeBit != 0
+            || user?.isAnonymous == true
+            || isAnonymousUsername(rawInlineAuthor)
         let postTopicID = TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue)
         let rawVote = string(dictionary["vote"])
         let rawDevice = ["from_client", "fromClient", "client", "device"]
@@ -3495,6 +3522,7 @@ struct NGAParser: Sendable {
             authorUID: authorUID,
             avatarURL: inlineAvatar ?? user?.avatarURL,
             authorInfo: user?.authorInfo,
+            isAnonymous: isAnonymous,
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
             device: postDevice(from: rawDevice),
             html: content,
@@ -3883,9 +3911,7 @@ struct NGAParser: Sendable {
                 ?? string(dictionary["author"])
                 ?? string(dictionary["1"])
             if let name = normalizedUsername(rawName) {
-                let isAnonymous = rawName.map(plainText)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .hasPrefix("#anony_") == true
+                let isAnonymous = isAnonymousUsername(rawName)
                 let resolvedUID: Int64?
                 if isAnonymous {
                     // Anonymous boards expose post author IDs as -1, -2, ... while
@@ -3924,7 +3950,8 @@ struct NGAParser: Sendable {
                     result[resolvedUID] = PostUser(
                         name: name,
                         avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
-                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil
+                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil,
+                        isAnonymous: isAnonymous
                     )
                 }
                 return
@@ -4230,6 +4257,15 @@ struct NGAParser: Sendable {
         let value = plainText(rawValue).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
         return anonymousDisplayName(from: value) ?? value
+    }
+
+    /// NGA 下发的匿名用户名形如 `#anony_<32 位十六进制>`，在展示前会被
+    /// `normalizedUsername` 换成化名；判断匿名身份必须看这一步之前的原值。
+    private func isAnonymousUsername(_ rawValue: String?) -> Bool {
+        guard let rawValue else { return false }
+        return plainText(rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .hasPrefix("#anony_")
     }
 
     private func anonymousDisplayName(from value: String) -> String? {
