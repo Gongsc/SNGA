@@ -74,16 +74,202 @@ final class PostContentBuilderTests: XCTestCase {
         XCTAssertTrue(plainText(of: content).contains("我的回复"))
     }
 
-    // MARK: - 必须回退到 WKWebView 的内容
+    /// 引用块和正文之间的 `<br>` 在网页上不产生空行（`compactedPostSpacing` 会
+    /// 清掉它们），原生分支也不能把它们留成段首换行：整段正文是一个 `Text`，
+    /// 段首空行既凭空多出两行，又会让文字在鼠标点击后重排丢字。
+    func testBreaksAroundQuoteDoNotBecomeBlankLines() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/><br/>我的回复<br/><br/>")
+        )
+        let body = content.blocks.compactMap { block -> PostParagraph? in
+            guard case let .paragraph(paragraph) = block else { return nil }
+            return paragraph
+        }
+        let text = body.flatMap(\.segments).reduce(into: "") {
+            if case let .text(value, _) = $1 { $0 += value }
+        }
+        XCTAssertEqual(text, "我的回复", "段落首尾不应残留换行")
+    }
 
-    func testRemoteImageFallsBackToWebView() {
-        XCTAssertNil(
-            nativeContent(
-                for: "<img src='https://img.nga.cn/attachments/mon_202607/23/a.jpg'>"
-            ),
-            "普通图片无法原生还原，应当回退"
+    /// 段落内部的空行是作者写的排版，必须原样保留。
+    func testBreaksInsideParagraphSurvive() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/>第一行<br/><br/>第二行")
+        )
+        XCTAssertTrue(
+            plainText(of: content).contains("第一行\n\n第二行"),
+            "段中空行属于正文排版"
         )
     }
+
+    /// 全角空格是 NGA 正文里的缩进，清理换行时不能顺手吃掉。
+    func testIdeographicIndentSurvivesBreakTrimming() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]被引用的话[/quote]<br/>\u{3000}\u{3000}缩进正文")
+        )
+        XCTAssertTrue(plainText(of: content).contains("\u{3000}\u{3000}缩进正文"))
+    }
+
+    /// 引用套引用：内层必须成为外层的子块，而不是一段带着 `[quote]` 字样的文字。
+    func testNestedQuoteBecomesNestedQuoteBlock() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "[quote]外层开头[quote]最里面的话[/quote]外层结尾[/quote]我的回复")
+        )
+        let outer = content.blocks.compactMap { block -> [PostBlock]? in
+            guard case let .quote(nested) = block else { return nil }
+            return nested
+        }
+        XCTAssertEqual(outer.count, 1, "应当只有一个外层引用")
+        let inner = (outer.first ?? []).compactMap { block -> [PostBlock]? in
+            guard case let .quote(nested) = block else { return nil }
+            return nested
+        }
+        XCTAssertEqual(inner.count, 1, "内层引用应当嵌在外层引用里")
+        XCTAssertFalse(plainText(of: content).contains("[quote]"))
+        XCTAssertFalse(plainText(of: content).contains("[/quote]"))
+        XCTAssertTrue(plainText(of: content).contains("最里面的话"))
+        XCTAssertTrue(plainText(of: content).contains("我的回复"))
+    }
+
+    // MARK: - 配图
+
+    /// 独占一行的配图要走原生分支 —— 图多的楼层正是滚动最卡的地方，
+    /// 让它们继续留在 `WKWebView` 里就等于没优化。
+    func testStandaloneImageBecomesImageBlock() throws {
+        let content = try XCTUnwrap(
+            nativeContent(for: "看图<br/>[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]")
+        )
+        XCTAssertEqual(
+            images(of: content).map(\.url.absoluteString),
+            ["https://img.nga.cn/attachments/mon_202607/23/a.jpg"]
+        )
+        XCTAssertEqual(plainText(of: content), "看图")
+    }
+
+    /// 连着贴的截图是最常见的重楼层形态，必须整层都能原生渲染。
+    func testConsecutiveImagesBecomeSeparateBlocks() throws {
+        let source = (1...3)
+            .map { "[img]https://img.nga.cn/attachments/mon_202607/23/\($0).jpg[/img]" }
+            .joined(separator: "<br/>")
+        let content = try XCTUnwrap(nativeContent(for: source))
+        XCTAssertEqual(images(of: content).count, 3)
+    }
+
+    func testImageInsideQuoteBecomesImageBlock() throws {
+        let content = try XCTUnwrap(
+            nativeContent(
+                for: "[quote][img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img][/quote]我的回复"
+            )
+        )
+        let quoted = content.blocks.compactMap { block -> [PostBlock]? in
+            guard case let .quote(nested) = block else { return nil }
+            return nested
+        }
+        XCTAssertEqual(quoted.flatMap { $0 }.flatMap(images(of:)).count, 1)
+        XCTAssertTrue(plainText(of: content).contains("我的回复"))
+    }
+
+    func testCenteredImageKeepsAlignment() throws {
+        let content = try XCTUnwrap(
+            nativeContent(
+                for: "[align=center][img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img][/align]"
+            )
+        )
+        XCTAssertEqual(images(of: content).map(\.alignment), [.center])
+    }
+
+    /// 和文字挤在同一行的图片改成块会挪动版面，宁可整层回退。
+    func testImageSharingALineWithTextFallsBackToWebView() {
+        XCTAssertNil(
+            nativeContent(
+                for: "开头[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]"
+            ),
+            "图片前面还有同一行的文字，应当回退"
+        )
+        XCTAssertNil(
+            nativeContent(
+                for: "[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]结尾"
+            ),
+            "图片后面还有同一行的文字，应当回退"
+        )
+    }
+
+    /// 动图原生分支只能画出静止的第一帧，必须回退。
+    func testAnimatedImageFallsBackToWebView() {
+        XCTAssertNil(
+            nativeContent(for: "[img]https://img.nga.cn/attachments/mon_202607/23/a.gif[/img]")
+        )
+    }
+
+    /// 图片被链接包着时，点击行为由 `WKWebView` 的导航拦截决定，原生分支还原不了。
+    func testLinkedImageFallsBackToWebView() {
+        XCTAssertNil(
+            nativeContent(
+                for: "[url=https://example.com][img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img][/url]"
+            )
+        )
+    }
+
+    /// 原生结构里的图片必须和 HTML 分支一张不多、一张不少，顺序也要一致。
+    func testNativeImagesMatchHTMLImages() throws {
+        let sources = [
+            "[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]",
+            "文字<br/>[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]<br/>更多文字",
+            "[img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img]<br/>[img]https://img.nga.cn/attachments/mon_202607/23/b.png[/img]",
+            "[quote][img]https://img.nga.cn/attachments/mon_202607/23/a.jpg[/img][/quote]回复"
+        ]
+
+        for source in sources {
+            let sanitized = parser.sanitizedPost(source)
+            let content = try XCTUnwrap(sanitized.nativeContent, "该内容应当原生渲染：\(source)")
+            XCTAssertEqual(
+                images(of: content).map(\.url.absoluteString),
+                try htmlImageSources(of: sanitized.html),
+                "原生结构与 HTML 的图片不一致：\(source)"
+            )
+        }
+    }
+
+    // MARK: - 规模上限
+
+    /// 一层楼的块是一次性实例化的，外层 `LazyVStack` 只按楼层惰性化。实测单层
+    /// 2000 块首次布局 6.7 秒、每次重排 383 ms，而布局每个显示周期都要跑一遍 ——
+    /// 主线程再也追不上，界面就此卡死。畸形楼层必须交回 WKWebView。
+    func testFloorWithTooManyBlocksFallsBackToWebView() {
+        let ordinary = (0..<40).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        XCTAssertNotNil(
+            nativeContent(for: "<p>\(ordinary)</p>"),
+            "普通长帖仍应原生渲染"
+        )
+        let huge = (0..<400).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        XCTAssertNil(
+            nativeContent(for: "<p>\(huge)</p>"),
+            "块数过多的楼层应当回退"
+        )
+    }
+
+    func testDeeplyNestedQuotesFallBackToWebView() {
+        func nested(_ depth: Int) -> String {
+            var source = "最里面"
+            for level in 0..<depth {
+                source = "[quote]第 \(level) 层\(source)[/quote]"
+            }
+            return source
+        }
+        XCTAssertNotNil(nativeContent(for: nested(6)), "常见的引用链仍应原生渲染")
+        XCTAssertNil(nativeContent(for: nested(40)), "引用套得过深应当回退")
+    }
+
+    /// 回退之后 HTML 分支必须完好，否则这类楼层就彻底空白了。
+    func testOversizedFloorStillProducesRenderableHTML() {
+        let huge = (0..<400).map { "第 \($0) 段" }.joined(separator: "</p><p>")
+        let sanitized = parser.sanitizedPost("<p>\(huge)</p>")
+        XCTAssertNil(sanitized.nativeContent)
+        XCTAssertTrue(sanitized.html.contains(#"<main id="snga-post-content">"#))
+        XCTAssertTrue(sanitized.html.contains("第 399 段"))
+    }
+
+    // MARK: - 必须回退到 WKWebView 的内容
 
     func testTableFallsBackToWebView() {
         XCTAssertNil(nativeContent(for: "[table][tr][td]单元格[/td][/tr][/table]"))
@@ -147,7 +333,7 @@ final class PostContentBuilderTests: XCTestCase {
     /// 回退时 HTML 分支必须仍然完好，否则该层就什么都渲染不出来了。
     func testFallbackStillProducesRenderableHTML() throws {
         let sources = [
-            "<img src='https://img.nga.cn/attachments/mon_202607/23/a.jpg'>",
+            "[img]https://img.nga.cn/attachments/mon_202607/23/a.gif[/img]",
             "[table][tr][td]单元格[/td][/tr][/table]",
             "[collapse=标题]折叠内容[/collapse]"
         ]
@@ -269,7 +455,27 @@ final class PostContentBuilderTests: XCTestCase {
         switch block {
         case let .paragraph(paragraph): paragraph.segments
         case let .quote(nested): nested.flatMap(segments(of:))
+        case .image: []
         }
+    }
+
+    private func images(of content: PostContent) -> [PostImage] {
+        content.blocks.flatMap(images(of:))
+    }
+
+    private func images(of block: PostBlock) -> [PostImage] {
+        switch block {
+        case .paragraph: []
+        case let .quote(nested): nested.flatMap(images(of:))
+        case let .image(image): [image]
+        }
+    }
+
+    private func htmlImageSources(of html: String) throws -> [String] {
+        let document = try SwiftSoup.parse(html)
+        return try document.select("main#snga-post-content img")
+            .filter { !$0.hasClass("nga-smile") }
+            .map { try $0.attr("src") }
     }
 
     private func plainText(of content: PostContent) -> String {

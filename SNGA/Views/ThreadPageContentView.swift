@@ -37,24 +37,19 @@ struct ThreadPageContentView: View {
     var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
     var onReady: @MainActor (Identity) -> Void
 
-    /// 撤骨架屏只等首楼。
-    ///
-    /// 楼层现在按需创建（`LazyVStack`），SwiftUI 只会实例化填满视口所需的那几层，
-    /// 具体几层取决于楼层高度，视图这边无从预知；等待固定数量的楼层在惰性布局下
-    /// 并不成立。首楼一定会被创建，也正是撤掉骨架屏时用户真正在看的内容，
-    /// 其余楼层随滚动渐进呈现。
-    ///
-    /// 兜底上限仍然保留：`PostWebView` 的图片就绪脚本自身有 15 秒上限，
-    /// 首楼里一张加载不出来的图不应该把整页骨架屏一起挂住。
+    /// 撤骨架屏只等首屏这几层。整页楼层都会被实例化，但等齐整页会被任意一层的
+    /// 慢图拖住 —— `PostWebView` 的图片就绪脚本自身就有 15 秒上限，一张加载不出来
+    /// 的图足以把整页骨架屏挂满 15 秒。
+    private static let firstScreenContentCount = 4
+    /// 首屏楼层迟迟不回报时的兜底上限。
     private static let readyTimeout = Duration.seconds(2)
 
     @State private var readyContentIDs: Set<String> = []
     @State private var didReportReady = false
 
     var body: some View {
-        // 顶部锚点留在惰性布局之外。作为 `LazyVStack` 的首个子视图时，滚到下方后
-        // 它并未实例化，`scrollTo` 只能按估算位置解析目标 —— 而楼层高度恰恰是
-        // 边滚边测出来的，估算并不可信。放在外层则任何滚动位置下都是实位。
+        // 顶部锚点单独放在楼层堆栈之外，`scrollTo` 在任何滚动位置下都能解析到实位，
+        // 不受楼层排版的影响。
         VStack(spacing: 0) {
             Color.clear
                 .frame(height: 0)
@@ -65,9 +60,11 @@ struct ThreadPageContentView: View {
     }
 
     private var content: some View {
-        // 惰性布局：整页楼层原先会被一次性实例化，而每个 PostRow 内嵌一个 WKWebView，
-        // 一页二十余层就是二十余个渲染实例。
-        LazyVStack(spacing: 12) {
+        // 整页楼层一次性实例化。惰性布局是为了省下「每层一个 WKWebView」而引入的，
+        // 而绝大多数楼层现在走原生渲染，一页通常只剩一两层网页视图，这笔开销已经
+        // 不在了；换来的是惰性堆栈自身的代价 —— 楼层高度要边滚边测，估值和实测
+        // 对不上就会改变内容总高、进而挤动滚动位置、再触发新一轮取值。
+        VStack(spacing: 12) {
             ForEach(posts.indices, id: \.self) { index in
                 let post = posts[index]
                 PostRow(
@@ -111,9 +108,22 @@ struct ThreadPageContentView: View {
         }
     }
 
-    /// 页面顶部的那一层。没有楼层可显示时为 nil，此时无需等待。
-    private var leadingContentID: String? {
-        posts.first.map { "post-\($0.id.rawValue)" }
+    /// 内容在页面上的实际出现顺序：首楼、紧随其后的热点回复、其余楼层。
+    private var orderedContentIDs: [String] {
+        var identifiers: [String] = []
+        for post in posts {
+            identifiers.append("post-\(post.id.rawValue)")
+            if post.floor == 0, !hotReplies.isEmpty {
+                identifiers.append(
+                    contentsOf: hotReplies.map { "hot-\($0.id.rawValue)" }
+                )
+            }
+        }
+        return identifiers
+    }
+
+    private var firstScreenContentIDs: Set<String> {
+        Set(orderedContentIDs.prefix(Self.firstScreenContentCount))
     }
 
     private func markContentReady(_ contentID: String) {
@@ -122,11 +132,7 @@ struct ThreadPageContentView: View {
     }
 
     private func reportReadyIfNeeded() {
-        guard let leadingContentID else {
-            reportReady()
-            return
-        }
-        guard readyContentIDs.contains(leadingContentID) else { return }
+        guard firstScreenContentIDs.isSubset(of: readyContentIDs) else { return }
         reportReady()
     }
 

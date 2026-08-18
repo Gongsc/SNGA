@@ -76,7 +76,7 @@ final class SNGAUITests: XCTestCase {
         about.click()
 
         XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.8.0（1）"].exists)
+        XCTAssertTrue(app.staticTexts["版本 1.8.1（1）"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(app.links["gongsc@live.cn"].exists)
@@ -364,6 +364,54 @@ final class SNGAUITests: XCTestCase {
         XCTAssertFalse(app.scrollViews.staticTexts["thread-topic-title"].exists)
     }
 
+    /// 原生渲染的楼层：正文点得动、点完不掉字，站内链接仍然走应用内跳转。
+    ///
+    /// 正文用 AppKit 文本视图渲染，而不是开了 `.textSelection` 的 SwiftUI `Text` ——
+    /// 后者点击后会按自己量出来的宽度重排，最长的行多折一行，段尾被裁掉。
+    func testNativePostBodyKeepsTextAfterClickAndOpensInternalLink() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        let body = mainWindow.staticTexts.matching(
+            NSPredicate(format: "value CONTAINS %@", "回复成功。")
+        ).firstMatch
+        XCTAssertTrue(body.waitForExistence(timeout: 10))
+        // 楼层要整个落在视口里，底部的分页栏会盖住最后一行。
+        let scroll = mainWindow.scrollViews["thread-content-scroll"].firstMatch
+        var settles = 0
+        while body.frame.maxY > mainWindow.frame.maxY - 90, settles < 10 {
+            scroll.scroll(byDeltaX: 0, deltaY: -120)
+            Thread.sleep(forTimeInterval: 0.6)
+            settles += 1
+        }
+
+        // 段落排版宽度就是可用宽度，最长的行离右边界还有富余，点击不会触发重排。
+        let beforeFrame = body.frame
+        body.click()
+        XCTAssertEqual(body.frame.width, beforeFrame.width, accuracy: 0.5)
+        XCTAssertEqual(body.frame.height, beforeFrame.height, accuracy: 0.5)
+        XCTAssertTrue((body.value as? String ?? "").contains("打开原生关联话题"))
+
+        // 链接在第二行，按段落内的相对位置点。
+        body.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.8)).click()
+        let topicTitle = mainWindow.staticTexts["thread-topic-title"]
+        XCTAssertTrue(topicTitle.waitForExistence(timeout: 10))
+        let openedLinkedTopic = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "话题二：多账号与收藏测试"),
+            object: topicTitle
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [openedLinkedTopic], timeout: 10), .completed)
+    }
+
     func testForumDirectorySearchFiltersForums() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -608,6 +656,79 @@ final class SNGAUITests: XCTestCase {
         let automaticInstance = app.menuItems["自动选择（推荐）"]
         XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
         automaticInstance.click()
+    }
+
+    func testReproShapes() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-shapes"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 10))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 10))
+        mainWindow.buttons["topic-9001"].click()
+        XCTAssertTrue(
+            mainWindow.buttons["thread-scroll-to-top"].waitForExistence(timeout: 15)
+        )
+        Thread.sleep(forTimeInterval: 1.5)
+        let scroll = mainWindow.scrollViews["thread-content-scroll"].firstMatch
+
+        // 逐个点击楼层正文，比较点击前后这一段的可见文字与版面高度。
+        let probes: [(text: String, index: Int)] = [
+            ("为什么解散了一批还得再组织一批", 0),
+            ("短的一行", 0),
+            ("加粗开头", 0),
+            ("这一行带表情", 0),
+            ("这一段本身就很长", 0),
+            ("最里面的被引用内容", 0),
+            // G/H 里同一段长正文各出现一次：0 是 #48 的裸段落，1 是 #49 的引用块。
+            ("甲A之后就全是职业队了", 0),
+            ("甲A之后就全是职业队了", 1)
+        ]
+        for (probe, index) in probes {
+            let element = mainWindow.staticTexts.matching(
+                NSPredicate(format: "value CONTAINS %@", probe)
+            ).element(boundBy: index)
+            var scrolls = 0
+            while !element.exists, scrolls < 8 {
+                scroll.scroll(byDeltaX: 0, deltaY: -200)
+                Thread.sleep(forTimeInterval: 0.8)
+                scrolls += 1
+            }
+            guard element.exists else {
+                print("SHAPE[\(probe)#\(index)] 未找到")
+                continue
+            }
+            // 楼层要整个落在视口里，否则截图里分不清是被裁掉还是滚出去了。
+            var settles = 0
+            while element.frame.maxY > mainWindow.frame.maxY - 70, settles < 8 {
+                scroll.scroll(byDeltaX: 0, deltaY: -120)
+                Thread.sleep(forTimeInterval: 0.8)
+                settles += 1
+            }
+            Thread.sleep(forTimeInterval: 0.6)
+            let beforeFrame = element.frame
+            dumpRepro(mainWindow, name: "shape-\(probe)-\(index)-before", extra: "\(beforeFrame)")
+            element.click()
+            Thread.sleep(forTimeInterval: 1.2)
+            let afterFrame = element.frame
+            let changed = abs(beforeFrame.height - afterFrame.height) > 0.5
+                || abs(beforeFrame.width - afterFrame.width) > 0.5
+            print("SHAPE[\(probe)#\(index)] before=\(beforeFrame) after=\(afterFrame) changed=\(changed)")
+            dumpRepro(mainWindow, name: "shape-\(probe)-\(index)", extra: "\(beforeFrame) -> \(afterFrame)")
+        }
+    }
+
+    private func dumpRepro(_ window: XCUIElement, name: String, extra: String) {
+        let screenshot = window.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "repro-\(name)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print("REPRO[\(name)] \(extra)")
     }
 
     private func ensureMainWindow(in app: XCUIApplication) {

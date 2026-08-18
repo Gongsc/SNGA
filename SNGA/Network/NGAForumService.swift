@@ -162,6 +162,8 @@ actor LiveNGAForumService: NGAForumService {
             )
             post.html = sanitized.html
             post.nativeContent = sanitized.nativeContent
+            // 楼层元数据里的处罚标记优先，正文自带的 `[lessernuke]` 兜底。
+            post.punishment = post.punishment ?? sanitized.punishment
             return post
         }
         result.hotReplies = result.hotReplies.map { post in
@@ -169,6 +171,7 @@ actor LiveNGAForumService: NGAForumService {
             let sanitized = sanitize.post(post.html)
             post.html = sanitized.html
             post.nativeContent = sanitized.nativeContent
+            post.punishment = post.punishment ?? sanitized.punishment
             return post
         }
         return result

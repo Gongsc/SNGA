@@ -12,22 +12,54 @@ final class EmoticonImageStore {
     static let shared = EmoticonImageStore()
 
     /// 表情图集合有限，上限只是防止异常输入把缓存撑大。
-    private static let capacity = 400
+    private let capacity: Int
 
     private var images: [URL: NSImage] = [:]
+    /// 每张图最近一次被取用的次序，只用于淘汰，不参与观察。
+    @ObservationIgnored private var lastUsed: [URL: UInt64] = [:]
+    @ObservationIgnored private var useTick: UInt64 = 0
     @ObservationIgnored private var failedURLs: Set<URL> = []
     @ObservationIgnored private var inFlightURLs: Set<URL> = []
     @ObservationIgnored private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, capacity: Int = 400) {
         self.session = session
+        self.capacity = max(1, capacity)
     }
 
     /// 取一张表情。尚未缓存时发起一次下载，完成后视图会被重新求值。
     func image(for url: URL) -> NSImage? {
-        if let image = images[url] { return image }
-        load(url)
-        return nil
+        guard let image = images[url] else {
+            load(url)
+            return nil
+        }
+        touch(url)
+        return image
+    }
+
+    /// 记一次取用。写的是未被观察的字段，因此不会把正在求值的视图再标脏。
+    private func touch(_ url: URL) {
+        useTick += 1
+        lastUsed[url] = useTick
+    }
+
+    /// 满了只淘汰最久没被取用的那一批。
+    ///
+    /// 原先是整个清空。表情是行内附件，一张就能把一行从 17 点撑到 56 点，所以清空
+    /// 的那一刻，屏幕上每一层的高度都会塌回没有表情的样子，紧接着又要把这些图全部
+    /// 重新下载、再长回去。按取用次序淘汰则只会动到早就不在屏幕上的那些。
+    private func evictLeastRecentlyUsed() {
+        let overflow = images.count - capacity + 1
+        guard overflow > 0 else { return }
+        // 留出余量，免得此后每加载一张都要淘汰一次。
+        let count = min(images.count, overflow + capacity / 10)
+        let victims = images.keys
+            .sorted { (lastUsed[$0] ?? 0) < (lastUsed[$1] ?? 0) }
+            .prefix(count)
+        for url in victims {
+            images.removeValue(forKey: url)
+            lastUsed.removeValue(forKey: url)
+        }
     }
 
     /// 与楼层样式表里的 `.nga-smile{max-width:64px;max-height:64px}` 保持一致。
@@ -59,8 +91,9 @@ final class EmoticonImageStore {
                     failedURLs.insert(url)
                     return
                 }
-                if images.count >= Self.capacity { images.removeAll(keepingCapacity: true) }
+                evictLeastRecentlyUsed()
                 images[url] = Self.capped(image)
+                touch(url)
             } catch {
                 // 表情加载失败只影响这一张，正文其余部分照常显示。
                 failedURLs.insert(url)

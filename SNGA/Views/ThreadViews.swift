@@ -603,10 +603,17 @@ private struct ThreadTitleHeader: View {
     let navigateBack: () -> Void
 
     var body: some View {
-        let title = ThreadTitleText(text: normalizedTitle)
-            .accessibilityLabel(normalizedTitle)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("thread-topic-title")
+        let title = HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if topic.isAnonymous {
+                AnonymousBadge(scale: .medium)
+                    .font(.title2)
+                    .accessibilityIdentifier("thread-topic-anonymous")
+            }
+            ThreadTitleText(text: normalizedTitle)
+                .accessibilityLabel(normalizedTitle)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("thread-topic-title")
+        }
 
         Group {
             if let previousTitle {
@@ -902,25 +909,13 @@ struct PostRow: View {
                         Button {
                             openAuthorProfile(uid: authorUID)
                         } label: {
-                            Text(post.author.isEmpty ? "未知用户" : post.author)
-                                .fontWeight(.semibold)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .frame(
-                                    height: PostAuthorHeaderLayout.rowHeight,
-                                    alignment: .leading
-                                )
+                            authorNameLabel
                         }
                         .buttonStyle(.plain)
                         .help("查看用户信息")
                         .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     } else {
-                        Text(post.author.isEmpty ? "未知用户" : post.author)
-                            .fontWeight(.semibold)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(
-                                height: PostAuthorHeaderLayout.rowHeight,
-                                alignment: .leading
-                            )
+                        authorNameLabel
                             .accessibilityIdentifier("post-author-name-\(post.id.rawValue)")
                     }
                     if let date = post.postedAt {
@@ -963,21 +958,16 @@ struct PostRow: View {
                 }
                 .frame(height: PostAuthorHeaderLayout.rowHeight)
             }
-            PostBodyView(
-                html: post.html,
-                nativeContent: post.nativeContent,
-                cacheKey: contentCacheKey,
-                loadOrder: loadOrder,
-                onOpenInternalLink: { destination in
-                    switch destination {
-                    case let .post(postID, page):
-                        openPost(postID, page)
-                    default:
-                        openInternalLink(destination)
-                    }
-                },
-                onContentReady: onContentReady
-            )
+            if let punishment = post.punishment {
+                PostPunishmentNotice(punishment: punishment) {
+                    postBody
+                }
+                // 折叠状态下 `PostBodyView` 根本没有实例化，页面就绪要在这里汇报，
+                // 否则首楼恰好被折叠时骨架屏只能等超时。
+                .task(id: post.id) { onContentReady() }
+            } else {
+                postBody
+            }
             if let poll = post.poll {
                 TopicPollView(poll: poll)
             }
@@ -994,6 +984,16 @@ struct PostRow: View {
                     .help("发自 \(postDevice.title)")
                     .accessibilityLabel("发自 \(postDevice.title)")
                     .accessibilityIdentifier("post-device-\(post.id.rawValue)")
+                if let latestEdit = post.edits.last {
+                    Label(editLabel(latestEdit), systemImage: "pencil")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        // 改动不止一次时，网页版会把每一条并排列出；这里只显示最近
+                        // 的一条，其余留给悬停。
+                        .help(post.edits.map(editLabel).joined(separator: "\n"))
+                        .accessibilityIdentifier("post-edited-\(post.id.rawValue)")
+                }
                 Spacer()
                 voteButton(direction: .up)
                 voteButton(direction: .down)
@@ -1016,6 +1016,40 @@ struct PostRow: View {
         }
     }
 
+    /// 「2026/08/11 12:38 修改」，被人代改时补上改动者，与网页版的措辞一致。
+    private func editLabel(_ edit: PostEdit) -> String {
+        let time = edit.editedAt.formatted(
+            .dateTime
+                .year()
+                .month(.twoDigits)
+                .day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits)
+        )
+        guard let editorName = edit.editorName, !editorName.isEmpty else {
+            return "\(time) 修改"
+        }
+        return "\(editorName) 于 \(time) 修改"
+    }
+
+    private var postBody: some View {
+        PostBodyView(
+            html: post.html,
+            nativeContent: post.nativeContent,
+            cacheKey: contentCacheKey,
+            loadOrder: loadOrder,
+            onOpenInternalLink: { destination in
+                switch destination {
+                case let .post(postID, page):
+                    openPost(postID, page)
+                default:
+                    openInternalLink(destination)
+                }
+            },
+            onContentReady: onContentReady
+        )
+    }
+
     /// 热点回复区有自己的内边距，同一楼层在两处的排版宽度并不相同，
     /// 因而测得的高度也不同 —— 两者不能共用一份缓存。
     private var contentCacheKey: String {
@@ -1030,6 +1064,19 @@ struct PostRow: View {
 
     private var authorDisplayName: String {
         post.author.isEmpty ? "未知用户" : post.author
+    }
+
+    private var authorNameLabel: some View {
+        HStack(spacing: 4) {
+            Text(authorDisplayName)
+                .fontWeight(.semibold)
+                .fixedSize(horizontal: true, vertical: false)
+            if post.isAnonymous {
+                AnonymousBadge()
+                    .accessibilityIdentifier("post-author-anonymous-\(post.id.rawValue)")
+            }
+        }
+        .frame(height: PostAuthorHeaderLayout.rowHeight, alignment: .leading)
     }
 
     private var authorAvatar: some View {

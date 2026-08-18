@@ -417,16 +417,18 @@ struct NGAParser: Sendable {
             let subject = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !subject.isEmpty else { continue }
             let containerText = try link.parent()?.parent()?.text() ?? subject
+            let rawAuthor = extractAuthor(from: containerText)
             topics.append(Topic(
                 id: TopicID(rawValue: tid),
                 forumID: forumID,
                 subject: subject,
-                author: extractAuthor(from: containerText),
+                author: normalizedUsername(rawAuthor) ?? rawAuthor,
                 replyCount: extractReplyCount(from: containerText),
                 publishedAt: nil,
                 lastReplyAt: nil,
                 isPinned: containerText.contains("置顶"),
-                isLocked: containerText.contains("锁定")
+                isLocked: containerText.contains("锁定"),
+                isAnonymous: isAnonymousUsername(rawAuthor)
             ))
         }
         guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
@@ -602,6 +604,10 @@ struct NGAParser: Sendable {
                 }
             }
             let postValues = postDictionaries(in: root, payload: payload)
+            // 主题元数据缺失时（页面变体），首帖也带着同一份禁言名单。
+            let punishedUIDs = punishedUserIDs(in: topicMetadata).union(
+                postValues.first.map(punishedUserIDs(in:)) ?? []
+            )
             topic.rating = topicMetadata
                 .flatMap(topicVoteValue)
                 .flatMap { topicRating(from: $0, topicID: topicID) }
@@ -615,17 +621,22 @@ struct NGAParser: Sendable {
                     from: dictionary,
                     topicID: topicID,
                     users: users,
-                    topicAuthor: topic.author
+                    topicAuthor: topic.author,
+                    punishedUserIDs: punishedUIDs
                 )
             }
                 .sorted(by: postOrder)
             if !posts.isEmpty {
+                // 话题元数据缺失的页面变体里，匿名身份只能从首帖看出来。
+                topic.isAnonymous = topic.isAnonymous
+                    || posts.first { $0.floor == 0 }?.isAnonymous == true
                 let hotReplies = hotReplyDictionaries(in: payload).compactMap { dictionary in
                     post(
                         from: dictionary,
                         topicID: topicID,
                         users: users,
-                        topicAuthor: topic.author
+                        topicAuthor: topic.author,
+                        punishedUserIDs: punishedUIDs
                     )
                 }
                 let totalPages = threadPageCount(
@@ -654,6 +665,8 @@ struct NGAParser: Sendable {
         let htmlPostMetadata = htmlPostMetadata(in: text)
         let htmlTopicPoll = htmlTopicPoll(in: text, topicID: topicID)
         let htmlRatings = htmlRatings(in: text, topicID: topicID)
+        let punishedUIDs = htmlPunishedUserIDs(in: text)
+        let htmlPostEdits = htmlPostEdits(in: text)
         var posts: [Post] = []
         let rows = try document.select("tr.postrow, .postrow, .post-row")
         if !rows.isEmpty {
@@ -678,9 +691,18 @@ struct NGAParser: Sendable {
                     authorUID: authorUID,
                     avatarURL: user?.avatarURL,
                     authorInfo: user?.authorInfo,
+                    isAnonymous: metadata?.isAnonymous == true
+                        || user?.isAnonymous == true
+                        || isAnonymousUsername(inlineAuthor),
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
+                    edits: htmlPostEdits[floor] ?? [],
+                    punishment: postPunishment(
+                        type: nil,
+                        authorUID: authorUID,
+                        punishedUserIDs: punishedUIDs
+                    ),
                     upvoteCount: metadata?.upvoteCount ?? 0,
                     downvoteCount: metadata?.downvoteCount ?? 0,
                     poll: floor == 0 ? htmlTopicPoll : nil,
@@ -706,6 +728,7 @@ struct NGAParser: Sendable {
                     topicID: topicID,
                     floor: floor,
                     author: normalizedUsername(author) ?? "",
+                    isAnonymous: isAnonymousUsername(author),
                     postedAt: nil,
                     device: .desktop,
                     html: try element.html(),
@@ -725,6 +748,7 @@ struct NGAParser: Sendable {
             replyCount: max(0, posts.map(\.floor).max() ?? 0),
             isPinned: false,
             isLocked: false,
+            isAnonymous: posts.first { $0.floor == 0 }?.isAnonymous ?? false,
             rating: htmlRatings.topicRating
         )
         let linkedPages = try document.select("a[href*='page=']").compactMap { element -> Int? in
@@ -1401,7 +1425,11 @@ struct NGAParser: Sendable {
         \(rendered.additionalStyleSheet)
         </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
         """
-        return SanitizedPost(html: html, nativeContent: nativeContent)
+        return SanitizedPost(
+            html: html,
+            nativeContent: nativeContent,
+            punishment: rendered.punishment
+        )
     }
 
     private func compactedPostSpacing(_ html: String) -> String {
@@ -1436,6 +1464,7 @@ struct NGAParser: Sendable {
     private struct RenderedPostContent {
         let html: String
         let additionalStyleSheet: String
+        let punishment: PostPunishment?
     }
 
     private struct PostStyleRegistry {
@@ -2166,7 +2195,8 @@ struct NGAParser: Sendable {
         topicRating: TopicRating?
     ) -> RenderedPostContent {
         var styleRegistry = PostStyleRegistry(source: source)
-        var output = renderGameCards(in: source, topicRating: topicRating)
+        let lesserNuke = extractingLesserNuke(from: source)
+        var output = renderGameCards(in: lesserNuke.body, topicRating: topicRating)
         output = renderFixedStyleBlocks(in: output, styles: &styleRegistry)
         output = removingStripBreakMarkers(from: output)
 
@@ -2358,13 +2388,7 @@ struct NGAParser: Sendable {
             let body = captures.count > 1 ? captures[1] : ""
             return "<details><summary>\(htmlEscaped(title))</summary>\(body)</details>"
         }
-        output = replacingMatches(
-            in: output,
-            pattern: #"\[quote[^\]]*\](.*?)\[/quote\]"#,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) { captures in
-            "<blockquote>\(captures.first ?? "")</blockquote>"
-        }
+        output = renderQuoteBBCode(output)
         output = renderListBBCode(output)
         output = renderDirectionalBBCode(output)
         output = renderTableBBCode(output)
@@ -2467,8 +2491,38 @@ struct NGAParser: Sendable {
         )
         return RenderedPostContent(
             html: html,
-            additionalStyleSheet: styleRegistry.styleSheet
+            additionalStyleSheet: styleRegistry.styleSheet,
+            punishment: lesserNuke.punishment
         )
+    }
+
+    /// 剥掉整层正文外面的 `[lessernuke]` 包裹，并给出它代表的处罚类型。
+    ///
+    /// 网页版的 `ubbcode.lesserNuke` 只认贴着正文首尾的这对标记
+    /// （`/^\s*\[lessernuke(\d)?\]|\[\/lessernuke(\d)?\]\s*$/`），把整层收进一个
+    /// 默认折叠的提示框；这里照搬同样的锚定规则。正文中间冒出来的同名标记不是
+    /// 包裹（多半来自被引楼层的内联片段），一并抹掉即可，不该漏成可见文字。
+    private func extractingLesserNuke(
+        from source: String
+    ) -> (body: String, punishment: PostPunishment?) {
+        guard source.range(of: "[lessernuke", options: .caseInsensitive) != nil else {
+            return (source, nil)
+        }
+        var punishment: PostPunishment?
+        var body = replacingMatches(
+            in: source,
+            pattern: #"^\s*\[lessernuke(\d)?\]"#,
+            options: [.caseInsensitive]
+        ) { captures in
+            punishment = PostPunishment(lesserNukeMarker: captures.first ?? "")
+            return ""
+        }
+        body = body.replacingOccurrences(
+            of: #"\[/?lessernuke\d?\]"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        return (body, punishment)
     }
 
     private func renderDirectionalBBCode(_ source: String) -> String {
@@ -2495,6 +2549,71 @@ struct NGAParser: Sendable {
             }
         }
         return output
+    }
+
+    /// `[quote]...[/quote]` 转 `<blockquote>`。
+    ///
+    /// 引用是可以套引用的（引用的那层自己也带着上一层的引用），所以不能用
+    /// `\[quote\](.*?)\[/quote\]` 这种非贪婪匹配去配对：它会拿最里面的
+    /// `[/quote]` 去闭合最外面的 `[quote]`，剩下的标记原样漏进正文，读者看到的
+    /// 就是满屏的 `[quote]`。这里按栈配对，只有真正成对的标记才会成块。
+    ///
+    /// 落单的标记（跨页截断、作者手写错）保持字面量，不吞掉任何正文。
+    private func renderQuoteBBCode(_ source: String) -> String {
+        guard let expression = CachedRegularExpressions.shared.expression(
+            pattern: #"\[quote[^\]]*\]|\[/quote\]"#,
+            options: [.caseInsensitive]
+        ) else {
+            return source
+        }
+        let original = source as NSString
+        let matches = expression.matches(
+            in: source,
+            range: NSRange(location: 0, length: original.length)
+        )
+        guard !matches.isEmpty else { return source }
+
+        // 每一层未闭合的引用占一格：`openings` 是它的开标记原文，`levels` 是
+        // 已经收集到的内容。栈底那格是最终输出，没有对应的开标记。
+        var openings: [String] = []
+        var levels: [String] = [""]
+        var cursor = 0
+
+        func appendToCurrentLevel(_ text: String) {
+            levels[levels.count - 1] += text
+        }
+
+        for match in matches {
+            let token = original.substring(with: match.range)
+            appendToCurrentLevel(
+                original.substring(
+                    with: NSRange(location: cursor, length: match.range.location - cursor)
+                )
+            )
+            cursor = match.range.location + match.range.length
+
+            guard token.hasPrefix("[/") else {
+                openings.append(token)
+                levels.append("")
+                continue
+            }
+            guard !openings.isEmpty else {
+                // 没有开标记可配对，这个 `[/quote]` 只是一段普通文字。
+                appendToCurrentLevel(token)
+                continue
+            }
+            openings.removeLast()
+            let quoted = levels.removeLast()
+            appendToCurrentLevel("<blockquote>\(quoted)</blockquote>")
+        }
+        appendToCurrentLevel(original.substring(from: cursor))
+
+        // 还开着的层：把开标记和它收集到的内容原样还回去。
+        while let opening = openings.popLast() {
+            let unclosed = levels.removeLast()
+            appendToCurrentLevel(opening + unclosed)
+        }
+        return levels[0]
     }
 
     private func renderTableBBCode(_ source: String) -> String {
@@ -2788,6 +2907,10 @@ struct NGAParser: Sendable {
         return components?.url
     }
 
+    /// 匿名标记位。话题和楼层的 `type` 共用它，对应网页版 `commonui.PB`
+    /// 里的「匿名 / 不显示发帖人信息」。
+    private static let anonymousTypeBit = 262_144
+
     private func parseTopic(from dictionary: [String: Any], fallbackForumID: ForumID) -> Topic? {
         guard let tid = int64(dictionary["tid"]),
               let rawSubject = string(dictionary["subject"]) else { return nil }
@@ -2796,6 +2919,7 @@ struct NGAParser: Sendable {
         let sourceForum = topicSourceForum(in: dictionary)
         let mirroredForumID = mirroredForumID(in: dictionary)
         let subjectColor = topicSubjectColor(in: dictionary)
+        let type = int(dictionary["type"]) ?? 0
         return Topic(
             id: TopicID(rawValue: tid),
             forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
@@ -2805,9 +2929,12 @@ struct NGAParser: Sendable {
             replyCount: int(dictionary["replies"]) ?? int(dictionary["replyCount"]) ?? 0,
             publishedAt: date(dictionary["postdate"]),
             lastReplyAt: date(dictionary["lastpost"]),
+            // 匿名位不代表置顶：匿名话题在版面里和普通话题排在一起。
             isPinned: mirroredForumID == nil &&
-                ((int(dictionary["type"]) ?? 0) > 0 || bool(dictionary["pinned"])),
+                (type & ~Self.anonymousTypeBit > 0 || bool(dictionary["pinned"])),
             isLocked: bool(dictionary["locked"]) || (int(dictionary["locked"]) ?? 0) > 0,
+            isAnonymous: type & Self.anonymousTypeBit != 0
+                || isAnonymousUsername(string(dictionary["author"])),
             sourceForumID: sourceForum?.id,
             sourceParentForumID: sourceForum?.parentID,
             sourceForumName: sourceForum?.name,
@@ -2968,6 +3095,7 @@ struct NGAParser: Sendable {
         var name: String
         var avatarURL: URL?
         var authorInfo: PostAuthorInfo?
+        var isAnonymous: Bool = false
     }
 
     private struct ForumLevelRule {
@@ -2984,10 +3112,13 @@ struct NGAParser: Sendable {
     private struct HTMLPostMetadata {
         var pid: Int64?
         var authorUID: Int64?
+        var type: Int
         var postedAt: Date?
         var device: PostDevice
         var upvoteCount: Int
         var downvoteCount: Int
+
+        var isAnonymous: Bool { type & NGAParser.anonymousTypeBit != 0 }
     }
 
     private func htmlFloor(in row: Element) throws -> Int? {
@@ -3071,6 +3202,7 @@ struct NGAParser: Sendable {
             result[floor] = HTMLPostMetadata(
                 pid: Int64(normalizedJavaScriptLiteral(arguments[10])),
                 authorUID: Int64(normalizedJavaScriptLiteral(arguments[13])),
+                type: Int(normalizedJavaScriptLiteral(arguments[11])) ?? 0,
                 postedAt: timestamp.flatMap {
                     $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
                 },
@@ -3239,11 +3371,110 @@ struct NGAParser: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 楼层的改动记录。
+    ///
+    /// NGA 把一层的管理与改动记录压在 `alterinfo` 一个字段里，条目之间用制表符或
+    /// 换行分隔，每条形如 `[<类型><空格分隔的字段>]`；网页版的
+    /// `commonui.loadAlterInfo` 按类型分别渲染。这里只取改动记录 `E`，它的字段是
+    /// 「时间戳 改动者UID 标记」——`[E1786423085 0 0]` 就是楼主自己在
+    /// 2026-08-11 12:38 改的。其余类型（禁言 `L`、加分 `A` 等）不在楼层里展示。
+    private func postEdits(in rawValue: String?) -> [PostEdit] {
+        guard let rawValue, !rawValue.isEmpty else { return [] }
+        return rawValue
+            .split(whereSeparator: { $0 == "\t" || $0 == "\n" })
+            .compactMap { entry -> PostEdit? in
+                let trimmed = entry.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix("[E"),
+                      let close = trimmed.firstIndex(of: "]") else {
+                    return nil
+                }
+                let fields = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 2)..<close]
+                    .split(separator: " ")
+                    .map(String.init)
+                // `[E0 …]` 是记录过多时的「更多」占位，本身不是一次改动。
+                guard let timestamp = fields.first.flatMap(TimeInterval.init),
+                      timestamp > 0 else {
+                    return nil
+                }
+                let editorUID = fields.count > 1
+                    ? Int64(fields[1]).flatMap { $0 > 0 ? $0 : nil }
+                    : nil
+                let trailing = fields.dropFirst(2).joined(separator: " ")
+                let editorName: String?
+                if trailing == "#ANONYMOUS#" {
+                    editorName = "匿名用户"
+                } else if editorUID != nil, !trailing.isEmpty, trailing != "0" {
+                    editorName = trailing
+                } else {
+                    editorName = nil
+                }
+                return PostEdit(
+                    editedAt: Date(timeIntervalSince1970: timestamp),
+                    editorUID: editorUID,
+                    editorName: editorName
+                )
+            }
+    }
+
+    /// 网页版把每层的 `alterinfo` 交给 `commonui.loadAlertInfo(记录, 'alertc<楼层>')`。
+    private func htmlPostEdits(in source: String) -> [Int: [PostEdit]] {
+        var result: [Int: [PostEdit]] = [:]
+        for call in javaScriptCallArguments(
+            in: source,
+            marker: "commonui.loadAlertInfo("
+        ) {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count >= 2,
+                  let floor = digits(in: normalizedJavaScriptLiteral(arguments[1]))
+                    .flatMap(Int.init) else {
+                continue
+            }
+            let edits = postEdits(in: normalizedJavaScriptLiteral(arguments[0]))
+            guard !edits.isEmpty else { continue }
+            result[floor, default: []].append(contentsOf: edits)
+        }
+        return result
+    }
+
+    /// 主题里被禁言的用户。他们在本主题的每一层都要挂上「用户在主题中被处罚」。
+    ///
+    /// 网页版把这份名单当作 `commonui.postArg.setDefault` 的第六个参数下发；
+    /// 结构化响应则塞在主题元数据（或首帖）的 `post_misc_var` 的 "16" 字段里，
+    /// 取值是一串逗号分隔的 UID。
+    private func punishedUserIDs(in dictionary: [String: Any]?) -> Set<Int64> {
+        guard let dictionary else { return [] }
+        let raw = (dictionary["post_misc_var"] as? [String: Any])
+            .flatMap { string($0["16"]) }
+            ?? string(dictionary["16"])
+        return raw.map(userIDSet(in:)) ?? []
+    }
+
+    private func htmlPunishedUserIDs(in source: String) -> Set<Int64> {
+        for call in javaScriptCallArguments(
+            in: source,
+            marker: "commonui.postArg.setDefault("
+        ) {
+            let arguments = splitJavaScriptArguments(call)
+            guard arguments.count > 5 else { continue }
+            let ids = userIDSet(in: normalizedJavaScriptLiteral(arguments[5]))
+            if !ids.isEmpty { return ids }
+        }
+        return []
+    }
+
+    private func userIDSet(in rawValue: String) -> Set<Int64> {
+        Set(rawValue.split(whereSeparator: { !$0.isNumber }).compactMap { Int64($0) })
+    }
+
+    /// 楼层 `type` 里的处罚位：置位表示「用户因此帖中的发言被处罚」。
+    private static let punishedPostTypeBit = 2048
+
     private func post(
         from dictionary: [String: Any],
         topicID: TopicID,
         users: [Int64: PostUser],
-        topicAuthor: String = ""
+        topicAuthor: String = "",
+        punishedUserIDs: Set<Int64> = []
     ) -> Post? {
         guard let content = postContent(in: dictionary) else { return nil }
         let rawPID = int64(dictionary["pid"]) ?? int64(dictionary["postid"])
@@ -3255,11 +3486,12 @@ struct NGAParser: Sendable {
             ?? stableID(for: "\(topicID.rawValue):\(floor):\(content)")
         let authorUID = postAuthorID(in: dictionary)
         let user = authorUID.flatMap { users[$0] }
-        let inlineAuthor = [
+        let rawInlineAuthor = [
             "author", "username", "author_name", "authorName"
         ].lazy.compactMap {
-            normalizedUsername(string(dictionary[$0]))
-        }.first
+            string(dictionary[$0])
+        }.first { normalizedUsername($0) != nil }
+        let inlineAuthor = rawInlineAuthor.flatMap(normalizedUsername)
         let author: String
         if let inlineAuthor, !inlineAuthor.isEmpty {
             author = inlineAuthor
@@ -3273,6 +3505,9 @@ struct NGAParser: Sendable {
             author = "未知用户"
         }
         let inlineAvatar = remoteResourceURL(string(dictionary["avatar"]), kind: .avatar)
+        let isAnonymous = (int(dictionary["type"]) ?? 0) & Self.anonymousTypeBit != 0
+            || user?.isAnonymous == true
+            || isAnonymousUsername(rawInlineAuthor)
         let postTopicID = TopicID(rawValue: int64(dictionary["tid"]) ?? topicID.rawValue)
         let rawVote = string(dictionary["vote"])
         let rawDevice = ["from_client", "fromClient", "client", "device"]
@@ -3287,12 +3522,19 @@ struct NGAParser: Sendable {
             authorUID: authorUID,
             avatarURL: inlineAvatar ?? user?.avatarURL,
             authorInfo: user?.authorInfo,
+            isAnonymous: isAnonymous,
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
             device: postDevice(from: rawDevice),
             html: content,
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
             ).map(PostID.init(rawValue:)),
+            edits: postEdits(in: string(dictionary["alterinfo"])),
+            punishment: postPunishment(
+                type: int(dictionary["type"]),
+                authorUID: authorUID,
+                punishedUserIDs: punishedUserIDs
+            ),
             upvoteCount: max(
                 0,
                 int(dictionary["vote_up"])
@@ -3314,6 +3556,22 @@ struct NGAParser: Sendable {
             },
             ratingScores: rawVote.flatMap(postRatingScores) ?? [:]
         )
+    }
+
+    /// 楼层元数据里的处罚标记。优先级与网页版的
+    /// `isNukePost = (type & 2048) ? 1 : (punUsers[aid] ? 2 : 0)` 一致。
+    private func postPunishment(
+        type: Int?,
+        authorUID: Int64?,
+        punishedUserIDs: Set<Int64>
+    ) -> PostPunishment? {
+        if let type, type & Self.punishedPostTypeBit != 0 {
+            return .post
+        }
+        if let authorUID, punishedUserIDs.contains(authorUID) {
+            return .topic
+        }
+        return nil
     }
 
     private func postDevice(from rawValue: String?) -> PostDevice {
@@ -3653,9 +3911,7 @@ struct NGAParser: Sendable {
                 ?? string(dictionary["author"])
                 ?? string(dictionary["1"])
             if let name = normalizedUsername(rawName) {
-                let isAnonymous = rawName.map(plainText)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .hasPrefix("#anony_") == true
+                let isAnonymous = isAnonymousUsername(rawName)
                 let resolvedUID: Int64?
                 if isAnonymous {
                     // Anonymous boards expose post author IDs as -1, -2, ... while
@@ -3694,7 +3950,8 @@ struct NGAParser: Sendable {
                     result[resolvedUID] = PostUser(
                         name: name,
                         avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
-                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil
+                        authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil,
+                        isAnonymous: isAnonymous
                     )
                 }
                 return
@@ -4000,6 +4257,15 @@ struct NGAParser: Sendable {
         let value = plainText(rawValue).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
         return anonymousDisplayName(from: value) ?? value
+    }
+
+    /// NGA 下发的匿名用户名形如 `#anony_<32 位十六进制>`，在展示前会被
+    /// `normalizedUsername` 换成化名；判断匿名身份必须看这一步之前的原值。
+    private func isAnonymousUsername(_ rawValue: String?) -> Bool {
+        guard let rawValue else { return false }
+        return plainText(rawValue)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .hasPrefix("#anony_")
     }
 
     private func anonymousDisplayName(from value: String) -> String? {

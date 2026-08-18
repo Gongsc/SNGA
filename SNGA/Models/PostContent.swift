@@ -4,13 +4,15 @@ import Foundation
 struct SanitizedPost: Hashable, Sendable {
     var html: String
     var nativeContent: PostContent?
+    /// 正文自带的 `[lessernuke]` 包裹所表示的处罚。楼层元数据里的处罚标记不走这条路。
+    var punishment: PostPunishment?
 }
 
 /// 楼层正文的原生表示。
 ///
-/// 绝大多数楼层只是带少量内联样式的文字、表情和引用，用 `WKWebView` 渲染它们
-/// 意味着每层都要付出一个渲染实例的代价。解析阶段能转换成本结构的楼层直接走
-/// SwiftUI 原生渲染；含图片、表格、折叠块、游戏卡片等复杂内容的楼层仍然回退到
+/// 绝大多数楼层只是带少量内联样式的文字、图片、表情和引用，用 `WKWebView` 渲染
+/// 它们意味着每层都要付出一个渲染实例的代价。解析阶段能转换成本结构的楼层直接走
+/// SwiftUI 原生渲染；含表格、折叠块、游戏卡片等复杂内容的楼层仍然回退到
 /// `WKWebView`（此时 `PostContent` 为 nil）。
 ///
 /// 这里刻意不用 `AttributedString` 承载样式：它的 SwiftUI 属性域在编码时会踩坑，
@@ -24,6 +26,28 @@ struct PostContent: Hashable, Codable, Sendable {
 enum PostBlock: Hashable, Codable, Sendable {
     case paragraph(PostParagraph)
     case quote([PostBlock])
+    /// 独占一行的正文配图。表情不走这里，它是段落里的内联片段。
+    case image(PostImage)
+}
+
+/// 正文里的一张远程图片。
+///
+/// 只记地址和（可能有的）原始尺寸；下载、缩码和缓存都是渲染时的事。
+struct PostImage: Hashable, Codable, Sendable {
+    var url: URL
+    var alt: String = ""
+    /// `<img>` 自带的像素尺寸。NGA 的 `[img]` 基本不带，多数情况下要等图片到达
+    /// 才知道该占多高，因此渲染层还会把量到的尺寸按地址记下来备用。
+    var pixelWidth: Int?
+    var pixelHeight: Int?
+    var alignment: PostTextAlignment = .leading
+
+    var aspectRatio: CGFloat? {
+        guard let pixelWidth, let pixelHeight, pixelWidth > 0, pixelHeight > 0 else {
+            return nil
+        }
+        return CGFloat(pixelWidth) / CGFloat(pixelHeight)
+    }
 }
 
 struct PostParagraph: Hashable, Codable, Sendable {

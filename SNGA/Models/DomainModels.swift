@@ -69,6 +69,8 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var lastReplyAt: Date? = nil
     var isPinned: Bool = false
     var isLocked: Bool = false
+    /// 匿名话题：NGA 不公开楼主身份，只按话题给出一个固定的化名。
+    var isAnonymous: Bool = false
     var sourceForumID: ForumID? = nil
     var sourceParentForumID: ForumID? = nil
     var sourceForumName: String? = nil
@@ -136,17 +138,64 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var authorUID: Int64? = nil
     var avatarURL: URL? = nil
     var authorInfo: PostAuthorInfo? = nil
+    /// 匿名楼层：作者只有化名，没有可以打开的用户资料。
+    var isAnonymous: Bool = false
     var postedAt: Date? = nil
     var device: PostDevice? = nil
     var html: String
     /// 可原生渲染的正文结构。为 nil 表示该层含图片、表格等复杂内容，需要 `WKWebView`。
     var nativeContent: PostContent? = nil
     var quotedPostID: PostID? = nil
+    /// 该层发出之后的改动记录，按 NGA 下发的先后顺序排列。
+    var edits: [PostEdit] = []
+    /// 该层被管理操作折叠的原因。为 nil 表示正常楼层。
+    var punishment: PostPunishment? = nil
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0
     var userVote: PostVoteDirection? = nil
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
+}
+
+/// 楼层的一次改动，对应网页版楼层末尾「改动」栏里的一条「在 … 修改」。
+///
+/// 来自 `alterinfo` 里的 `E` 条目。同一层可以有多条：每改一次追加一条。
+struct PostEdit: Hashable, Codable, Sendable {
+    var editedAt: Date
+    /// 代为改动的人。楼主改自己的楼层时两者都为 nil，网页版此时也只写时间。
+    var editorUID: Int64? = nil
+    var editorName: String? = nil
+}
+
+/// 楼层被管理操作折叠的原因，对应网页版的 `lessernuke` 提示条。
+///
+/// NGA 不删除这类楼层，而是把正文收进一个带提示的框里默认折叠，读者点一下才展开。
+/// 三种提示语和 `js_bbscode_core.js` 里的 `ubbcode.lesserNuke` 一一对应。
+enum PostPunishment: String, Hashable, Codable, Sendable, CaseIterable {
+    /// 用户因此帖中的发言被处罚。来自楼层 `type` 的处罚位，或 `[lessernuke]` / `[lessernuke1]`。
+    case post
+    /// 用户在主题中被处罚。来自主题的禁言名单，或 `[lessernuke2]`。
+    case topic
+    /// 被锁定账号发布的内容无法查看。来自 `[lessernuke3]`。
+    case lockedAccount
+
+    /// `[lessernuke2]` 里的那个数字。缺省和未知取值都按最普通的处罚处理，
+    /// 与网页版把 `[lessernuke]` 当作 `1` 的做法一致。
+    init(lesserNukeMarker marker: String) {
+        switch marker {
+        case "2": self = .topic
+        case "3": self = .lockedAccount
+        default: self = .post
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .post: "用户因此帖中的发言被处罚"
+        case .topic: "用户在主题中被处罚"
+        case .lockedAccount: "被锁定账号发布的内容无法查看"
+        }
+    }
 }
 
 struct ThreadPage: Hashable, Codable, Sendable {

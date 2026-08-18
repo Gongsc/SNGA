@@ -762,6 +762,180 @@ final class NGAParserTests: XCTestCase {
         XCTAssertEqual(thread.totalPages, 2)
     }
 
+    func testMarksEveryFloorOfAUserPunishedInTheTopic() throws {
+        // 脱敏自 NGA tid=47336184：主题里被禁言的用户写在 post_misc_var 的 "16" 里，
+        // 网页版据此把这些用户在本主题的每一层都收进「用户在主题中被处罚」提示框。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47336184,
+              "fid": -81981,
+              "subject": "处罚名单测试",
+              "authorid": 100,
+              "author": "楼主用户",
+              "replies": 3,
+              "post_misc_var": {"16": "300", "17": ",901,902"}
+            },
+            "__U": {
+              "100": {"uid": 100, "username": "楼主用户"},
+              "200": {"uid": 200, "username": "正常用户"},
+              "300": {"uid": 300, "username": "被禁言用户"}
+            },
+            "__R": [
+              {"pid": 0, "tid": 47336184, "lou": 0, "authorid": 100, "content": "主题首帖"},
+              {"pid": 901, "tid": 47336184, "lou": 1, "authorid": 200, "content": "正常一楼"},
+              {"pid": 902, "tid": 47336184, "lou": 2, "authorid": 300, "content": "被处罚的二楼"},
+              {"pid": 903, "tid": 47336184, "lou": 3, "authorid": 300, "content": "被处罚的三楼"},
+              {"pid": 904, "tid": 47336184, "lou": 4, "authorid": 200, "type": 2048, "content": "此帖发言被处罚"}
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(
+            thread.posts.map(\.punishment),
+            [nil, nil, .topic, .topic, .post]
+        )
+    }
+
+    func testReadsTopicPunishmentListFromLegacyThreadHTML() throws {
+        let page = """
+        <html><body>
+        <script>
+        commonui.postArg.setDefault(-81981,0,47336184,100,0,"300,400","",",1392665,",'',null,4096,2,1786456990,20)
+        </script>
+        <table><tr id='post1strow1' class='postrow'>
+        <td><a name='l1'></a><span id='postcontent1' class='postcontent'>正常一楼</span></td>
+        </tr></table>
+        <table><tr id='post1strow2' class='postrow'>
+        <td><a name='l2'></a><span id='postcontent2' class='postcontent'>被处罚的二楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc(1,null,null,null,null,null,null,null,null,null,901,0,null,'200',1786415608,'0,0,0','80','','','8 Android','',null,0)
+        commonui.postArg.proc(2,null,null,null,null,null,null,null,null,null,902,0,null,'300',1786415708,'0,0,0','80','','','8 Android','',null,0)
+        </script>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(page, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.floor), [1, 2])
+        XCTAssertEqual(thread.posts.map(\.punishment), [nil, .topic])
+    }
+
+    func testParsesFloorEditRecordsFromAlterInfo() throws {
+        // 脱敏自 NGA tid=47336184 的 #45：改动记录压在 alterinfo 里，
+        // `[E<时间戳> <改动者UID> <标记>]`，制表符分隔。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47336184,
+              "fid": -81981,
+              "subject": "改动记录测试",
+              "authorid": 100,
+              "author": "楼主用户",
+              "replies": 4
+            },
+            "__R": [
+              {"pid": 0, "tid": 47336184, "lou": 0, "authorid": 100, "content": "主题首帖", "alterinfo": ""},
+              {"pid": 901, "tid": 47336184, "lou": 1, "authorid": 200, "content": "自己改过", "alterinfo": "[E1786423085 0 0]\\t"},
+              {"pid": 902, "tid": 47336184, "lou": 2, "authorid": 200, "content": "被版主改过", "alterinfo": "[E1786423085 300 版主甲]\\t"},
+              {"pid": 903, "tid": 47336184, "lou": 3, "authorid": 200, "content": "改过两次", "alterinfo": "[E1786423085 0 0]\\t[E1786430359 0 0]\\t"},
+              {"pid": 904, "tid": 47336184, "lou": 4, "authorid": 200, "content": "只有占位", "alterinfo": "[E0 0 0]\\t"}
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+        let edits = thread.posts.map(\.edits)
+
+        XCTAssertEqual(edits.map(\.count), [0, 1, 1, 2, 0])
+        XCTAssertEqual(
+            edits[1].first,
+            PostEdit(editedAt: Date(timeIntervalSince1970: 1_786_423_085))
+        )
+        XCTAssertEqual(
+            edits[2].first,
+            PostEdit(
+                editedAt: Date(timeIntervalSince1970: 1_786_423_085),
+                editorUID: 300,
+                editorName: "版主甲"
+            )
+        )
+        XCTAssertEqual(
+            edits[3].map(\.editedAt),
+            [
+                Date(timeIntervalSince1970: 1_786_423_085),
+                Date(timeIntervalSince1970: 1_786_430_359)
+            ]
+        )
+    }
+
+    func testReadsFloorEditRecordsFromLegacyThreadHTML() throws {
+        let page = """
+        <html><body>
+        <table><tr id='post1strow45' class='postrow'>
+        <td><a name='l45'></a><span id='postcontent45' class='postcontent'>改过的四十五楼</span>
+        <h4 class='silver subtitle postbodysubtitle'>改动</h4><span id='alertc45'></span>
+        <script>commonui.loadAlertInfo('[E1786423085 0 0]\t','alertc45')</script>
+        </td>
+        </tr></table>
+        <table><tr id='post1strow47' class='postrow'>
+        <td><a name='l47'></a><span id='postcontent47' class='postcontent'>没改过的四十七楼</span></td>
+        </tr></table>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(page, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_336_184),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.floor), [45, 47])
+        XCTAssertEqual(
+            thread.posts.map(\.edits),
+            [[PostEdit(editedAt: Date(timeIntervalSince1970: 1_786_423_085))], []]
+        )
+    }
+
+    func testStripsLesserNukeWrapperAndReportsItsPunishment() {
+        let topic = parser.sanitizedPost("[lessernuke2]被折叠的正文[/lessernuke2]")
+        let post = parser.sanitizedPost("[lessernuke]被折叠的正文[/lessernuke]")
+        let locked = parser.sanitizedPost("[lessernuke3]被折叠的正文[/lessernuke3]")
+        let plain = parser.sanitizedPost("普通正文")
+        // 包裹只认贴着首尾的标记；中间冒出来的（多半来自内联的被引楼层）不成包裹，
+        // 但也不该漏成可见文字。
+        let inlined = parser.sanitizedPost("引用：[lessernuke2]别人的正文[/lessernuke2] 我的回复")
+
+        XCTAssertEqual(topic.punishment, .topic)
+        XCTAssertEqual(post.punishment, .post)
+        XCTAssertEqual(locked.punishment, .lockedAccount)
+        XCTAssertNil(plain.punishment)
+        XCTAssertNil(inlined.punishment)
+        for sanitized in [topic, post, locked, inlined] {
+            XCTAssertFalse(sanitized.html.localizedCaseInsensitiveContains("lessernuke"))
+            XCTAssertTrue(sanitized.html.contains("正文"))
+        }
+    }
+
     func testThreadPaginationUsesFilteredResponseRowCount() throws {
         let payload = """
         {
@@ -951,6 +1125,177 @@ final class NGAParserTests: XCTestCase {
         )
 
         XCTAssertEqual(thread.posts.map(\.author), ["甲王王甲王王", "乙何何乙何何"])
+    }
+
+    func testMarksAnonymousTopicAndFloorFromTypeBit() throws {
+        // 取自 tid=47374088：楼主匿名、回复实名。主题和首帖的 type 都带
+        // 匿名位 262144，首帖还叠着 33554432（无图模式），必须按位判断。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47374088,
+              "fid": 1459709,
+              "subject": "忘记给承包商跑结算流程了，影响很大吗？",
+              "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+              "authorid": -1,
+              "type": 262144,
+              "replies": 1
+            },
+            "__U": {
+              "-1": {
+                "uid": 0,
+                "username": "#anony_7eddd4b929ce50fb28af04f42b520952"
+              },
+              "36154522": {
+                "uid": 36154522,
+                "username": "实名回复的人"
+              }
+            },
+            "__R": [
+              {
+                "pid": 0,
+                "tid": 47374088,
+                "lou": 0,
+                "authorid": -1,
+                "type": 33816576,
+                "content": "主楼"
+              },
+              {
+                "pid": 878481149,
+                "tid": 47374088,
+                "lou": 1,
+                "authorid": 36154522,
+                "type": 0,
+                "content": "一楼"
+              }
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertTrue(thread.topic.isAnonymous)
+        // 匿名位不是置顶位：匿名主题在版面里和普通主题排在一起。
+        XCTAssertFalse(thread.topic.isPinned)
+        XCTAssertEqual(thread.topic.author, "辛巫臧丑梅苗")
+        XCTAssertEqual(thread.posts.map(\.author), ["辛巫臧丑梅苗", "实名回复的人"])
+        XCTAssertEqual(thread.posts.map(\.isAnonymous), [true, false])
+    }
+
+    func testMarksAnonymousTopicWhoseMetadataOnlyCarriesTheAnonymousName() throws {
+        // 页面变体不下发 type 时，`#anony_` 前缀是唯一的线索。
+        let payload = """
+        {
+          "data": {
+            "__T": {
+              "tid": 47374088,
+              "fid": 1459709,
+              "subject": "只有匿名用户名的主题",
+              "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+              "replies": 0
+            },
+            "__R": [
+              {
+                "pid": 0,
+                "tid": 47374088,
+                "lou": 0,
+                "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+                "content": "主楼"
+              }
+            ]
+          }
+        }
+        """
+
+        let thread = try parser.threadPage(
+            from: response(payload),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertTrue(thread.topic.isAnonymous)
+        XCTAssertFalse(thread.topic.isPinned)
+        XCTAssertEqual(thread.posts.first?.isAnonymous, true)
+        XCTAssertEqual(thread.posts.first?.author, "辛巫臧丑梅苗")
+    }
+
+    func testMarksAnonymousTopicInForumListWithoutTreatingItAsPinned() throws {
+        let payload = """
+        {
+          "data": {
+            "__F": {"fid": 1459709, "name": "职场人生"},
+            "__T": [
+              {
+                "tid": 43936501,
+                "fid": 1459709,
+                "subject": "版规",
+                "author": "版主",
+                "type": 64,
+                "replies": 766
+              },
+              {
+                "tid": 47374088,
+                "fid": 1459709,
+                "subject": "忘记给承包商跑结算流程了，影响很大吗？",
+                "author": "#anony_7eddd4b929ce50fb28af04f42b520952",
+                "type": 262144,
+                "replies": 5
+              }
+            ]
+          }
+        }
+        """
+
+        let page = try parser.forumPage(
+            from: response(payload),
+            forumID: ForumID(rawValue: 1_459_709),
+            page: 1
+        )
+
+        XCTAssertEqual(page.topics.map(\.isAnonymous), [false, true])
+        XCTAssertEqual(page.topics.map(\.isPinned), [true, false])
+        XCTAssertEqual(page.topics.last?.author, "辛巫臧丑梅苗")
+    }
+
+    func testMarksAnonymousFloorFromHTMLPostArguments() throws {
+        let html = """
+        <html><head><title>匿名主题 - NGA玩家社区</title></head><body>
+        <script>
+        commonui.userInfo.setAll({"-1":{"uid":0,"username":"#anony_7eddd4b929ce50fb28af04f42b520952"},
+        "36154522":{"uid":36154522,"username":"实名回复的人"}})
+        </script>
+        <table><tr class="postrow" id="post1strow0">
+        <td><a name="l0"></a><span id="postcontent0" class="postcontent">主楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc( 0,null,null,null,null,null,null,null,
+        null,null,0,33816576,null,'-1',1786720671,'0,0,0','166','','','8 Android','',null,0 )
+        </script>
+        <table><tr class="postrow" id="post1strow1">
+        <td><a name="l1"></a><span id="postcontent1" class="postcontent">一楼</span></td>
+        </tr></table>
+        <script>
+        commonui.postArg.proc( 1,null,null,null,null,null,null,null,
+        null,null,878481149,0,null,'36154522',1786721847,'0,7,0','12','','','8 Android','',null,0 )
+        </script>
+        </body></html>
+        """
+
+        let thread = try parser.threadPage(
+            from: response(html, contentType: "text/html; charset=utf-8"),
+            topicID: TopicID(rawValue: 47_374_088),
+            page: 1
+        )
+
+        XCTAssertEqual(thread.posts.map(\.isAnonymous), [true, false])
+        XCTAssertEqual(thread.posts.map(\.author), ["辛巫臧丑梅苗", "实名回复的人"])
+        XCTAssertTrue(thread.topic.isAnonymous)
     }
 
     func testParsesSubforumsAndMarksTopicsWithTheirSource() throws {
@@ -1578,6 +1923,37 @@ final class NGAParserTests: XCTestCase {
         XCTAssertFalse(html.contains("[color="))
         XCTAssertFalse(html.contains("[size="))
         XCTAssertFalse(html.contains("[align="))
+    }
+
+    /// 引用可以套引用（引用的那层自己也带着引用）。非贪婪的正则会拿最内层的
+    /// `[/quote]` 去闭合最外层的 `[quote]`，剩下的标记就以字面量漏进正文。
+    func testNestedQuotesBecomeNestedBlockquotes() {
+        let html = parser.sanitizedPostHTML(
+            "[quote]外层开头[quote]最里面的话[/quote]外层结尾[/quote]我的回复"
+        )
+
+        XCTAssertFalse(html.contains("[quote]"), "不应有残留的引用标记")
+        XCTAssertFalse(html.contains("[/quote]"), "不应有残留的引用标记")
+        // SwiftSoup 序列化时会在块级标签之间补缩进，比较前先去掉空白。
+        let compact = html.filter { !$0.isWhitespace }
+        XCTAssertTrue(
+            compact.contains(
+                "<blockquote>外层开头<blockquote>最里面的话</blockquote>外层结尾</blockquote>"
+            ),
+            "内层引用应当嵌在外层引用里"
+        )
+        XCTAssertTrue(compact.contains("</blockquote>我的回复"))
+    }
+
+    /// 没有配对的标记不能吞掉正文 —— 宁可把标记本身当字面量留下。
+    func testUnbalancedQuoteMarkersKeepTheirText() {
+        let unopened = parser.sanitizedPostHTML("正文在前[/quote]正文在后")
+        XCTAssertTrue(unopened.contains("正文在前"))
+        XCTAssertTrue(unopened.contains("正文在后"))
+
+        let unclosed = parser.sanitizedPostHTML("[quote]被引用的话\n还有下一行")
+        XCTAssertTrue(unclosed.contains("被引用的话"))
+        XCTAssertTrue(unclosed.contains("还有下一行"))
     }
 
     func testCompactsRedundantSpacingAroundQuotedReplies() {
