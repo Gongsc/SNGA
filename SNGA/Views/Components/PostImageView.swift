@@ -232,6 +232,14 @@ struct PostImageView: View {
                 .onTapGesture { model.previewImageURL = image.url }
                 .pointerStyle(.link)
                 .help("点击查看大图")
+                // 复制、另存为这些操作不该等到点开大图才有，正文里右键就能用，
+                // 项目和文案与大图预览里的那份完全一致。
+                .contextMenu {
+                    PostImageContextMenu(
+                        url: image.url,
+                        onError: { model.imageActionError = $0 }
+                    )
+                }
         } else if didFail {
             placeholder(
                 title: "图片加载失败 · 点击重试",

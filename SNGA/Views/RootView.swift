@@ -68,6 +68,14 @@ struct RootView: View {
         } message: {
             Text(model.session.errorMessage ?? "")
         }
+        .alert("图片操作失败", isPresented: Binding(
+            get: { model.imageActionError != nil },
+            set: { if !$0 { model.imageActionError = nil } }
+        )) {
+            Button("好", role: .cancel) { model.imageActionError = nil }
+        } message: {
+            Text(model.imageActionError ?? "")
+        }
         .task {
             await model.bootstrap()
             while !Task.isCancelled {
@@ -101,9 +109,11 @@ struct RootView: View {
         }
         .overlay {
             if let imageURL = model.previewImageURL {
-                WindowImagePreview(url: imageURL) {
-                    model.previewImageURL = nil
-                }
+                WindowImagePreview(
+                    url: imageURL,
+                    onError: { model.imageActionError = $0 },
+                    dismiss: { model.previewImageURL = nil }
+                )
                 .ignoresSafeArea(.container, edges: .top)
                 .zIndex(100)
             }
@@ -143,11 +153,11 @@ struct RootView: View {
 
 private struct WindowImagePreview: View {
     let url: URL
+    let onError: @MainActor (String) -> Void
     let dismiss: () -> Void
     @State private var image: NSImage?
     @State private var imageData: Data?
     @State private var didFail = false
-    @State private var imageActionError: String?
     @State private var zoomScale: CGFloat = 1
     @State private var magnificationStartScale: CGFloat = 1
 
@@ -185,19 +195,12 @@ private struct WindowImagePreview: View {
                                     }
                             )
                             .contextMenu {
-                                Button("复制图片", systemImage: "doc.on.doc") {
-                                    copyImage()
-                                }
-                                Button("复制图片地址", systemImage: "link") {
-                                    copyImageAddress()
-                                }
-                                Divider()
-                                Button("图片另存为…", systemImage: "square.and.arrow.down") {
-                                    saveImage()
-                                }
-                                Button("在默认浏览器中打开", systemImage: "safari") {
-                                    openInBrowser()
-                                }
+                                PostImageContextMenu(
+                                    url: url,
+                                    image: image,
+                                    data: imageData,
+                                    onError: onError
+                                )
                             }
                     } else if didFail {
                         ContentUnavailableView {
@@ -248,16 +251,6 @@ private struct WindowImagePreview: View {
         .onExitCommand(perform: dismiss)
         .accessibilityLabel("图片预览")
         .accessibilityValue("缩放 \(Int((zoomScale * 100).rounded()))%")
-        .alert(
-            "图片操作失败",
-            isPresented: Binding(
-                get: { imageActionError != nil },
-                set: { if !$0 { imageActionError = nil } }
-            )
-        ) {
-        } message: {
-            Text(imageActionError ?? "")
-        }
     }
 
     private func loadImage() async {
@@ -282,41 +275,9 @@ private struct WindowImagePreview: View {
         }
     }
 
-    private func copyImage() {
-        guard let image else { return }
-        NSPasteboard.general.clearContents()
-        guard NSPasteboard.general.writeObjects([image]) else {
-            imageActionError = "系统剪贴板暂时无法写入图片。"
-            return
-        }
-    }
-
-    private func copyImageAddress() {
-        NSPasteboard.general.clearContents()
-        guard NSPasteboard.general.setString(url.absoluteString, forType: .string) else {
-            imageActionError = "系统剪贴板暂时无法写入图片地址。"
-            return
-        }
-    }
-
-    private func saveImage() {
-        guard let imageData else { return }
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = suggestedFilename
-        panel.canCreateDirectories = true
-        panel.begin { response in
-            guard response == .OK, let destination = panel.url else { return }
-            do {
-                try imageData.write(to: destination, options: .atomic)
-            } catch {
-                imageActionError = error.localizedDescription
-            }
-        }
-    }
-
     private func openInBrowser() {
         guard NSWorkspace.shared.open(url) else {
-            imageActionError = "无法在默认浏览器中打开图片。"
+            onError("无法在默认浏览器中打开图片。")
             return
         }
     }
@@ -329,11 +290,6 @@ private struct WindowImagePreview: View {
 
     private func clampedZoom(_ proposedScale: CGFloat) -> CGFloat {
         min(max(proposedScale, 0.25), 5)
-    }
-
-    private var suggestedFilename: String {
-        let filename = url.lastPathComponent.removingPercentEncoding ?? url.lastPathComponent
-        return filename.isEmpty ? "NGA图片.png" : filename
     }
 }
 
