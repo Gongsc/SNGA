@@ -289,7 +289,7 @@ private struct SidebarInteractiveRow<Content: View>: View {
             return theme.accentColor.opacity(0.18)
         }
         if isHovered {
-            return Color.primary.opacity(0.08)
+            return theme.hoverFillColor
         }
         return .clear
     }

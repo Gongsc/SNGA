@@ -640,7 +640,7 @@ private struct ThreadTitleHeader: View {
         .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.5))
+                .stroke(theme.separatorColor)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -819,7 +819,7 @@ struct PostRow: View {
                 HStack(spacing: 8) {
                     Text(floorLabel)
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(isHotReply ? theme.accentColor : Color.secondary)
+                        .foregroundStyle(isHotReply ? theme.hotReplyColor : theme.secondaryForegroundColor)
                     Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
@@ -874,8 +874,8 @@ struct PostRow: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
                     isHotReply
-                        ? theme.accentColor.opacity(0.5)
-                        : Color(nsColor: .separatorColor).opacity(0.5)
+                        ? theme.hotReplyColor.opacity(0.55)
+                        : theme.separatorColor
                 )
         }
         .task(id: authorUID) {
@@ -983,7 +983,7 @@ struct PostRow: View {
 
     private var rowBackground: Color {
         isHotReply
-            ? theme.accentColor.opacity(0.11)
+            ? theme.hotReplyColor.opacity(0.11)
             : theme.surfaceColor
     }
 

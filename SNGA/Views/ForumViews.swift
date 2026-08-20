@@ -423,6 +423,7 @@ private struct ReputationMetric: View {
 }
 
 private struct UserActivityRow: View {
+    @Environment(\.sngaTheme) private var theme
     let activity: UserActivity
     @State private var isHovered = false
 
@@ -469,7 +470,7 @@ private struct UserActivityRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .background(
-            isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035),
+            isHovered ? theme.hoverFillColor : theme.fillColor,
             in: RoundedRectangle(cornerRadius: 10)
         )
         .onHover { isHovered = $0 }
@@ -605,7 +606,7 @@ struct ForumDirectoryView: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+                .stroke(theme.controlBorderColor, lineWidth: 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -1582,6 +1583,7 @@ private struct ForumTitleBackButton: View {
 
 private struct SubforumTile: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let forum: Forum
     let isIncluded: Bool
     @State private var isHovered = false
@@ -1635,7 +1637,7 @@ private struct SubforumTile: View {
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035))
+                .fill(isHovered ? theme.hoverFillColor : theme.fillColor)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1672,7 +1674,7 @@ struct TopicInteractiveRow: View {
             return theme.accentColor.opacity(0.18)
         }
         if isHovered {
-            return Color.primary.opacity(0.08)
+            return theme.hoverFillColor
         }
         return .clear
     }
@@ -1693,7 +1695,7 @@ private struct TopicRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .foregroundStyle(theme.accentColor)
-                        .background(theme.accentColor.opacity(0.12), in: Capsule())
+                        .background(theme.accentSoftColor, in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
                         .font(.caption2.weight(.medium))
@@ -1701,7 +1703,7 @@ private struct TopicRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .foregroundStyle(theme.accentColor)
-                        .background(theme.accentColor.opacity(0.12), in: Capsule())
+                        .background(theme.accentSoftColor, in: Capsule())
                 }
                 if topic.isAnonymous {
                     AnonymousBadge()

@@ -248,7 +248,7 @@ struct PostImageView: View {
             )
         } else {
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(0.06))
+                .fill(theme.fillColor)
                 .frame(width: max(displayWidth, 1), height: reservedHeight)
                 .accessibilityLabel("图片加载中")
         }

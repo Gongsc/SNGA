@@ -122,7 +122,7 @@ struct ResolvedAppTheme: Equatable, Sendable {
         case .system: nil
         case .light, .ngaClassic: .light
         case .dark, .midnight: .dark
-        case .custom: backgroundRGB.isDark ? .dark : .light
+        case .custom: customBackgroundRGB.isDark ? .dark : .light
         }
     }
 
@@ -132,23 +132,57 @@ struct ResolvedAppTheme: Equatable, Sendable {
     }
 
     var backgroundColor: Color {
-        if selection == .system {
-            return Color(nsColor: .windowBackgroundColor)
-        }
-        return backgroundRGB.color
+        palette.map(\.background.color) ?? Color(nsColor: .windowBackgroundColor)
     }
 
     var surfaceColor: Color {
-        if selection == .system {
-            return Color(nsColor: .controlBackgroundColor)
-        }
-        let target = backgroundRGB.isDark ? ThemeRGB.white : ThemeRGB.black
-        return backgroundRGB.mixed(with: target, amount: backgroundRGB.isDark ? 0.07 : 0.045).color
+        palette.map(\.surface.color) ?? Color(nsColor: .controlBackgroundColor)
+    }
+
+    /// 抬起的表面：卡片悬停、需要再高一层的容器。
+    var elevatedSurfaceColor: Color {
+        palette.map(\.elevatedSurface.color) ?? Color(nsColor: .underPageBackgroundColor)
+    }
+
+    /// 直接铺在窗口上的块（磁贴、边栏行）的底色。
+    var fillColor: Color {
+        palette.map(\.fill.color) ?? Color.primary.opacity(0.035)
+    }
+
+    var hoverFillColor: Color {
+        palette.map(\.hoverFill.color) ?? Color.primary.opacity(0.08)
+    }
+
+    /// 分隔线、卡片描边。
+    var separatorColor: Color {
+        palette.map(\.separator.color) ?? Color(nsColor: .separatorColor)
+    }
+
+    /// 控件描边（搜索框这类）。WCAG 要求控件边界对相邻颜色 3:1。
+    var controlBorderColor: Color {
+        palette.map(\.controlBorder.color) ?? Color(nsColor: .tertiaryLabelColor)
     }
 
     var foregroundColor: Color {
-        if selection == .system { return .primary }
-        return backgroundRGB.isDark ? .white : .black
+        palette.map(\.primaryText.color) ?? .primary
+    }
+
+    var secondaryForegroundColor: Color {
+        palette.map(\.secondaryText.color) ?? .secondary
+    }
+
+    var tertiaryForegroundColor: Color {
+        palette.map(\.tertiaryText.color) ?? Color(nsColor: .tertiaryLabelColor)
+    }
+
+    /// 强调色的淡底：胶囊标签、选中行这类需要「有强调色但不能盖住文字」的地方。
+    var accentSoftColor: Color {
+        accentColor.opacity(0.12)
+    }
+
+    /// 热门回复的标记色。原先直接借强调色，和链接、选中行抢同一个信号。
+    var hotReplyColor: Color {
+        palette.map(\.hotReply.color) ?? Color(nsColor: .systemOrange)
     }
 
     /// 铺满强调色的底上应该用什么颜色写字。
@@ -213,19 +247,30 @@ struct ResolvedAppTheme: Equatable, Sendable {
             )
     }
 
-    private var backgroundRGB: ThemeRGB {
+    /// 跟随系统没有自己的调色板 —— 那一套要的就是 AppKit 的动态语义色，
+    /// 写死任何一组十六进制值都会让它不再跟着 macOS 明暗切换。
+    var palette: ThemePalette? {
         switch selection {
-        case .system: ThemeRGB(red: 0.95, green: 0.95, blue: 0.95)
-        case .light: ThemeRGB(red: 0.97, green: 0.97, blue: 0.97)
-        case .dark: ThemeRGB(red: 0.12, green: 0.12, blue: 0.14)
-        case .ngaClassic: ThemeRGB(red: 0.98, green: 0.93, blue: 0.78)
-        case .midnight: ThemeRGB(red: 0.055, green: 0.09, blue: 0.15)
-        case .custom:
-            ThemeRGB(
-                hex: customBackgroundHex,
-                fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
-            )!
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        case .ngaClassic: .ngaClassic
+        case .midnight: .midnight
+        case .custom: .custom(background: customBackgroundRGB, accent: accentRGB)
         }
+    }
+
+    private var customBackgroundRGB: ThemeRGB {
+        ThemeRGB(
+            hex: customBackgroundHex,
+            fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
+        )!
+    }
+
+    /// 网页侧要的是十六进制，跟随系统时按浅色算 —— 那条路径下真正生效的是
+    /// `color-scheme:light dark`，这个值只作兜底。
+    private var backgroundRGB: ThemeRGB {
+        palette?.background ?? ThemeRGB(red: 0.95, green: 0.95, blue: 0.95)
     }
 
     /// 竖线朝背景的反方向推，浅色主题推得多一些 —— 同样的混合比例下，
