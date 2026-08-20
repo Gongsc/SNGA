@@ -43,25 +43,118 @@ private struct PostBlockListView: View {
     }
 
     private func quote(_ nested: [PostBlock]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let split = QuoteAttribution.split(nested)
+        return VStack(alignment: .leading, spacing: 6) {
+            if let attribution = split.attribution {
+                PostParagraphView(
+                    paragraph: attribution,
+                    emphasis: .quoteAttribution,
+                    onOpenLink: onOpenLink
+                )
+            }
             PostBlockListView(
-                blocks: nested,
+                blocks: split.body,
                 imageFreeMode: imageFreeMode,
                 onOpenLink: onOpenLink
             )
         }
-        .padding(.vertical, 6)
-        .padding(.leading, 10)
-        .padding(.trailing, 8)
+        .padding(.vertical, 7)
+        .padding(.leading, 11)
+        .padding(.trailing, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.07))
+        .background(theme.quoteBackgroundColor)
+        // 圆角只给右边：左边整条留给竖线，跟着圆下去会把它削成一段弧。
+        .clipShape(.rect(bottomTrailingRadius: 6, topTrailingRadius: 6))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(theme.accentColor)
+                .fill(theme.quoteRailColor)
                 .frame(width: 3)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        // 楼层里块与块之间是 6 点，引用上下各补一点，和网页版的
+        // `margin:8px 0 12px` 对齐 —— 下方留得多一些，引用才不会和
+        // 紧跟其后的回复正文黏成一段。
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
+}
+
+/// 引用块的抬头与被引正文。
+///
+/// NGA 的引用抬头 —— 真 `[quote]` 自带的，和 `PostQuoteExpander` 展开出来的，
+/// 形状一样 —— 是段首一串加粗片段，中间必有一个指向被引楼层的 `[pid]` 回链，
+/// 被引正文以空行跟在同一个段落里。切开之后抬头才能压成次级样式；切不出来
+/// （作者自己写的粗体开头，或者引用里压根没有抬头）就原样渲染。
+enum QuoteAttribution {
+    struct Split {
+        var attribution: PostParagraph?
+        var body: [PostBlock]
+    }
+
+    static func split(_ blocks: [PostBlock]) -> Split {
+        guard case let .paragraph(first)? = blocks.first else {
+            return Split(attribution: nil, body: blocks)
+        }
+
+        var heading: [PostSegment] = []
+        var remainder: [PostSegment] = []
+        var reachedBody = false
+        for segment in first.segments {
+            if !reachedBody, case let .text(_, style) = segment, style.isBold {
+                heading.append(segment)
+                continue
+            }
+            reachedBody = true
+            remainder.append(segment)
+        }
+
+        // 回链是抬头唯一可靠的标志。没有它的加粗开头只是作者写的粗体，
+        // 压成小字会把人家的正文吃掉一句。
+        let referencesPost = heading.contains { segment in
+            guard case let .text(_, style) = segment else { return false }
+            return style.link != nil
+        }
+        guard referencesPost else {
+            return Split(attribution: nil, body: blocks)
+        }
+
+        var body = Array(blocks.dropFirst())
+        let trimmed = trimmingLeadingBreaks(remainder)
+        if !trimmed.isEmpty {
+            body.insert(
+                .paragraph(PostParagraph(segments: trimmed, alignment: first.alignment)),
+                at: 0
+            )
+        }
+        return Split(
+            attribution: PostParagraph(segments: heading, alignment: first.alignment),
+            body: body
+        )
+    }
+
+    /// 抬头和被引正文之间的空行只是分隔，切开之后不该留在正文段首。
+    /// 只吃换行：全角空格是作者写的缩进，`PostContentBuilder` 特意保住了它。
+    private static func trimmingLeadingBreaks(_ segments: [PostSegment]) -> [PostSegment] {
+        var segments = segments
+        while let first = segments.first {
+            guard case let .text(value, style) = first else { break }
+            let trimmed = value.drop { $0 == "\n" || $0 == "\r" }
+            guard trimmed.isEmpty else {
+                segments[0] = .text(String(trimmed), style)
+                break
+            }
+            segments.removeFirst()
+        }
+        return segments
+    }
+}
+
+/// 段落的排版档位。
+///
+/// 引用抬头要比正文小一号、用次级颜色、并且不跟着 `[b]` 加粗 —— 它是「谁在
+/// 说话」的标注，和被引正文一样粗一样大时，整块引用读起来就像两段并排的正文。
+enum PostParagraphEmphasis: Hashable {
+    case body
+    case quoteAttribution
 }
 
 /// 一个段落。
@@ -76,6 +169,7 @@ private struct PostBlockListView: View {
 private struct PostParagraphView: View {
     @Environment(\.sngaTheme) private var theme
     let paragraph: PostParagraph
+    var emphasis: PostParagraphEmphasis = .body
     let onOpenLink: @MainActor (URL) -> Void
 
     var body: some View {
@@ -91,6 +185,7 @@ private struct PostParagraphView: View {
         PostParagraphText(
             paragraph: paragraph,
             theme: theme,
+            emphasis: emphasis,
             images: loaded,
             onOpenLink: onOpenLink
         )
@@ -110,6 +205,7 @@ private struct PostParagraphView: View {
 private struct PostParagraphText: NSViewRepresentable {
     let paragraph: PostParagraph
     let theme: ResolvedAppTheme
+    let emphasis: PostParagraphEmphasis
     let images: [URL: NSImage]
     let onOpenLink: @MainActor (URL) -> Void
 
@@ -168,6 +264,7 @@ private struct PostParagraphText: NSViewRepresentable {
         let key = Coordinator.ContentKey(
             paragraph: paragraph,
             theme: theme,
+            emphasis: emphasis,
             loadedEmoticons: Set(images.keys)
         )
         guard coordinator.contentKey != key else { return }
@@ -176,6 +273,7 @@ private struct PostParagraphText: NSViewRepresentable {
             PostParagraphAttributedText.attributedString(
                 for: paragraph,
                 theme: theme,
+                emphasis: emphasis,
                 images: images
             )
         )
@@ -185,6 +283,7 @@ private struct PostParagraphText: NSViewRepresentable {
         struct ContentKey: Equatable {
             let paragraph: PostParagraph
             let theme: ResolvedAppTheme
+            let emphasis: PostParagraphEmphasis
             let loadedEmoticons: Set<URL>
         }
 
@@ -298,6 +397,7 @@ private enum PostParagraphAttributedText {
     static func attributedString(
         for paragraph: PostParagraph,
         theme: ResolvedAppTheme,
+        emphasis: PostParagraphEmphasis = .body,
         images: [URL: NSImage]
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
@@ -307,7 +407,11 @@ private enum PostParagraphAttributedText {
                 result.append(
                     NSAttributedString(
                         string: value,
-                        attributes: attributes(for: style, theme: theme)
+                        attributes: attributes(
+                            for: style,
+                            theme: theme,
+                            emphasis: emphasis
+                        )
                     )
                 )
             case let .emoticon(url):
@@ -316,7 +420,7 @@ private enum PostParagraphAttributedText {
                     result.append(NSAttributedString(string: " "))
                     continue
                 }
-                result.append(attachment(for: image))
+                result.append(attachment(for: image, emphasis: emphasis))
             }
         }
         result.addAttribute(
@@ -329,9 +433,12 @@ private enum PostParagraphAttributedText {
 
     private static func attributes(
         for style: PostTextStyle,
-        theme: ResolvedAppTheme
+        theme: ResolvedAppTheme,
+        emphasis: PostParagraphEmphasis
     ) -> [NSAttributedString.Key: Any] {
-        var attributes: [NSAttributedString.Key: Any] = [.font: font(for: style)]
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font(for: style, emphasis: emphasis)
+        ]
         if let link = style.link {
             attributes[.link] = link
             attributes[.foregroundColor] = NSColor(theme.accentColor)
@@ -339,7 +446,10 @@ private enum PostParagraphAttributedText {
         } else if let color = style.color {
             attributes[.foregroundColor] = NSColor(color.swiftUIColor)
         } else {
-            attributes[.foregroundColor] = NSColor.labelColor
+            // 抬头整行都是加粗的，颜色再和正文一样就完全分不出主次。
+            attributes[.foregroundColor] = emphasis == .quoteAttribution
+                ? NSColor.secondaryLabelColor
+                : NSColor.labelColor
         }
         if style.isUnderlined {
             attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
@@ -350,9 +460,13 @@ private enum PostParagraphAttributedText {
         return attributes
     }
 
-    private static func font(for style: PostTextStyle) -> NSFont {
-        let size = baseFontSize * sizeScale(style)
-        let weight: NSFont.Weight = style.isBold ? .bold : .regular
+    private static func font(
+        for style: PostTextStyle,
+        emphasis: PostParagraphEmphasis
+    ) -> NSFont {
+        let size = fontSize(for: emphasis) * sizeScale(style)
+        // 抬头本身整段就是 `[b]`，照着加粗只会让它比被引正文还抢眼。
+        let weight: NSFont.Weight = emphasis == .body && style.isBold ? .bold : .regular
         var font = style.isMonospaced
             ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
             : NSFont.systemFont(ofSize: size, weight: weight)
@@ -362,16 +476,26 @@ private enum PostParagraphAttributedText {
         return font
     }
 
+    private static func fontSize(for emphasis: PostParagraphEmphasis) -> CGFloat {
+        switch emphasis {
+        case .body: baseFontSize
+        case .quoteAttribution: 12
+        }
+    }
+
     private static func sizeScale(_ style: PostTextStyle) -> CGFloat {
         guard let percent = style.sizePercent else { return 1 }
         return CGFloat(min(max(percent, 50), 200)) / 100
     }
 
     /// 表情按 `vertical-align:middle` 对齐，和楼层样式表里的表现一致。
-    private static func attachment(for image: NSImage) -> NSAttributedString {
+    private static func attachment(
+        for image: NSImage,
+        emphasis: PostParagraphEmphasis
+    ) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
-        let font = NSFont.systemFont(ofSize: baseFontSize)
+        let font = NSFont.systemFont(ofSize: fontSize(for: emphasis))
         attachment.bounds = CGRect(
             x: 0,
             y: (font.xHeight - image.size.height) / 2,

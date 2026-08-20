@@ -151,6 +151,22 @@ struct ResolvedAppTheme: Equatable, Sendable {
         return backgroundRGB.isDark ? .white : .black
     }
 
+    /// 引用块左侧的竖线。
+    ///
+    /// 刻意避开强调色：楼层里链接、选中行和热门回复都已经在用它，引用属于从属
+    /// 内容，再占用同一个颜色只会稀释「这里可以点」的信号。这里取一个跟着主题
+    /// 走的中性色，六套主题下对引用底色都在 3:1 以上。
+    var quoteRailColor: Color {
+        if selection == .system { return Color(nsColor: .tertiaryLabelColor) }
+        return quoteRailRGB.color
+    }
+
+    /// 引用块的底色。用半透明叠加而不是实色：楼层卡片本身可能带着热门回复的
+    /// 强调色底，铺一层实色会把它盖掉。
+    var quoteBackgroundColor: Color {
+        foregroundColor.opacity(0.06)
+    }
+
     func applying(to html: String) -> String {
         html
             .replacingOccurrences(
@@ -173,6 +189,10 @@ struct ResolvedAppTheme: Equatable, Sendable {
                 of: "--snga-smile-backdrop:var(--snga-smile-backdrop-system)",
                 with: "--snga-smile-backdrop:\(webSmileBackdrop)"
             )
+            .replacingOccurrences(
+                of: "--snga-quote-rail:\(ResolvedAppTheme.webQuoteRailDefault)",
+                with: "--snga-quote-rail:\(webQuoteRail)"
+            )
     }
 
     private var backgroundRGB: ThemeRGB {
@@ -188,6 +208,16 @@ struct ResolvedAppTheme: Equatable, Sendable {
                 fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
             )!
         }
+    }
+
+    /// 竖线朝背景的反方向推，浅色主题推得多一些 —— 同样的混合比例下，
+    /// 深色背景上的浅色比浅色背景上的深色更显眼。
+    private var quoteRailRGB: ThemeRGB {
+        let target = backgroundRGB.isDark ? ThemeRGB.white : ThemeRGB.black
+        return backgroundRGB.mixed(
+            with: target,
+            amount: backgroundRGB.isDark ? 0.52 : 0.58
+        )
     }
 
     private var accentRGB: ThemeRGB {
@@ -237,6 +267,14 @@ struct ResolvedAppTheme: Equatable, Sendable {
                 )
                 .hex
         }
+    }
+
+    /// 楼层样式表里 `--snga-quote-rail` 的初值。跟随系统时保持不变 ——
+    /// `CanvasText` 会自己跟着明暗切换，换成固定色反而不会变了。
+    static let webQuoteRailDefault = "color-mix(in srgb,CanvasText 42%,transparent)"
+
+    private var webQuoteRail: String {
+        selection == .system ? ResolvedAppTheme.webQuoteRailDefault : quoteRailRGB.hex
     }
 
     private var webSmileBackdrop: String {

@@ -215,3 +215,96 @@ final class PostParagraphLayoutTests: XCTestCase {
         }
     }
 }
+
+/// 引用抬头必须和被引正文分开。
+///
+/// 抬头和被引正文在解析后共用同一个段落（中间只隔一个空行），不切开的话整块
+/// 引用就是一大段等粗等大的文字，读者分不出哪句是被引的、哪句是抬头。
+/// 切分靠的是「段首连续加粗片段 + 其中带 `[pid]` 回链」这个特征，因此还要保证
+/// 它不会误伤作者自己写的粗体开头。
+final class QuoteAttributionTests: XCTestCase {
+    private let parser = NGAParser()
+
+    func testAttributionSplitsFromQuotedBody() throws {
+        let nested = try quoteBlocks(
+            of: "[quote][b]Reply to [pid=123,456,0]Reply[/pid] Post by [uid=789]locked315[/uid] (2026-07-22 19:59)[/b]<br/><br/>买个普通的过渡一下就行[/quote]已经逐步推出了"
+        )
+        let split = QuoteAttribution.split(nested)
+
+        let attribution = try XCTUnwrap(split.attribution, "带回链的抬头应当被切出来")
+        XCTAssertEqual(
+            plainText(of: attribution.segments),
+            "Reply to Reply Post by locked315 (2026-07-22 19:59)"
+        )
+        XCTAssertTrue(
+            attribution.segments.contains { segment in
+                guard case let .text(_, style) = segment else { return false }
+                return style.link != nil
+            },
+            "抬头里的回链要留着，压小之后仍然点得开被引楼层"
+        )
+        XCTAssertEqual(
+            plainText(of: split.body.flatMap(segments(of:))),
+            "买个普通的过渡一下就行",
+            "被引正文要落到 body，且段首不留分隔用的空行"
+        )
+    }
+
+    /// 作者自己写的粗体开头没有回链，压成小字会把人家的正文吃掉一句。
+    func testBoldOpeningWithoutPostReferenceStaysInBody() throws {
+        let nested = try quoteBlocks(of: "[quote][b]重点[/b]<br/><br/>剩下的话[/quote]我的回复")
+        let split = QuoteAttribution.split(nested)
+
+        XCTAssertNil(split.attribution, "没有回链就不是抬头")
+        XCTAssertEqual(split.body, nested, "不切分时 body 必须原样返回")
+        XCTAssertEqual(plainText(of: split.body.flatMap(segments(of:))), "重点\n\n剩下的话")
+    }
+
+    func testQuoteWithoutAttributionIsUnchanged() throws {
+        let nested = try quoteBlocks(of: "[quote]被引用的话[/quote]我的回复")
+        let split = QuoteAttribution.split(nested)
+
+        XCTAssertNil(split.attribution)
+        XCTAssertEqual(split.body, nested)
+    }
+
+    /// 抬头只有回链、没有被引正文（`PostQuoteExpander` 取不到被引楼层时就是这样）：
+    /// 抬头照样要切出来，body 允许为空，不能因此把抬头也丢掉。
+    func testAttributionWithoutBodyStillSplits() throws {
+        let nested = try quoteBlocks(
+            of: "[quote][b]Reply to [pid=123,456,0]Reply[/pid] Post by [uid=789]locked315[/uid] (2026-07-22 19:59)[/b][/quote]我的回复"
+        )
+        let split = QuoteAttribution.split(nested)
+
+        XCTAssertNotNil(split.attribution)
+        XCTAssertEqual(plainText(of: split.body.flatMap(segments(of:))), "")
+    }
+
+    // MARK: - 辅助
+
+    private func quoteBlocks(of source: String) throws -> [PostBlock] {
+        let content = try XCTUnwrap(
+            parser.sanitizedPost(source).nativeContent,
+            "这段应当走原生渲染"
+        )
+        let nested = content.blocks.compactMap { block -> [PostBlock]? in
+            guard case let .quote(children) = block else { return nil }
+            return children
+        }
+        return try XCTUnwrap(nested.first, "正文里应当有一个引用块")
+    }
+
+    private func segments(of block: PostBlock) -> [PostSegment] {
+        switch block {
+        case let .paragraph(paragraph): paragraph.segments
+        case let .quote(nested): nested.flatMap(segments(of:))
+        case .image: []
+        }
+    }
+
+    private func plainText(of segments: [PostSegment]) -> String {
+        segments.reduce(into: "") { result, segment in
+            if case let .text(value, _) = segment { result += value }
+        }
+    }
+}
