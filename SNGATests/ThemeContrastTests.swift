@@ -5,10 +5,50 @@ import XCTest
 
 /// 主题配色的对比度下限。
 ///
-/// 这些数值不是审美偏好，是「看不看得清」的分界线：改主题取值时如果把某一对
-/// 配色推到线下面，这里会先失败，而不是等用户在深色模式下盯着一段糊掉的界面。
-/// 纯装饰的分隔线取 3:1（非文字控件）。
+/// 这些数值不是审美偏好，是「数字看不看得清」的分界线：改主题取值时如果把某一
+/// 对配色推到线下面，这里会先失败，而不是等用户在深色模式下盯着一个糊掉的未读
+/// 徽章。文字取 4.5:1（WCAG AA），纯装饰的竖线取 3:1（非文字控件）。
 final class ThemeContrastTests: XCTestCase {
+
+    /// 铺满强调色的底上写字 —— 未读徽章、小工具里的排名序号都是这个形状。
+    ///
+    /// 曾经这里写死 `.white`：深色主题的紫色强调色上只有 2.2:1，午夜蓝的青色上
+    /// 1.7:1，自定义默认的青绿上 1.9:1，三套主题的数字基本看不出来。
+    func testOnAccentClearsAAOnEveryBuiltInTheme() throws {
+        for theme in [AppTheme.light, .dark, .ngaClassic, .midnight, .custom] {
+            let style = theme.resolved()
+            let ratio = try contrastRatio(style.onAccentColor, style.accentColor)
+            XCTAssertGreaterThanOrEqual(
+                ratio, 4.5,
+                "\(theme.displayName)：强调色底上的文字只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+    }
+
+    /// 跟随系统是有意的例外：强调色就是 SwiftUI 的 `.blue`，而 macOS 自己的
+    /// 徽章和选中行一律蓝底白字。按对比度本该选暗字（4.8 对 4.0），但一个反过来
+    /// 的徽章摆在原生控件旁边只会显得是画错了，所以这里跟平台走。
+    func testSystemThemeFollowsPlatformWhiteOnBlue() throws {
+        let components = try components(AppTheme.system.resolved().onAccentColor)
+        XCTAssertEqual(components.red, 1, accuracy: 0.01)
+        XCTAssertEqual(components.green, 1, accuracy: 0.01)
+        XCTAssertEqual(components.blue, 1, accuracy: 0.01)
+    }
+
+    /// 自定义突出色是用户随便挑的，规则必须自己纠正过来：亮色配暗字、暗色配白字。
+    func testOnAccentAdaptsToAnyCustomAccent() throws {
+        for accent in ["#FFEE00", "#80CBC4", "#7A0010", "#0B1220", "#FFFFFF", "#000000"] {
+            let style = AppTheme.custom.resolved(
+                customBackgroundHex: "#263238",
+                customAccentHex: accent
+            )
+            let ratio = try contrastRatio(style.onAccentColor, style.accentColor)
+            XCTAssertGreaterThanOrEqual(
+                ratio, 4.5,
+                "突出色 \(accent) 上的文字只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+    }
 
     /// 引用块的竖线是纯装饰，按非文字控件的 3:1 要求，压在引用底色上量。
     func testQuoteRailStaysVisibleAgainstQuoteBackground() throws {
@@ -62,6 +102,10 @@ final class ThemeContrastTests: XCTestCase {
             green: bottom.green + (top.green - bottom.green) * alpha,
             blue: bottom.blue + (top.blue - bottom.blue) * alpha
         )
+    }
+
+    private func contrastRatio(_ first: Color, _ second: Color) throws -> Double {
+        try contrastRatio(components(first), components(second))
     }
 
     private func contrastRatio(_ first: Color, _ second: Components) throws -> Double {

@@ -151,6 +151,24 @@ struct ResolvedAppTheme: Equatable, Sendable {
         return backgroundRGB.isDark ? .white : .black
     }
 
+    /// 铺满强调色的底上应该用什么颜色写字。
+    ///
+    /// 写死白色是不行的：`accentColor` 在深色（#C49CFF）、午夜蓝（#52D6E8）和
+    /// 自定义默认（#80CBC4）里都是亮色，白字压上去只有 1.7–2.2:1，未读数字基本
+    /// 看不出来。这里在白色和一个压暗到近黑的同色之间取对比度高的那个，用户把
+    /// 自定义突出色调成任何颜色都能自己纠正过来。
+    var onAccentColor: Color {
+        // 跟随系统时强调色就是 SwiftUI 的 `.blue`。按对比度算该用暗字（4.8 对
+        // 4.0），但 macOS 自己的徽章和选中行一律是蓝底白字，这里跟平台走 ——
+        // 一个反过来的徽章摆在原生控件旁边只会显得是画错了。
+        if selection == .system { return .white }
+        let dimmed = accentRGB.mixed(with: .black, amount: 0.88)
+        return accentRGB.contrastRatio(with: .white)
+            >= accentRGB.contrastRatio(with: dimmed)
+            ? .white
+            : dimmed.color
+    }
+
     /// 引用块左侧的竖线。
     ///
     /// 刻意避开强调色：楼层里链接、选中行和热门回复都已经在用它，引用属于从属
@@ -332,11 +350,19 @@ struct ThemeRGB: Equatable, Sendable {
         )
     }
 
-    var isDark: Bool {
-        let luminance = 0.2126 * linear(red)
-            + 0.7152 * linear(green)
-            + 0.0722 * linear(blue)
-        return luminance < 0.42
+    /// WCAG 相对亮度。
+    var relativeLuminance: Double {
+        0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    var isDark: Bool { relativeLuminance < 0.42 }
+
+    /// WCAG 对比度，1（两色相同）到 21（纯黑对纯白）。正文要 4.5，
+    /// 非文字的控件边界要 3。
+    func contrastRatio(with other: ThemeRGB) -> Double {
+        let lighter = max(relativeLuminance, other.relativeLuminance)
+        let darker = min(relativeLuminance, other.relativeLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
     }
 
     func mixed(with other: ThemeRGB, amount: Double) -> ThemeRGB {

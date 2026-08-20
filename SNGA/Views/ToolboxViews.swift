@@ -441,7 +441,7 @@ private struct WorldBriefingView: View {
                         HStack(alignment: .top, spacing: 12) {
                             Text("\(index + 1)")
                                 .font(.caption.bold().monospacedDigit())
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.onAccentColor)
                                 .frame(width: 24, height: 24)
                                 .background(theme.accentColor, in: Circle())
                             Text(item)
