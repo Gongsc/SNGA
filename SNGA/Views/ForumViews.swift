@@ -423,6 +423,7 @@ private struct ReputationMetric: View {
 }
 
 private struct UserActivityRow: View {
+    @Environment(\.sngaTheme) private var theme
     let activity: UserActivity
     @State private var isHovered = false
 
@@ -469,7 +470,7 @@ private struct UserActivityRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .background(
-            isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035),
+            isHovered ? theme.hoverFillColor : theme.fillColor,
             in: RoundedRectangle(cornerRadius: 10)
         )
         .onHover { isHovered = $0 }
@@ -605,7 +606,7 @@ struct ForumDirectoryView: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.primary.opacity(0.14), lineWidth: 1)
+                .stroke(theme.controlBorderColor, lineWidth: 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -826,10 +827,13 @@ struct FavoritesView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("收藏夹")
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            TopicListPaginationBar(
+            PaginationBar(
                 currentPage: model.favorite.favoriteTopicPage,
                 totalPages: model.favorite.favoriteTopicTotalPages,
                 isLoading: model.session.isLoading,
+                hidesControlsOnSinglePage: true,
+                identifierPrefix: "topic-list",
+                subject: "话题列表",
                 navigate: { page in
                     Task { await model.favorite.loadFavoriteTopics(page: page) }
                 }
@@ -1201,11 +1205,14 @@ struct TopicListView: View {
             .scrollContentBackground(.hidden)
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                TopicListPaginationBar(
+                PaginationBar(
                     currentPage: visiblePage,
                     totalPages: visibleTotalPages,
                     isLoading: visibleIsLoading,
                     showsLoadingIndicator: !showsTopicListSkeleton,
+                    hidesControlsOnSinglePage: true,
+                    identifierPrefix: "topic-list",
+                    subject: "话题列表",
                     navigate: { page in
                         Task {
                             await loadVisiblePage(page)
@@ -1574,149 +1581,9 @@ private struct ForumTitleBackButton: View {
     }
 }
 
-private struct TopicListPaginationBar<Actions: View>: View {
-    let currentPage: Int
-    let totalPages: Int
-    let isLoading: Bool
-    let showsLoadingIndicator: Bool
-    var navigate: (Int) -> Void
-    let actions: Actions
-
-    @State private var pageText = "1"
-
-    init(
-        currentPage: Int,
-        totalPages: Int,
-        isLoading: Bool,
-        showsLoadingIndicator: Bool = true,
-        navigate: @escaping (Int) -> Void,
-        @ViewBuilder actions: () -> Actions
-    ) {
-        self.currentPage = currentPage
-        self.totalPages = totalPages
-        self.isLoading = isLoading
-        self.showsLoadingIndicator = showsLoadingIndicator
-        self.navigate = navigate
-        self.actions = actions()
-    }
-
-    var body: some View {
-        BottomActionBar {
-            paginationContent
-        }
-            .onAppear {
-                pageText = String(currentPage)
-            }
-            .onChange(of: currentPage) { _, newValue in
-                pageText = String(newValue)
-            }
-            .onChange(of: totalPages) { _, newValue in
-                if let value = Int(pageText), value > newValue {
-                    pageText = String(newValue)
-                }
-            }
-    }
-
-    private var paginationContent: some View {
-        HStack(spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                paginationControls(isCompact: false)
-                paginationControls(isCompact: true)
-            }
-
-            if isLoading && showsLoadingIndicator {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("正在加载话题列表")
-                    .accessibilityIdentifier("topic-list-loading-indicator")
-            }
-
-            Spacer(minLength: 4)
-
-            HStack(spacing: 4) {
-                actions
-            }
-            .fixedSize()
-        }
-    }
-
-    @ViewBuilder
-    private func paginationControls(isCompact: Bool) -> some View {
-        if totalPages > 1 {
-            HStack(spacing: isCompact ? 3 : 6) {
-                Button("首页", systemImage: "backward.end.fill") {
-                    navigate(1)
-                }
-                .labelStyle(.iconOnly)
-                .help("跳转到话题列表首页")
-                .accessibilityIdentifier("topic-list-first-page")
-                .disabled(isLoading || currentPage <= 1)
-
-                Button("上一页", systemImage: "chevron.left") {
-                    navigate(currentPage - 1)
-                }
-                .labelStyle(.iconOnly)
-                .help("话题列表上一页")
-                .accessibilityIdentifier("topic-list-previous-page")
-                .disabled(isLoading || currentPage <= 1)
-
-                TextField("页码", text: $pageText)
-                    .frame(width: isCompact ? 44 : 54)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(performJump)
-                    .accessibilityLabel("话题列表目标页码")
-                    .accessibilityIdentifier("topic-list-page-field")
-
-                if !isCompact {
-                    Text("/ \(totalPages)")
-                        .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
-
-                    Button("跳转", action: performJump)
-                        .accessibilityIdentifier("topic-list-jump")
-                        .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
-                }
-
-                Button("下一页", systemImage: "chevron.right") {
-                    navigate(currentPage + 1)
-                }
-                .labelStyle(.iconOnly)
-                .help("话题列表下一页")
-                .accessibilityIdentifier("topic-list-next-page")
-                .disabled(isLoading || currentPage >= totalPages)
-
-                Button("尾页", systemImage: "forward.end.fill") {
-                    navigate(totalPages)
-                }
-                .labelStyle(.iconOnly)
-                .help("跳转到话题列表尾页")
-                .accessibilityIdentifier("topic-list-last-page")
-                .disabled(isLoading || currentPage >= totalPages)
-            }
-            .fixedSize()
-        }
-    }
-
-    private var parsedPage: Int? {
-        guard let value = Int(pageText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (1...totalPages).contains(value) else {
-            return nil
-        }
-        return value
-    }
-
-    private func performJump() {
-        guard let parsedPage, parsedPage != currentPage, !isLoading else {
-            pageText = String(currentPage)
-            return
-        }
-        navigate(parsedPage)
-    }
-}
-
 private struct SubforumTile: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
     let forum: Forum
     let isIncluded: Bool
     @State private var isHovered = false
@@ -1770,7 +1637,7 @@ private struct SubforumTile: View {
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.035))
+                .fill(isHovered ? theme.hoverFillColor : theme.fillColor)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1807,7 +1674,7 @@ struct TopicInteractiveRow: View {
             return theme.accentColor.opacity(0.18)
         }
         if isHovered {
-            return Color.primary.opacity(0.08)
+            return theme.hoverFillColor
         }
         return .clear
     }
@@ -1828,7 +1695,7 @@ private struct TopicRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .foregroundStyle(theme.accentColor)
-                        .background(theme.accentColor.opacity(0.12), in: Capsule())
+                        .background(theme.accentSoftColor, in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
                         .font(.caption2.weight(.medium))
@@ -1836,7 +1703,7 @@ private struct TopicRow: View {
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .foregroundStyle(theme.accentColor)
-                        .background(theme.accentColor.opacity(0.12), in: Capsule())
+                        .background(theme.accentSoftColor, in: Capsule())
                 }
                 if topic.isAnonymous {
                     AnonymousBadge()

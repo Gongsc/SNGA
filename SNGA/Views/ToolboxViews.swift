@@ -85,13 +85,13 @@ private struct ToolboxMenuRow: View {
         .background(
             isSelected
                 ? theme.accentColor
-                : Color.primary.opacity(isHovered ? 0.07 : 0.035),
+                : (isHovered ? theme.hoverFillColor : theme.fillColor),
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(
-                    isSelected ? Color.clear : Color(nsColor: .separatorColor).opacity(0.45)
+                    isSelected ? Color.clear : theme.separatorColor
                 )
         }
         .contentShape(.rect)
@@ -319,7 +319,7 @@ private struct ToolboxFeedHeader: View {
                 .font(.title2)
                 .foregroundStyle(theme.accentColor)
                 .frame(width: 46, height: 46)
-                .background(theme.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .background(theme.accentSoftColor, in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(feed.title)
@@ -390,12 +390,12 @@ private struct ToolboxArticleRow: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isHovered ? Color.primary.opacity(0.065) : theme.surfaceColor,
+            isHovered ? theme.elevatedSurfaceColor : theme.surfaceColor,
             in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.45))
+                .stroke(theme.separatorColor)
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -441,7 +441,7 @@ private struct WorldBriefingView: View {
                         HStack(alignment: .top, spacing: 12) {
                             Text("\(index + 1)")
                                 .font(.caption.bold().monospacedDigit())
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.onAccentColor)
                                 .frame(width: 24, height: 24)
                                 .background(theme.accentColor, in: Circle())
                             Text(item)
@@ -461,7 +461,7 @@ private struct WorldBriefingView: View {
                 .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 14))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.45))
+                        .stroke(theme.separatorColor)
                 }
 
                 if let tip = briefing.tip {

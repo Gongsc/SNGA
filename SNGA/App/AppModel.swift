@@ -23,6 +23,9 @@ final class AppModel {
 
 
     var previewImageURL: URL?
+    /// 图片操作（复制、另存为、在浏览器中打开）失败的提示，由根视图弹出。
+    /// 正文里的每张配图都可能触发，提示放在这里，图片视图自己不必各带一个弹窗。
+    var imageActionError: String?
 
     @ObservationIgnored private var bootstrapped = false
     @ObservationIgnored private let profileRequests = RequestSlot()
@@ -704,6 +707,7 @@ final class AppModel {
         userActivityTotalPages = 1
 
         previewImageURL = nil
+        imageActionError = nil
     }
 
 

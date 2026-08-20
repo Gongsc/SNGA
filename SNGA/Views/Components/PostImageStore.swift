@@ -94,6 +94,23 @@ final class PostImageStore {
         return Rendered(cgImage: entry.cgImage, pixelSize: entry.pixelSize)
     }
 
+    /// 一张图的原始数据，不缩码。
+    ///
+    /// 复制和另存为要的是原图，而正文里留下的只是按显示宽度解过的位图。会话配的
+    /// 是 `returnCacheDataElseLoad`，刚显示过的图通常直接命中缓存，不会再下一遍。
+    func originalData(for url: URL) async -> Data? {
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let response = response as? HTTPURLResponse,
+                  (200..<300).contains(response.statusCode) else {
+                return nil
+            }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
     /// 取一张按显示宽度缩码后的图片。同一张图的并发请求会合流到同一个任务上。
     func image(for url: URL, displayWidth: CGFloat) async -> Rendered? {
         if let cached = cachedImage(for: url, displayWidth: displayWidth) { return cached }
