@@ -117,12 +117,18 @@ struct ResolvedAppTheme: Equatable, Sendable {
 
     static let system = AppTheme.system.resolved()
 
+    /// 跟随系统那一档的热点色。这一档没有调色板可查，只能自己备两个值 ——
+    /// 都是把系统蓝按 4.5:1 压在对应外观的 `controlBackgroundColor` 上拟合出来的
+    /// （系统蓝原样压在白底上只有 3.5:1，楼层号读不出来）。
+    static let systemHotReplyLight = ThemeRGB(hex: "#0070EB")!
+    static let systemHotReplyDark = ThemeRGB(hex: "#1485FF")!
+
     var preferredColorScheme: ColorScheme? {
         switch selection {
         case .system: nil
         case .light, .ngaClassic: .light
         case .dark, .midnight: .dark
-        case .custom: backgroundRGB.isDark ? .dark : .light
+        case .custom: customBackgroundRGB.isDark ? .dark : .light
         }
     }
 
@@ -132,23 +138,104 @@ struct ResolvedAppTheme: Equatable, Sendable {
     }
 
     var backgroundColor: Color {
-        if selection == .system {
-            return Color(nsColor: .windowBackgroundColor)
-        }
-        return backgroundRGB.color
+        palette.map(\.background.color) ?? Color(nsColor: .windowBackgroundColor)
     }
 
     var surfaceColor: Color {
-        if selection == .system {
-            return Color(nsColor: .controlBackgroundColor)
-        }
-        let target = backgroundRGB.isDark ? ThemeRGB.white : ThemeRGB.black
-        return backgroundRGB.mixed(with: target, amount: backgroundRGB.isDark ? 0.07 : 0.045).color
+        palette.map(\.surface.color) ?? Color(nsColor: .controlBackgroundColor)
+    }
+
+    /// 抬起的表面：卡片悬停、需要再高一层的容器。
+    var elevatedSurfaceColor: Color {
+        palette.map(\.elevatedSurface.color) ?? Color(nsColor: .underPageBackgroundColor)
+    }
+
+    /// 直接铺在窗口上的块（磁贴、边栏行）的底色。
+    var fillColor: Color {
+        palette.map(\.fill.color) ?? Color.primary.opacity(0.035)
+    }
+
+    var hoverFillColor: Color {
+        palette.map(\.hoverFill.color) ?? Color.primary.opacity(0.08)
+    }
+
+    /// 分隔线、卡片描边。
+    var separatorColor: Color {
+        palette.map(\.separator.color) ?? Color(nsColor: .separatorColor)
+    }
+
+    /// 控件描边（搜索框这类）。WCAG 要求控件边界对相邻颜色 3:1。
+    var controlBorderColor: Color {
+        palette.map(\.controlBorder.color) ?? Color(nsColor: .tertiaryLabelColor)
     }
 
     var foregroundColor: Color {
-        if selection == .system { return .primary }
-        return backgroundRGB.isDark ? .white : .black
+        palette.map(\.primaryText.color) ?? .primary
+    }
+
+    var secondaryForegroundColor: Color {
+        palette.map(\.secondaryText.color) ?? .secondary
+    }
+
+    var tertiaryForegroundColor: Color {
+        palette.map(\.tertiaryText.color) ?? Color(nsColor: .tertiaryLabelColor)
+    }
+
+    /// 强调色的淡底：胶囊标签、选中行这类需要「有强调色但不能盖住文字」的地方。
+    var accentSoftColor: Color {
+        accentColor.opacity(0.12)
+    }
+
+    /// 热点回复的标记色：跟着主题的强调色走，必要时调明度保证读得出来。
+    ///
+    /// 跟随系统这一档不能直接用 `.blue`：它压在浅色外观的
+    /// `controlBackgroundColor` 上只有 3.5:1，楼层号读不出来。改成一个自己的
+    /// 动态色，两档都按 4.5:1 拟合过，仍旧跟着 macOS 明暗切换。
+    var hotReplyColor: Color {
+        if let palette { return palette.hotReply.color }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let rgb = isDark
+                ? ResolvedAppTheme.systemHotReplyDark
+                : ResolvedAppTheme.systemHotReplyLight
+            return NSColor(
+                srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1
+            )
+        })
+    }
+
+    /// 铺满强调色的底上应该用什么颜色写字。
+    ///
+    /// 写死白色是不行的：`accentColor` 在深色（#C49CFF）、午夜蓝（#52D6E8）和
+    /// 自定义默认（#80CBC4）里都是亮色，白字压上去只有 1.7–2.2:1，未读数字基本
+    /// 看不出来。这里在白色和一个压暗到近黑的同色之间取对比度高的那个，用户把
+    /// 自定义突出色调成任何颜色都能自己纠正过来。
+    var onAccentColor: Color {
+        // 跟随系统时强调色就是 SwiftUI 的 `.blue`。按对比度算该用暗字（4.8 对
+        // 4.0），但 macOS 自己的徽章和选中行一律是蓝底白字，这里跟平台走 ——
+        // 一个反过来的徽章摆在原生控件旁边只会显得是画错了。
+        if selection == .system { return .white }
+        let dimmed = accentRGB.mixed(with: .black, amount: 0.88)
+        return accentRGB.contrastRatio(with: .white)
+            >= accentRGB.contrastRatio(with: dimmed)
+            ? .white
+            : dimmed.color
+    }
+
+    /// 引用块左侧的竖线。
+    ///
+    /// 刻意避开强调色：楼层里链接、选中行和热门回复都已经在用它，引用属于从属
+    /// 内容，再占用同一个颜色只会稀释「这里可以点」的信号。这里取一个跟着主题
+    /// 走的中性色，六套主题下对引用底色都在 3:1 以上。
+    var quoteRailColor: Color {
+        if selection == .system { return Color(nsColor: .tertiaryLabelColor) }
+        return quoteRailRGB.color
+    }
+
+    /// 引用块的底色。用半透明叠加而不是实色：楼层卡片本身可能带着热门回复的
+    /// 强调色底，铺一层实色会把它盖掉。
+    var quoteBackgroundColor: Color {
+        foregroundColor.opacity(0.06)
     }
 
     func applying(to html: String) -> String {
@@ -173,21 +260,46 @@ struct ResolvedAppTheme: Equatable, Sendable {
                 of: "--snga-smile-backdrop:var(--snga-smile-backdrop-system)",
                 with: "--snga-smile-backdrop:\(webSmileBackdrop)"
             )
+            .replacingOccurrences(
+                of: "--snga-quote-rail:\(ResolvedAppTheme.webQuoteRailDefault)",
+                with: "--snga-quote-rail:\(webQuoteRail)"
+            )
     }
 
-    private var backgroundRGB: ThemeRGB {
+    /// 跟随系统没有自己的调色板 —— 那一套要的就是 AppKit 的动态语义色，
+    /// 写死任何一组十六进制值都会让它不再跟着 macOS 明暗切换。
+    var palette: ThemePalette? {
         switch selection {
-        case .system: ThemeRGB(red: 0.95, green: 0.95, blue: 0.95)
-        case .light: ThemeRGB(red: 0.97, green: 0.97, blue: 0.97)
-        case .dark: ThemeRGB(red: 0.12, green: 0.12, blue: 0.14)
-        case .ngaClassic: ThemeRGB(red: 0.98, green: 0.93, blue: 0.78)
-        case .midnight: ThemeRGB(red: 0.055, green: 0.09, blue: 0.15)
-        case .custom:
-            ThemeRGB(
-                hex: customBackgroundHex,
-                fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
-            )!
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        case .ngaClassic: .ngaClassic
+        case .midnight: .midnight
+        case .custom: .custom(background: customBackgroundRGB, accent: accentRGB)
         }
+    }
+
+    private var customBackgroundRGB: ThemeRGB {
+        ThemeRGB(
+            hex: customBackgroundHex,
+            fallback: ThemeRGB(hex: AppTheme.defaultCustomBackgroundHex)!
+        )!
+    }
+
+    /// 网页侧要的是十六进制，跟随系统时按浅色算 —— 那条路径下真正生效的是
+    /// `color-scheme:light dark`，这个值只作兜底。
+    private var backgroundRGB: ThemeRGB {
+        palette?.background ?? ThemeRGB(red: 0.95, green: 0.95, blue: 0.95)
+    }
+
+    /// 竖线朝背景的反方向推，浅色主题推得多一些 —— 同样的混合比例下，
+    /// 深色背景上的浅色比浅色背景上的深色更显眼。
+    private var quoteRailRGB: ThemeRGB {
+        let target = backgroundRGB.isDark ? ThemeRGB.white : ThemeRGB.black
+        return backgroundRGB.mixed(
+            with: target,
+            amount: backgroundRGB.isDark ? 0.52 : 0.58
+        )
     }
 
     private var accentRGB: ThemeRGB {
@@ -237,6 +349,14 @@ struct ResolvedAppTheme: Equatable, Sendable {
                 )
                 .hex
         }
+    }
+
+    /// 楼层样式表里 `--snga-quote-rail` 的初值。跟随系统时保持不变 ——
+    /// `CanvasText` 会自己跟着明暗切换，换成固定色反而不会变了。
+    static let webQuoteRailDefault = "color-mix(in srgb,CanvasText 42%,transparent)"
+
+    private var webQuoteRail: String {
+        selection == .system ? ResolvedAppTheme.webQuoteRailDefault : quoteRailRGB.hex
     }
 
     private var webSmileBackdrop: String {
@@ -294,11 +414,76 @@ struct ThemeRGB: Equatable, Sendable {
         )
     }
 
-    var isDark: Bool {
-        let luminance = 0.2126 * linear(red)
-            + 0.7152 * linear(green)
-            + 0.0722 * linear(blue)
-        return luminance < 0.42
+    /// WCAG 相对亮度。
+    var relativeLuminance: Double {
+        0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    var isDark: Bool { relativeLuminance < 0.42 }
+
+    /// WCAG 对比度，1（两色相同）到 21（纯黑对纯白）。正文要 4.5，
+    /// 非文字的控件边界要 3。
+    func contrastRatio(with other: ThemeRGB) -> Double {
+        let lighter = max(relativeLuminance, other.relativeLuminance)
+        let darker = min(relativeLuminance, other.relativeLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// 色相，0–360 度。
+    var hueDegrees: Double {
+        let highest = max(red, green, blue)
+        let lowest = min(red, green, blue)
+        let delta = highest - lowest
+        guard delta > 0 else { return 0 }
+        let hue: Double
+        if highest == red {
+            hue = 60 * ((green - blue) / delta)
+        } else if highest == green {
+            hue = 60 * ((blue - red) / delta + 2)
+        } else {
+            hue = 60 * ((red - green) / delta + 4)
+        }
+        return (hue + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    /// 饱和度，0–1。
+    var saturation: Double {
+        let highest = max(red, green, blue)
+        guard highest > 0 else { return 0 }
+        return (highest - min(red, green, blue)) / highest
+    }
+
+    /// 明度，0–1。
+    var brightness: Double {
+        max(red, green, blue)
+    }
+
+    /// 两个色相之间的夹角，0–180 度。
+    static func hueGap(_ first: Double, _ second: Double) -> Double {
+        let raw = abs(first - second).truncatingRemainder(dividingBy: 360)
+        return min(raw, 360 - raw)
+    }
+
+    /// 按色相／饱和度／明度构造。语义色（热门、危险、成功）要保住色相、只调
+    /// 明度和饱和度，用 RGB 混色做不到这件事。
+    init(hueDegrees: Double, saturation: Double, brightness: Double) {
+        let sector = ((hueDegrees.truncatingRemainder(dividingBy: 360) + 360)
+            .truncatingRemainder(dividingBy: 360)) / 60
+        let saturation = min(max(saturation, 0), 1)
+        let brightness = min(max(brightness, 0), 1)
+        let index = floor(sector)
+        let fraction = sector - index
+        let p = brightness * (1 - saturation)
+        let q = brightness * (1 - saturation * fraction)
+        let t = brightness * (1 - saturation * (1 - fraction))
+        switch Int(index) % 6 {
+        case 0: self.init(red: brightness, green: t, blue: p)
+        case 1: self.init(red: q, green: brightness, blue: p)
+        case 2: self.init(red: p, green: brightness, blue: t)
+        case 3: self.init(red: p, green: q, blue: brightness)
+        case 4: self.init(red: t, green: p, blue: brightness)
+        default: self.init(red: brightness, green: p, blue: q)
+        }
     }
 
     func mixed(with other: ThemeRGB, amount: Double) -> ThemeRGB {

@@ -158,7 +158,7 @@ private struct MessageRow: View {
 
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.secondary.opacity(0.7))
+                .foregroundStyle(theme.tertiaryForegroundColor)
                 .accessibilityHidden(true)
         }
         .padding(.horizontal, 14)
@@ -196,7 +196,7 @@ private struct MessageRow: View {
             return theme.accentColor.opacity(0.12)
         }
         if isHovered {
-            return Color.primary.opacity(0.055)
+            return theme.fillColor
         }
         return .clear
     }

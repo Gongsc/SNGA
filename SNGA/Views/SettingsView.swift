@@ -397,7 +397,7 @@ private struct ThemeChoiceCard: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(
-                        isSelected ? style.accentColor : Color.secondary.opacity(0.22),
+                        isSelected ? style.accentColor : style.separatorColor,
                         lineWidth: isSelected ? 2 : 1
                     )
             }

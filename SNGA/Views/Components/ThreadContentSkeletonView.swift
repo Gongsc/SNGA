@@ -68,7 +68,7 @@ struct ThreadContentSkeletonView: View {
                     )
                     .overlay {
                         RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.5))
+                            .stroke(theme.separatorColor)
                     }
                 }
             }

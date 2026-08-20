@@ -155,8 +155,10 @@ struct SidebarView: View {
                             .font(.caption.monospacedDigit())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(.tint, in: Capsule())
-                            .foregroundStyle(.white)
+                            // 底色和字色取自同一个主题，别一个跟 `.tint`
+                            // 走、另一个写死。
+                            .background(theme.accentColor, in: Capsule())
+                            .foregroundStyle(theme.onAccentColor)
                     }
                 }
             }
@@ -287,7 +289,7 @@ private struct SidebarInteractiveRow<Content: View>: View {
             return theme.accentColor.opacity(0.18)
         }
         if isHovered {
-            return Color.primary.opacity(0.08)
+            return theme.hoverFillColor
         }
         return .clear
     }

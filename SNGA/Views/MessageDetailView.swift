@@ -167,7 +167,7 @@ private struct MessagePostRow: View {
         .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 10))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.5))
+                .stroke(theme.separatorColor)
         }
     }
 

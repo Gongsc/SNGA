@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SkeletonShimmerView<Content: View>: View {
+    @Environment(\.sngaTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isShimmering = false
     @ViewBuilder let content: Content
@@ -24,8 +25,10 @@ struct SkeletonShimmerView<Content: View>: View {
     }
 
     private var shimmerStyle: LinearGradient {
-        let baseColor = Color.primary.opacity(0.07)
-        let highlightColor = Color.primary.opacity(0.16)
+        // 骨架屏铺在卡片上，两档色就取卡片自己的填充和悬停底 —— 原先写死
+        // `Color.primary.opacity(...)`，暖金主题下会在暖色卡片上扫过一道灰。
+        let baseColor = theme.fillColor
+        let highlightColor = theme.hoverFillColor
         let leadingEdge = reduceMotion
             ? UnitPoint.leading
             : UnitPoint(x: isShimmering ? 1.3 : -1.3, y: 0.5)
