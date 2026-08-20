@@ -95,6 +95,65 @@ final class ThemePaletteTests: XCTestCase {
         }
     }
 
+    /// 热门色要跟着主题走。
+    ///
+    /// 原先自定义那一档写死一对 `#A34A17` / `#E9B872` —— 既不随用户取色变化，
+    /// 在偏亮的自定义背景（#F5F0E1）上还会掉到 4.45:1，楼层号读不出来。
+    func testCustomHotReplyFollowsTheThemeAndStaysReadable() throws {
+        let cases = [
+            ("#263238", "#80CBC4"), ("#3B2A4D", "#C49CFF"), ("#4D2A2A", "#FF6B6B"),
+            ("#F5F0E1", "#8F5900"), ("#FFFFFF", "#0869C9"), ("#101418", "#52D6E8"),
+            ("#7F7F7F", "#3355FF"), ("#000000", "#FFFFFF"), ("#2A1A0A", "#FF9500")
+        ]
+        var produced: Set<String> = []
+        for (backgroundHex, accentHex) in cases {
+            let palette = ThemePalette.custom(
+                background: try XCTUnwrap(ThemeRGB(hex: backgroundHex)),
+                accent: try XCTUnwrap(ThemeRGB(hex: accentHex))
+            )
+            assert(
+                palette.hotReply.contrastRatio(with: palette.surface),
+                atLeast: 4.5, "\(backgroundHex)/\(accentHex)", "热门色"
+            )
+            produced.insert(palette.hotReply.hex)
+        }
+        XCTAssertGreaterThan(
+            produced.count, 1,
+            "九种背景／强调色组合推出同一个热门色，说明它根本没跟着主题走"
+        )
+    }
+
+    /// 色相要留在暖色区。跟着强调色转的话，红色强调色会转出绿色 ——
+    /// 绿色标「热门」没人看得懂。
+    func testCustomHotReplyStaysWarmWhateverTheAccent() throws {
+        for accentHex in ["#0869C9", "#52D6E8", "#80CBC4", "#C49CFF", "#3DDC46", "#FF6B6B"] {
+            let palette = ThemePalette.custom(
+                background: try XCTUnwrap(ThemeRGB(hex: "#263238")),
+                accent: try XCTUnwrap(ThemeRGB(hex: accentHex))
+            )
+            let hue = palette.hotReply.hueDegrees
+            XCTAssertTrue(
+                (0...55).contains(hue),
+                "强调色 \(accentHex) 推出的热门色色相 \(Int(hue))°，已经不是暖色了"
+            )
+        }
+    }
+
+    /// 跟随系统那一档没有调色板，两个备用值也要自己达标 ——
+    /// `NSColor.systemOrange` 压在浅色外观的 controlBackgroundColor 上只有 2.2:1。
+    func testSystemHotReplyClearsAAInBothAppearances() throws {
+        let lightSurface = try XCTUnwrap(ThemeRGB(hex: "#FFFFFF"))
+        let darkSurface = try XCTUnwrap(ThemeRGB(hex: "#1E1E1E"))
+        assert(
+            ResolvedAppTheme.systemHotReplyLight.contrastRatio(with: lightSurface),
+            atLeast: 4.5, "跟随系统（浅色外观）", "热门色"
+        )
+        assert(
+            ResolvedAppTheme.systemHotReplyDark.contrastRatio(with: darkSurface),
+            atLeast: 4.5, "跟随系统（深色外观）", "热门色"
+        )
+    }
+
     /// 跟随系统不能有调色板。写死任何一组十六进制值都会让它不再跟着 macOS
     /// 的明暗切换 —— 那一套要的就是 AppKit 的动态语义色。
     func testSystemThemeHasNoHardCodedPalette() {

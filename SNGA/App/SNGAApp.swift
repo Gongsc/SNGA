@@ -117,6 +117,11 @@ struct ResolvedAppTheme: Equatable, Sendable {
 
     static let system = AppTheme.system.resolved()
 
+    /// 跟随系统那一档的热门色。这一档没有调色板可查，只能自己备两个值 ——
+    /// 都是按 4.5:1 压在对应外观的 `controlBackgroundColor` 上定出来的。
+    static let systemHotReplyLight = ThemeRGB(hex: "#B85D1C")!
+    static let systemHotReplyDark = ThemeRGB(hex: "#D46B20")!
+
     var preferredColorScheme: ColorScheme? {
         switch selection {
         case .system: nil
@@ -181,8 +186,21 @@ struct ResolvedAppTheme: Equatable, Sendable {
     }
 
     /// 热门回复的标记色。原先直接借强调色，和链接、选中行抢同一个信号。
+    ///
+    /// 跟随系统这一档不能用 `NSColor.systemOrange`：它压在浅色外观的
+    /// `controlBackgroundColor` 上只有 2.2:1，楼层号基本看不出来。改成一个自己
+    /// 的动态色，两档都按 4.5:1 定过，仍旧跟着 macOS 明暗切换。
     var hotReplyColor: Color {
-        palette.map(\.hotReply.color) ?? Color(nsColor: .systemOrange)
+        if let palette { return palette.hotReply.color }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let rgb = isDark
+                ? ResolvedAppTheme.systemHotReplyDark
+                : ResolvedAppTheme.systemHotReplyLight
+            return NSColor(
+                srgbRed: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1
+            )
+        })
     }
 
     /// 铺满强调色的底上应该用什么颜色写字。
@@ -408,6 +426,51 @@ struct ThemeRGB: Equatable, Sendable {
         let lighter = max(relativeLuminance, other.relativeLuminance)
         let darker = min(relativeLuminance, other.relativeLuminance)
         return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// 色相，0–360 度。
+    var hueDegrees: Double {
+        let highest = max(red, green, blue)
+        let lowest = min(red, green, blue)
+        let delta = highest - lowest
+        guard delta > 0 else { return 0 }
+        let hue: Double
+        if highest == red {
+            hue = 60 * ((green - blue) / delta)
+        } else if highest == green {
+            hue = 60 * ((blue - red) / delta + 2)
+        } else {
+            hue = 60 * ((red - green) / delta + 4)
+        }
+        return (hue + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    /// 两个色相之间的夹角，0–180 度。
+    static func hueGap(_ first: Double, _ second: Double) -> Double {
+        let raw = abs(first - second).truncatingRemainder(dividingBy: 360)
+        return min(raw, 360 - raw)
+    }
+
+    /// 按色相／饱和度／明度构造。语义色（热门、危险、成功）要保住色相、只调
+    /// 明度和饱和度，用 RGB 混色做不到这件事。
+    init(hueDegrees: Double, saturation: Double, brightness: Double) {
+        let sector = ((hueDegrees.truncatingRemainder(dividingBy: 360) + 360)
+            .truncatingRemainder(dividingBy: 360)) / 60
+        let saturation = min(max(saturation, 0), 1)
+        let brightness = min(max(brightness, 0), 1)
+        let index = floor(sector)
+        let fraction = sector - index
+        let p = brightness * (1 - saturation)
+        let q = brightness * (1 - saturation * fraction)
+        let t = brightness * (1 - saturation * (1 - fraction))
+        switch Int(index) % 6 {
+        case 0: self.init(red: brightness, green: t, blue: p)
+        case 1: self.init(red: q, green: brightness, blue: p)
+        case 2: self.init(red: p, green: brightness, blue: t)
+        case 3: self.init(red: p, green: q, blue: brightness)
+        case 4: self.init(red: t, green: p, blue: brightness)
+        default: self.init(red: brightness, green: p, blue: q)
+        }
     }
 
     func mixed(with other: ThemeRGB, amount: Double) -> ThemeRGB {

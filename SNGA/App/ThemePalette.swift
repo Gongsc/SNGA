@@ -164,11 +164,66 @@ struct ThemePalette: Equatable, Sendable {
             secondaryText: text(5.5, preferredCap: 0.72),
             tertiaryText: text(4.6, preferredCap: 0.6),
             accent: accent,
-            // 热门回复要和强调色分得开，用一个固定的暖色，不跟着强调色走。
-            hotReply: isDark
-                ? ThemeRGB(hex: "#E9B872")!
-                : ThemeRGB(hex: "#A34A17")!
+            hotReply: hotReply(on: surface, accent: accent)
         )
+    }
+
+    /// 「这层热门」的标记色。
+    ///
+    /// 色相保持在暖色区，不跟着强调色转 —— 暖色本身就是「热」的意思，转过去
+    /// 语义就没了：用户挑了红色强调色，转 150 度出来是绿色，绿色标热门谁看得懂。
+    ///
+    /// 变的是明度和饱和度，跟着卡片色走，压到楼层号读得出来的 4.5:1。原先这里
+    /// 写死一对 `#A34A17` / `#E9B872`，既不跟主题变，在偏亮的自定义背景上还会掉到
+    /// 4.45。
+    ///
+    /// 色相默认用 25 度那个标准橙 —— 只有当强调色本身也落在暖色区（相差不到
+    /// 35 度）时才让开，改用红橙或琥珀里离它更远的那个。让路是为了避免热门和
+    /// 链接撞成一个信号；不撞的时候没有理由换色相，橙色就是橙色。
+    static func hotReply(on surface: ThemeRGB, accent: ThemeRGB) -> ThemeRGB {
+        let accentHue = accent.hueDegrees
+        let preferred = 25.0
+        let hue: Double
+        if ThemeRGB.hueGap(preferred, accentHue) >= 35 {
+            hue = preferred
+        } else {
+            hue = [10.0, 42.0].max {
+                ThemeRGB.hueGap($0, accentHue) < ThemeRGB.hueGap($1, accentHue)
+            } ?? preferred
+        }
+
+        let target = 4.5
+        let saturation = 0.85
+
+        // 卡片偏亮就把标记色压暗，偏暗就提亮。
+        guard surface.relativeLuminance < 0.18 else {
+            var brightness = 0.98
+            while brightness > 0.02 {
+                let candidate = ThemeRGB(
+                    hueDegrees: hue, saturation: saturation, brightness: brightness
+                )
+                if candidate.contrastRatio(with: surface) >= target { return candidate }
+                brightness -= 0.02
+            }
+            return ThemeRGB(hueDegrees: hue, saturation: saturation, brightness: 0.02)
+        }
+
+        var brightness = 0.35
+        while brightness < 1 {
+            let candidate = ThemeRGB(
+                hueDegrees: hue, saturation: saturation, brightness: brightness
+            )
+            if candidate.contrastRatio(with: surface) >= target { return candidate }
+            brightness += 0.02
+        }
+        // 亮度到顶还不够：饱和的橙子亮度有上限，继续朝白里兑。
+        var fading = saturation
+        while fading > 0.02 {
+            let candidate = ThemeRGB(hueDegrees: hue, saturation: fading, brightness: 1)
+            if candidate.contrastRatio(with: surface) >= target { return candidate }
+            fading -= 0.02
+        }
+        return ThemeRGB(hueDegrees: hue, saturation: 0.02, brightness: 1)
     }
 
     /// 这张卡片色上，文字最多能拿到多少对比度。中间调的卡片两个方向都推不动，
