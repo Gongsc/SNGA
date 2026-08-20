@@ -37,8 +37,53 @@ struct ThemePalette: Equatable, Sendable {
     var tertiaryText: ThemeRGB
     /// 强调色。沿用各主题原有的取值，这次不动品牌色。
     var accent: ThemeRGB
-    /// 热门回复的标记色。原先直接借强调色，和链接、选中行抢同一个信号。
-    var hotReply: ThemeRGB
+
+    /// 热点回复的标记色。
+    ///
+    /// 就是强调色本身，必要时调一调明度，保证压在卡片上还读得出来（楼层号
+    /// 拿它当文字色，要 4.5:1）。
+    ///
+    /// 这里一度改成固定的暖色，理由是「暖色本身就是热的意思，跟着强调色转会
+    /// 把语义转没了」。放到界面上不成立：午夜蓝的「热点回复」标题是青色的，
+    /// 下面的卡片却镶一圈橙边，同一个功能里自己就不一致，橙色在整片冷色里
+    /// 也只是一块外来色。热点是这个版面自己的强调，不是一个跨主题的通用状态，
+    /// 跟着主题走才对。
+    var hotReply: ThemeRGB {
+        Self.fittingContrast(accent, on: surface, atLeast: 4.5)
+    }
+
+    /// 保住色相和饱和度，只调明度，把 `color` 推到对 `surface` 至少 `minimum`。
+    /// 明度到头还不够就接着降饱和度 —— 深色卡片上的深蓝就是这么救回来的。
+    static func fittingContrast(
+        _ color: ThemeRGB,
+        on surface: ThemeRGB,
+        atLeast minimum: Double
+    ) -> ThemeRGB {
+        guard color.contrastRatio(with: surface) < minimum else { return color }
+
+        let hue = color.hueDegrees
+        let saturation = color.saturation
+        let step = surface.relativeLuminance >= 0.18 ? -0.02 : 0.02
+        var brightness = color.brightness
+
+        while brightness + step > 0.02, brightness + step < 1 {
+            brightness += step
+            let candidate = ThemeRGB(
+                hueDegrees: hue, saturation: saturation, brightness: brightness
+            )
+            if candidate.contrastRatio(with: surface) >= minimum { return candidate }
+        }
+
+        var fading = saturation
+        while fading > 0 {
+            fading -= 0.02
+            let candidate = ThemeRGB(
+                hueDegrees: hue, saturation: max(fading, 0), brightness: brightness
+            )
+            if candidate.contrastRatio(with: surface) >= minimum { return candidate }
+        }
+        return ThemeRGB(hueDegrees: hue, saturation: 0, brightness: brightness)
+    }
 
     static let light = ThemePalette(
         background: ThemeRGB(hex: "#EEEEF0")!,
@@ -51,8 +96,7 @@ struct ThemePalette: Equatable, Sendable {
         primaryText: ThemeRGB(hex: "#16171A")!,
         secondaryText: ThemeRGB(hex: "#5B5F66")!,
         tertiaryText: ThemeRGB(hex: "#72767D")!,
-        accent: ThemeRGB(hex: "#0869C9")!,
-        hotReply: ThemeRGB(hex: "#B45309")!
+        accent: ThemeRGB(hex: "#0869C9")!
     )
 
     static let dark = ThemePalette(
@@ -66,8 +110,7 @@ struct ThemePalette: Equatable, Sendable {
         primaryText: ThemeRGB(hex: "#E9E8EC")!,
         secondaryText: ThemeRGB(hex: "#A2A1A9")!,
         tertiaryText: ThemeRGB(hex: "#8B8A93")!,
-        accent: ThemeRGB(hex: "#C49CFF")!,
-        hotReply: ThemeRGB(hex: "#E0A458")!
+        accent: ThemeRGB(hex: "#C49CFF")!
     )
 
     /// 暖金的卡片色定成比窗口更亮的 `#FDF7E9` —— 纸摆在桌面上，不是陷进桌面里。
@@ -82,8 +125,7 @@ struct ThemePalette: Equatable, Sendable {
         primaryText: ThemeRGB(hex: "#2A2117")!,
         secondaryText: ThemeRGB(hex: "#6B5A3E")!,
         tertiaryText: ThemeRGB(hex: "#7D6C4C")!,
-        accent: ThemeRGB(hex: "#A8570D")!,
-        hotReply: ThemeRGB(hex: "#A33A17")!
+        accent: ThemeRGB(hex: "#A8570D")!
     )
 
     static let midnight = ThemePalette(
@@ -97,8 +139,7 @@ struct ThemePalette: Equatable, Sendable {
         primaryText: ThemeRGB(hex: "#E2E9F2")!,
         secondaryText: ThemeRGB(hex: "#93A3BC")!,
         tertiaryText: ThemeRGB(hex: "#7C8BA6")!,
-        accent: ThemeRGB(hex: "#52D6E8")!,
-        hotReply: ThemeRGB(hex: "#F0B95E")!
+        accent: ThemeRGB(hex: "#52D6E8")!
     )
 
     /// 自定义主题只有背景和强调两个输入，其余仍然要推 —— 但推法和原先不同：
@@ -163,67 +204,8 @@ struct ThemePalette: Equatable, Sendable {
             primaryText: text(9.5, preferredCap: 0.9),
             secondaryText: text(5.5, preferredCap: 0.72),
             tertiaryText: text(4.6, preferredCap: 0.6),
-            accent: accent,
-            hotReply: hotReply(on: surface, accent: accent)
+            accent: accent
         )
-    }
-
-    /// 「这层热门」的标记色。
-    ///
-    /// 色相保持在暖色区，不跟着强调色转 —— 暖色本身就是「热」的意思，转过去
-    /// 语义就没了：用户挑了红色强调色，转 150 度出来是绿色，绿色标热门谁看得懂。
-    ///
-    /// 变的是明度和饱和度，跟着卡片色走，压到楼层号读得出来的 4.5:1。原先这里
-    /// 写死一对 `#A34A17` / `#E9B872`，既不跟主题变，在偏亮的自定义背景上还会掉到
-    /// 4.45。
-    ///
-    /// 色相默认用 25 度那个标准橙 —— 只有当强调色本身也落在暖色区（相差不到
-    /// 35 度）时才让开，改用红橙或琥珀里离它更远的那个。让路是为了避免热门和
-    /// 链接撞成一个信号；不撞的时候没有理由换色相，橙色就是橙色。
-    static func hotReply(on surface: ThemeRGB, accent: ThemeRGB) -> ThemeRGB {
-        let accentHue = accent.hueDegrees
-        let preferred = 25.0
-        let hue: Double
-        if ThemeRGB.hueGap(preferred, accentHue) >= 35 {
-            hue = preferred
-        } else {
-            hue = [10.0, 42.0].max {
-                ThemeRGB.hueGap($0, accentHue) < ThemeRGB.hueGap($1, accentHue)
-            } ?? preferred
-        }
-
-        let target = 4.5
-        let saturation = 0.85
-
-        // 卡片偏亮就把标记色压暗，偏暗就提亮。
-        guard surface.relativeLuminance < 0.18 else {
-            var brightness = 0.98
-            while brightness > 0.02 {
-                let candidate = ThemeRGB(
-                    hueDegrees: hue, saturation: saturation, brightness: brightness
-                )
-                if candidate.contrastRatio(with: surface) >= target { return candidate }
-                brightness -= 0.02
-            }
-            return ThemeRGB(hueDegrees: hue, saturation: saturation, brightness: 0.02)
-        }
-
-        var brightness = 0.35
-        while brightness < 1 {
-            let candidate = ThemeRGB(
-                hueDegrees: hue, saturation: saturation, brightness: brightness
-            )
-            if candidate.contrastRatio(with: surface) >= target { return candidate }
-            brightness += 0.02
-        }
-        // 亮度到顶还不够：饱和的橙子亮度有上限，继续朝白里兑。
-        var fading = saturation
-        while fading > 0.02 {
-            let candidate = ThemeRGB(hueDegrees: hue, saturation: fading, brightness: 1)
-            if candidate.contrastRatio(with: surface) >= target { return candidate }
-            fading -= 0.02
-        }
-        return ThemeRGB(hueDegrees: hue, saturation: 0.02, brightness: 1)
     }
 
     /// 这张卡片色上，文字最多能拿到多少对比度。中间调的卡片两个方向都推不动，

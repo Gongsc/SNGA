@@ -65,13 +65,19 @@ final class ThemePaletteTests: XCTestCase {
         }
     }
 
-    /// 热门回复得是自己的颜色。原先直接借强调色，而强调色同时还在标链接和选中
-    /// 行 —— 三件事共用一个信号，哪一件都读不准。
-    func testHotReplyIsItsOwnSignal() {
+    /// 热点色跟着主题的强调色走。
+    ///
+    /// 这里一度改成固定的暖色，理由是「暖色本身就是热的意思」。放到界面上不成立：
+    /// 午夜蓝的「热点回复」标题是青色，下面的卡片却镶一圈橙边 —— 同一个功能里
+    /// 自己就不一致。热点是这个版面自己的强调，跟着主题走才对。
+    func testHotReplyFollowsTheAccentHue() {
         for (name, palette) in Self.all {
-            XCTAssertNotEqual(palette.hotReply, palette.accent, "\(name)：热门色仍然是强调色")
+            XCTAssertEqual(
+                palette.hotReply.hueDegrees, palette.accent.hueDegrees, accuracy: 2,
+                "\(name)：热点色的色相离开了强调色，它就不再属于这套主题了"
+            )
             assert(palette.hotReply.contrastRatio(with: palette.surface),
-                   atLeast: 4.5, name, "热门色")
+                   atLeast: 4.5, name, "热点色")
         }
     }
 
@@ -97,8 +103,8 @@ final class ThemePaletteTests: XCTestCase {
 
     /// 热门色要跟着主题走。
     ///
-    /// 原先自定义那一档写死一对 `#A34A17` / `#E9B872` —— 既不随用户取色变化，
-    /// 在偏亮的自定义背景（#F5F0E1）上还会掉到 4.45:1，楼层号读不出来。
+    /// 原先自定义那一档写死一对暖色 —— 既不随用户取色变化，在偏亮的自定义背景
+    /// （#F5F0E1）上还会掉到 4.45:1，中间调背景上更是只有 1.47:1。
     func testCustomHotReplyFollowsTheThemeAndStaysReadable() throws {
         let cases = [
             ("#263238", "#80CBC4"), ("#3B2A4D", "#C49CFF"), ("#4D2A2A", "#FF6B6B"),
@@ -123,24 +129,23 @@ final class ThemePaletteTests: XCTestCase {
         )
     }
 
-    /// 色相要留在暖色区。跟着强调色转的话，红色强调色会转出绿色 ——
-    /// 绿色标「热门」没人看得懂。
-    func testCustomHotReplyStaysWarmWhateverTheAccent() throws {
+    /// 自定义主题下同理：用户换了突出色，热点色跟着换。
+    func testCustomHotReplyFollowsTheChosenAccent() throws {
         for accentHex in ["#0869C9", "#52D6E8", "#80CBC4", "#C49CFF", "#3DDC46", "#FF6B6B"] {
+            let accent = try XCTUnwrap(ThemeRGB(hex: accentHex))
             let palette = ThemePalette.custom(
                 background: try XCTUnwrap(ThemeRGB(hex: "#263238")),
-                accent: try XCTUnwrap(ThemeRGB(hex: accentHex))
+                accent: accent
             )
-            let hue = palette.hotReply.hueDegrees
-            XCTAssertTrue(
-                (0...55).contains(hue),
-                "强调色 \(accentHex) 推出的热门色色相 \(Int(hue))°，已经不是暖色了"
+            XCTAssertEqual(
+                palette.hotReply.hueDegrees, accent.hueDegrees, accuracy: 2,
+                "突出色 \(accentHex) 换了，热点色的色相没跟上"
             )
         }
     }
 
     /// 跟随系统那一档没有调色板，两个备用值也要自己达标 ——
-    /// `NSColor.systemOrange` 压在浅色外观的 controlBackgroundColor 上只有 2.2:1。
+    /// 系统蓝原样压在浅色外观的 controlBackgroundColor 上只有 3.5:1。
     func testSystemHotReplyClearsAAInBothAppearances() throws {
         let lightSurface = try XCTUnwrap(ThemeRGB(hex: "#FFFFFF"))
         let darkSurface = try XCTUnwrap(ThemeRGB(hex: "#1E1E1E"))

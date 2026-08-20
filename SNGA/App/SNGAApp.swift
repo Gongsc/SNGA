@@ -117,10 +117,11 @@ struct ResolvedAppTheme: Equatable, Sendable {
 
     static let system = AppTheme.system.resolved()
 
-    /// 跟随系统那一档的热门色。这一档没有调色板可查，只能自己备两个值 ——
-    /// 都是按 4.5:1 压在对应外观的 `controlBackgroundColor` 上定出来的。
-    static let systemHotReplyLight = ThemeRGB(hex: "#B85D1C")!
-    static let systemHotReplyDark = ThemeRGB(hex: "#D46B20")!
+    /// 跟随系统那一档的热点色。这一档没有调色板可查，只能自己备两个值 ——
+    /// 都是把系统蓝按 4.5:1 压在对应外观的 `controlBackgroundColor` 上拟合出来的
+    /// （系统蓝原样压在白底上只有 3.5:1，楼层号读不出来）。
+    static let systemHotReplyLight = ThemeRGB(hex: "#0070EB")!
+    static let systemHotReplyDark = ThemeRGB(hex: "#1485FF")!
 
     var preferredColorScheme: ColorScheme? {
         switch selection {
@@ -185,11 +186,11 @@ struct ResolvedAppTheme: Equatable, Sendable {
         accentColor.opacity(0.12)
     }
 
-    /// 热门回复的标记色。原先直接借强调色，和链接、选中行抢同一个信号。
+    /// 热点回复的标记色：跟着主题的强调色走，必要时调明度保证读得出来。
     ///
-    /// 跟随系统这一档不能用 `NSColor.systemOrange`：它压在浅色外观的
-    /// `controlBackgroundColor` 上只有 2.2:1，楼层号基本看不出来。改成一个自己
-    /// 的动态色，两档都按 4.5:1 定过，仍旧跟着 macOS 明暗切换。
+    /// 跟随系统这一档不能直接用 `.blue`：它压在浅色外观的
+    /// `controlBackgroundColor` 上只有 3.5:1，楼层号读不出来。改成一个自己的
+    /// 动态色，两档都按 4.5:1 拟合过，仍旧跟着 macOS 明暗切换。
     var hotReplyColor: Color {
         if let palette { return palette.hotReply.color }
         return Color(nsColor: NSColor(name: nil) { appearance in
@@ -443,6 +444,18 @@ struct ThemeRGB: Equatable, Sendable {
             hue = 60 * ((red - green) / delta + 4)
         }
         return (hue + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    /// 饱和度，0–1。
+    var saturation: Double {
+        let highest = max(red, green, blue)
+        guard highest > 0 else { return 0 }
+        return (highest - min(red, green, blue)) / highest
+    }
+
+    /// 明度，0–1。
+    var brightness: Double {
+        max(red, green, blue)
     }
 
     /// 两个色相之间的夹角，0–180 度。
