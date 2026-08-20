@@ -137,11 +137,13 @@ struct ThreadView: View {
                 .accessibilityIdentifier("thread-content-scroll")
                 .scrollDisabled(showsSkeleton)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    ThreadPaginationBar(
+                    PaginationBar(
                         currentPage: presentation.page,
                         totalPages: presentation.totalPages,
                         isLoading: isThreadLoading,
                         showsLoadingIndicator: !showsThreadContentSkeleton,
+                        identifierPrefix: "thread",
+                        subject: "本话题",
                         navigate: { page in
                             guard let topicID = model.thread.selectedTopicID else { return }
                             Task {
@@ -733,140 +735,6 @@ private struct AnimatedThreadBackButton: View {
             .spring(response: 0.28, dampingFraction: 0.72),
             value: isHovering
         )
-    }
-}
-
-private struct ThreadPaginationBar<Actions: View>: View {
-    let currentPage: Int
-    let totalPages: Int
-    let isLoading: Bool
-    let showsLoadingIndicator: Bool
-    var navigate: (Int) -> Void
-    let actions: Actions
-
-    @State private var pageText = "1"
-
-    init(
-        currentPage: Int,
-        totalPages: Int,
-        isLoading: Bool,
-        showsLoadingIndicator: Bool = true,
-        navigate: @escaping (Int) -> Void,
-        @ViewBuilder actions: () -> Actions
-    ) {
-        self.currentPage = currentPage
-        self.totalPages = totalPages
-        self.isLoading = isLoading
-        self.showsLoadingIndicator = showsLoadingIndicator
-        self.navigate = navigate
-        self.actions = actions()
-    }
-
-    var body: some View {
-        BottomActionBar {
-            paginationContent
-        }
-            .onAppear {
-                pageText = String(currentPage)
-            }
-            .onChange(of: currentPage) { _, newValue in
-                pageText = String(newValue)
-            }
-            .onChange(of: totalPages) { _, newValue in
-                if let value = Int(pageText), value > newValue {
-                    pageText = String(newValue)
-                }
-            }
-    }
-
-    private var paginationContent: some View {
-        HStack(spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                paginationControls(isCompact: false)
-                paginationControls(isCompact: true)
-            }
-
-            if isLoading && showsLoadingIndicator {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("正在加载话题内容")
-                    .accessibilityIdentifier("thread-loading-indicator")
-            }
-
-            Spacer(minLength: 4)
-
-            HStack(spacing: 4) {
-                actions
-            }
-            .fixedSize()
-        }
-    }
-
-    private func paginationControls(isCompact: Bool) -> some View {
-        HStack(spacing: isCompact ? 3 : 6) {
-            Button("首页", systemImage: "backward.end.fill") {
-                navigate(1)
-            }
-            .labelStyle(.iconOnly)
-            .help("跳转到首页")
-            .disabled(isLoading || currentPage <= 1)
-
-            Button("上一页", systemImage: "chevron.left") {
-                navigate(currentPage - 1)
-            }
-            .labelStyle(.iconOnly)
-            .help("上一页")
-            .disabled(isLoading || currentPage <= 1)
-
-            TextField("页码", text: $pageText)
-                .frame(width: isCompact ? 44 : 54)
-                .multilineTextAlignment(.center)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(performJump)
-                .accessibilityLabel("目标页码")
-                .accessibilityIdentifier("thread-page-field")
-
-            if !isCompact {
-                Text("/ \(totalPages)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-
-                Button("跳转", action: performJump)
-                    .disabled(isLoading || parsedPage == nil || parsedPage == currentPage)
-            }
-
-            Button("下一页", systemImage: "chevron.right") {
-                navigate(currentPage + 1)
-            }
-            .labelStyle(.iconOnly)
-            .help("下一页")
-            .disabled(isLoading || currentPage >= totalPages)
-            .accessibilityIdentifier("thread-next-page")
-
-            Button("尾页", systemImage: "forward.end.fill") {
-                navigate(totalPages)
-            }
-            .labelStyle(.iconOnly)
-            .help("跳转到尾页")
-            .disabled(isLoading || currentPage >= totalPages)
-        }
-        .fixedSize()
-    }
-
-    private var parsedPage: Int? {
-        guard let value = Int(pageText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (1...totalPages).contains(value) else {
-            return nil
-        }
-        return value
-    }
-
-    private func performJump() {
-        guard let parsedPage, parsedPage != currentPage, !isLoading else {
-            pageText = String(currentPage)
-            return
-        }
-        navigate(parsedPage)
     }
 }
 
