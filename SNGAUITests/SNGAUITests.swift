@@ -62,12 +62,14 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
-    func testAboutWindowShowsProjectLinks() {
+    /// 「关于 SNGA」也不再弹窗：菜单项把主窗口切到「设置 › 关于」。
+    func testAboutMenuItemOpensAboutSettingsSection() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--uitesting-seed"]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
         let appMenu = app.menuBars.menuBarItems["SNGA"]
         appMenu.click()
@@ -75,11 +77,15 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(about.waitForExistence(timeout: 2))
         about.click()
 
-        XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.8.2（1）"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
-        XCTAssertTrue(app.links["gongsc@live.cn"].exists)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-about"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertTrue(mainWindow.staticTexts["版本 1.8.2（1）"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
+        XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
     }
 
     func testOfficialLoginFormDisplaysJavaScriptValidation() {
@@ -627,16 +633,42 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
-    func testToolboxInstanceSettingsShowCustomURLAndDocumentation() {
+    /// 设置整个长在主窗口里：应用菜单里的「设置…」不再弹窗，而是把边栏切到
+    /// 设置，中栏列分类、右栏放面板。断言全部落在主窗口内。
+    ///
+    /// 这里点菜单项而不是按 ⌘,：任何一个注册了 ⌘, 全局热键的第三方应用都会把
+    /// 这个键抢走，键盘事件根本到不了被测应用，测试就会无缘无故地红。菜单项和
+    /// 快捷键指向同一个 `Button`，点它验的是同一条路径。
+    func testSettingsMenuItemOpensSettingsInMainWindow() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--uitesting-seed"]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
-        app.typeKey(",", modifierFlags: .command)
+        let appMenu = app.menuBars.menuBarItems["SNGA"]
+        appMenu.click()
+        let settingsItem = appMenu.menus.menuItems["设置…"]
+        XCTAssertTrue(settingsItem.waitForExistence(timeout: 2))
+        settingsItem.click()
 
-        let instancePicker = app.descendants(matching: .any)["toolbox-instance-picker"]
+        // 只该切换主窗口里的页面，不该多开一扇窗。
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-section-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let toolboxSection = mainWindow.descendants(matching: .any)["settings-section-toolbox"]
+        XCTAssertTrue(toolboxSection.waitForExistence(timeout: 5))
+        toolboxSection.click()
+
+        let instancePicker = mainWindow.descendants(matching: .any)["toolbox-instance-picker"]
         XCTAssertTrue(instancePicker.waitForExistence(timeout: 5))
         instancePicker.click()
         let customInstance = app.menuItems["自定义实例"]
@@ -644,11 +676,11 @@ final class SNGAUITests: XCTestCase {
         customInstance.click()
 
         XCTAssertTrue(
-            app.textFields["toolbox-custom-instance-field"]
+            mainWindow.textFields["toolbox-custom-instance-field"]
                 .waitForExistence(timeout: 5)
         )
         XCTAssertTrue(
-            app.descendants(matching: .any)["toolbox-instance-documentation"]
+            mainWindow.descendants(matching: .any)["toolbox-instance-documentation"]
                 .waitForExistence(timeout: 5)
         )
 
@@ -656,6 +688,33 @@ final class SNGAUITests: XCTestCase {
         let automaticInstance = app.menuItems["自动选择（推荐）"]
         XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
         automaticInstance.click()
+    }
+
+    /// 边栏左下角的入口和 ⌘, 走的是同一条路。
+    func testSidebarSettingsButtonOpensSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let logSection = mainWindow.descendants(matching: .any)["settings-section-runtimeLog"]
+        XCTAssertTrue(logSection.waitForExistence(timeout: 5))
+        logSection.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-runtimeLog"]
+                .waitForExistence(timeout: 5)
+        )
     }
 
     func testReproShapes() {

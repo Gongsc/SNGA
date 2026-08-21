@@ -139,6 +139,8 @@ struct RootView: View {
             "收藏夹"
         case .toolbox:
             "小工具"
+        case .settings:
+            "设置"
         case .forum:
             nil
         case let .messages(folder):
@@ -312,6 +314,8 @@ private struct ContentColumnView: View {
                 FavoritesView()
             case .toolbox:
                 ToolboxMenuView()
+            case .settings:
+                SettingsMenuView()
             case let .forum(forumID):
                 TopicListView(
                     forumID: forumID,
@@ -328,7 +332,9 @@ private struct DetailColumnView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if model.sidebarSelection == .toolbox {
+        if model.sidebarSelection == .settings {
+            SettingsDetailView(section: model.selectedSettingsSection)
+        } else if model.sidebarSelection == .toolbox {
             ToolboxFeedView(feed: model.selectedToolboxFeed)
         } else if model.thread.selectedTopicID != nil {
             ThreadView()

@@ -19,6 +19,7 @@ final class AppModel {
     var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
+    var selectedSettingsSection: SettingsSection = .appearance
 
 
 
@@ -611,6 +612,8 @@ final class AppModel {
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
         case .toolbox: refreshToolbox()
+        // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
+        case .settings: break
         case let .userCenter(uid):
             if let targetUID = uid ?? session.activeAccount?.ngaUID {
                 await openUserCenter(uid: targetUID)
@@ -627,6 +630,20 @@ final class AppModel {
 
     func refreshToolbox() {
         toolboxRefreshRevision &+= 1
+    }
+
+    /// 切到设置。清掉话题和消息的选中，右栏才轮得到设置面板 ——
+    /// 和边栏其他目的地的做法一致。
+    ///
+    /// `section` 留空表示停在上次看的那一类：⌘, 该回到用户离开的地方，只有
+    /// 「关于 SNGA」这种指名道姓的入口才需要指定落点。
+    func openSettings(section: SettingsSection? = nil) {
+        if let section {
+            selectedSettingsSection = section
+        }
+        sidebarSelection = .settings
+        thread.selectedTopicID = nil
+        messaging.selectedMessageID = nil
     }
 
 

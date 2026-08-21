@@ -532,6 +532,43 @@ enum ToolboxContent: Hashable, Sendable {
     case articles([ToolboxArticle])
 }
 
+/// 设置的分类。每一类在中栏占一行，在右栏是一张面板。
+///
+/// 副标题不放在这里：它读的是当前值（选了哪套主题、日志开没开），要跟着改动
+/// 实时变，只能在视图里从 `@AppStorage` 取。
+enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case appearance
+    case browsing
+    case toolbox
+    case background
+    case runtimeLog
+    case about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .appearance: "外观"
+        case .browsing: "浏览"
+        case .toolbox: "小工具"
+        case .background: "后台行为"
+        case .runtimeLog: "运行日志"
+        case .about: "关于"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .appearance: "paintpalette"
+        case .browsing: "photo.on.rectangle"
+        case .toolbox: "wrench.and.screwdriver"
+        case .background: "clock.arrow.circlepath"
+        case .runtimeLog: "doc.text"
+        case .about: "info.circle"
+        }
+    }
+}
+
 enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
     case forum(ForumID)
@@ -540,4 +577,5 @@ enum SidebarSelection: Hashable, Sendable {
     case favorites
     case messages(MessageFolder)
     case toolbox
+    case settings
 }

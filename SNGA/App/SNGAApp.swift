@@ -558,7 +558,8 @@ struct SNGAApp: App {
         .defaultSize(width: 1180, height: 780)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            AboutCommands()
+            AboutCommands { model.openSettings(section: .about) }
+            SettingsCommands { model.openSettings() }
 
             CommandGroup(after: .sidebar) {
                 Button(model.thread.selectedTopicID == nil ? "刷新" : "刷新话题内容") {
@@ -573,23 +574,20 @@ struct SNGAApp: App {
                 .disabled(model.selectedForumID == nil)
             }
         }
+    }
+}
 
-        Window("关于 SNGA", id: AboutView.windowID) {
-            AboutView()
-                .environment(\.sngaTheme, selectedTheme)
-                .preferredColorScheme(selectedTheme.preferredColorScheme)
-                .tint(selectedTheme.accentColor)
-        }
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-
-        Settings {
-            SettingsView()
-                .environment(model)
-                .environment(\.sngaTheme, selectedTheme)
-                .preferredColorScheme(selectedTheme.preferredColorScheme)
-                .tint(selectedTheme.accentColor)
-        }
+/// 「关于」和「设置…」都落在主窗口里，菜单命令触发时得保证它在前面。
+///
+/// 主窗口整个被关掉的情况这里管不了：`WindowGroup` 没有能就地重开的入口，
+/// 但状态照样设好了，用户从 Dock 重开窗口就停在对应的页面上。
+@MainActor
+enum MainWindow {
+    static func bringToFront() {
+        NSApp.activate()
+        NSApp.windows
+            .first { $0.isVisible && $0.canBecomeMain }?
+            .makeKeyAndOrderFront(nil)
     }
 }
 

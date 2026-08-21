@@ -5,6 +5,15 @@ struct SidebarView: View {
     @Environment(\.sngaTheme) private var theme
 
     var body: some View {
+        VStack(spacing: 0) {
+            forumList
+            settingsFooter
+        }
+        .background(theme.backgroundColor)
+        .navigationTitle("SNGA")
+    }
+
+    private var forumList: some View {
         List {
             Section("账号") {
                 ForEach(model.session.accounts) { account in
@@ -122,7 +131,32 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
-        .navigationTitle("SNGA")
+    }
+
+    /// 设置入口固定在边栏底部，不跟着列表滚 —— 收藏版面再多也压不掉它。
+    /// 未登录时上面那几个区整块不显示，这一块照样在。
+    private var settingsFooter: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(theme.separatorColor)
+                .frame(height: 1)
+
+            Button {
+                model.openSettings()
+            } label: {
+                SidebarInteractiveRow(
+                    isSelected: model.sidebarSelection == .settings
+                ) {
+                    Label("设置", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sidebar-settings-button")
+            // 和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
+            .padding(6)
+        }
+        .background(theme.backgroundColor)
     }
 
     @ViewBuilder
@@ -136,7 +170,7 @@ struct SidebarView: View {
                 Task { await model.browsing.loadForums() }
             case .search:
                 model.clearForumSearch()
-            case .favorites, .toolbox:
+            case .favorites, .toolbox, .settings:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.session.activeAccount?.ngaUID {

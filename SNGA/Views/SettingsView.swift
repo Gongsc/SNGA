@@ -1,11 +1,36 @@
 import AppKit
 import SwiftUI
 
-struct SettingsView: View {
+/// 接管应用菜单里的「设置…」。
+///
+/// `Settings` 场景删掉之后，系统不再自动提供这一项，⌘, 也就跟着没了。菜单位置
+/// 和快捷键在这里原样补回来，只是动作从「弹一扇新窗」改成「切换主窗口里的页面」。
+struct SettingsCommands: Commands {
+    let openSettings: () -> Void
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("设置…") {
+                openSettings()
+                MainWindow.bringToFront()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+}
+
+/// 设置的中栏：分类列表。
+///
+/// 每行的副标题读的是当前值，右栏改完这里立刻跟着变 —— 不点进去也知道现在是
+/// 什么状态。`@AppStorage` 本身就会触发重绘，不需要额外的通知或订阅。
+///
+/// 账号不在这里。边栏顶上的账号区已经能切换、添加、重新登录和移除，设置里
+/// 再写一份只会让两处的文案对不上。
+struct SettingsMenuView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
-    @AppStorage(AppTheme.customBackgroundKey)
-    private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
@@ -16,15 +41,179 @@ struct SettingsView: View {
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
     private var customToolboxBaseURL = ""
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
-    @State private var loginRequest: SettingsLoginRequest?
-    @State private var runtimeLogPath = RuntimeLogSettings.displayPath
-    @State private var runtimeLogError: String?
+    @AppStorage(RuntimeLogSettings.directoryPathKey) private var runtimeLogDirectoryPath = ""
 
     var body: some View {
-        Form {
-            Section("外观") {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                Text("外观、浏览行为、小工具、日志与关于")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 4)
+
+                ForEach(SettingsSection.allCases) { section in
+                    Button {
+                        model.selectedSettingsSection = section
+                    } label: {
+                        SettingsMenuRow(
+                            section: section,
+                            subtitle: subtitle(for: section),
+                            isSelected: model.selectedSettingsSection == section
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings-section-\(section.rawValue)")
+                }
+            }
+            .padding(18)
+        }
+        .accessibilityIdentifier("settings-menu-scroll")
+        .background(theme.backgroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .navigationTitle("")
+    }
+
+    private func subtitle(for section: SettingsSection) -> String {
+        switch section {
+        case .appearance:
+            let selected = AppTheme.resolve(selectedThemeRaw)
+            return selected == .custom
+                ? "自定义 · 强调色 \(customAccentHex.uppercased())"
+                : selected.displayName
+        case .browsing:
+            let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
+            return "无图模式\(imageFreeMode ? "已开" : "已关") · 最近访问 \(count) 条"
+        case .toolbox:
+            let choice = ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw)
+                ?? .automatic
+            guard choice == .custom else { return "60s API · \(choice.title)" }
+            guard let url = ToolboxInstanceSettings.normalizedBaseURL(
+                from: customToolboxBaseURL
+            ) else {
+                return "自定义实例 · 地址待填写"
+            }
+            return "自定义实例 · \(url.host() ?? url.absoluteString)"
+        case .background:
+            return "消息轮询与每日签到"
+        case .runtimeLog:
+            guard runtimeLogEnabled else { return "已关闭" }
+            return "已启用 · \(runtimeLogDirectoryPath.isEmpty ? "默认目录" : runtimeLogDirectoryPath)"
+        case .about:
+            return "版本 \(AboutView.displayVersion) · 项目与联系方式"
+        }
+    }
+}
+
+private struct SettingsMenuRow: View {
+    @Environment(\.sngaTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let section: SettingsSection
+    let subtitle: String
+    let isSelected: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: section.systemImage)
+                .font(.title3)
+                .foregroundStyle(isSelected ? theme.onAccentColor : theme.accentColor)
+                .frame(width: 34, height: 34)
+                .background(
+                    isSelected ? theme.onAccentColor.opacity(0.2) : theme.accentSoftColor,
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.title)
+                    .font(.body.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(
+                        isSelected ? theme.onAccentColor.opacity(0.78) : Color.secondary
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(
+                    isSelected ? theme.onAccentColor.opacity(0.8) : Color.secondary
+                )
+        }
+        .foregroundStyle(isSelected ? theme.onAccentColor : theme.foregroundColor)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected
+                ? theme.accentColor
+                : (isHovered ? theme.hoverFillColor : theme.fillColor),
+            in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(isSelected ? Color.clear : theme.separatorColor)
+        }
+        .contentShape(.rect)
+        .onHover { isHovered = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isSelected)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(section.title)
+        .accessibilityValue(subtitle)
+    }
+}
+
+/// 设置的右栏：选中那一类的面板。
+struct SettingsDetailView: View {
+    @Environment(\.sngaTheme) private var theme
+    let section: SettingsSection
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(section.title)
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+
+                switch section {
+                case .appearance: SettingsAppearancePane()
+                case .browsing: SettingsBrowsingPane()
+                case .toolbox: SettingsToolboxPane()
+                case .background: SettingsBackgroundPane()
+                case .runtimeLog: SettingsRuntimeLogPane()
+                case .about: AboutView()
+                }
+            }
+            // 设置项不该跟着窗口一路拉宽：主题卡会排成一长条，
+            // `LabeledContent` 的值也会被甩到很远的右边。
+            .frame(maxWidth: 620, alignment: .leading)
+            .padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(theme.backgroundColor)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .accessibilityIdentifier("settings-detail-\(section.rawValue)")
+    }
+}
+
+// MARK: - 面板
+
+private struct SettingsAppearancePane: View {
+    @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
+    @AppStorage(AppTheme.customBackgroundKey)
+    private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
+    @AppStorage(AppTheme.customAccentKey)
+    private var customAccentHex = AppTheme.defaultCustomAccentHex
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard(label: "主题") {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 104), spacing: 10)],
+                    columns: [GridItem(.adaptive(minimum: 150), spacing: 10)],
                     spacing: 10
                 ) {
                     ForEach(AppTheme.allCases) { theme in
@@ -40,11 +229,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+
                 Text(AppTheme.resolve(selectedThemeRaw).description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
 
-                if AppTheme.resolve(selectedThemeRaw) == .custom {
+            if AppTheme.resolve(selectedThemeRaw) == .custom {
+                SettingsCard(label: "自定义配色") {
                     HStack(spacing: 18) {
                         ColorPicker(
                             "背景颜色",
@@ -62,191 +254,8 @@ struct SettingsView: View {
                             customAccentHex = AppTheme.defaultCustomAccentHex
                         }
                     }
-                    .padding(.top, 4)
                 }
             }
-            Section("浏览") {
-                Toggle("无图模式", isOn: $imageFreeMode)
-                Text("开启后，话题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Stepper(
-                    "最近访问数量：\(recentForumMaximumCount)",
-                    value: $recentForumMaximumCount,
-                    in: RecentForumSettings.allowedRange
-                )
-                .accessibilityIdentifier("recent-forum-maximum-count")
-                .onChange(of: recentForumMaximumCount) { _, maximumCount in
-                    model.browsing.updateRecentForumLimit(maximumCount)
-                }
-                Text("最多保留指定数量的最近访问版面；减少数量会删除较早的记录。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("小工具") {
-                Picker("API 实例", selection: $toolboxInstanceSelectionRaw) {
-                    ForEach(ToolboxInstanceChoice.allCases) { choice in
-                        Text(choice.title).tag(choice.rawValue)
-                    }
-                }
-                .accessibilityIdentifier("toolbox-instance-picker")
-
-                Text(selectedToolboxInstance.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-
-                if selectedToolboxInstance == .custom {
-                    TextField(
-                        "https://example.com",
-                        text: $customToolboxBaseURL,
-                        prompt: Text("输入 60s API 基础地址")
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("toolbox-custom-instance-field")
-                    .onSubmit {
-                        if let url = normalizedCustomToolboxBaseURL {
-                            customToolboxBaseURL = url.absoluteString
-                        }
-                    }
-
-                    if customToolboxBaseURL.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ).isEmpty {
-                        Text("请输入包含 http:// 或 https:// 的实例基础地址。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if let url = normalizedCustomToolboxBaseURL {
-                        LabeledContent("当前地址") {
-                            Text(url.absoluteString)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
-                        }
-                    } else {
-                        Label(
-                            "地址格式无效，请检查协议、域名，且不要包含查询参数。",
-                            systemImage: "exclamationmark.triangle"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    }
-                }
-
-                Link(
-                    destination: ToolboxInstanceSettings.documentationURL
-                ) {
-                    Label("查看 60s API 公共实例文档", systemImage: "arrow.up.right")
-                }
-                .accessibilityIdentifier("toolbox-instance-documentation")
-
-                Text(toolboxInstanceBehaviorDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("账号") {
-                if model.session.accounts.isEmpty {
-                    Text("尚未添加账号")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.session.accounts) { account in
-                    SettingsAccountRow(account: account) {
-                        loginRequest = SettingsLoginRequest(
-                            title: "重新登录 \(account.displayName)"
-                        )
-                    }
-                }
-                Button("添加账号", systemImage: "person.badge.plus") {
-                    loginRequest = SettingsLoginRequest(title: "登录 NGA")
-                }
-            }
-            Section("后台行为") {
-                LabeledContent("消息检查", value: "应用运行时每 5 分钟")
-                LabeledContent("每日签到", value: "启动、回到前台及跨日时")
-                Text("退出 SNGA 后不会运行签到或消息轮询。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("运行日志") {
-                Toggle("启用运行日志", isOn: $runtimeLogEnabled)
-                    .onChange(of: runtimeLogEnabled) { _, isEnabled in
-                        guard isEnabled else { return }
-                        Task {
-                            await RuntimeLogger.shared.log(
-                                category: "configuration",
-                                "Runtime logging enabled"
-                            )
-                        }
-                    }
-
-                LabeledContent("输出目录") {
-                    Text(runtimeLogPath)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-
-                HStack {
-                    Button("选择目录…", systemImage: "folder") {
-                        chooseRuntimeLogDirectory()
-                    }
-                    if RuntimeLogSettings.selectedDirectoryURL != nil {
-                        Button("恢复默认") {
-                            RuntimeLogSettings.useDefaultDirectory()
-                            runtimeLogPath = RuntimeLogSettings.displayPath
-                        }
-                    }
-                }
-
-                Text("每天生成一个 SNGA-日期.log 文件。请求正文、Cookie 和登录令牌不会写入日志。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .padding()
-        .frame(width: 660, height: 640)
-        .sheet(item: $loginRequest) { request in
-            LoginSheet(title: request.title)
-                .environment(model)
-        }
-        .alert(
-            "无法使用日志目录",
-            isPresented: Binding(
-                get: { runtimeLogError != nil },
-                set: { if !$0 { runtimeLogError = nil } }
-            )
-        ) {
-            Button("好") { runtimeLogError = nil }
-        } message: {
-            Text(runtimeLogError ?? "")
-        }
-    }
-
-    private func chooseRuntimeLogDirectory() {
-        let panel = NSOpenPanel()
-        panel.title = "选择运行日志输出目录"
-        panel.prompt = "选择"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = RuntimeLogSettings.outputDirectoryURL
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try RuntimeLogSettings.selectDirectory(url)
-            runtimeLogPath = RuntimeLogSettings.displayPath
-            if runtimeLogEnabled {
-                Task {
-                    await RuntimeLogger.shared.log(
-                        category: "configuration",
-                        "Log output directory changed"
-                    )
-                }
-            }
-        } catch {
-            runtimeLogError = error.localizedDescription
         }
     }
 
@@ -284,21 +293,6 @@ struct SettingsView: View {
         )
     }
 
-    private var selectedToolboxInstance: ToolboxInstanceChoice {
-        ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw) ?? .automatic
-    }
-
-    private var normalizedCustomToolboxBaseURL: URL? {
-        ToolboxInstanceSettings.normalizedBaseURL(from: customToolboxBaseURL)
-    }
-
-    private var toolboxInstanceBehaviorDescription: String {
-        if selectedToolboxInstance == .automatic {
-            return "修改后在下次刷新小工具时生效；自动模式会在官方主实例与备用实例间故障切换。"
-        }
-        return "修改后在下次刷新小工具时生效；当前模式仅使用所选实例。"
-    }
-
     private func colorHex(_ color: Color, fallback: String) -> String {
         guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
             return fallback
@@ -311,52 +305,311 @@ struct SettingsView: View {
     }
 }
 
-private struct SettingsAccountRow: View {
+private struct SettingsBrowsingPane: View {
     @Environment(AppModel.self) private var model
-    let account: AccountSummary
-    let relogin: () -> Void
-    @State private var showsRemoveConfirmation = false
+    @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(RecentForumSettings.maximumCountKey)
+    private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
 
     var body: some View {
-        HStack(spacing: 10) {
-            AsyncImage(url: account.avatarURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Image(systemName: "person.crop.circle.fill")
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $imageFreeMode) {
+                    Text("无图模式")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+
+                Text("开启后，话题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 28, height: 28)
-            .clipShape(.circle)
-            .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(account.displayName)
-                Text(account.sessionState.title)
-                    .font(.caption)
-                    .foregroundStyle(
-                        account.sessionState == .valid ? Color.secondary : Color.red
-                    )
-            }
-            Spacer()
-            Button("重新登录", action: relogin)
-                .controlSize(.small)
-            Button("移除", role: .destructive) {
-                showsRemoveConfirmation = true
-            }
-            .controlSize(.small)
-            .confirmationDialog(
-                "移除账号？",
-                isPresented: $showsRemoveConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("移除 \(account.displayName)", role: .destructive) {
-                    Task { await model.removeAccount(account.id) }
+            SettingsCard {
+                Stepper(
+                    value: $recentForumMaximumCount,
+                    in: RecentForumSettings.allowedRange
+                ) {
+                    Text("最近访问数量：\(recentForumMaximumCount)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("会删除此账号的本地会话、收藏和草稿，不能撤销。")
+                .accessibilityIdentifier("recent-forum-maximum-count")
+                .onChange(of: recentForumMaximumCount) { _, maximumCount in
+                    model.browsing.updateRecentForumLimit(maximumCount)
+                }
+
+                Text("最多保留指定数量的最近访问版面；减少数量会删除较早的记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+private struct SettingsToolboxPane: View {
+    @AppStorage(ToolboxInstanceSettings.selectionKey)
+    private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
+    @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
+    private var customToolboxBaseURL = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard(label: "60s API 实例") {
+                Picker("API 实例", selection: $toolboxInstanceSelectionRaw) {
+                    ForEach(ToolboxInstanceChoice.allCases) { choice in
+                        Text(choice.title).tag(choice.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("toolbox-instance-picker")
+
+                Text(selectedInstance.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                if selectedInstance == .custom {
+                    TextField(
+                        "https://example.com",
+                        text: $customToolboxBaseURL,
+                        prompt: Text("输入 60s API 基础地址")
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("toolbox-custom-instance-field")
+                    .onSubmit {
+                        if let url = normalizedCustomBaseURL {
+                            customToolboxBaseURL = url.absoluteString
+                        }
+                    }
+
+                    if customToolboxBaseURL.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty {
+                        Text("请输入包含 http:// 或 https:// 的实例基础地址。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let url = normalizedCustomBaseURL {
+                        SettingsFieldRow("当前地址") {
+                            Text(url.absoluteString)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Label(
+                            "地址格式无效，请检查协议、域名，且不要包含查询参数。",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                Link(destination: ToolboxInstanceSettings.documentationURL) {
+                    Label("查看 60s API 公共实例文档", systemImage: "arrow.up.right")
+                }
+                .accessibilityIdentifier("toolbox-instance-documentation")
+
+                Text(behaviorDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var selectedInstance: ToolboxInstanceChoice {
+        ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw) ?? .automatic
+    }
+
+    private var normalizedCustomBaseURL: URL? {
+        ToolboxInstanceSettings.normalizedBaseURL(from: customToolboxBaseURL)
+    }
+
+    private var behaviorDescription: String {
+        if selectedInstance == .automatic {
+            return "修改后在下次刷新小工具时生效；自动模式会在官方主实例与备用实例间故障切换。"
+        }
+        return "修改后在下次刷新小工具时生效；当前模式仅使用所选实例。"
+    }
+}
+
+private struct SettingsBackgroundPane: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                SettingsFieldRow("消息检查", value: "应用运行时每 5 分钟")
+                SettingsFieldRow("每日签到", value: "启动、回到前台及跨日时")
+
+                Text("退出 SNGA 后不会运行签到或消息轮询。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct SettingsRuntimeLogPane: View {
+    @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
+    @State private var runtimeLogPath = RuntimeLogSettings.displayPath
+    @State private var runtimeLogError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $runtimeLogEnabled) {
+                    Text("启用运行日志")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .onChange(of: runtimeLogEnabled) { _, isEnabled in
+                    guard isEnabled else { return }
+                    Task {
+                        await RuntimeLogger.shared.log(
+                            category: "configuration",
+                            "Runtime logging enabled"
+                        )
+                    }
+                }
+
+                SettingsFieldRow("输出目录") {
+                    Text(runtimeLogPath)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Button("选择目录…", systemImage: "folder") {
+                        chooseDirectory()
+                    }
+                    if RuntimeLogSettings.selectedDirectoryURL != nil {
+                        Button("恢复默认") {
+                            RuntimeLogSettings.useDefaultDirectory()
+                            runtimeLogPath = RuntimeLogSettings.displayPath
+                        }
+                    }
+                }
+
+                Text("每天生成一个 SNGA-日期.log 文件。请求正文、Cookie 和登录令牌不会写入日志。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .alert(
+            "无法使用日志目录",
+            isPresented: Binding(
+                get: { runtimeLogError != nil },
+                set: { if !$0 { runtimeLogError = nil } }
+            )
+        ) {
+            Button("好") { runtimeLogError = nil }
+        } message: {
+            Text(runtimeLogError ?? "")
+        }
+    }
+
+    private func chooseDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择运行日志输出目录"
+        panel.prompt = "选择"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = RuntimeLogSettings.outputDirectoryURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try RuntimeLogSettings.selectDirectory(url)
+            runtimeLogPath = RuntimeLogSettings.displayPath
+            if runtimeLogEnabled {
+                Task {
+                    await RuntimeLogger.shared.log(
+                        category: "configuration",
+                        "Log output directory changed"
+                    )
+                }
+            }
+        } catch {
+            runtimeLogError = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - 组件
+
+/// 面板里的一张卡片。和小工具详情、话题楼层用的是同一套：卡片浮在窗口之上，
+/// 描边取 `separatorColor`。
+struct SettingsCard<Content: View>: View {
+    @Environment(\.sngaTheme) private var theme
+    var label: String?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            if let label {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.secondaryForegroundColor)
+            }
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(15)
+        .background(
+            theme.surfaceColor,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(theme.separatorColor)
+        }
+    }
+}
+
+/// 「标签 —— 值」一行。
+///
+/// `LabeledContent` 只有摆进 `Form` 里才会把值推到行尾；卡片里它退化成两段
+/// 紧挨着的文字，「输出目录 /Users/…」读起来像一句话。
+struct SettingsFieldRow<Value: View>: View {
+    @Environment(\.sngaTheme) private var theme
+    private let title: String
+    private let value: Value
+    /// 只有纯文本的值才压成次级色。链接这类内容自己有颜色，压灰就看不出能点了。
+    private let dimsValue: Bool
+
+    init(_ title: String, @ViewBuilder value: () -> Value) {
+        self.title = title
+        self.value = value()
+        self.dimsValue = false
+    }
+
+    fileprivate init(_ title: String, dimmed value: Value) {
+        self.title = title
+        self.value = value
+        self.dimsValue = true
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(title)
+            Spacer(minLength: 0)
+            Group {
+                if dimsValue {
+                    value.foregroundStyle(theme.secondaryForegroundColor)
+                } else {
+                    value
+                }
+            }
+            .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+extension SettingsFieldRow where Value == Text {
+    init(_ title: String, value: String) {
+        self.init(title, dimmed: Text(value))
     }
 }
 
@@ -406,9 +659,4 @@ private struct ThemeChoiceCard: View {
         .accessibilityLabel(theme.displayName)
         .accessibilityValue(isSelected ? "已选择" : "")
     }
-}
-
-private struct SettingsLoginRequest: Identifiable {
-    let id = UUID()
-    var title: String
 }
