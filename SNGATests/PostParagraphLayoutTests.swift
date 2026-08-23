@@ -39,8 +39,8 @@ final class PostParagraphLayoutTests: XCTestCase {
         )
         let model = AppModel(
             container: try ModelContainer(
-                for: AccountRecord.self,
-                configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+                for: Schema([AccountRecord.self, AIProfileSummaryRecord.self]),
+                configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
             )
         )
         let row = PostRow(

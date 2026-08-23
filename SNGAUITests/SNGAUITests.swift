@@ -739,6 +739,111 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
+    func testAISettingsExposeCompatibleEndpointPromptAndHistoryControls() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.click()
+
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        XCTAssertTrue(aiSection.isHittable)
+        aiSection.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-ai"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(mainWindow.textFields["ai-base-url-field"].exists)
+        XCTAssertTrue(mainWindow.textFields["ai-model-field"].exists)
+        XCTAssertTrue(mainWindow.secureTextFields["ai-api-key-field"].exists)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-instruction-editor"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-history-limit"].exists
+        )
+    }
+
+    func testAIProfileGenerationHistoryRegenerationDeletionAndClear() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let card = mainWindow.descendants(matching: .any)["user-center-ai-profile-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        let generate = mainWindow.buttons["user-center-ai-generate"]
+        XCTAssertTrue(generate.waitForExistence(timeout: 5))
+        generate.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-generating"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-summary"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-regenerate"].waitForExistence(timeout: 8)
+        )
+
+        let historyModule = mainWindow.buttons["AI 画像"]
+        XCTAssertTrue(historyModule.waitForExistence(timeout: 5))
+        historyModule.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-history-list"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-history-10001"].waitForExistence(timeout: 5)
+        )
+
+        let regenerate = mainWindow.buttons["ai-profile-regenerate"]
+        XCTAssertTrue(regenerate.waitForExistence(timeout: 5))
+        regenerate.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-generating"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(regenerate.waitForExistence(timeout: 8))
+
+        let delete = mainWindow.buttons["ai-profile-delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.click()
+        let confirmDelete = app.sheets.buttons["删除画像"]
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 3))
+        confirmDelete.click()
+        XCTAssertTrue(app.staticTexts["还没有 AI 用户画像"].waitForExistence(timeout: 5))
+
+        mainWindow.buttons["用户中心"].click()
+        XCTAssertTrue(generate.waitForExistence(timeout: 5))
+        generate.click()
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-regenerate"].waitForExistence(timeout: 8)
+        )
+        historyModule.click()
+        let clear = mainWindow.buttons["ai-profile-clear-all"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.click()
+        let confirmClear = app.sheets.buttons["清空全部画像"]
+        XCTAssertTrue(confirmClear.waitForExistence(timeout: 3))
+        confirmClear.click()
+        XCTAssertTrue(app.staticTexts["还没有 AI 用户画像"].waitForExistence(timeout: 5))
+    }
+
     func testReproShapes() {
         continueAfterFailure = false
         let app = XCUIApplication()

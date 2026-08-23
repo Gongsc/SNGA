@@ -530,7 +530,8 @@ struct SNGAApp: App {
             FavoriteRecord.self,
             DraftRecord.self,
             SubforumPreferenceRecord.self,
-            RecentForumRecord.self
+            RecentForumRecord.self,
+            AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
             "SNGA",
@@ -540,7 +541,19 @@ struct SNGAApp: App {
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             self.container = container
+#if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--uitesting") {
+                _model = State(initialValue: AppModel(
+                    container: container,
+                    aiSummarizer: DebugAIProfileSummarizer(),
+                    aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key")
+                ))
+            } else {
+                _model = State(initialValue: AppModel(container: container))
+            }
+#else
             _model = State(initialValue: AppModel(container: container))
+#endif
         } catch {
             fatalError("无法创建 SNGA 数据库：\(error.localizedDescription)")
         }

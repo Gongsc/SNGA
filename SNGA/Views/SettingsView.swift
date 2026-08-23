@@ -42,11 +42,17 @@ struct SettingsMenuView: View {
     private var customToolboxBaseURL = ""
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @AppStorage(RuntimeLogSettings.directoryPathKey) private var runtimeLogDirectoryPath = ""
+    @AppStorage(AISettings.baseURLKey) private var aiBaseURL = AISettings.defaultBaseURL
+    @AppStorage(AISettings.modelKey) private var aiModel = ""
+    @AppStorage(AISettings.instructionKey)
+    private var aiInstruction = AISettings.defaultInstruction
+    @AppStorage(AISettings.historyLimitKey)
+    private var aiHistoryLimit = AISettings.defaultHistoryLimit
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                Text("外观、浏览行为、小工具、日志与关于")
+                Text("外观、浏览行为、AI、小工具、日志与关于")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
@@ -84,6 +90,14 @@ struct SettingsMenuView: View {
         case .browsing:
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
             return "无图模式\(imageFreeMode ? "已开" : "已关") · 最近访问 \(count) 条"
+        case .ai:
+            let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard AISettings.normalizedBaseURL(from: aiBaseURL) != nil,
+                  !model.isEmpty,
+                  !aiInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "OpenAI 兼容接口 · 待配置"
+            }
+            return "\(model) · 最近 \(AISettings.normalizedHistoryLimit(aiHistoryLimit)) 人"
         case .toolbox:
             let choice = ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw)
                 ?? .automatic
@@ -182,6 +196,7 @@ struct SettingsDetailView: View {
                 switch section {
                 case .appearance: SettingsAppearancePane()
                 case .browsing: SettingsBrowsingPane()
+                case .ai: SettingsAIPane()
                 case .toolbox: SettingsToolboxPane()
                 case .background: SettingsBackgroundPane()
                 case .runtimeLog: SettingsRuntimeLogPane()
@@ -342,6 +357,202 @@ private struct SettingsBrowsingPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+private struct SettingsAIPane: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.baseURLKey) private var baseURL = AISettings.defaultBaseURL
+    @AppStorage(AISettings.modelKey) private var aiModel = ""
+    @AppStorage(AISettings.instructionKey)
+    private var instruction = AISettings.defaultInstruction
+    @AppStorage(AISettings.historyLimitKey)
+    private var historyLimit = AISettings.defaultHistoryLimit
+
+    @State private var newAPIKey = ""
+    @State private var hasSavedAPIKey = false
+    @State private var keyStatusMessage: String?
+    @State private var keyStatusIsError = false
+    @State private var isUpdatingKey = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard(label: "OpenAI 兼容接口") {
+                TextField("Base URL", text: $baseURL, prompt: Text(AISettings.defaultBaseURL))
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("ai-base-url-field")
+
+                if !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   AISettings.normalizedBaseURL(from: baseURL) == nil {
+                    Label(
+                        "仅允许 HTTPS；本机 localhost、127.0.0.1 和 ::1 可使用 HTTP。",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                } else {
+                    Text("应用会在 Base URL 后追加 /chat/completions。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                TextField("模型", text: $aiModel, prompt: Text("例如 gpt-4.1-mini"))
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("ai-model-field")
+
+                SecureField(
+                    "API Key",
+                    text: $newAPIKey,
+                    prompt: Text(
+                        hasSavedAPIKey
+                            ? "已保存在系统钥匙串；输入新值可替换"
+                            : "无需鉴权的本机服务可留空"
+                    )
+                )
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("ai-api-key-field")
+
+                HStack {
+                    Button(hasSavedAPIKey ? "更新密钥" : "保存密钥") {
+                        saveAPIKey()
+                    }
+                    .disabled(
+                        newAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || isUpdatingKey
+                    )
+                    .accessibilityIdentifier("ai-save-key-button")
+
+                    if hasSavedAPIKey {
+                        Button("移除密钥", role: .destructive) {
+                            removeAPIKey()
+                        }
+                        .disabled(isUpdatingKey)
+                        .accessibilityIdentifier("ai-remove-key-button")
+                    }
+
+                    if isUpdatingKey {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+
+                if let keyStatusMessage {
+                    Label(
+                        keyStatusMessage,
+                        systemImage: keyStatusIsError
+                            ? "exclamationmark.triangle"
+                            : "checkmark.circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(keyStatusIsError ? Color.red : Color.secondary)
+                }
+
+                Text("API Key 只保存在 macOS 系统钥匙串，不会写入偏好设置、画像历史或运行日志。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard(label: "分析指令") {
+                TextEditor(text: $instruction)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 220)
+                    .padding(7)
+                    .background(theme.fillColor, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(theme.controlBorderColor)
+                    }
+                    .accessibilityLabel("AI 用户画像分析指令")
+                    .accessibilityIdentifier("ai-instruction-editor")
+
+                HStack {
+                    Text("资料会作为独立 JSON 消息附加，帖子中的文本不会被当成指令执行。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("恢复默认") {
+                        instruction = AISettings.defaultInstruction
+                    }
+                    .accessibilityIdentifier("ai-reset-instruction")
+                }
+            }
+
+            SettingsCard(label: "画像历史") {
+                Stepper(value: $historyLimit, in: AISettings.allowedHistoryLimit) {
+                    Text("最多保留 \(AISettings.normalizedHistoryLimit(historyLimit)) 位用户")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("ai-history-limit")
+                .onChange(of: historyLimit) { _, value in
+                    let normalized = AISettings.normalizedHistoryLimit(value)
+                    if normalized != value { historyLimit = normalized }
+                    model.aiProfiles.trimToHistoryLimit(normalized)
+                }
+
+                Text("每个 UID 只保留最新一次成功结果；减少数量会立即删除最旧画像。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Label("隐私提示", systemImage: "hand.raised")
+                    .font(.headline)
+                Text("生成画像时，用户公开资料以及最近两页话题和回复摘要会发送到你配置的 AI 服务。AI 结果仅供参考。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task { await loadKeyStatus() }
+        .onAppear {
+            let normalized = AISettings.normalizedHistoryLimit(historyLimit)
+            if historyLimit != normalized { historyLimit = normalized }
+            model.aiProfiles.trimToHistoryLimit(normalized)
+        }
+    }
+
+    private func loadKeyStatus() async {
+        do {
+            hasSavedAPIKey = try await model.aiProfiles.keyStore.apiKey() != nil
+        } catch {
+            keyStatusIsError = true
+            keyStatusMessage = error.localizedDescription
+        }
+    }
+
+    private func saveAPIKey() {
+        let key = newAPIKey
+        isUpdatingKey = true
+        Task {
+            do {
+                try await model.aiProfiles.keyStore.save(apiKey: key)
+                hasSavedAPIKey = true
+                newAPIKey = ""
+                keyStatusIsError = false
+                keyStatusMessage = "密钥已保存"
+            } catch {
+                keyStatusIsError = true
+                keyStatusMessage = error.localizedDescription
+            }
+            isUpdatingKey = false
+        }
+    }
+
+    private func removeAPIKey() {
+        isUpdatingKey = true
+        Task {
+            do {
+                try await model.aiProfiles.keyStore.removeAPIKey()
+                hasSavedAPIKey = false
+                newAPIKey = ""
+                keyStatusIsError = false
+                keyStatusMessage = "密钥已移除；无需鉴权的接口仍可使用"
+            } catch {
+                keyStatusIsError = true
+                keyStatusMessage = error.localizedDescription
+            }
+            isUpdatingKey = false
         }
     }
 }

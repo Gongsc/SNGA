@@ -39,13 +39,16 @@ final class AppModel {
     let messaging: MessageStore
     let favorite: FavoriteStore
     let browsing: ForumStore
+    let aiProfiles: AIProfileStore
 
     private var activeService: (any NGAForumService)? { session.activeService }
 
     init(
         container: ModelContainer,
         sessionStore: any SessionStore = LocalSessionStore.shared,
-        notificationService: NotificationService = .shared
+        notificationService: NotificationService = .shared,
+        aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
+        aiKeyStore: any AIKeyStore = KeychainAIKeyStore.shared
     ) {
         let session = AppSession(
             container: container,
@@ -57,6 +60,12 @@ final class AppModel {
         messaging = MessageStore(session: session)
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
+        aiProfiles = AIProfileStore(
+            context: session.context,
+            session: session,
+            summarizer: aiSummarizer,
+            keyStore: aiKeyStore
+        )
         // 「是否已收藏」归收藏域所有。话题域只需要这一个查询，用闭包倒置依赖，
         // 避免它为了一个布尔值反过来持有整个 AppModel。
         thread.provideFavoriteLookup { [weak favorite] topicID in
@@ -322,6 +331,7 @@ final class AppModel {
         fallbackAvatarURL: URL? = nil,
         preservingForumContext: Bool = false
     ) async {
+        aiProfiles.select(uid: nil)
         if preservingForumContext {
             if case .forum = sidebarSelection {
                 forumUserReturnSelection = sidebarSelection
@@ -613,6 +623,7 @@ final class AppModel {
                 )
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
+        case .aiProfiles: break
         case .toolbox: refreshToolbox()
         // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
         case .settings: break
@@ -702,6 +713,8 @@ final class AppModel {
     /// 切换或删除账号时清空所有属于上一个账号的可见内容。
     /// 各领域自己知道该清什么，这里只负责调用它们并清理仍留在本类型的状态。
     private func clearVisibleContent() {
+        aiProfiles.cancelGeneration(showsMessage: false)
+        aiProfiles.select(uid: nil)
         thread.reset()
         messaging.reset()
         favorite.reset()
@@ -748,6 +761,10 @@ final class AppModel {
             RecentForumSettings.defaultMaximumCount,
             forKey: RecentForumSettings.maximumCountKey
         )
+        UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
+        UserDefaults.standard.set("ui-test-model", forKey: AISettings.modelKey)
+        UserDefaults.standard.set(AISettings.defaultInstruction, forKey: AISettings.instructionKey)
+        UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)

@@ -21,7 +21,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
             FavoriteRecord.self,
             DraftRecord.self,
             SubforumPreferenceRecord.self,
-            RecentForumRecord.self
+            RecentForumRecord.self,
+            AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
             "RecentForumTests",
@@ -84,7 +85,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
             FavoriteRecord.self,
             DraftRecord.self,
             SubforumPreferenceRecord.self,
-            RecentForumRecord.self
+            RecentForumRecord.self,
+            AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
             "RecentForumLimitTests",
@@ -138,7 +140,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
             FavoriteRecord.self,
             DraftRecord.self,
             SubforumPreferenceRecord.self,
-            RecentForumRecord.self
+            RecentForumRecord.self,
+            AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
             "ThreadNavigationTests",

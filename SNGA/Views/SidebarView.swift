@@ -41,6 +41,7 @@ struct SidebarView: View {
                             ? "待签到"
                             : nil
                     )
+                    sidebarButton("AI 画像", systemImage: "sparkles", selection: .aiProfiles)
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
@@ -179,6 +180,8 @@ struct SidebarView: View {
                 Task { await model.browsing.loadForums() }
             case .search:
                 model.clearForumSearch()
+            case .aiProfiles:
+                model.aiProfiles.selectMostRecentIfNeeded()
             case .favorites, .toolbox, .settings:
                 break
             case let .userCenter(uid):
@@ -293,6 +296,10 @@ private struct SidebarAccountButton: View {
         }
         .buttonStyle(.plain)
         .sidebarListRow()
+        .accessibilityLabel(account.displayName)
+        .accessibilityValue(
+            account.id == model.session.activeAccountID ? "当前账号" : ""
+        )
         .contextMenu {
             if account.sessionState == .requiresLogin {
                 Button("重新登录") { model.session.showsLogin = true }

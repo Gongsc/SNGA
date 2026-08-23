@@ -556,6 +556,7 @@ enum ToolboxContent: Hashable, Sendable {
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case appearance
     case browsing
+    case ai
     case toolbox
     case background
     case runtimeLog
@@ -567,6 +568,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .appearance: "外观"
         case .browsing: "浏览"
+        case .ai: "AI"
         case .toolbox: "小工具"
         case .background: "后台行为"
         case .runtimeLog: "运行日志"
@@ -578,6 +580,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .appearance: "paintpalette"
         case .browsing: "photo.on.rectangle"
+        case .ai: "sparkles"
         case .toolbox: "wrench.and.screwdriver"
         case .background: "clock.arrow.circlepath"
         case .runtimeLog: "doc.text"
@@ -588,6 +591,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
 
 enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
+    case aiProfiles
     case forum(ForumID)
     case directory
     case search

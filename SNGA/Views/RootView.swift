@@ -131,6 +131,8 @@ struct RootView: View {
         switch model.sidebarSelection {
         case .userCenter, .none:
             "用户中心"
+        case .aiProfiles:
+            "AI 画像"
         case .directory:
             "全部版面"
         case .search:
@@ -306,6 +308,8 @@ private struct ContentColumnView: View {
                 UserCenterView(uid: uid)
             case .none:
                 UserCenterView(uid: nil)
+            case .aiProfiles:
+                AIProfileMenuView()
             case .directory:
                 ForumDirectoryView()
             case .search:
@@ -336,6 +340,8 @@ private struct DetailColumnView: View {
             SettingsDetailView(section: model.selectedSettingsSection)
         } else if model.sidebarSelection == .toolbox {
             ToolboxFeedView(feed: model.selectedToolboxFeed)
+        } else if showsAIProfileDetail {
+            AIProfileDetailView()
         } else if model.thread.selectedTopicID != nil {
             ThreadView()
         } else if model.messaging.selectedMessageID != nil {
@@ -347,5 +353,11 @@ private struct DetailColumnView: View {
                 description: Text("从左侧选择版面或消息，再打开一个话题。")
             )
         }
+    }
+
+    private var showsAIProfileDetail: Bool {
+        if model.sidebarSelection == .aiProfiles { return true }
+        guard case .userCenter = model.sidebarSelection else { return false }
+        return model.aiProfiles.isShowingDetail
     }
 }

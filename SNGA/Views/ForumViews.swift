@@ -21,6 +21,10 @@ struct UserCenterView: View {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         profileHeader
 
+                        if let profile {
+                            AIProfileUserCard(profile: profile)
+                        }
+
                         if model.isDisplayingActiveAccount {
                             checkInContent
                         }
