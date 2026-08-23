@@ -319,6 +319,60 @@ final class FavoriteAndCheckInTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testCheckInStatusRefreshDoesNotSignInAndManualActionRefreshesStatistics() async throws {
+        let schema = Schema([AccountRecord.self])
+        let configuration = ModelConfiguration(
+            "CheckInStatusTests",
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let session = AppSession(
+            container: container,
+            sessionStore: LocalSessionStore.shared,
+            notificationService: .shared
+        )
+        let record = AccountRecord(
+            ngaUID: 10_001,
+            displayName: "签到测试账号",
+            isCurrent: true
+        )
+        session.context.insert(record)
+        try session.context.save()
+        session.accounts = [record.summary()]
+        session.activeAccountID = record.accountID
+        let service = DebugForumService(accountID: record.accountID)
+        session.setService(service, for: record.accountID)
+
+        await session.refreshCheckInStatuses()
+
+        let initialCheckInRequests = await service.debugCheckInRequestCount()
+        let initialStatusRequests = await service.debugCheckInStatusRequestCount()
+        XCTAssertEqual(initialCheckInRequests, 0)
+        XCTAssertEqual(initialStatusRequests, 1)
+        guard case let .notCheckedIn(statistics) = session.activeAccountCheckInStatus else {
+            return XCTFail("启动维护应只查询，并显示未签到状态")
+        }
+        XCTAssertEqual(statistics.consecutiveDays, 6)
+        XCTAssertEqual(statistics.totalDays, 42)
+
+        await session.checkInActiveAccount()
+
+        let finalCheckInRequests = await service.debugCheckInRequestCount()
+        let finalStatusRequests = await service.debugCheckInStatusRequestCount()
+        XCTAssertEqual(finalCheckInRequests, 1)
+        XCTAssertEqual(finalStatusRequests, 2)
+        guard case let .checkedIn(updatedStatistics, _) = session.activeAccountCheckInStatus else {
+            return XCTFail("手动签到后应刷新并展示统计")
+        }
+        XCTAssertEqual(updatedStatistics.consecutiveDays, 7)
+        XCTAssertEqual(updatedStatistics.totalDays, 43)
+    }
+
     func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {
         let accountID = AccountID(rawValue: UUID())
         let parentForumID = ForumID(rawValue: 414)

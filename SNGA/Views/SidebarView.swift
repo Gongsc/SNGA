@@ -36,7 +36,10 @@ struct SidebarView: View {
                     sidebarButton(
                         "用户中心",
                         systemImage: "person.crop.circle",
-                        selection: .userCenter(model.session.activeAccount?.ngaUID)
+                        selection: .userCenter(model.session.activeAccount?.ngaUID),
+                        attentionLabel: model.session.activeAccountCheckInStatus.needsCheckInPrompt
+                            ? "待签到"
+                            : nil
                     )
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
@@ -160,7 +163,13 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func sidebarButton(_ title: String, systemImage: String, selection: SidebarSelection, badge: Int = 0) -> some View {
+    private func sidebarButton(
+        _ title: String,
+        systemImage: String,
+        selection: SidebarSelection,
+        badge: Int = 0,
+        attentionLabel: String? = nil
+    ) -> some View {
         Button {
             model.sidebarSelection = selection
             model.thread.selectedTopicID = nil
@@ -194,11 +203,22 @@ struct SidebarView: View {
                             .background(theme.accentColor, in: Capsule())
                             .foregroundStyle(theme.onAccentColor)
                     }
+                    if let attentionLabel {
+                        Text(attentionLabel)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(theme.accentColor, in: Capsule())
+                            .foregroundStyle(theme.onAccentColor)
+                            .accessibilityIdentifier("sidebar-user-center-check-in-prompt")
+                    }
                 }
             }
         }
         .buttonStyle(.plain)
         .sidebarListRow()
+        .accessibilityLabel(title)
+        .accessibilityValue(attentionLabel ?? "")
     }
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {

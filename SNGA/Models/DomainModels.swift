@@ -325,19 +325,36 @@ enum CheckInResult: Hashable, Codable, Sendable {
     case alreadyCheckedIn(message: String)
 }
 
+struct CheckInStatistics: Hashable, Codable, Sendable {
+    var isCheckedInToday: Bool
+    var consecutiveDays: Int
+    var totalDays: Int
+}
+
 enum DailyCheckInStatus: Hashable, Sendable {
-    case checkedIn(message: String)
-    case notCheckedIn
+    case loading
+    case checkedIn(statistics: CheckInStatistics, message: String)
+    case notCheckedIn(statistics: CheckInStatistics)
     case checkingIn
     case failed(message: String)
 
     var canCheckIn: Bool {
         switch self {
-        case .notCheckedIn, .failed:
+        case .notCheckedIn:
             true
-        case .checkedIn, .checkingIn:
+        case .loading, .checkedIn, .checkingIn, .failed:
             false
         }
+    }
+
+    var needsCheckInPrompt: Bool {
+        if case .notCheckedIn = self { return true }
+        return false
+    }
+
+    var canRefresh: Bool {
+        if case .failed = self { return true }
+        return false
     }
 }
 

@@ -19,8 +19,8 @@ final class AppSession {
     var statusMessage: String?
     var statusMessageIsError = false
 
-    var checkingInAccountIDs: Set<AccountID> = []
-    var checkInFailures: [AccountID: String] = [:]
+    private(set) var checkInStatuses: [AccountID: DailyCheckInStatus] = [:]
+    private(set) var queryingCheckInAccountIDs: Set<AccountID> = []
     private(set) var activeAccountCheckInStatus: DailyCheckInStatus = .failed(
         message: "尚未登录"
     )
@@ -114,7 +114,12 @@ final class AppSession {
             accounts = records.map { $0.summary() }
             activeAccountID = records.first(where: \.isCurrent)?.accountID
                 ?? records.first?.accountID
-            refreshActiveAccountCheckInStatus(records: records)
+            let accountIDs = Set(records.map(\.accountID))
+            checkInStatuses = checkInStatuses.filter { accountIDs.contains($0.key) }
+            for record in records where record.sessionState == .valid {
+                checkInStatuses[record.accountID] = checkInStatuses[record.accountID] ?? .loading
+            }
+            updateActiveAccountCheckInStatus()
         } catch {
             present(error)
         }
@@ -129,6 +134,8 @@ final class AppSession {
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
             accounts[index].sessionState = .requiresLogin
         }
+        checkInStatuses[accountID] = .failed(message: "登录状态已失效")
+        updateActiveAccountCheckInStatus()
     }
 
     // MARK: - 加载与错误
@@ -209,60 +216,95 @@ final class AppSession {
 
     // MARK: - 签到
 
-    func checkInAllAccounts(force: Bool = false) async {
-        await checkInAccounts(force: force, limitedTo: nil)
-    }
-
-    func checkInActiveAccount() async {
-        guard let activeAccountID else { return }
+    /// 查询账号的签到状态。这里只调用只读的 `get_stat`，不会执行签到。
+    func refreshCheckInStatuses(limitedTo accountIDs: Set<AccountID>? = nil) async {
         let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        refreshActiveAccountCheckInStatus(records: records)
-        guard activeAccountCheckInStatus.canCheckIn else { return }
-        await checkInAccounts(force: true, limitedTo: [activeAccountID])
-    }
-
-    private func checkInAccounts(
-        force: Bool,
-        limitedTo accountIDs: Set<AccountID>?
-    ) async {
-        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
-        refreshActiveAccountCheckInStatus(records: records)
-        var results: [String] = []
-        var hasFailure = false
         for record in records where record.sessionState == .valid {
             let accountID = record.accountID
             guard accountIDs?.contains(accountID) ?? true else { continue }
-            guard force || CheckInPolicy.shouldCheckIn(
-                lastSuccessfulDay: record.lastCheckInDay
-            ) else { continue }
-            guard let service = services[accountID] else { continue }
-            checkingInAccountIDs.insert(accountID)
-            checkInFailures[accountID] = nil
-            refreshActiveAccountCheckInStatus(records: records)
+            guard let service = services[accountID] else {
+                checkInStatuses[accountID] = .failed(message: "无法创建签到状态查询服务")
+                continue
+            }
+            if case .checkingIn = checkInStatuses[accountID] { continue }
+            guard queryingCheckInAccountIDs.insert(accountID).inserted else { continue }
+            checkInStatuses[accountID] = .loading
+            updateActiveAccountCheckInStatus()
+
             do {
-                let result = try await service.checkIn()
-                record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
-                switch result {
-                case let .success(message), let .alreadyCheckedIn(message):
-                    let displayMessage = CheckInPolicy.userFacingSuccessMessage(from: message)
-                    record.lastCheckInMessage = displayMessage
-                    results.append("\(record.displayName)：\(displayMessage)")
+                let statistics = try await service.checkInStatus()
+                checkInStatuses[accountID] = dailyCheckInStatus(from: statistics)
+                if statistics.isCheckedInToday {
+                    record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+                    record.lastCheckInMessage = "今日已签到"
                 }
             } catch {
-                hasFailure = true
-                let message = checkInFailureMessage(error)
-                checkInFailures[accountID] = message
-                results.append("\(record.displayName)：\(message)")
+                checkInStatuses[accountID] = .failed(
+                    message: "签到状态查询失败：\(error.localizedDescription)"
+                )
             }
-            checkingInAccountIDs.remove(accountID)
-            refreshActiveAccountCheckInStatus(records: records)
+
+            queryingCheckInAccountIDs.remove(accountID)
+            updateActiveAccountCheckInStatus()
         }
         try? context.save()
-        refreshActiveAccountCheckInStatus(records: records)
-        if !results.isEmpty {
-            statusMessage = results.joined(separator: "\n")
-            statusMessageIsError = hasFailure
+        updateActiveAccountCheckInStatus()
+    }
+
+    func queryActiveAccountCheckInStatus() async {
+        guard let activeAccountID else { return }
+        await refreshCheckInStatuses(limitedTo: [activeAccountID])
+    }
+
+    func checkInActiveAccount() async {
+        guard let activeAccountID,
+              let service = services[activeAccountID] else { return }
+        guard activeAccountCheckInStatus.canCheckIn else { return }
+        let records = (try? context.fetch(FetchDescriptor<AccountRecord>())) ?? []
+        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
+            checkInStatuses[activeAccountID] = .failed(message: "无法读取签到账号")
+            updateActiveAccountCheckInStatus()
+            return
         }
+
+        checkInStatuses[activeAccountID] = .checkingIn
+        updateActiveAccountCheckInStatus()
+        do {
+            let result = try await service.checkIn()
+            let resultMessage: String
+            switch result {
+            case let .success(message), let .alreadyCheckedIn(message):
+                resultMessage = CheckInPolicy.userFacingSuccessMessage(from: message)
+            }
+            record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+            record.lastCheckInMessage = resultMessage
+            try? context.save()
+
+            do {
+                var statistics = try await service.checkInStatus()
+                // 写入接口已经明确成功时，即使只读接口同步稍有延迟，
+                // 今天的状态也以本次签到结果为准。
+                statistics.isCheckedInToday = true
+                checkInStatuses[activeAccountID] = .checkedIn(
+                    statistics: statistics,
+                    message: resultMessage
+                )
+                statusMessage = resultMessage
+                statusMessageIsError = false
+            } catch {
+                checkInStatuses[activeAccountID] = .failed(
+                    message: "签到已完成，但统计信息刷新失败：\(error.localizedDescription)"
+                )
+                statusMessage = "\(resultMessage)，签到统计暂时无法读取"
+                statusMessageIsError = false
+            }
+        } catch {
+            let message = checkInFailureMessage(error)
+            checkInStatuses[activeAccountID] = .failed(message: message)
+            statusMessage = message
+            statusMessageIsError = true
+        }
+        updateActiveAccountCheckInStatus()
     }
 
     private func checkInFailureMessage(_ error: Error) -> String {
@@ -272,35 +314,18 @@ final class AppSession {
         return error.localizedDescription
     }
 
-    func refreshActiveAccountCheckInStatus(
-        records suppliedRecords: [AccountRecord]? = nil
-    ) {
+    func updateActiveAccountCheckInStatus() {
         guard let activeAccountID else {
             activeAccountCheckInStatus = .failed(message: "尚未登录")
             return
         }
-        if checkingInAccountIDs.contains(activeAccountID) {
-            activeAccountCheckInStatus = .checkingIn
-            return
+        activeAccountCheckInStatus = checkInStatuses[activeAccountID] ?? .loading
+    }
+
+    private func dailyCheckInStatus(from statistics: CheckInStatistics) -> DailyCheckInStatus {
+        if statistics.isCheckedInToday {
+            return .checkedIn(statistics: statistics, message: "今日已签到")
         }
-        if let failure = checkInFailures[activeAccountID] {
-            activeAccountCheckInStatus = .failed(message: failure)
-            return
-        }
-        let records = suppliedRecords
-            ?? ((try? context.fetch(FetchDescriptor<AccountRecord>())) ?? [])
-        guard let record = records.first(where: { $0.accountID == activeAccountID }) else {
-            activeAccountCheckInStatus = .failed(message: "无法读取签到状态")
-            return
-        }
-        if record.lastCheckInDay == CheckInPolicy.dayKey(for: .now) {
-            activeAccountCheckInStatus = .checkedIn(
-                message: CheckInPolicy.userFacingSuccessMessage(
-                    from: record.lastCheckInMessage
-                )
-            )
-        } else {
-            activeAccountCheckInStatus = .notCheckedIn
-        }
+        return .notCheckedIn(statistics: statistics)
     }
 }

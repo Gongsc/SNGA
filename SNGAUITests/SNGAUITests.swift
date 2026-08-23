@@ -2,6 +2,28 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testUnsignedAccountShowsSidebarPromptAndManualCheckInStatistics() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        let userCenter = app.buttons["用户中心"]
+        XCTAssertTrue(userCenter.waitForExistence(timeout: 5))
+        XCTAssertEqual(userCenter.value as? String, "待签到")
+        let checkIn = app.buttons["user-center-check-in-button"]
+        XCTAssertTrue(checkIn.waitForExistence(timeout: 5))
+        checkIn.click()
+
+        let status = app.descendants(matching: .any)["user-center-check-in-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        let statistics = status.value as? String ?? ""
+        XCTAssertTrue(statistics.contains("连续签到 7 天"), "实际辅助说明：\(statistics)")
+        XCTAssertTrue(statistics.contains("历史累计 43 天"), "实际辅助说明：\(statistics)")
+        XCTAssertEqual(userCenter.value as? String, "")
+    }
+
     func testPostAuthorInformationAppearsInThread() {
         continueAfterFailure = false
         let app = XCUIApplication()

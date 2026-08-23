@@ -964,6 +964,37 @@ struct NGAParser: Sendable {
         )
     }
 
+    func checkInStatus(from response: NGAHTTPResponse) throws -> CheckInStatistics {
+        let text = try response.decodedString()
+        guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
+            throw NGAServiceError.unexpectedPage("无法读取签到状态")
+        }
+        try throwJSONErrorIfPresent(in: root)
+
+        guard let values = dictionaries(in: root).first(where: {
+            $0["continued"] != nil && ($0["sum"] != nil || $0["last_time"] != nil)
+        }),
+        let consecutiveDays = int(values["continued"]),
+        let totalDays = int(values["sum"]),
+        let lastCheckInTimestamp = int64(values["last_time"]) else {
+            throw NGAServiceError.unexpectedPage("签到统计字段缺失")
+        }
+
+        let serverTimestamp = (root as? [String: Any]).flatMap { int64($0["time"]) }
+        let currentDate = serverTimestamp.map {
+            Date(timeIntervalSince1970: TimeInterval($0))
+        } ?? Date()
+        let lastCheckInDate = Date(timeIntervalSince1970: TimeInterval(lastCheckInTimestamp))
+        let isCheckedInToday = lastCheckInTimestamp > 0
+            && CheckInPolicy.dayKey(for: lastCheckInDate) == CheckInPolicy.dayKey(for: currentDate)
+
+        return CheckInStatistics(
+            isCheckedInToday: isCheckedInToday,
+            consecutiveDays: max(0, consecutiveDays),
+            totalDays: max(0, totalDays)
+        )
+    }
+
     func checkIn(from response: NGAHTTPResponse) throws -> CheckInResult {
         let text = try response.decodedString()
         if let root = jsonRoot(response.data) ?? jsonRoot(text) {

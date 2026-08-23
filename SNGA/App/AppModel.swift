@@ -173,6 +173,7 @@ final class AppModel {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting-seed") {
             seedUITestData()
+            await session.refreshCheckInStatuses()
             return
         }
 #endif
@@ -246,7 +247,7 @@ final class AppModel {
             try session.context.save()
             session.activeAccountID = accountID
             session.accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
-            session.refreshActiveAccountCheckInStatus(records: records)
+            session.updateActiveAccountCheckInStatus()
             clearVisibleContent()
             browsing.loadRecentForums()
             if let activeAccount = session.activeAccount {
@@ -259,6 +260,7 @@ final class AppModel {
             }
             await browsing.loadForums()
             await favorite.refreshFavorites()
+            await session.queryActiveAccountCheckInStatus()
             if let activeAccount = session.activeAccount {
                 await openUserCenter(
                     uid: activeAccount.ngaUID,
@@ -589,7 +591,7 @@ final class AppModel {
 
 
     func performMaintenance() async {
-        await session.checkInAllAccounts()
+        await session.refreshCheckInStatuses()
         await pollMessages()
     }
 

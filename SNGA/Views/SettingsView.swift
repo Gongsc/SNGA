@@ -95,7 +95,7 @@ struct SettingsMenuView: View {
             }
             return "自定义实例 · \(url.host() ?? url.absoluteString)"
         case .background:
-            return "消息轮询与每日签到"
+            return "消息轮询与签到状态"
         case .runtimeLog:
             guard runtimeLogEnabled else { return "已关闭" }
             return "已启用 · \(runtimeLogDirectoryPath.isEmpty ? "默认目录" : runtimeLogDirectoryPath)"
@@ -439,9 +439,9 @@ private struct SettingsBackgroundPane: View {
         VStack(alignment: .leading, spacing: 14) {
             SettingsCard {
                 SettingsFieldRow("消息检查", value: "应用运行时每 5 分钟")
-                SettingsFieldRow("每日签到", value: "启动、回到前台及跨日时")
+                SettingsFieldRow("签到状态", value: "启动、回到前台及跨日时查询")
 
-                Text("退出 SNGA 后不会运行签到或消息轮询。")
+                Text("签到仅在用户中心手动执行；退出 SNGA 后不会查询状态或运行消息轮询。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

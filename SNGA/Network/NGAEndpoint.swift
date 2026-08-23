@@ -554,6 +554,18 @@ struct NGAEndpoint: Sendable {
         String((isPublic ? 1 : 0) | (isDefault ? 2 : 0))
     }
 
+    static let checkInStatus = NGAEndpoint(
+        path: "/nuke.php",
+        queryItems: [
+            .init(name: "__lib", value: "check_in"),
+            .init(name: "__act", value: "get_stat"),
+            .init(name: "__output", value: "11"),
+            .init(name: "__inchst", value: "UTF8")
+        ],
+        method: .post,
+        referer: baseURL
+    )
+
     static let checkIn = NGAEndpoint(
         path: "/nuke.php",
         queryItems: [
