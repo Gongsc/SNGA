@@ -30,6 +30,65 @@ final class AIProfileTests: XCTestCase {
         XCTAssertNil(AISettings.normalizedBaseURL(from: "https://example.com/v1?token=secret"))
     }
 
+    func testMarkdownParserBuildsSemanticBlocks() {
+        let markdown = """
+        # 用户画像
+
+        普通段落包含 **重点** 和 [链接](https://example.com)。
+
+        - 兴趣一
+          - 嵌套兴趣
+        1. 第一项
+        2) 第二项
+
+        > 这是依据有限的推测
+        > 需要谨慎理解
+
+        ---
+
+        ```swift
+        let value = 42
+        ```
+        """
+
+        let blocks = AIProfileMarkdown.blocks(from: markdown)
+
+        XCTAssertEqual(blocks.map(\.kind), [
+            .heading(level: 1),
+            .paragraph,
+            .unorderedListItem(depth: 0),
+            .unorderedListItem(depth: 1),
+            .orderedListItem(marker: "1.", depth: 0),
+            .orderedListItem(marker: "2)", depth: 0),
+            .quote,
+            .divider,
+            .code(language: "swift")
+        ])
+        XCTAssertEqual(blocks[6].content, "这是依据有限的推测\n需要谨慎理解")
+        XCTAssertEqual(blocks[8].content, "let value = 42")
+    }
+
+    func testMarkdownPreviewRemovesFormattingSyntax() {
+        let preview = AIProfileMarkdown.preview(
+            from: "## 总结\n\n喜欢 **Swift**，参考 [NGA](https://bbs.nga.cn)。"
+        )
+
+        XCTAssertEqual(preview, "总结 喜欢 Swift，参考 NGA。")
+        XCTAssertFalse(preview.contains("**"))
+        XCTAssertFalse(preview.contains("https://"))
+    }
+
+    func testMarkdownParserRendersUnclosedStreamingCodeFence() {
+        let blocks = AIProfileMarkdown.blocks(from: "```json\n{\"status\": \"streaming\"}")
+
+        XCTAssertEqual(blocks, [
+            AIProfileMarkdownBlock(
+                kind: .code(language: "json"),
+                content: "{\"status\": \"streaming\"}"
+            )
+        ])
+    }
+
     func testInputIsBoundedAndKeepsNewestActivities() throws {
         let profile = Profile(uid: 42, displayName: "测试用户", avatarURL: nil)
         let topics = (0..<100).map { index in
@@ -92,6 +151,111 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(messages.map { $0["role"] as? String }, ["system", "user"])
         XCTAssertTrue((messages[0]["content"] as? String)?.contains("不可信的只读资料") == true)
         XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("top-secret") == true)
+        XCTAssertNil(json["reasoning_effort"])
+    }
+
+    func testQwenGenerationAndConnectionRequestsDisableReasoning() throws {
+        let qwenConfiguration = AIConfiguration(
+            baseURL: URL(string: "https://example.com/v1")!,
+            model: "qwen3.5:4b",
+            apiKey: nil,
+            instruction: "总结"
+        )
+
+        let generationRequest = try OpenAICompatibleClient.makeRequest(
+            configuration: qwenConfiguration,
+            input: emptyInput,
+            streams: true
+        )
+        let connectionRequest = try OpenAICompatibleClient.makeConnectionTestRequest(
+            configuration: qwenConfiguration
+        )
+        for request in [generationRequest, connectionRequest] {
+            let body = try XCTUnwrap(request.httpBody)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(json["reasoning_effort"] as? String, "none")
+        }
+    }
+
+    func testConnectionRequestUsesMinimalNonStreamingChatShape() throws {
+        let configuration = AIConfiguration(
+            baseURL: try XCTUnwrap(URL(string: "https://example.com/v1")),
+            model: "test-model",
+            apiKey: "top-secret",
+            instruction: "不应进入连接测试请求"
+        )
+
+        let request = try OpenAICompatibleClient.makeConnectionTestRequest(
+            configuration: configuration
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+
+        XCTAssertEqual(request.url?.absoluteString, "https://example.com/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer top-secret")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(json["model"] as? String, "test-model")
+        XCTAssertEqual(json["stream"] as? Bool, false)
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertEqual(messages.first?["role"] as? String, "user")
+        XCTAssertEqual(messages.first?["content"] as? String, "请只回复 OK")
+        XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("top-secret") == true)
+        XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("不应进入") == true)
+    }
+
+    func testConnectionSuccessReportsModelLatencyAndRequestID() async throws {
+        let transport = QueueAIChatTransport(responses: [
+            .data(
+                Data("""
+                {"model":"served-model","choices":[{"message":{"content":"OK"}}]}
+                """.utf8),
+                response(status: 200, headers: ["x-request-id": "req_connection_success"])
+            )
+        ])
+        let client = OpenAICompatibleClient(transport: transport)
+
+        let result = try await client.testConnection(configuration: configuration)
+
+        XCTAssertEqual(result.model, "served-model")
+        XCTAssertGreaterThanOrEqual(result.latencyMilliseconds, 0)
+        XCTAssertEqual(result.requestID, "req_connection_success")
+        let requestCount = await transport.recordedRequests().count
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    func testConnectionFailureIncludesDiagnosticsAndRedactsAPIKey() async {
+        let secretConfiguration = AIConfiguration(
+            baseURL: URL(string: "https://example.com/v1")!,
+            model: "test-model",
+            apiKey: "top-secret",
+            instruction: "总结"
+        )
+        let transport = QueueAIChatTransport(responses: [
+            .data(
+                Data("""
+                {"error":{"message":"invalid credential Bearer top-secret"}}
+                """.utf8),
+                response(status: 401, headers: ["x-request-id": "req_connection_failure"])
+            )
+        ])
+        let client = OpenAICompatibleClient(transport: transport)
+
+        do {
+            _ = try await client.testConnection(configuration: secretConfiguration)
+            XCTFail("鉴权失败不应显示连接成功")
+        } catch let error as AIConnectionTestError {
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("HTTP 401"))
+            XCTAssertTrue(message.contains("https://example.com/v1/chat/completions"))
+            XCTAssertTrue(message.contains("req_connection_failure"))
+            XCTAssertTrue(message.contains("Bearer ••••"))
+            XCTAssertFalse(message.contains("top-secret"))
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
     }
 
     func testParsesStreamAndOrdinaryResponses() throws {
@@ -107,6 +271,60 @@ final class AIProfileTests: XCTestCase {
         {"choices":[{"message":{"content":"完整画像"}}]}
         """.utf8)
         XCTAssertEqual(try OpenAICompatibleClient.completionText(from: ordinary), "完整画像")
+    }
+
+    func testReasoningOnlyOrdinaryResponseReportsOutputLimit() {
+        let ordinary = Data("""
+        {
+          "choices":[{
+            "message":{"content":"","reasoning":"仍在思考"},
+            "finish_reason":"length"
+          }]
+        }
+        """.utf8)
+
+        XCTAssertThrowsError(try OpenAICompatibleClient.completionText(from: ordinary)) { error in
+            guard case let AIServiceError.reasoningOnly(finishReason) = error else {
+                XCTFail("错误类型不正确：\(error)")
+                return
+            }
+            XCTAssertEqual(finishReason, "length")
+            XCTAssertTrue(error.localizedDescription.contains("输出长度限制"))
+        }
+    }
+
+    func testReasoningOnlyStreamReportsOutputLimit() async {
+        let reasoningOnlyStream = AsyncThrowingStream<String, Error> { continuation in
+            continuation.yield("""
+            data: {"choices":[{"delta":{"content":"","reasoning":"仍在思考"},"finish_reason":null}]}
+            """)
+            continuation.yield("""
+            data: {"choices":[{"delta":{},"finish_reason":"length"}]}
+            """)
+            continuation.yield("data: [DONE]")
+            continuation.finish()
+        }
+        let transport = QueueAIChatTransport(responses: [
+            .stream(reasoningOnlyStream, response(status: 200))
+        ])
+        let client = OpenAICompatibleClient(transport: transport)
+
+        do {
+            _ = try await collect(client.streamSummary(
+                configuration: configuration,
+                input: emptyInput
+            ))
+            XCTFail("只返回思考过程时不应成功")
+        } catch let error as AIServiceError {
+            guard case let .reasoningOnly(finishReason) = error else {
+                XCTFail("错误类型不正确：\(error)")
+                return
+            }
+            XCTAssertEqual(finishReason, "length")
+            XCTAssertTrue(error.localizedDescription.contains("输出长度限制"))
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
     }
 
     func testUnsupportedStreamingFallsBackExactlyOnce() async throws {
@@ -476,12 +694,17 @@ final class AIProfileTests: XCTestCase {
         )
     }
 
-    private func response(status: Int) -> HTTPURLResponse {
-        HTTPURLResponse(
+    private func response(
+        status: Int,
+        headers: [String: String] = [:]
+    ) -> HTTPURLResponse {
+        var responseHeaders = ["Content-Type": "application/json"]
+        responseHeaders.merge(headers) { _, new in new }
+        return HTTPURLResponse(
             url: URL(string: "https://example.com/v1/chat/completions")!,
             statusCode: status,
             httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
+            headerFields: responseHeaders
         )!
     }
 

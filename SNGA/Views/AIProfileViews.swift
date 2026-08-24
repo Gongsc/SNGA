@@ -1,6 +1,328 @@
 import AppKit
 import SwiftUI
 
+struct AIProfileMarkdownBlock: Equatable {
+    enum Kind: Equatable {
+        case heading(level: Int)
+        case paragraph
+        case unorderedListItem(depth: Int)
+        case orderedListItem(marker: String, depth: Int)
+        case quote
+        case code(language: String?)
+        case divider
+    }
+
+    let kind: Kind
+    let content: String
+}
+
+enum AIProfileMarkdown {
+    static func blocks(from markdown: String) -> [AIProfileMarkdownBlock] {
+        let lines = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+
+        var result: [AIProfileMarkdownBlock] = []
+        var paragraphLines: [String] = []
+        var quoteLines: [String] = []
+        var codeLines: [String] = []
+        var codeLanguage: String?
+        var codeFence: String?
+
+        func flushParagraph() {
+            guard !paragraphLines.isEmpty else { return }
+            result.append(.init(kind: .paragraph, content: paragraphLines.joined(separator: "\n")))
+            paragraphLines.removeAll(keepingCapacity: true)
+        }
+
+        func flushQuote() {
+            guard !quoteLines.isEmpty else { return }
+            result.append(.init(kind: .quote, content: quoteLines.joined(separator: "\n")))
+            quoteLines.removeAll(keepingCapacity: true)
+        }
+
+        func flushTextBlocks() {
+            flushParagraph()
+            flushQuote()
+        }
+
+        func flushCode() {
+            result.append(.init(
+                kind: .code(language: codeLanguage),
+                content: codeLines.joined(separator: "\n")
+            ))
+            codeLines.removeAll(keepingCapacity: true)
+            codeLanguage = nil
+            codeFence = nil
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if let codeFence {
+                if trimmed.hasPrefix(codeFence) {
+                    flushCode()
+                } else {
+                    codeLines.append(line)
+                }
+                continue
+            }
+
+            if let fence = fencePrefix(in: trimmed) {
+                flushTextBlocks()
+                codeFence = fence
+                let language = trimmed.dropFirst(fence.count).trimmingCharacters(in: .whitespaces)
+                codeLanguage = language.isEmpty ? nil : language
+                continue
+            }
+
+            if trimmed.isEmpty {
+                flushTextBlocks()
+                continue
+            }
+
+            if let heading = heading(in: trimmed) {
+                flushTextBlocks()
+                result.append(.init(
+                    kind: .heading(level: heading.level),
+                    content: heading.content
+                ))
+                continue
+            }
+
+            if isDivider(trimmed) {
+                flushTextBlocks()
+                result.append(.init(kind: .divider, content: ""))
+                continue
+            }
+
+            if trimmed == ">" || trimmed.hasPrefix("> ") {
+                flushParagraph()
+                quoteLines.append(String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces))
+                continue
+            }
+
+            if let item = unorderedListItem(in: line) {
+                flushTextBlocks()
+                result.append(.init(
+                    kind: .unorderedListItem(depth: item.depth),
+                    content: item.content
+                ))
+                continue
+            }
+
+            if let item = orderedListItem(in: line) {
+                flushTextBlocks()
+                result.append(.init(
+                    kind: .orderedListItem(marker: item.marker, depth: item.depth),
+                    content: item.content
+                ))
+                continue
+            }
+
+            flushQuote()
+            paragraphLines.append(trimmed)
+        }
+
+        flushTextBlocks()
+        if codeFence != nil { flushCode() }
+        return result
+    }
+
+    static func attributedText(from markdown: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        return (try? AttributedString(markdown: markdown, options: options))
+            ?? AttributedString(markdown)
+    }
+
+    static func preview(from markdown: String) -> String {
+        blocks(from: markdown)
+            .filter { $0.kind != .divider }
+            .map { String(attributedText(from: $0.content).characters) }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func fencePrefix(in line: String) -> String? {
+        if line.hasPrefix("```") { return "```" }
+        if line.hasPrefix("~~~") { return "~~~" }
+        return nil
+    }
+
+    private static func heading(in line: String) -> (level: Int, content: String)? {
+        let level = line.prefix { $0 == "#" }.count
+        guard (1...6).contains(level) else { return nil }
+        let remainder = line.dropFirst(level)
+        guard remainder.first?.isWhitespace == true else { return nil }
+        return (level, remainder.trimmingCharacters(in: .whitespaces))
+    }
+
+    private static func isDivider(_ line: String) -> Bool {
+        let characters = line.filter { !$0.isWhitespace }
+        guard characters.count >= 3, let first = characters.first,
+              first == "-" || first == "*" || first == "_" else { return false }
+        return characters.allSatisfy { $0 == first }
+    }
+
+    private static func indentationDepth(in line: String) -> Int {
+        var spaces = 0
+        for character in line {
+            if character == " " {
+                spaces += 1
+            } else if character == "\t" {
+                spaces += 2
+            } else {
+                break
+            }
+        }
+        return min(spaces / 2, 4)
+    }
+
+    private static func unorderedListItem(in line: String) -> (depth: Int, content: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2,
+              let marker = trimmed.first,
+              marker == "-" || marker == "*" || marker == "+" else { return nil }
+        let remainder = trimmed.dropFirst()
+        guard remainder.first?.isWhitespace == true else { return nil }
+        return (
+            indentationDepth(in: line),
+            remainder.trimmingCharacters(in: .whitespaces)
+        )
+    }
+
+    private static func orderedListItem(
+        in line: String
+    ) -> (marker: String, depth: Int, content: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let characters = Array(trimmed)
+        var digitCount = 0
+        while digitCount < characters.count, characters[digitCount].isNumber {
+            digitCount += 1
+        }
+        guard digitCount > 0, digitCount + 1 < characters.count,
+              characters[digitCount] == "." || characters[digitCount] == ")",
+              characters[digitCount + 1].isWhitespace else { return nil }
+
+        return (
+            String(characters.prefix(digitCount + 1)),
+            indentationDepth(in: line),
+            String(characters.dropFirst(digitCount + 2))
+        )
+    }
+}
+
+private struct AIProfileMarkdownView: View {
+    @Environment(\.sngaTheme) private var theme
+    let markdown: String
+
+    private var blocks: [AIProfileMarkdownBlock] {
+        AIProfileMarkdown.blocks(from: markdown)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(blocks.indices, id: \.self) { index in
+                blockView(blocks[index])
+            }
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("ai-profile-summary")
+    }
+
+    @ViewBuilder
+    private func blockView(_ block: AIProfileMarkdownBlock) -> some View {
+        switch block.kind {
+        case let .heading(level):
+            Text(AIProfileMarkdown.attributedText(from: block.content))
+                .font(headingFont(level))
+                .foregroundStyle(theme.foregroundColor)
+                .padding(.top, level <= 2 ? 7 : 3)
+                .accessibilityAddTraits(.isHeader)
+
+        case .paragraph:
+            Text(AIProfileMarkdown.attributedText(from: block.content))
+                .font(.body)
+                .lineSpacing(5)
+                .foregroundStyle(theme.foregroundColor)
+
+        case let .unorderedListItem(depth):
+            listRow(marker: "•", depth: depth, content: block.content)
+
+        case let .orderedListItem(marker, depth):
+            listRow(marker: marker, depth: depth, content: block.content)
+
+        case .quote:
+            Text(AIProfileMarkdown.attributedText(from: block.content))
+                .font(.body)
+                .lineSpacing(4)
+                .foregroundStyle(theme.secondaryForegroundColor)
+                .padding(.leading, 13)
+                .padding(.vertical, 3)
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(theme.accentColor.opacity(0.65))
+                        .frame(width: 3)
+                }
+
+        case let .code(language):
+            VStack(alignment: .leading, spacing: 7) {
+                if let language, !language.isEmpty {
+                    Text(language.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.secondaryForegroundColor)
+                }
+                Text(block.content)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(theme.foregroundColor)
+                    .lineSpacing(3)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.fillColor, in: RoundedRectangle(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .stroke(theme.separatorColor)
+            }
+
+        case .divider:
+            Divider()
+                .padding(.vertical, 5)
+        }
+    }
+
+    private func listRow(marker: String, depth: Int, content: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(marker)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(theme.secondaryForegroundColor)
+                .frame(minWidth: 17, alignment: .trailing)
+                .accessibilityHidden(true)
+            Text(AIProfileMarkdown.attributedText(from: content))
+                .font(.body)
+                .lineSpacing(4)
+                .foregroundStyle(theme.foregroundColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, CGFloat(depth) * 18)
+    }
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: .title2.bold()
+        case 2: .title3.bold()
+        case 3: .headline
+        default: .subheadline.weight(.semibold)
+        }
+    }
+}
+
 struct AIProfileMenuView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
@@ -123,7 +445,7 @@ private struct AIProfileMenuRow: View {
                         isSelected ? theme.onAccentColor.opacity(0.78) : theme.secondaryForegroundColor
                     )
                     .lineLimit(1)
-                Text(record.summary)
+                Text(AIProfileMarkdown.preview(from: record.summary))
                     .font(.caption)
                     .foregroundStyle(
                         isSelected ? theme.onAccentColor.opacity(0.78) : theme.secondaryForegroundColor
@@ -222,13 +544,7 @@ struct AIProfileDetailView: View {
                 }
 
                 if !displayedText.isEmpty {
-                    Text(displayedText)
-                        .font(.body)
-                        .lineSpacing(5)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: 760, alignment: .leading)
-                        .accessibilityLabel("AI 用户画像")
-                        .accessibilityIdentifier("ai-profile-summary")
+                    AIProfileMarkdownView(markdown: displayedText)
                 } else if !isGenerating {
                     ContentUnavailableView(
                         "没有可显示的画像",

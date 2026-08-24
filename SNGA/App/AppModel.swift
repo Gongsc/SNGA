@@ -48,6 +48,7 @@ final class AppModel {
         sessionStore: any SessionStore = LocalSessionStore.shared,
         notificationService: NotificationService = .shared,
         aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
+        aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
         aiKeyStore: any AIKeyStore = KeychainAIKeyStore.shared
     ) {
         let session = AppSession(
@@ -64,6 +65,7 @@ final class AppModel {
             context: session.context,
             session: session,
             summarizer: aiSummarizer,
+            connectionTester: aiConnectionTester,
             keyStore: aiKeyStore
         )
         // 「是否已收藏」归收藏域所有。话题域只需要这一个查询，用闭包倒置依赖，

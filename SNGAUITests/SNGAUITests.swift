@@ -772,6 +772,55 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(
             mainWindow.descendants(matching: .any)["ai-history-limit"].exists
         )
+
+        let testConnection = mainWindow.buttons["ai-test-connection-button"]
+        XCTAssertTrue(testConnection.exists)
+        testConnection.click()
+        let connectionStatus = mainWindow.descendants(matching: .any)[
+            "ai-connection-status"
+        ]
+        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 5))
+        let statusValue = connectionStatus.value as? String ?? ""
+        XCTAssertTrue(statusValue.contains("连接成功"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(statusValue.contains("ui-test-model"), "实际连接状态：\(statusValue)")
+    }
+
+    func testAIConnectionFailureShowsDiagnosticDetails() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--uitesting",
+            "--uitesting-seed",
+            "--uitesting-ai-connection-failure"
+        ]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.click()
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        aiSection.click()
+
+        let testConnection = mainWindow.buttons["ai-test-connection-button"]
+        XCTAssertTrue(testConnection.waitForExistence(timeout: 5))
+        testConnection.click()
+        let connectionStatus = mainWindow.descendants(matching: .any)[
+            "ai-connection-status"
+        ]
+        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 5))
+        let statusValue = connectionStatus.value as? String ?? ""
+        XCTAssertTrue(statusValue.contains("连接失败"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(statusValue.contains("HTTP 503"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(
+            statusValue.contains("req_ui_test_failure"),
+            "实际连接状态：\(statusValue)"
+        )
     }
 
     func testAIProfileGenerationHistoryRegenerationDeletionAndClear() {

@@ -28,6 +28,7 @@ final class AIProfileStore {
     @ObservationIgnored private let context: ModelContext
     @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let summarizer: any AIProfileSummarizing
+    @ObservationIgnored private let connectionTester: any AIConnectionTesting
     @ObservationIgnored let keyStore: any AIKeyStore
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var generationID = UUID()
@@ -36,11 +37,13 @@ final class AIProfileStore {
         context: ModelContext,
         session: AppSession,
         summarizer: any AIProfileSummarizing,
+        connectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
         keyStore: any AIKeyStore
     ) {
         self.context = context
         self.session = session
         self.summarizer = summarizer
+        self.connectionTester = connectionTester
         self.keyStore = keyStore
         reloadRecords()
         trimToHistoryLimit(AISettings.historyLimit)
@@ -60,6 +63,35 @@ final class AIProfileStore {
 
     func record(for uid: Int64) -> AIProfileSummaryRecord? {
         records.first { $0.uid == uid }
+    }
+
+    func testConnection(
+        baseURLString: String,
+        model: String,
+        instruction: String,
+        apiKeyOverride: String?
+    ) async throws -> AIConnectionTestResult {
+        guard let baseURL = AISettings.normalizedBaseURL(from: baseURLString) else {
+            throw AIServiceError.invalidBaseURL
+        }
+        let resolvedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedModel.isEmpty else { throw AIServiceError.missingModel }
+
+        let normalizedOverride = apiKeyOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey: String?
+        if let normalizedOverride, !normalizedOverride.isEmpty {
+            apiKey = normalizedOverride
+        } else {
+            apiKey = try await keyStore.apiKey()
+        }
+
+        return try await connectionTester.testConnection(configuration: AIConfiguration(
+            baseURL: baseURL,
+            model: resolvedModel,
+            apiKey: apiKey,
+            instruction: instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
     }
 
     func select(uid: Int64?) {

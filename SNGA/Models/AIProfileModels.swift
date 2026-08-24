@@ -308,6 +308,7 @@ enum AIServiceError: LocalizedError, Sendable {
     case missingInstruction
     case invalidResponse
     case emptyResponse
+    case reasoningOnly(finishReason: String?)
     case server(status: Int, message: String)
     case keychain(status: Int32)
     case unavailable(String)
@@ -324,6 +325,12 @@ enum AIServiceError: LocalizedError, Sendable {
             "AI 接口返回了无法识别的响应"
         case .emptyResponse:
             "AI 接口没有返回画像内容"
+        case let .reasoningOnly(finishReason):
+            if finishReason == "length" {
+                "AI 模型只返回了思考过程，尚未生成画像正文就达到输出长度限制"
+            } else {
+                "AI 模型只返回了思考过程，没有生成画像正文"
+            }
         case let .server(status, message):
             message.isEmpty ? "AI 服务请求失败（HTTP \(status)）" : "AI 服务请求失败：\(message)"
         case let .keychain(status):

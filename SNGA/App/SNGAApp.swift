@@ -546,6 +546,11 @@ struct SNGAApp: App {
                 _model = State(initialValue: AppModel(
                     container: container,
                     aiSummarizer: DebugAIProfileSummarizer(),
+                    aiConnectionTester: DebugAIConnectionTester(
+                        shouldFail: ProcessInfo.processInfo.arguments.contains(
+                            "--uitesting-ai-connection-failure"
+                        )
+                    ),
                     aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key")
                 ))
             } else {

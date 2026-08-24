@@ -376,6 +376,10 @@ private struct SettingsAIPane: View {
     @State private var keyStatusMessage: String?
     @State private var keyStatusIsError = false
     @State private var isUpdatingKey = false
+    @State private var connectionStatusMessage: String?
+    @State private var connectionStatusIsError = false
+    @State private var isTestingConnection = false
+    @State private var connectionTestTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -383,6 +387,7 @@ private struct SettingsAIPane: View {
                 TextField("Base URL", text: $baseURL, prompt: Text(AISettings.defaultBaseURL))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("ai-base-url-field")
+                    .onChange(of: baseURL) { _, _ in clearConnectionStatus() }
 
                 if !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    AISettings.normalizedBaseURL(from: baseURL) == nil {
@@ -401,6 +406,7 @@ private struct SettingsAIPane: View {
                 TextField("模型", text: $aiModel, prompt: Text("例如 gpt-4.1-mini"))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("ai-model-field")
+                    .onChange(of: aiModel) { _, _ in clearConnectionStatus() }
 
                 SecureField(
                     "API Key",
@@ -413,6 +419,7 @@ private struct SettingsAIPane: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("ai-api-key-field")
+                .onChange(of: newAPIKey) { _, _ in clearConnectionStatus() }
 
                 HStack {
                     Button(hasSavedAPIKey ? "更新密钥" : "保存密钥") {
@@ -447,6 +454,42 @@ private struct SettingsAIPane: View {
                     .font(.caption)
                     .foregroundStyle(keyStatusIsError ? Color.red : Color.secondary)
                 }
+
+                HStack(spacing: 10) {
+                    Button {
+                        testConnection()
+                    } label: {
+                        Label("测试连接", systemImage: "network")
+                    }
+                    .disabled(isTestingConnection)
+                    .accessibilityHint("发送最小请求，验证地址、模型、鉴权和响应格式")
+                    .accessibilityIdentifier("ai-test-connection-button")
+
+                    if isTestingConnection {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("正在测试 AI 接口连接")
+                    }
+                }
+
+                if let connectionStatusMessage {
+                    Label(
+                        connectionStatusMessage,
+                        systemImage: connectionStatusIsError
+                            ? "xmark.circle.fill"
+                            : "checkmark.circle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(connectionStatusIsError ? Color.red : Color.green)
+                    .textSelection(.enabled)
+                    .accessibilityLabel(connectionStatusIsError ? "连接失败" : "连接成功")
+                    .accessibilityValue(connectionStatusMessage)
+                    .accessibilityIdentifier("ai-connection-status")
+                }
+
+                Text("测试会调用 /chat/completions 并发送一条最小消息，可能产生少量模型费用；输入框中的新密钥会优先用于本次测试。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 Text("API Key 只保存在 macOS 系统钥匙串，不会写入偏好设置、画像历史或运行日志。")
                     .font(.caption)
@@ -510,6 +553,11 @@ private struct SettingsAIPane: View {
             if historyLimit != normalized { historyLimit = normalized }
             model.aiProfiles.trimToHistoryLimit(normalized)
         }
+        .onDisappear {
+            connectionTestTask?.cancel()
+            connectionTestTask = nil
+            isTestingConnection = false
+        }
     }
 
     private func loadKeyStatus() async {
@@ -539,7 +587,53 @@ private struct SettingsAIPane: View {
         }
     }
 
+    private func testConnection() {
+        connectionTestTask?.cancel()
+        connectionStatusMessage = nil
+        connectionStatusIsError = false
+        isTestingConnection = true
+
+        let testedBaseURL = baseURL
+        let testedModel = aiModel
+        let testedInstruction = instruction
+        let testedAPIKey = newAPIKey
+        connectionTestTask = Task {
+            do {
+                let result = try await model.aiProfiles.testConnection(
+                    baseURLString: testedBaseURL,
+                    model: testedModel,
+                    instruction: testedInstruction,
+                    apiKeyOverride: testedAPIKey
+                )
+                try Task.checkCancellation()
+                var message = "连接成功 · \(result.model) · \(result.latencyMilliseconds) ms"
+                if let requestID = result.requestID, !requestID.isEmpty {
+                    message += "\n请求 ID：\(requestID)"
+                }
+                connectionStatusIsError = false
+                connectionStatusMessage = message
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                connectionStatusIsError = true
+                connectionStatusMessage = "连接失败\n\(error.localizedDescription)"
+            }
+            isTestingConnection = false
+            connectionTestTask = nil
+        }
+    }
+
+    private func clearConnectionStatus() {
+        connectionTestTask?.cancel()
+        connectionTestTask = nil
+        isTestingConnection = false
+        connectionStatusMessage = nil
+        connectionStatusIsError = false
+    }
+
     private func removeAPIKey() {
+        clearConnectionStatus()
         isUpdatingKey = true
         Task {
             do {
