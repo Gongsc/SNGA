@@ -10,6 +10,8 @@ final class AIProfileTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: AISettings.modelKey)
         UserDefaults.standard.removeObject(forKey: AISettings.instructionKey)
         UserDefaults.standard.removeObject(forKey: AISettings.topicSummaryInstructionKey)
+        UserDefaults.standard.removeObject(forKey: AISettings.topicSummaryPageLimitKey)
+        UserDefaults.standard.removeObject(forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.removeObject(forKey: AISettings.historyLimitKey)
         super.tearDown()
     }
@@ -32,6 +34,23 @@ final class AIProfileTests: XCTestCase {
 
         UserDefaults.standard.set(false, forKey: AISettings.enabledKey)
         XCTAssertFalse(AISettings.isEnabled)
+    }
+
+    func testTopicSummaryPageScopeSupportsOneThroughAllPages() {
+        XCTAssertEqual(AISettings.topicSummaryPageScope, .first(1))
+        XCTAssertEqual(AISettings.topicSummaryPageScope.pageCount(totalPages: 8), 1)
+
+        UserDefaults.standard.set(3, forKey: AISettings.topicSummaryPageLimitKey)
+        XCTAssertEqual(AISettings.topicSummaryPageScope, .first(3))
+        XCTAssertEqual(AISettings.topicSummaryPageScope.pageCount(totalPages: 8), 3)
+        XCTAssertEqual(AISettings.topicSummaryPageScope.pageCount(totalPages: 2), 2)
+
+        UserDefaults.standard.set(0, forKey: AISettings.topicSummaryPageLimitKey)
+        XCTAssertEqual(AISettings.topicSummaryPageScope, .first(1))
+
+        UserDefaults.standard.set(true, forKey: AISettings.topicSummaryAllPagesKey)
+        XCTAssertEqual(AISettings.topicSummaryPageScope, .all)
+        XCTAssertEqual(AISettings.topicSummaryPageScope.pageCount(totalPages: 8), 8)
     }
 
     func testBaseURLAllowsHTTPSAndLoopbackHTTPOnly() {
@@ -677,6 +696,8 @@ final class AIProfileTests: XCTestCase {
             AISettings.defaultTopicSummaryInstruction,
             forKey: AISettings.topicSummaryInstructionKey
         )
+        UserDefaults.standard.set(1, forKey: AISettings.topicSummaryPageLimitKey)
+        UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         let (session, _) = try makeSession()
         let store = ThreadStore(
             session: session,
@@ -714,6 +735,60 @@ final class AIProfileTests: XCTestCase {
         store.clearAISummary()
         XCTAssertNil(store.aiSummaryTopicID)
         XCTAssertTrue(store.aiSummaryText.isEmpty)
+    }
+
+    @MainActor
+    func testTopicSummaryCollectsAllPagesBeforeGeneration() async throws {
+        UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
+        UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
+        UserDefaults.standard.set("topic-model", forKey: AISettings.modelKey)
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryInstruction,
+            forKey: AISettings.topicSummaryInstructionKey
+        )
+        UserDefaults.standard.set(true, forKey: AISettings.topicSummaryAllPagesKey)
+
+        let (session, _) = try makeSession()
+        let store = ThreadStore(
+            session: session,
+            aiSummarizer: ImmediateTopicSummarizer(text: "全部页面总结"),
+            aiKeyStore: InMemoryAIKeyStore()
+        )
+        let topic = Topic(
+            id: TopicID(rawValue: 9001),
+            forumID: ForumID(rawValue: -7),
+            subject: "三页话题",
+            author: "楼主",
+            replyCount: 5
+        )
+        store.selectedTopicID = topic.id
+        store.currentTopic = topic
+        store.page = 1
+        store.totalPages = 3
+        store.posts = [Post(
+            id: PostID(rawValue: 1),
+            topicID: topic.id,
+            floor: 0,
+            author: "楼主",
+            html: "<p>第一页正文</p>"
+        )]
+
+        store.summarizeCurrentTopic()
+        let deadline = Date().addingTimeInterval(4)
+        while store.isSummarizingTopic, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertFalse(store.isSummarizingTopic)
+        XCTAssertNil(store.aiSummaryErrorMessage)
+        XCTAssertNil(store.aiSummaryPhase)
+        XCTAssertEqual(store.aiSummaryText, "全部页面总结")
+        XCTAssertEqual(store.aiSummaryInput?.coverage.firstPage, 1)
+        XCTAssertEqual(store.aiSummaryInput?.coverage.lastPage, 3)
+        XCTAssertEqual(store.aiSummaryInput?.coverage.loadedPageCount, 3)
+        XCTAssertEqual(store.aiSummaryInput?.coverage.totalPages, 3)
+        XCTAssertEqual(store.aiSummaryInput?.coverage.postCount, 5)
+        XCTAssertEqual(store.aiSummaryInput?.coverage.requestedAllPages, true)
     }
 
     @MainActor
@@ -945,6 +1020,15 @@ final class AIProfileTests: XCTestCase {
         UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
         UserDefaults.standard.set("test-model", forKey: AISettings.modelKey)
         UserDefaults.standard.set(AISettings.defaultInstruction, forKey: AISettings.instructionKey)
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryInstruction,
+            forKey: AISettings.topicSummaryInstructionKey
+        )
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryPageLimit,
+            forKey: AISettings.topicSummaryPageLimitKey
+        )
+        UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(50, forKey: AISettings.historyLimitKey)
     }
 

@@ -31,6 +31,20 @@ private struct PostAuthorLocationRequest {
     let task: Task<PostAuthorLocationResult, Never>
 }
 
+enum AITopicSummaryPhase: Equatable, Sendable {
+    case collecting(completedPages: Int, totalPages: Int)
+    case generating
+}
+
+private struct AITopicSummaryPageLoadError: LocalizedError {
+    let page: Int
+    let detail: String
+
+    var errorDescription: String? {
+        "读取话题第 \(page) 页失败：\(detail)"
+    }
+}
+
 /// 话题正文域：当前话题、楼层、分页、投票、回复与草稿。
 ///
 /// 只依赖 `AppSession`。是否已收藏属于收藏域，通过 `isTopicFavorite` 反向注入，
@@ -58,6 +72,7 @@ final class ThreadStore {
     private(set) var aiSummaryTopicID: TopicID?
     private(set) var aiSummaryInput: AITopicSummaryInput?
     private(set) var isSummarizingTopic = false
+    private(set) var aiSummaryPhase: AITopicSummaryPhase?
 
     @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let aiSummarizer: any AITopicSummarizing
@@ -417,16 +432,19 @@ final class ThreadStore {
         cancelAISummary(showsMessage: false, clearsContent: true)
         let requestID = UUID()
         aiSummaryRequestID = requestID
-        let input = AITopicSummaryInput.make(
-            topic: topic,
-            posts: posts,
-            page: page,
-            totalPages: totalPages
-        )
+        let visiblePage = page
+        let visiblePosts = posts
+        let visiblePageIsFiltered = isShowingOnlyTopicAuthor
+        let initialTotalPages = max(max(totalPages, visiblePage), 1)
+        let pageScope = AISettings.topicSummaryPageScope
+        let initialTargetPageCount = pageScope.pageCount(totalPages: initialTotalPages)
+        let service = session.activeService
+        let requestAccountID = service?.accountID
         aiSummaryTopicID = topic.id
-        aiSummaryInput = input
+        aiSummaryInput = nil
         aiSummaryErrorMessage = nil
         isSummarizingTopic = true
+        aiSummaryPhase = .collecting(completedPages: 0, totalPages: initialTargetPageCount)
 
         aiSummaryTask = Task { [weak self] in
             guard let self else { return }
@@ -442,6 +460,79 @@ final class ThreadStore {
                       AISettings.isEnabled else {
                     return
                 }
+
+                var knownTotalPages = initialTotalPages
+                var targetPageCount = initialTargetPageCount
+                var collectedPosts: [Post] = []
+                var targetPage = 1
+                while targetPage <= targetPageCount {
+                    try Task.checkCancellation()
+                    guard aiSummaryRequestID == requestID,
+                          selectedTopicID == topic.id,
+                          AISettings.isEnabled else {
+                        return
+                    }
+
+                    let pagePosts: [Post]
+                    if targetPage == visiblePage, !visiblePageIsFiltered {
+                        pagePosts = visiblePosts
+                    } else {
+                        guard let service else {
+                            throw AITopicSummaryPageLoadError(
+                                page: targetPage,
+                                detail: "当前没有可用的 NGA 服务"
+                            )
+                        }
+                        let result: ThreadPage
+                        do {
+                            result = try await service.threadPage(
+                                topicID: topic.id,
+                                page: targetPage,
+                                authorUID: nil
+                            )
+                        } catch {
+                            throw AITopicSummaryPageLoadError(
+                                page: targetPage,
+                                detail: error.localizedDescription
+                            )
+                        }
+                        try Task.checkCancellation()
+                        guard aiSummaryRequestID == requestID,
+                              selectedTopicID == topic.id,
+                              AISettings.isEnabled,
+                              session.activeAccountID == requestAccountID else {
+                            return
+                        }
+                        pagePosts = result.posts
+                        knownTotalPages = max(
+                            knownTotalPages,
+                            max(result.totalPages, result.page)
+                        )
+                        targetPageCount = pageScope.pageCount(totalPages: knownTotalPages)
+                    }
+
+                    collectedPosts = merged(collectedPosts, pagePosts)
+                    aiSummaryPhase = .collecting(
+                        completedPages: targetPage,
+                        totalPages: targetPageCount
+                    )
+                    targetPage += 1
+                }
+
+                let requestedAllPages: Bool
+                switch pageScope {
+                case .all: requestedAllPages = true
+                case .first: requestedAllPages = false
+                }
+                let input = AITopicSummaryInput.make(
+                    topic: topic,
+                    posts: collectedPosts,
+                    coveredPages: 1...max(1, targetPageCount),
+                    totalPages: knownTotalPages,
+                    requestedAllPages: requestedAllPages
+                )
+                aiSummaryInput = input
+                aiSummaryPhase = .generating
 
                 var completeText = ""
                 for try await fragment in aiSummarizer.streamTopicSummary(
@@ -463,12 +554,14 @@ final class ThreadStore {
                 }
                 guard aiSummaryRequestID == requestID else { return }
                 isSummarizingTopic = false
+                aiSummaryPhase = nil
                 aiSummaryTask = nil
             } catch is CancellationError {
                 // A newer request, navigation or the master switch owns the state.
             } catch {
                 guard aiSummaryRequestID == requestID else { return }
                 isSummarizingTopic = false
+                aiSummaryPhase = nil
                 aiSummaryTask = nil
                 aiSummaryErrorMessage = error.localizedDescription
             }
@@ -484,6 +577,7 @@ final class ThreadStore {
         aiSummaryTask?.cancel()
         aiSummaryTask = nil
         isSummarizingTopic = false
+        aiSummaryPhase = nil
         if clearsContent {
             aiSummaryText = ""
         }

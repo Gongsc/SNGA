@@ -49,6 +49,10 @@ struct SettingsMenuView: View {
     private var aiInstruction = AISettings.defaultInstruction
     @AppStorage(AISettings.topicSummaryInstructionKey)
     private var aiTopicSummaryInstruction = AISettings.defaultTopicSummaryInstruction
+    @AppStorage(AISettings.topicSummaryPageLimitKey)
+    private var aiTopicSummaryPageLimit = AISettings.defaultTopicSummaryPageLimit
+    @AppStorage(AISettings.topicSummaryAllPagesKey)
+    private var aiTopicSummaryAllPages = false
     @AppStorage(AISettings.historyLimitKey)
     private var aiHistoryLimit = AISettings.defaultHistoryLimit
 
@@ -102,7 +106,10 @@ struct SettingsMenuView: View {
                   !aiTopicSummaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return "OpenAI 兼容接口 · 待配置"
             }
-            return "\(model) · 最近 \(AISettings.normalizedHistoryLimit(aiHistoryLimit)) 人"
+            let pageScope = aiTopicSummaryAllPages
+                ? "话题全部页"
+                : "话题前 \(AISettings.normalizedTopicSummaryPageLimit(aiTopicSummaryPageLimit)) 页"
+            return "\(model) · \(pageScope) · 最近 \(AISettings.normalizedHistoryLimit(aiHistoryLimit)) 人"
         case .toolbox:
             let choice = ToolboxInstanceChoice(rawValue: toolboxInstanceSelectionRaw)
                 ?? .automatic
@@ -376,6 +383,10 @@ private struct SettingsAIPane: View {
     private var profileInstruction = AISettings.defaultInstruction
     @AppStorage(AISettings.topicSummaryInstructionKey)
     private var topicSummaryInstruction = AISettings.defaultTopicSummaryInstruction
+    @AppStorage(AISettings.topicSummaryPageLimitKey)
+    private var topicSummaryPageLimit = AISettings.defaultTopicSummaryPageLimit
+    @AppStorage(AISettings.topicSummaryAllPagesKey)
+    private var topicSummaryAllPages = false
     @AppStorage(AISettings.historyLimitKey)
     private var historyLimit = AISettings.defaultHistoryLimit
 
@@ -564,7 +575,7 @@ private struct SettingsAIPane: View {
                         .accessibilityIdentifier("ai-topic-summary-instruction-editor")
 
                     HStack {
-                        Text("仅发送当前页面已经加载的标题与楼层文本，不会额外请求 NGA。")
+                        Text("标题与楼层会作为独立 JSON 数据发送，正文中的文字不会被当成指令执行。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -573,6 +584,34 @@ private struct SettingsAIPane: View {
                         }
                         .accessibilityIdentifier("ai-reset-topic-summary-instruction")
                     }
+                }
+
+                SettingsCard(label: "话题总结范围") {
+                    Toggle("总结全部页面", isOn: $topicSummaryAllPages)
+                        .toggleStyle(.switch)
+                        .accessibilityHint("开启后，每次总结都会读取话题的全部页面")
+                        .accessibilityIdentifier("ai-topic-summary-all-pages")
+
+                    if !topicSummaryAllPages {
+                        Stepper(
+                            value: $topicSummaryPageLimit,
+                            in: 1...Int.max
+                        ) {
+                            Text("覆盖前 \(AISettings.normalizedTopicSummaryPageLimit(topicSummaryPageLimit)) 页")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityIdentifier("ai-topic-summary-page-limit")
+                        .onChange(of: topicSummaryPageLimit) { _, value in
+                            let normalized = AISettings.normalizedTopicSummaryPageLimit(value)
+                            if normalized != value { topicSummaryPageLimit = normalized }
+                        }
+                    }
+
+                    Text(topicSummaryAllPages
+                         ? "总结前会串行读取全部页面；大型话题可能耗时较长，可随时取消。"
+                         : "总结前会串行读取话题开头的指定页数；不足时读取实际全部页面。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 SettingsCard(label: "画像历史") {
@@ -595,7 +634,7 @@ private struct SettingsAIPane: View {
                 SettingsCard {
                 Label("隐私提示", systemImage: "hand.raised")
                     .font(.headline)
-                Text("生成画像时会发送公开用户资料与已加载的发布记录；总结话题时会发送当前页标题和楼层文字。AI 结果仅供参考。")
+                Text("生成画像时会发送公开用户资料与已加载的发布记录；总结话题时会按上方范围读取并发送标题和楼层文字。AI 结果仅供参考。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 }
@@ -603,6 +642,12 @@ private struct SettingsAIPane: View {
         }
         .task { await loadKeyStatus() }
         .onAppear {
+            let normalizedPageLimit = AISettings.normalizedTopicSummaryPageLimit(
+                topicSummaryPageLimit
+            )
+            if topicSummaryPageLimit != normalizedPageLimit {
+                topicSummaryPageLimit = normalizedPageLimit
+            }
             let normalized = AISettings.normalizedHistoryLimit(historyLimit)
             if historyLimit != normalized { historyLimit = normalized }
             model.aiProfiles.trimToHistoryLimit(normalized)

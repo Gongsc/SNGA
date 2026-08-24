@@ -773,6 +773,12 @@ final class SNGAUITests: XCTestCase {
             mainWindow.descendants(matching: .any)["ai-topic-summary-instruction-editor"].exists
         )
         XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-all-pages"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-page-limit"].exists
+        )
+        XCTAssertTrue(
             mainWindow.descendants(matching: .any)["ai-history-limit"].exists
         )
 

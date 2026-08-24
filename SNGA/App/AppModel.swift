@@ -848,6 +848,11 @@ final class AppModel {
             AISettings.defaultTopicSummaryInstruction,
             forKey: AISettings.topicSummaryInstructionKey
         )
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryPageLimit,
+            forKey: AISettings.topicSummaryPageLimitKey
+        )
+        UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")

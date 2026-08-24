@@ -656,9 +656,9 @@ private struct ThreadTitleHeader: View {
                 .buttonStyle(.bordered)
                 .fixedSize()
                 .disabled(!canSummarize)
-                .help("总结当前页已经加载的标题和楼层文字")
+                .help("按 AI 设置中的页数范围总结标题和楼层文字")
                 .accessibilityLabel("AI 总结话题")
-                .accessibilityHint("当前页内容会发送到已配置的 AI 服务")
+                .accessibilityHint("设置范围内的页面内容会发送到已配置的 AI 服务")
                 .accessibilityIdentifier("thread-ai-summary-button")
             }
         }
@@ -697,13 +697,13 @@ private struct AITopicSummaryCard: View {
                 if model.thread.isSummarizingTopic {
                     ProgressView()
                         .controlSize(.small)
-                        .accessibilityLabel("AI 正在总结话题")
+                        .accessibilityLabel(summaryProgressAccessibilityLabel)
                 }
             }
 
             if let input = model.thread.aiSummaryInput {
                 HStack(spacing: 6) {
-                    Text("当前第 \(input.coverage.page)/\(input.coverage.totalPages) 页")
+                    Text(coverageDescription(input.coverage))
                     Text("·")
                     Text("\(input.coverage.postCount) 层")
                     if input.coverage.wasTruncated {
@@ -716,7 +716,7 @@ private struct AITopicSummaryCard: View {
 
             if model.thread.aiSummaryText.isEmpty,
                model.thread.isSummarizingTopic {
-                Text("正在等待 AI 返回内容…")
+                Text(summaryProgressDescription)
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else if !model.thread.aiSummaryText.isEmpty {
@@ -770,6 +770,42 @@ private struct AITopicSummaryCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("thread-ai-summary-card")
+    }
+
+    private var summaryProgressDescription: String {
+        switch model.thread.aiSummaryPhase {
+        case let .collecting(completedPages, totalPages):
+            if completedPages == 0 {
+                return "准备读取 1–\(totalPages) 页…"
+            }
+            return "正在读取话题页面（\(completedPages)/\(totalPages)）…"
+        case .generating:
+            return "页面读取完成，正在等待 AI 返回内容…"
+        case nil:
+            return "正在准备话题总结…"
+        }
+    }
+
+    private var summaryProgressAccessibilityLabel: String {
+        switch model.thread.aiSummaryPhase {
+        case let .collecting(completedPages, totalPages):
+            return "正在收集话题页面，已完成 \(completedPages) 页，共 \(totalPages) 页"
+        case .generating:
+            return "AI 正在总结话题"
+        case nil:
+            return "正在准备话题总结"
+        }
+    }
+
+    private func coverageDescription(_ coverage: AITopicSummaryInput.Coverage) -> String {
+        if coverage.requestedAllPages,
+           coverage.loadedPageCount >= coverage.totalPages {
+            return "全部 \(coverage.loadedPageCount) 页"
+        }
+        if coverage.firstPage == coverage.lastPage {
+            return "第 \(coverage.firstPage)/\(coverage.totalPages) 页"
+        }
+        return "第 \(coverage.firstPage)–\(coverage.lastPage) 页 / 共 \(coverage.totalPages) 页"
     }
 }
 
