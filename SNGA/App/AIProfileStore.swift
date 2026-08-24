@@ -8,7 +8,7 @@ enum AIProfileGenerationPhase: Equatable, Sendable {
 
     var title: String {
         switch self {
-        case .collecting: "正在读取最近发布记录…"
+        case .collecting: "正在整理已加载的发布记录…"
         case .generating: "AI 正在生成用户画像…"
         }
     }
@@ -26,7 +26,6 @@ final class AIProfileStore {
     private(set) var errorUID: Int64?
 
     @ObservationIgnored private let context: ModelContext
-    @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let summarizer: any AIProfileSummarizing
     @ObservationIgnored private let connectionTester: any AIConnectionTesting
     @ObservationIgnored let keyStore: any AIKeyStore
@@ -41,7 +40,6 @@ final class AIProfileStore {
         keyStore: any AIKeyStore
     ) {
         self.context = context
-        self.session = session
         self.summarizer = summarizer
         self.connectionTester = connectionTester
         self.keyStore = keyStore
@@ -107,7 +105,12 @@ final class AIProfileStore {
         }
     }
 
-    func generate(uid: Int64, fallbackProfile: Profile? = nil) {
+    func generate(
+        uid: Int64,
+        fallbackProfile: Profile? = nil,
+        topics: [UserActivity] = [],
+        replies: [UserActivity] = []
+    ) {
         cancelGeneration(showsMessage: false)
         let requestID = UUID()
         generationID = requestID
@@ -122,18 +125,11 @@ final class AIProfileStore {
             await self?.runGeneration(
                 uid: uid,
                 fallbackProfile: fallbackProfile,
+                topics: topics,
+                replies: replies,
                 requestID: requestID
             )
         }
-    }
-
-    func regenerateSelected() {
-        guard let selectedUID else { return }
-        let record = record(for: selectedUID)
-        let fallback = record.map {
-            Profile(uid: $0.uid, displayName: $0.displayName, avatarURL: $0.avatarURL)
-        }
-        generate(uid: selectedUID, fallbackProfile: fallback)
     }
 
     func cancelGeneration(showsMessage: Bool = true) {
@@ -202,30 +198,17 @@ final class AIProfileStore {
     private func runGeneration(
         uid: Int64,
         fallbackProfile: Profile?,
+        topics: [UserActivity],
+        replies: [UserActivity],
         requestID: UUID
     ) async {
-        guard let service = session.activeService else {
-            finishWithError("当前没有可用的 NGA 登录会话。", uid: uid, requestID: requestID)
-            return
-        }
-
         do {
             let apiKey = try await keyStore.apiKey()
             let configuration = try AISettings.configuration(apiKey: apiKey)
-
-            async let freshProfile = optionalProfile(service: service, uid: uid)
-            async let topics = collectActivities(service: service, uid: uid, kind: .topics)
-            async let replies = collectActivities(service: service, uid: uid, kind: .replies)
-            let (loadedProfile, loadedTopics, loadedReplies) = try await (
-                freshProfile,
-                topics,
-                replies
-            )
             try Task.checkCancellation()
             guard generationID == requestID else { return }
 
-            var profile = loadedProfile
-                ?? fallbackProfile
+            var profile = fallbackProfile
                 ?? Profile(uid: uid, displayName: "NGA \(uid)", avatarURL: nil)
             if profile.displayName == "NGA \(uid)", let fallbackProfile {
                 profile.displayName = fallbackProfile.displayName
@@ -236,8 +219,8 @@ final class AIProfileStore {
 
             let input = AIProfileInput.make(
                 profile: profile,
-                topics: loadedTopics,
-                replies: loadedReplies
+                topics: topics,
+                replies: replies
             )
             generationPhase = .generating
 
@@ -271,25 +254,6 @@ final class AIProfileStore {
         } catch {
             finishWithError(error.localizedDescription, uid: uid, requestID: requestID)
         }
-    }
-
-    private func optionalProfile(
-        service: any NGAForumService,
-        uid: Int64
-    ) async -> Profile? {
-        try? await service.profile(uid: uid)
-    }
-
-    private func collectActivities(
-        service: any NGAForumService,
-        uid: Int64,
-        kind: UserActivityKind
-    ) async throws -> [UserActivity] {
-        let first = try await service.userActivities(uid: uid, kind: kind, page: 1)
-        guard first.hasMore else { return first.activities }
-        let second = try await service.userActivities(uid: uid, kind: kind, page: 2)
-        var seen = Set(first.activities.map(\.id))
-        return first.activities + second.activities.filter { seen.insert($0.id).inserted }
     }
 
     private func upsert(

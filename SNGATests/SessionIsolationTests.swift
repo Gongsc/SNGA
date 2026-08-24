@@ -52,6 +52,46 @@ final class SessionIsolationTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
+    func testConcurrentRequestsReserveSeparateThrottleSlots() async throws {
+        let transport = RecordingTransport()
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        async let first = client.request(.forums)
+        async let second = client.request(.forums)
+        async let third = client.request(.forums)
+        _ = try await (first, second, third)
+
+        let timestamps = await transport.requestTimestamps().sorted()
+        XCTAssertEqual(timestamps.count, 3)
+        for (earlier, later) in zip(timestamps, timestamps.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(
+                later.timeIntervalSince(earlier),
+                0.22,
+                "并发请求必须占用不同的节流时隙"
+            )
+        }
+    }
+
+    func testHTTP503DoesNotRetryImmediately() async {
+        let transport = FixedResponseTransport(
+            statusCode: 503,
+            body: "<html><title>Service Unavailable</title></html>"
+        )
+        let client = NGANetworkClient(cookies: [], transport: transport)
+
+        do {
+            _ = try await client.request(.forums)
+            XCTFail("HTTP 503 应抛出错误")
+        } catch let error as NGAServiceError {
+            XCTAssertEqual(error, .server(503))
+        } catch {
+            XCTFail("错误类型不正确：\(error)")
+        }
+
+        let requestCount = await transport.requestCount()
+        XCTAssertEqual(requestCount, 1)
+    }
+
     func testAppAPIReceivesCredentialsFromOnlyItsOwnCookies() async throws {
         let transport = RecordingTransport()
         let cookies = [
@@ -354,8 +394,10 @@ private actor RecordingTransport: HTTPTransport {
     private var headers: [String] = []
     private var bodies: [String] = []
     private var recordedXUserAgents: [String] = []
+    private var timestamps: [Date] = []
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        timestamps.append(Date())
         headers.append(request.value(forHTTPHeaderField: "Cookie") ?? "")
         bodies.append(request.httpBody.flatMap { String(data: $0, encoding: .utf8) } ?? "")
         recordedXUserAgents.append(request.value(forHTTPHeaderField: "X-User-Agent") ?? "")
@@ -366,6 +408,7 @@ private actor RecordingTransport: HTTPTransport {
     func cookieHeaders() -> [String] { headers }
     func requestBodies() -> [String] { bodies }
     func xUserAgents() -> [String] { recordedXUserAgents }
+    func requestTimestamps() -> [Date] { timestamps }
 }
 
 private actor FailingTransport: HTTPTransport {
@@ -382,6 +425,7 @@ private actor FailingTransport: HTTPTransport {
 private actor FixedResponseTransport: HTTPTransport {
     let statusCode: Int
     let body: String
+    private var count = 0
 
     init(statusCode: Int, body: String) {
         self.statusCode = statusCode
@@ -389,6 +433,7 @@ private actor FixedResponseTransport: HTTPTransport {
     }
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        count += 1
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: statusCode,
@@ -397,6 +442,8 @@ private actor FixedResponseTransport: HTTPTransport {
         )!
         return (Data(body.utf8), response)
     }
+
+    func requestCount() -> Int { count }
 }
 
 private actor ThreadFallbackTransport: HTTPTransport {

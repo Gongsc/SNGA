@@ -667,7 +667,7 @@ struct AIProfileDetailView: View {
             model.openSettings(section: .ai)
             return
         }
-        model.aiProfiles.regenerateSelected()
+        model.regenerateSelectedAIProfile()
     }
 
     private func copySummary() {
@@ -693,14 +693,19 @@ struct AIProfileUserCard: View {
                     Text("AI 用户画像")
                         .font(.headline)
                         .accessibilityIdentifier("user-center-ai-profile-card")
-                    Text("分析公开资料以及最近两页话题和回复")
+                    Text("分析公开资料以及用户中心已加载的发布记录")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Text("生成时会把这些资料发送到你在设置中配置的 AI 服务；结果仅供参考。")
+            Text("生成不会额外请求 NGA；已加载的资料会发送到你配置的 AI 服务，结果仅供参考。")
                 .font(.callout)
+                .foregroundStyle(.secondary)
+
+            let counts = model.cachedAIProfileSampleCounts(uid: profile.uid)
+            Text("当前样本：\(counts.topics) 个话题、\(counts.replies) 条回复")
+                .font(.caption)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
@@ -728,12 +733,12 @@ struct AIProfileUserCard: View {
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("user-center-ai-view")
                     Button("重新生成", systemImage: "arrow.clockwise") {
-                        model.aiProfiles.generate(uid: profile.uid, fallbackProfile: profile)
+                        model.generateAIProfile(for: profile)
                     }
                     .accessibilityIdentifier("user-center-ai-regenerate")
                 } else {
                     Button("生成 AI 画像", systemImage: "sparkles") {
-                        model.aiProfiles.generate(uid: profile.uid, fallbackProfile: profile)
+                        model.generateAIProfile(for: profile)
                     }
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("user-center-ai-generate")

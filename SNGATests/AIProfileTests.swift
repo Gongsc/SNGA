@@ -500,10 +500,22 @@ final class AIProfileTests: XCTestCase {
             keyStore: InMemoryAIKeyStore()
         )
         let profile = Profile(uid: 42, displayName: "测试用户", avatarURL: nil)
+        let topic = sampleActivity(kind: .topics, id: "topic")
+        let reply = sampleActivity(kind: .replies, id: "reply")
 
-        store.generate(uid: 42, fallbackProfile: profile)
+        store.generate(
+            uid: 42,
+            fallbackProfile: profile,
+            topics: [topic],
+            replies: [reply]
+        )
         try await waitUntilFinished(store)
-        store.generate(uid: 42, fallbackProfile: profile)
+        store.generate(
+            uid: 42,
+            fallbackProfile: profile,
+            topics: [topic],
+            replies: [reply]
+        )
         try await waitUntilFinished(store)
 
         XCTAssertEqual(store.records.count, 1)
@@ -550,6 +562,44 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(restoredStore.records.count, 1)
         restoredStore.clearAll()
         XCTAssertTrue(restoredStore.records.isEmpty)
+    }
+
+    @MainActor
+    func testGenerationUsesProvidedSamplesWithoutActiveForumService() async throws {
+        configureAIForStoreTests()
+        let schema = Schema([AccountRecord.self, AIProfileSummaryRecord.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(
+                "AIProfile-No-Forum-\(UUID().uuidString)",
+                schema: schema,
+                isStoredInMemoryOnly: true
+            )]
+        )
+        let session = AppSession(
+            container: container,
+            sessionStore: LocalSessionStore.shared,
+            notificationService: .shared
+        )
+        XCTAssertNil(session.activeService)
+        let store = AIProfileStore(
+            context: session.context,
+            session: session,
+            summarizer: ImmediateSummarizer(text: "仅使用已加载样本"),
+            keyStore: InMemoryAIKeyStore()
+        )
+
+        store.generate(
+            uid: 42,
+            fallbackProfile: Profile(uid: 42, displayName: "离线样本用户", avatarURL: nil),
+            topics: [sampleActivity(kind: .topics, id: "cached-topic")],
+            replies: [sampleActivity(kind: .replies, id: "cached-reply")]
+        )
+        try await waitUntilFinished(store)
+
+        XCTAssertEqual(store.records.first?.summary, "仅使用已加载样本")
+        XCTAssertEqual(store.records.first?.topicCount, 1)
+        XCTAssertEqual(store.records.first?.replyCount, 1)
     }
 
     @MainActor
@@ -691,6 +741,17 @@ final class AIProfileTests: XCTestCase {
             profile: Profile(uid: 1, displayName: "用户", avatarURL: nil),
             topics: [],
             replies: []
+        )
+    }
+
+    private func sampleActivity(kind: UserActivityKind, id: String) -> UserActivity {
+        UserActivity(
+            id: id,
+            kind: kind,
+            topicID: TopicID(rawValue: 100),
+            subject: "已加载的\(kind.title)样本",
+            excerpt: kind == .replies ? "回复摘要" : nil,
+            postedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
 

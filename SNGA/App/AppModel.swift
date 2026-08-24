@@ -2,6 +2,12 @@ import Foundation
 import Observation
 import SwiftData
 
+private struct AIProfileActivityPageKey: Hashable {
+    let uid: Int64
+    let kind: UserActivityKind
+    let page: Int
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -32,6 +38,9 @@ final class AppModel {
     @ObservationIgnored private let profileRequests = RequestSlot()
     @ObservationIgnored private let userActivityRequests = RequestSlot()
     @ObservationIgnored private let forumSearchRequests = RequestSlot()
+    @ObservationIgnored private var aiProfileActivityPages: [
+        AIProfileActivityPageKey: [UserActivity]
+    ] = [:]
     private var forumUserReturnSelection: SidebarSelection?
 
     let session: AppSession
@@ -414,11 +423,63 @@ final class AppModel {
                   userActivityKind == kind else {
                 return
             }
+            aiProfileActivityPages[AIProfileActivityPageKey(
+                uid: uid,
+                kind: kind,
+                page: result.page
+            )] = result.activities
             userActivities = result.activities
             userActivityPage = result.page
             userActivityHasMore = result.hasMore
             userActivityTotalPages = max(result.totalPages, result.page)
         }
+    }
+
+    func generateAIProfile(for profile: Profile) {
+        let samples = cachedAIProfileActivities(uid: profile.uid)
+        aiProfiles.generate(
+            uid: profile.uid,
+            fallbackProfile: profile,
+            topics: samples.topics,
+            replies: samples.replies
+        )
+    }
+
+    func regenerateSelectedAIProfile() {
+        guard let uid = aiProfiles.selectedUID else { return }
+        let record = aiProfiles.record(for: uid)
+        let fallback: Profile
+        if let currentProfile, currentProfile.uid == uid {
+            fallback = currentProfile
+        } else {
+            fallback = Profile(
+                uid: uid,
+                displayName: record?.displayName ?? "NGA \(uid)",
+                avatarURL: record?.avatarURL
+            )
+        }
+        generateAIProfile(for: fallback)
+    }
+
+    func cachedAIProfileSampleCounts(uid: Int64) -> (topics: Int, replies: Int) {
+        let samples = cachedAIProfileActivities(uid: uid)
+        return (samples.topics.count, samples.replies.count)
+    }
+
+    private func cachedAIProfileActivities(
+        uid: Int64
+    ) -> (topics: [UserActivity], replies: [UserActivity]) {
+        func activities(kind: UserActivityKind) -> [UserActivity] {
+            var seen = Set<String>()
+            return (1...2).flatMap { page in
+                aiProfileActivityPages[AIProfileActivityPageKey(
+                    uid: uid,
+                    kind: kind,
+                    page: page
+                )] ?? []
+            }.filter { seen.insert($0.id).inserted }
+        }
+        return (activities(kind: .topics), activities(kind: .replies))
     }
 
     func openUserActivity(_ activity: UserActivity) async {

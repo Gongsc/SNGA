@@ -133,13 +133,22 @@ actor NGANetworkClient {
     }
 
     private func throttle() async throws {
-        if let lastRequestAt {
-            let elapsed = lastRequestAt.duration(to: clock.now)
-            if elapsed < .milliseconds(280) {
-                try await Task.sleep(for: .milliseconds(280) - elapsed)
-            }
+        let now = clock.now
+        guard let lastRequestAt else {
+            self.lastRequestAt = now
+            return
         }
-        lastRequestAt = clock.now
+
+        let reservedAt = lastRequestAt.advanced(by: .milliseconds(280))
+        if reservedAt <= now {
+            self.lastRequestAt = now
+            return
+        }
+
+        // 先占用下一个发送时隙再等待。Actor 在 await 时可重入；如果等待结束后
+        // 才更新时间，并发请求会在同一时刻醒来，从而绕过节流并触发 NGA 限流。
+        self.lastRequestAt = reservedAt
+        try await Task.sleep(for: now.duration(to: reservedAt))
     }
 
     private func validate(_ response: NGAHTTPResponse) throws {
@@ -244,7 +253,9 @@ actor NGANetworkClient {
     private func isRetryable(_ error: Error) -> Bool {
         if let error = error as? NGAServiceError {
             switch error {
-            case .server, .rateLimited: true
+            // 429/503 往往是 NGA 的临时限流或防护响应，立即重试只会延长封锁。
+            case .rateLimited, .server(503): false
+            case .server: true
             default: false
             }
         } else {
