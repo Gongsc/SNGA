@@ -2,6 +2,12 @@ import Foundation
 import Observation
 import SwiftData
 
+private struct AIProfileActivityPageKey: Hashable {
+    let uid: Int64
+    let kind: UserActivityKind
+    let page: Int
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -19,6 +25,7 @@ final class AppModel {
     var isSearchingForum = false
     var selectedToolboxFeed: ToolboxFeed = .worldBriefing
     var toolboxRefreshRevision = 0
+    var selectedSettingsSection: SettingsSection = .appearance
 
 
 
@@ -31,6 +38,9 @@ final class AppModel {
     @ObservationIgnored private let profileRequests = RequestSlot()
     @ObservationIgnored private let userActivityRequests = RequestSlot()
     @ObservationIgnored private let forumSearchRequests = RequestSlot()
+    @ObservationIgnored private var aiProfileActivityPages: [
+        AIProfileActivityPageKey: [UserActivity]
+    ] = [:]
     private var forumUserReturnSelection: SidebarSelection?
 
     let session: AppSession
@@ -38,13 +48,18 @@ final class AppModel {
     let messaging: MessageStore
     let favorite: FavoriteStore
     let browsing: ForumStore
+    let aiProfiles: AIProfileStore
 
     private var activeService: (any NGAForumService)? { session.activeService }
 
     init(
         container: ModelContainer,
         sessionStore: any SessionStore = LocalSessionStore.shared,
-        notificationService: NotificationService = .shared
+        notificationService: NotificationService = .shared,
+        aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
+        aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
+        aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
+        aiKeyStore: any AIKeyStore = KeychainAIKeyStore.shared
     ) {
         let session = AppSession(
             container: container,
@@ -52,10 +67,21 @@ final class AppModel {
             notificationService: notificationService
         )
         self.session = session
-        thread = ThreadStore(session: session)
+        thread = ThreadStore(
+            session: session,
+            aiSummarizer: aiTopicSummarizer,
+            aiKeyStore: aiKeyStore
+        )
         messaging = MessageStore(session: session)
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
+        aiProfiles = AIProfileStore(
+            context: session.context,
+            session: session,
+            summarizer: aiSummarizer,
+            connectionTester: aiConnectionTester,
+            keyStore: aiKeyStore
+        )
         // 「是否已收藏」归收藏域所有。话题域只需要这一个查询，用闭包倒置依赖，
         // 避免它为了一个布尔值反过来持有整个 AppModel。
         thread.provideFavoriteLookup { [weak favorite] topicID in
@@ -172,6 +198,7 @@ final class AppModel {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting-seed") {
             seedUITestData()
+            await session.refreshCheckInStatuses()
             return
         }
 #endif
@@ -245,7 +272,7 @@ final class AppModel {
             try session.context.save()
             session.activeAccountID = accountID
             session.accounts = records.sorted(by: { $0.createdAt < $1.createdAt }).map { $0.summary() }
-            session.refreshActiveAccountCheckInStatus(records: records)
+            session.updateActiveAccountCheckInStatus()
             clearVisibleContent()
             browsing.loadRecentForums()
             if let activeAccount = session.activeAccount {
@@ -258,6 +285,7 @@ final class AppModel {
             }
             await browsing.loadForums()
             await favorite.refreshFavorites()
+            await session.queryActiveAccountCheckInStatus()
             if let activeAccount = session.activeAccount {
                 await openUserCenter(
                     uid: activeAccount.ngaUID,
@@ -319,6 +347,7 @@ final class AppModel {
         fallbackAvatarURL: URL? = nil,
         preservingForumContext: Bool = false
     ) async {
+        aiProfiles.select(uid: nil)
         if preservingForumContext {
             if case .forum = sidebarSelection {
                 forumUserReturnSelection = sidebarSelection
@@ -399,11 +428,74 @@ final class AppModel {
                   userActivityKind == kind else {
                 return
             }
+            aiProfileActivityPages[AIProfileActivityPageKey(
+                uid: uid,
+                kind: kind,
+                page: result.page
+            )] = result.activities
             userActivities = result.activities
             userActivityPage = result.page
             userActivityHasMore = result.hasMore
             userActivityTotalPages = max(result.totalPages, result.page)
         }
+    }
+
+    func generateAIProfile(for profile: Profile) {
+        guard AISettings.isEnabled else { return }
+        let samples = cachedAIProfileActivities(uid: profile.uid)
+        aiProfiles.generate(
+            uid: profile.uid,
+            fallbackProfile: profile,
+            topics: samples.topics,
+            replies: samples.replies
+        )
+    }
+
+    func regenerateSelectedAIProfile() {
+        guard AISettings.isEnabled, let uid = aiProfiles.selectedUID else { return }
+        let record = aiProfiles.record(for: uid)
+        let fallback: Profile
+        if let currentProfile, currentProfile.uid == uid {
+            fallback = currentProfile
+        } else {
+            fallback = Profile(
+                uid: uid,
+                displayName: record?.displayName ?? "NGA \(uid)",
+                avatarURL: record?.avatarURL
+            )
+        }
+        generateAIProfile(for: fallback)
+    }
+
+    func applyAIEnabledState(_ isEnabled: Bool) {
+        guard !isEnabled else { return }
+        aiProfiles.cancelGeneration(showsMessage: false)
+        aiProfiles.select(uid: nil)
+        thread.clearAISummary()
+        if sidebarSelection == .aiProfiles {
+            sidebarSelection = .userCenter(nil)
+        }
+    }
+
+    func cachedAIProfileSampleCounts(uid: Int64) -> (topics: Int, replies: Int) {
+        let samples = cachedAIProfileActivities(uid: uid)
+        return (samples.topics.count, samples.replies.count)
+    }
+
+    private func cachedAIProfileActivities(
+        uid: Int64
+    ) -> (topics: [UserActivity], replies: [UserActivity]) {
+        func activities(kind: UserActivityKind) -> [UserActivity] {
+            var seen = Set<String>()
+            return (1...2).flatMap { page in
+                aiProfileActivityPages[AIProfileActivityPageKey(
+                    uid: uid,
+                    kind: kind,
+                    page: page
+                )] ?? []
+            }.filter { seen.insert($0.id).inserted }
+        }
+        return (activities(kind: .topics), activities(kind: .replies))
     }
 
     func openUserActivity(_ activity: UserActivity) async {
@@ -588,7 +680,7 @@ final class AppModel {
 
 
     func performMaintenance() async {
-        await session.checkInAllAccounts()
+        await session.refreshCheckInStatuses()
         await pollMessages()
     }
 
@@ -610,7 +702,10 @@ final class AppModel {
                 )
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
+        case .aiProfiles: break
         case .toolbox: refreshToolbox()
+        // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
+        case .settings: break
         case let .userCenter(uid):
             if let targetUID = uid ?? session.activeAccount?.ngaUID {
                 await openUserCenter(uid: targetUID)
@@ -627,6 +722,20 @@ final class AppModel {
 
     func refreshToolbox() {
         toolboxRefreshRevision &+= 1
+    }
+
+    /// 切到设置。清掉话题和消息的选中，右栏才轮得到设置面板 ——
+    /// 和边栏其他目的地的做法一致。
+    ///
+    /// `section` 留空表示停在上次看的那一类：⌘, 该回到用户离开的地方，只有
+    /// 「关于 SNGA」这种指名道姓的入口才需要指定落点。
+    func openSettings(section: SettingsSection? = nil) {
+        if let section {
+            selectedSettingsSection = section
+        }
+        sidebarSelection = .settings
+        thread.selectedTopicID = nil
+        messaging.selectedMessageID = nil
     }
 
 
@@ -683,6 +792,8 @@ final class AppModel {
     /// 切换或删除账号时清空所有属于上一个账号的可见内容。
     /// 各领域自己知道该清什么，这里只负责调用它们并清理仍留在本类型的状态。
     private func clearVisibleContent() {
+        aiProfiles.cancelGeneration(showsMessage: false)
+        aiProfiles.select(uid: nil)
         thread.reset()
         messaging.reset()
         favorite.reset()
@@ -725,10 +836,24 @@ final class AppModel {
 
 #if DEBUG
     private func seedUITestData() {
+        UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
         UserDefaults.standard.set(
             RecentForumSettings.defaultMaximumCount,
             forKey: RecentForumSettings.maximumCountKey
         )
+        UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
+        UserDefaults.standard.set("ui-test-model", forKey: AISettings.modelKey)
+        UserDefaults.standard.set(AISettings.defaultInstruction, forKey: AISettings.instructionKey)
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryInstruction,
+            forKey: AISettings.topicSummaryInstructionKey
+        )
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryPageLimit,
+            forKey: AISettings.topicSummaryPageLimitKey
+        )
+        UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
+        UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)

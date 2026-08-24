@@ -31,6 +31,20 @@ private struct PostAuthorLocationRequest {
     let task: Task<PostAuthorLocationResult, Never>
 }
 
+enum AITopicSummaryPhase: Equatable, Sendable {
+    case collecting(completedPages: Int, totalPages: Int)
+    case generating
+}
+
+private struct AITopicSummaryPageLoadError: LocalizedError {
+    let page: Int
+    let detail: String
+
+    var errorDescription: String? {
+        "读取话题第 \(page) 页失败：\(detail)"
+    }
+}
+
 /// 话题正文域：当前话题、楼层、分页、投票、回复与草稿。
 ///
 /// 只依赖 `AppSession`。是否已收藏属于收藏域，通过 `isTopicFavorite` 反向注入，
@@ -53,15 +67,32 @@ final class ThreadStore {
     var submittingPollTopicIDs: Set<TopicID> = []
     var isShowingOnlyTopicAuthor = false
 
+    private(set) var aiSummaryText = ""
+    private(set) var aiSummaryErrorMessage: String?
+    private(set) var aiSummaryTopicID: TopicID?
+    private(set) var aiSummaryInput: AITopicSummaryInput?
+    private(set) var isSummarizingTopic = false
+    private(set) var aiSummaryPhase: AITopicSummaryPhase?
+
     @ObservationIgnored private let session: AppSession
+    @ObservationIgnored private let aiSummarizer: any AITopicSummarizing
+    @ObservationIgnored private let aiKeyStore: any AIKeyStore
     @ObservationIgnored private var isTopicFavorite: (TopicID) -> Bool = { _ in false }
     @ObservationIgnored private let threadRequests = RequestSlot()
     @ObservationIgnored private var threadNavigationPath: [ThreadNavigationSnapshot] = []
     @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
     @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
+    @ObservationIgnored private var aiSummaryTask: Task<Void, Never>?
+    @ObservationIgnored private var aiSummaryRequestID = UUID()
 
-    init(session: AppSession) {
+    init(
+        session: AppSession,
+        aiSummarizer: any AITopicSummarizing,
+        aiKeyStore: any AIKeyStore
+    ) {
         self.session = session
+        self.aiSummarizer = aiSummarizer
+        self.aiKeyStore = aiKeyStore
         // 话题被锁只有话题域知道该怎么反应；AppSession 只负责统一呈现错误。
         session.onError { [weak self] error in
             guard let self,
@@ -88,6 +119,7 @@ final class ThreadStore {
 
     /// 切换账号或退出登录时清空正文。
     func reset() {
+        clearAISummary()
         selectedTopicID = nil
         currentTopic = nil
         posts = []
@@ -193,6 +225,7 @@ final class ThreadStore {
 
     /// 展示一个话题。版面相关的处理（镜像版面跳转）留在 AppModel 协调。
     func open(_ topic: Topic) async {
+        clearAISummary()
         resetThreadNavigationHistory()
         selectedTopicID = topic.id
         var selectedTopic = topic
@@ -247,6 +280,7 @@ final class ThreadStore {
             totalPages: totalPages,
             showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
         ))
+        clearAISummary()
         threadRequests.invalidate()
         var loadedTopic = destination.topic
         loadedTopic.isFavorite = loadedTopic.isFavorite
@@ -272,6 +306,7 @@ final class ThreadStore {
     @discardableResult
     func returnToPreviousThread() -> Bool {
         guard let previous = threadNavigationPath.popLast() else { return false }
+        clearAISummary()
         threadRequests.invalidate()
         selectedTopicID = previous.topic.id
         currentTopic = previous.topic
@@ -290,6 +325,7 @@ final class ThreadStore {
         showsLoadingIndicator: Bool = true
     ) async {
         guard let service = session.activeService else { return }
+        clearAISummary()
         let requestAccountID = service.accountID
         let ticket = threadRequests.begin()
         let targetPage = reset ? 1 : page + 1
@@ -341,6 +377,7 @@ final class ThreadStore {
     @discardableResult
     func loadPage(topicID: TopicID, page: Int) async -> Bool {
         guard let service = session.activeService else { return false }
+        clearAISummary()
         let requestAccountID = service.accountID
         let ticket = threadRequests.begin()
         let targetPage = max(1, page)
@@ -382,6 +419,178 @@ final class ThreadStore {
             didLoad = true
         }
         return didLoad
+    }
+
+    func summarizeCurrentTopic() {
+        guard AISettings.isEnabled,
+              let topic = currentTopic,
+              selectedTopicID == topic.id,
+              !posts.isEmpty else {
+            return
+        }
+
+        cancelAISummary(showsMessage: false, clearsContent: true)
+        let requestID = UUID()
+        aiSummaryRequestID = requestID
+        let visiblePage = page
+        let visiblePosts = posts
+        let visiblePageIsFiltered = isShowingOnlyTopicAuthor
+        let initialTotalPages = max(max(totalPages, visiblePage), 1)
+        let pageScope = AISettings.topicSummaryPageScope
+        let initialTargetPageCount = pageScope.pageCount(totalPages: initialTotalPages)
+        let service = session.activeService
+        let requestAccountID = service?.accountID
+        aiSummaryTopicID = topic.id
+        aiSummaryInput = nil
+        aiSummaryErrorMessage = nil
+        isSummarizingTopic = true
+        aiSummaryPhase = .collecting(completedPages: 0, totalPages: initialTargetPageCount)
+
+        aiSummaryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let apiKey = try await aiKeyStore.apiKey()
+                let configuration = try AISettings.configuration(
+                    apiKey: apiKey,
+                    purpose: .topicSummary
+                )
+                try Task.checkCancellation()
+                guard aiSummaryRequestID == requestID,
+                      selectedTopicID == topic.id,
+                      AISettings.isEnabled else {
+                    return
+                }
+
+                var knownTotalPages = initialTotalPages
+                var targetPageCount = initialTargetPageCount
+                var collectedPosts: [Post] = []
+                var targetPage = 1
+                while targetPage <= targetPageCount {
+                    try Task.checkCancellation()
+                    guard aiSummaryRequestID == requestID,
+                          selectedTopicID == topic.id,
+                          AISettings.isEnabled else {
+                        return
+                    }
+
+                    let pagePosts: [Post]
+                    if targetPage == visiblePage, !visiblePageIsFiltered {
+                        pagePosts = visiblePosts
+                    } else {
+                        guard let service else {
+                            throw AITopicSummaryPageLoadError(
+                                page: targetPage,
+                                detail: "当前没有可用的 NGA 服务"
+                            )
+                        }
+                        let result: ThreadPage
+                        do {
+                            result = try await service.threadPage(
+                                topicID: topic.id,
+                                page: targetPage,
+                                authorUID: nil
+                            )
+                        } catch {
+                            throw AITopicSummaryPageLoadError(
+                                page: targetPage,
+                                detail: error.localizedDescription
+                            )
+                        }
+                        try Task.checkCancellation()
+                        guard aiSummaryRequestID == requestID,
+                              selectedTopicID == topic.id,
+                              AISettings.isEnabled,
+                              session.activeAccountID == requestAccountID else {
+                            return
+                        }
+                        pagePosts = result.posts
+                        knownTotalPages = max(
+                            knownTotalPages,
+                            max(result.totalPages, result.page)
+                        )
+                        targetPageCount = pageScope.pageCount(totalPages: knownTotalPages)
+                    }
+
+                    collectedPosts = merged(collectedPosts, pagePosts)
+                    aiSummaryPhase = .collecting(
+                        completedPages: targetPage,
+                        totalPages: targetPageCount
+                    )
+                    targetPage += 1
+                }
+
+                let requestedAllPages: Bool
+                switch pageScope {
+                case .all: requestedAllPages = true
+                case .first: requestedAllPages = false
+                }
+                let input = AITopicSummaryInput.make(
+                    topic: topic,
+                    posts: collectedPosts,
+                    coveredPages: 1...max(1, targetPageCount),
+                    totalPages: knownTotalPages,
+                    requestedAllPages: requestedAllPages
+                )
+                aiSummaryInput = input
+                aiSummaryPhase = .generating
+
+                var completeText = ""
+                for try await fragment in aiSummarizer.streamTopicSummary(
+                    configuration: configuration,
+                    input: input
+                ) {
+                    try Task.checkCancellation()
+                    guard aiSummaryRequestID == requestID,
+                          selectedTopicID == topic.id,
+                          AISettings.isEnabled else {
+                        return
+                    }
+                    completeText += fragment
+                    aiSummaryText = completeText
+                }
+
+                guard !completeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw AIServiceError.emptyResponse
+                }
+                guard aiSummaryRequestID == requestID else { return }
+                isSummarizingTopic = false
+                aiSummaryPhase = nil
+                aiSummaryTask = nil
+            } catch is CancellationError {
+                // A newer request, navigation or the master switch owns the state.
+            } catch {
+                guard aiSummaryRequestID == requestID else { return }
+                isSummarizingTopic = false
+                aiSummaryPhase = nil
+                aiSummaryTask = nil
+                aiSummaryErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelAISummary(
+        showsMessage: Bool = true,
+        clearsContent: Bool = false
+    ) {
+        let hadActiveRequest = isSummarizingTopic
+        aiSummaryRequestID = UUID()
+        aiSummaryTask?.cancel()
+        aiSummaryTask = nil
+        isSummarizingTopic = false
+        aiSummaryPhase = nil
+        if clearsContent {
+            aiSummaryText = ""
+        }
+        if showsMessage, hadActiveRequest {
+            aiSummaryErrorMessage = "已取消话题总结。"
+        }
+    }
+
+    func clearAISummary() {
+        cancelAISummary(showsMessage: false, clearsContent: true)
+        aiSummaryErrorMessage = nil
+        aiSummaryTopicID = nil
+        aiSummaryInput = nil
     }
 
     func vote(on postID: PostID, direction: PostVoteDirection) async {

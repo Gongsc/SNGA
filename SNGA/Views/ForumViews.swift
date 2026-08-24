@@ -3,6 +3,7 @@ import SwiftUI
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     let uid: Int64?
 
     var body: some View {
@@ -20,6 +21,10 @@ struct UserCenterView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         profileHeader
+
+                        if aiEnabled, let profile {
+                            AIProfileUserCard(profile: profile)
+                        }
 
                         if model.isDisplayingActiveAccount {
                             checkInContent
@@ -111,6 +116,16 @@ struct UserCenterView: View {
             }
             .buttonStyle(.plain)
             .help("点击签到")
+            .accessibilityIdentifier("user-center-check-in-button")
+        } else if status.canRefresh {
+            Button {
+                Task { await model.session.queryActiveAccountCheckInStatus() }
+            } label: {
+                checkInStatusCard(status)
+            }
+            .buttonStyle(.plain)
+            .help("重新查询签到状态")
+            .accessibilityIdentifier("user-center-check-in-refresh")
         } else {
             checkInStatusCard(status)
                 .help(checkInTitle(for: status))
@@ -127,14 +142,33 @@ struct UserCenterView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(checkInTitle(for: status))
                     .font(.headline)
-                Text(checkInDetail(for: status))
+                if case let .checkedIn(statistics, _) = status {
+                    HStack(spacing: 16) {
+                        Label {
+                            Text("连续签到 \(statistics.consecutiveDays) 天")
+                                .monospacedDigit()
+                        } icon: {
+                            Image(systemName: "flame.fill")
+                        }
+                        Label {
+                            Text("历史累计 \(statistics.totalDays) 天")
+                                .monospacedDigit()
+                        } icon: {
+                            Image(systemName: "calendar")
+                        }
+                    }
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                } else {
+                    Text(checkInDetail(for: status))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
             }
 
             Spacer()
-            if status == .checkingIn {
+            if status == .loading || status == .checkingIn {
                 ProgressView()
                     .controlSize(.small)
             } else if status.canCheckIn {
@@ -149,28 +183,44 @@ struct UserCenterView: View {
             in: RoundedRectangle(cornerRadius: 12)
         )
         .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(checkInTitle(for: status))
+        .accessibilityValue(checkInAccessibilityValue(for: status))
+        .accessibilityIdentifier("user-center-check-in-status")
+    }
+
+    private func checkInAccessibilityValue(for status: DailyCheckInStatus) -> String {
+        switch status {
+        case let .checkedIn(statistics, _):
+            "连续签到 \(statistics.consecutiveDays) 天，历史累计 \(statistics.totalDays) 天"
+        default:
+            checkInDetail(for: status)
+        }
     }
 
     private func checkInTitle(for status: DailyCheckInStatus) -> String {
         switch status {
+        case .loading: "正在查询签到状态…"
         case .checkedIn: "今日已签到"
         case .notCheckedIn: "今日尚未签到"
         case .checkingIn: "正在签到…"
-        case .failed: "签到失败"
+        case .failed: "签到状态不可用"
         }
     }
 
     private func checkInDetail(for status: DailyCheckInStatus) -> String {
         switch status {
-        case let .checkedIn(message): message
+        case .loading: "正在读取 NGA 签到记录"
+        case let .checkedIn(_, message): message
         case .notCheckedIn: "点击状态卡完成今日签到"
         case .checkingIn: "正在向 NGA 确认签到结果"
-        case let .failed(message): "\(message)；点击重试"
+        case let .failed(message): "\(message)；点击重新查询"
         }
     }
 
     private func checkInIcon(for status: DailyCheckInStatus) -> String {
         switch status {
+        case .loading: "hourglass"
         case .checkedIn: "checkmark.seal.fill"
         case .notCheckedIn: "checkmark.seal"
         case .checkingIn: "arrow.triangle.2.circlepath"
@@ -180,6 +230,7 @@ struct UserCenterView: View {
 
     private func checkInColor(for status: DailyCheckInStatus) -> Color {
         switch status {
+        case .loading: .secondary
         case .checkedIn: .green
         case .notCheckedIn: theme.accentColor
         case .checkingIn: .secondary

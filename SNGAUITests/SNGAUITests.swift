@@ -2,6 +2,28 @@ import XCTest
 
 @MainActor
 final class SNGAUITests: XCTestCase {
+    func testUnsignedAccountShowsSidebarPromptAndManualCheckInStatistics() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        let userCenter = app.buttons["用户中心"]
+        XCTAssertTrue(userCenter.waitForExistence(timeout: 5))
+        XCTAssertEqual(userCenter.value as? String, "待签到")
+        let checkIn = app.buttons["user-center-check-in-button"]
+        XCTAssertTrue(checkIn.waitForExistence(timeout: 5))
+        checkIn.click()
+
+        let status = app.descendants(matching: .any)["user-center-check-in-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        let statistics = status.value as? String ?? ""
+        XCTAssertTrue(statistics.contains("连续签到 7 天"), "实际辅助说明：\(statistics)")
+        XCTAssertTrue(statistics.contains("历史累计 43 天"), "实际辅助说明：\(statistics)")
+        XCTAssertEqual(userCenter.value as? String, "")
+    }
+
     func testPostAuthorInformationAppearsInThread() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -62,12 +84,14 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
-    func testAboutWindowShowsProjectLinks() {
+    /// 「关于 SNGA」也不再弹窗：菜单项把主窗口切到「设置 › 关于」。
+    func testAboutMenuItemOpensAboutSettingsSection() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--uitesting-seed"]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
         let appMenu = app.menuBars.menuBarItems["SNGA"]
         appMenu.click()
@@ -75,11 +99,15 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(about.waitForExistence(timeout: 2))
         about.click()
 
-        XCTAssertTrue(app.windows["关于 SNGA"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["版本 1.8.2（1）"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["about-github"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["about-email"].exists)
-        XCTAssertTrue(app.links["gongsc@live.cn"].exists)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-about"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertTrue(mainWindow.staticTexts["版本 1.8.2（1）"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
+        XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
+        XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
     }
 
     func testOfficialLoginFormDisplaysJavaScriptValidation() {
@@ -627,16 +655,42 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
-    func testToolboxInstanceSettingsShowCustomURLAndDocumentation() {
+    /// 设置整个长在主窗口里：应用菜单里的「设置…」不再弹窗，而是把边栏切到
+    /// 设置，中栏列分类、右栏放面板。断言全部落在主窗口内。
+    ///
+    /// 这里点菜单项而不是按 ⌘,：任何一个注册了 ⌘, 全局热键的第三方应用都会把
+    /// 这个键抢走，键盘事件根本到不了被测应用，测试就会无缘无故地红。菜单项和
+    /// 快捷键指向同一个 `Button`，点它验的是同一条路径。
+    func testSettingsMenuItemOpensSettingsInMainWindow() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "--uitesting-seed"]
         app.launch()
         ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
 
-        app.typeKey(",", modifierFlags: .command)
+        let appMenu = app.menuBars.menuBarItems["SNGA"]
+        appMenu.click()
+        let settingsItem = appMenu.menus.menuItems["设置…"]
+        XCTAssertTrue(settingsItem.waitForExistence(timeout: 2))
+        settingsItem.click()
 
-        let instancePicker = app.descendants(matching: .any)["toolbox-instance-picker"]
+        // 只该切换主窗口里的页面，不该多开一扇窗。
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-section-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertEqual(app.windows.count, 1)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let toolboxSection = mainWindow.descendants(matching: .any)["settings-section-toolbox"]
+        XCTAssertTrue(toolboxSection.waitForExistence(timeout: 5))
+        toolboxSection.click()
+
+        let instancePicker = mainWindow.descendants(matching: .any)["toolbox-instance-picker"]
         XCTAssertTrue(instancePicker.waitForExistence(timeout: 5))
         instancePicker.click()
         let customInstance = app.menuItems["自定义实例"]
@@ -644,11 +698,11 @@ final class SNGAUITests: XCTestCase {
         customInstance.click()
 
         XCTAssertTrue(
-            app.textFields["toolbox-custom-instance-field"]
+            mainWindow.textFields["toolbox-custom-instance-field"]
                 .waitForExistence(timeout: 5)
         )
         XCTAssertTrue(
-            app.descendants(matching: .any)["toolbox-instance-documentation"]
+            mainWindow.descendants(matching: .any)["toolbox-instance-documentation"]
                 .waitForExistence(timeout: 5)
         )
 
@@ -656,6 +710,242 @@ final class SNGAUITests: XCTestCase {
         let automaticInstance = app.menuItems["自动选择（推荐）"]
         XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
         automaticInstance.click()
+    }
+
+    /// 边栏左下角的入口和 ⌘, 走的是同一条路。
+    func testSidebarSettingsButtonOpensSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        let logSection = mainWindow.descendants(matching: .any)["settings-section-runtimeLog"]
+        XCTAssertTrue(logSection.waitForExistence(timeout: 5))
+        logSection.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-runtimeLog"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    func testAISettingsExposeCompatibleEndpointPromptAndHistoryControls() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.click()
+
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        XCTAssertTrue(aiSection.isHittable)
+        aiSection.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-ai"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(mainWindow.textFields["ai-base-url-field"].exists)
+        XCTAssertTrue(mainWindow.textFields["ai-model-field"].exists)
+        XCTAssertTrue(mainWindow.secureTextFields["ai-api-key-field"].exists)
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-instruction-editor"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-instruction-editor"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-all-pages"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-page-limit"].exists
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-history-limit"].exists
+        )
+
+        let testConnection = mainWindow.buttons["ai-test-connection-button"]
+        XCTAssertTrue(testConnection.exists)
+        testConnection.click()
+        let connectionStatus = mainWindow.descendants(matching: .any)[
+            "ai-connection-status"
+        ]
+        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 5))
+        let statusValue = connectionStatus.value as? String ?? ""
+        XCTAssertTrue(statusValue.contains("连接成功"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(statusValue.contains("ui-test-model"), "实际连接状态：\(statusValue)")
+    }
+
+    func testAITopicSummaryStreamsAndMasterSwitchHidesFeatures() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let forum = mainWindow.buttons["艾泽拉斯国家地理"]
+        XCTAssertTrue(forum.waitForExistence(timeout: 8))
+        forum.click()
+        let topic = mainWindow.buttons["topic-9001"]
+        XCTAssertTrue(topic.waitForExistence(timeout: 8))
+        topic.click()
+
+        let summarize = mainWindow.buttons["thread-ai-summary-button"]
+        XCTAssertTrue(summarize.waitForExistence(timeout: 8))
+        summarize.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["thread-ai-summary-card"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["thread-ai-summary-content"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["thread-ai-summary-regenerate"].waitForExistence(timeout: 8)
+        )
+
+        mainWindow.descendants(matching: .any)["sidebar-settings-button"].click()
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        aiSection.click()
+
+        let enabledToggle = mainWindow.descendants(matching: .any)["ai-enabled-toggle"]
+        XCTAssertTrue(enabledToggle.waitForExistence(timeout: 5))
+        enabledToggle.click()
+        XCTAssertFalse(mainWindow.buttons["AI 画像"].waitForExistence(timeout: 1))
+        XCTAssertFalse(mainWindow.textFields["ai-base-url-field"].exists)
+        XCTAssertFalse(mainWindow.descendants(matching: .any)["ai-instruction-editor"].exists)
+    }
+
+    func testAIConnectionFailureShowsDiagnosticDetails() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--uitesting",
+            "--uitesting-seed",
+            "--uitesting-ai-connection-failure"
+        ]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.click()
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        aiSection.click()
+
+        let testConnection = mainWindow.buttons["ai-test-connection-button"]
+        XCTAssertTrue(testConnection.waitForExistence(timeout: 5))
+        testConnection.click()
+        let connectionStatus = mainWindow.descendants(matching: .any)[
+            "ai-connection-status"
+        ]
+        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 5))
+        let statusValue = connectionStatus.value as? String ?? ""
+        XCTAssertTrue(statusValue.contains("连接失败"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(statusValue.contains("HTTP 503"), "实际连接状态：\(statusValue)")
+        XCTAssertTrue(
+            statusValue.contains("req_ui_test_failure"),
+            "实际连接状态：\(statusValue)"
+        )
+    }
+
+    func testAIProfileGenerationHistoryRegenerationDeletionAndClear() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let card = mainWindow.descendants(matching: .any)["user-center-ai-profile-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 8))
+        let generate = mainWindow.buttons["user-center-ai-generate"]
+        XCTAssertTrue(generate.waitForExistence(timeout: 5))
+        generate.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-generating"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-summary"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-regenerate"].waitForExistence(timeout: 8)
+        )
+
+        let historyModule = mainWindow.buttons["AI 画像"]
+        XCTAssertTrue(historyModule.waitForExistence(timeout: 5))
+        historyModule.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-history-list"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-history-10001"].waitForExistence(timeout: 5)
+        )
+
+        let regenerate = mainWindow.buttons["ai-profile-regenerate"]
+        XCTAssertTrue(regenerate.waitForExistence(timeout: 5))
+        regenerate.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-profile-generating"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(regenerate.waitForExistence(timeout: 8))
+
+        let delete = mainWindow.buttons["ai-profile-delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.click()
+        let confirmDelete = app.sheets.buttons["删除画像"]
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 3))
+        confirmDelete.click()
+        XCTAssertTrue(app.staticTexts["还没有 AI 用户画像"].waitForExistence(timeout: 5))
+
+        mainWindow.buttons["用户中心"].click()
+        XCTAssertTrue(generate.waitForExistence(timeout: 5))
+        generate.click()
+        XCTAssertTrue(
+            mainWindow.buttons["ai-profile-regenerate"].waitForExistence(timeout: 8)
+        )
+        historyModule.click()
+        let clear = mainWindow.buttons["ai-profile-clear-all"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        clear.click()
+        let confirmClear = app.sheets.buttons["清空全部画像"]
+        XCTAssertTrue(confirmClear.waitForExistence(timeout: 3))
+        confirmClear.click()
+        XCTAssertTrue(app.staticTexts["还没有 AI 用户画像"].waitForExistence(timeout: 5))
     }
 
     func testReproShapes() {

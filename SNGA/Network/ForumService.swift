@@ -62,6 +62,7 @@ protocol NGAForumService: Sendable {
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String?
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws
     func deleteTopicFavoriteFolder(folderID: String) async throws
+    func checkInStatus() async throws -> CheckInStatistics
     func checkIn() async throws -> CheckInResult
 }
 

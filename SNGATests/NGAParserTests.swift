@@ -2741,6 +2741,36 @@ final class NGAParserTests: XCTestCase {
             "UTF8"
         )
         XCTAssertEqual(NGAEndpoint.checkIn.referer, NGAEndpoint.baseURL)
+
+        let checkedInStatistics = try parser.checkInStatus(from: response(
+            #"{"result":[{"uid":36379260,"continued":12,"sum":2324,"last_time":"1700000000"}],"time":1700001200}"#
+        ))
+        XCTAssertEqual(
+            checkedInStatistics,
+            CheckInStatistics(
+                isCheckedInToday: true,
+                consecutiveDays: 12,
+                totalDays: 2324
+            )
+        )
+
+        let notCheckedInStatistics = try parser.checkInStatus(from: response(
+            #"{"result":[{"uid":36379260,"continued":"6","sum":"42","last_time":"0"}],"time":1700001200}"#
+        ))
+        XCTAssertEqual(
+            notCheckedInStatistics,
+            CheckInStatistics(
+                isCheckedInToday: false,
+                consecutiveDays: 6,
+                totalDays: 42
+            )
+        )
+        XCTAssertEqual(
+            NGAEndpoint.checkInStatus.queryItems.first(where: { $0.name == "__act" })?.value,
+            "get_stat"
+        )
+        XCTAssertEqual(NGAEndpoint.checkInStatus.method, .post)
+        XCTAssertFalse(NGAEndpoint.checkInStatus.isWrite)
     }
 
     private func response(_ text: String, contentType: String = "application/json; charset=utf-8") -> NGAHTTPResponse {

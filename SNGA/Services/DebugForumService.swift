@@ -3,6 +3,9 @@ import Foundation
 
 actor DebugForumService: NGAForumService {
     nonisolated let accountID: AccountID
+    private var isCheckedInToday = false
+    private var checkInRequestCount = 0
+    private var checkInStatusRequestCount = 0
     private let forum = Forum(
         id: ForumID(rawValue: -7),
         name: "艾泽拉斯国家地理",
@@ -512,6 +515,21 @@ actor DebugForumService: NGAForumService {
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? { "542" }
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws {}
     func deleteTopicFavoriteFolder(folderID: String) async throws {}
-    func checkIn() async throws -> CheckInResult { .alreadyCheckedIn(message: "今日已签到") }
+    func checkInStatus() async throws -> CheckInStatistics {
+        checkInStatusRequestCount += 1
+        return CheckInStatistics(
+            isCheckedInToday: isCheckedInToday,
+            consecutiveDays: isCheckedInToday ? 7 : 6,
+            totalDays: isCheckedInToday ? 43 : 42
+        )
+    }
+    func checkIn() async throws -> CheckInResult {
+        checkInRequestCount += 1
+        isCheckedInToday = true
+        return .success(message: "签到成功")
+    }
+
+    func debugCheckInRequestCount() -> Int { checkInRequestCount }
+    func debugCheckInStatusRequestCount() -> Int { checkInStatusRequestCount }
 }
 #endif

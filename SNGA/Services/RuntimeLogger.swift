@@ -3,7 +3,8 @@ import Foundation
 enum RuntimeLogSettings {
     static let enabledKey = "runtimeLog.enabled"
     private static let directoryBookmarkKey = "runtimeLog.directoryBookmark"
-    private static let directoryPathKey = "runtimeLog.directoryPath"
+    /// 设置中栏那一行的副标题用 `@AppStorage` 盯着它，选完目录立刻跟着变。
+    static let directoryPathKey = "runtimeLog.directoryPath"
 
     static var defaultDirectoryURL: URL {
         let baseURL = FileManager.default.urls(

@@ -3,8 +3,18 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
 
     var body: some View {
+        VStack(spacing: 0) {
+            forumList
+            settingsFooter
+        }
+        .background(theme.backgroundColor)
+        .navigationTitle("SNGA")
+    }
+
+    private var forumList: some View {
         List {
             Section("账号") {
                 ForEach(model.session.accounts) { account in
@@ -27,8 +37,14 @@ struct SidebarView: View {
                     sidebarButton(
                         "用户中心",
                         systemImage: "person.crop.circle",
-                        selection: .userCenter(model.session.activeAccount?.ngaUID)
+                        selection: .userCenter(model.session.activeAccount?.ngaUID),
+                        attentionLabel: model.session.activeAccountCheckInStatus.needsCheckInPrompt
+                            ? "待签到"
+                            : nil
                     )
+                    if aiEnabled {
+                        sidebarButton("AI 画像", systemImage: "sparkles", selection: .aiProfiles)
+                    }
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
@@ -122,11 +138,42 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(theme.backgroundColor)
-        .navigationTitle("SNGA")
+    }
+
+    /// 设置入口固定在边栏底部，不跟着列表滚 —— 收藏版面再多也压不掉它。
+    /// 未登录时上面那几个区整块不显示，这一块照样在。
+    private var settingsFooter: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(theme.separatorColor)
+                .frame(height: 1)
+
+            Button {
+                model.openSettings()
+            } label: {
+                SidebarInteractiveRow(
+                    isSelected: model.sidebarSelection == .settings
+                ) {
+                    Label("设置", systemImage: "gearshape")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sidebar-settings-button")
+            // 和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
+            .padding(6)
+        }
+        .background(theme.backgroundColor)
     }
 
     @ViewBuilder
-    private func sidebarButton(_ title: String, systemImage: String, selection: SidebarSelection, badge: Int = 0) -> some View {
+    private func sidebarButton(
+        _ title: String,
+        systemImage: String,
+        selection: SidebarSelection,
+        badge: Int = 0,
+        attentionLabel: String? = nil
+    ) -> some View {
         Button {
             model.sidebarSelection = selection
             model.thread.selectedTopicID = nil
@@ -136,7 +183,9 @@ struct SidebarView: View {
                 Task { await model.browsing.loadForums() }
             case .search:
                 model.clearForumSearch()
-            case .favorites, .toolbox:
+            case .aiProfiles:
+                model.aiProfiles.selectMostRecentIfNeeded()
+            case .favorites, .toolbox, .settings:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.session.activeAccount?.ngaUID {
@@ -160,11 +209,22 @@ struct SidebarView: View {
                             .background(theme.accentColor, in: Capsule())
                             .foregroundStyle(theme.onAccentColor)
                     }
+                    if let attentionLabel {
+                        Text(attentionLabel)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(theme.accentColor, in: Capsule())
+                            .foregroundStyle(theme.onAccentColor)
+                            .accessibilityIdentifier("sidebar-user-center-check-in-prompt")
+                    }
                 }
             }
         }
         .buttonStyle(.plain)
         .sidebarListRow()
+        .accessibilityLabel(title)
+        .accessibilityValue(attentionLabel ?? "")
     }
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {
@@ -239,6 +299,10 @@ private struct SidebarAccountButton: View {
         }
         .buttonStyle(.plain)
         .sidebarListRow()
+        .accessibilityLabel(account.displayName)
+        .accessibilityValue(
+            account.id == model.session.activeAccountID ? "当前账号" : ""
+        )
         .contextMenu {
             if account.sessionState == .requiresLogin {
                 Button("重新登录") { model.session.showsLogin = true }

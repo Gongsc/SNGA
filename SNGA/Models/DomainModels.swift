@@ -325,19 +325,36 @@ enum CheckInResult: Hashable, Codable, Sendable {
     case alreadyCheckedIn(message: String)
 }
 
+struct CheckInStatistics: Hashable, Codable, Sendable {
+    var isCheckedInToday: Bool
+    var consecutiveDays: Int
+    var totalDays: Int
+}
+
 enum DailyCheckInStatus: Hashable, Sendable {
-    case checkedIn(message: String)
-    case notCheckedIn
+    case loading
+    case checkedIn(statistics: CheckInStatistics, message: String)
+    case notCheckedIn(statistics: CheckInStatistics)
     case checkingIn
     case failed(message: String)
 
     var canCheckIn: Bool {
         switch self {
-        case .notCheckedIn, .failed:
+        case .notCheckedIn:
             true
-        case .checkedIn, .checkingIn:
+        case .loading, .checkedIn, .checkingIn, .failed:
             false
         }
+    }
+
+    var needsCheckInPrompt: Bool {
+        if case .notCheckedIn = self { return true }
+        return false
+    }
+
+    var canRefresh: Bool {
+        if case .failed = self { return true }
+        return false
     }
 }
 
@@ -532,12 +549,54 @@ enum ToolboxContent: Hashable, Sendable {
     case articles([ToolboxArticle])
 }
 
+/// 设置的分类。每一类在中栏占一行，在右栏是一张面板。
+///
+/// 副标题不放在这里：它读的是当前值（选了哪套主题、日志开没开），要跟着改动
+/// 实时变，只能在视图里从 `@AppStorage` 取。
+enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
+    case appearance
+    case browsing
+    case ai
+    case toolbox
+    case background
+    case runtimeLog
+    case about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .appearance: "外观"
+        case .browsing: "浏览"
+        case .ai: "AI"
+        case .toolbox: "小工具"
+        case .background: "后台行为"
+        case .runtimeLog: "运行日志"
+        case .about: "关于"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .appearance: "paintpalette"
+        case .browsing: "photo.on.rectangle"
+        case .ai: "sparkles"
+        case .toolbox: "wrench.and.screwdriver"
+        case .background: "clock.arrow.circlepath"
+        case .runtimeLog: "doc.text"
+        case .about: "info.circle"
+        }
+    }
+}
+
 enum SidebarSelection: Hashable, Sendable {
     case userCenter(Int64?)
+    case aiProfiles
     case forum(ForumID)
     case directory
     case search
     case favorites
     case messages(MessageFolder)
     case toolbox
+    case settings
 }

@@ -310,6 +310,10 @@ actor LiveNGAForumService: NGAForumService {
         try parser.actionSucceeded(from: response)
     }
 
+    func checkInStatus() async throws -> CheckInStatistics {
+        try parser.checkInStatus(from: await client.request(.checkInStatus))
+    }
+
     func checkIn() async throws -> CheckInResult {
         try parser.checkIn(from: await client.request(.checkIn))
     }
