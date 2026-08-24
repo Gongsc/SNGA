@@ -8,7 +8,7 @@ import SwiftUI
 struct AboutView: View {
     static let displayVersion = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleShortVersionString"
-    ) as? String ?? "1.8.2"
+    ) as? String ?? "1.8.3"
     static let displayBuild = Bundle.main.object(
         forInfoDictionaryKey: "CFBundleVersion"
     ) as? String ?? "1"
