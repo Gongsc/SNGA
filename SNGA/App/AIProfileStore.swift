@@ -111,6 +111,7 @@ final class AIProfileStore {
         topics: [UserActivity] = [],
         replies: [UserActivity] = []
     ) {
+        guard AISettings.isEnabled else { return }
         cancelGeneration(showsMessage: false)
         let requestID = UUID()
         generationID = requestID

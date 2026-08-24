@@ -546,6 +546,7 @@ struct SNGAApp: App {
                 _model = State(initialValue: AppModel(
                     container: container,
                     aiSummarizer: DebugAIProfileSummarizer(),
+                    aiTopicSummarizer: DebugAIProfileSummarizer(),
                     aiConnectionTester: DebugAIConnectionTester(
                         shouldFail: ProcessInfo.processInfo.arguments.contains(
                             "--uitesting-ai-connection-failure"
@@ -607,6 +608,7 @@ enum MainWindow {
             .first { $0.isVisible && $0.canBecomeMain }?
             .makeKeyAndOrderFront(nil)
     }
+
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {

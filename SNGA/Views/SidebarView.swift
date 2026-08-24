@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,9 @@ struct SidebarView: View {
                             ? "待签到"
                             : nil
                     )
-                    sidebarButton("AI 画像", systemImage: "sparkles", selection: .aiProfiles)
+                    if aiEnabled {
+                        sidebarButton("AI 画像", systemImage: "sparkles", selection: .aiProfiles)
+                    }
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)

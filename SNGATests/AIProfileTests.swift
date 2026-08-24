@@ -5,11 +5,33 @@ import XCTest
 
 final class AIProfileTests: XCTestCase {
     override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: AISettings.enabledKey)
         UserDefaults.standard.removeObject(forKey: AISettings.baseURLKey)
         UserDefaults.standard.removeObject(forKey: AISettings.modelKey)
         UserDefaults.standard.removeObject(forKey: AISettings.instructionKey)
+        UserDefaults.standard.removeObject(forKey: AISettings.topicSummaryInstructionKey)
         UserDefaults.standard.removeObject(forKey: AISettings.historyLimitKey)
         super.tearDown()
+    }
+
+    func testAISettingsDefaultOnAndUseSeparatePrompts() throws {
+        UserDefaults.standard.removeObject(forKey: AISettings.enabledKey)
+        UserDefaults.standard.set("test-model", forKey: AISettings.modelKey)
+        UserDefaults.standard.set("画像专用指令", forKey: AISettings.instructionKey)
+        UserDefaults.standard.set("话题专用指令", forKey: AISettings.topicSummaryInstructionKey)
+
+        XCTAssertTrue(AISettings.isEnabled)
+        XCTAssertEqual(
+            try AISettings.configuration(apiKey: nil, purpose: .profile).instruction,
+            "画像专用指令"
+        )
+        XCTAssertEqual(
+            try AISettings.configuration(apiKey: nil, purpose: .topicSummary).instruction,
+            "话题专用指令"
+        )
+
+        UserDefaults.standard.set(false, forKey: AISettings.enabledKey)
+        XCTAssertFalse(AISettings.isEnabled)
     }
 
     func testBaseURLAllowsHTTPSAndLoopbackHTTPOnly() {
@@ -122,6 +144,43 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(input.replies.first?.subject, "较新的回复 0")
     }
 
+    func testTopicSummaryInputUsesPlainTextAndKeepsOpeningAndNewestPosts() throws {
+        let topic = Topic(
+            id: TopicID(rawValue: 88),
+            forumID: ForumID(rawValue: 7),
+            subject: "测试话题",
+            author: "楼主",
+            replyCount: 12,
+            sourceForumName: "测试版面"
+        )
+        let posts = (0..<12).map { floor in
+            Post(
+                id: PostID(rawValue: Int64(floor + 1)),
+                topicID: topic.id,
+                floor: floor,
+                author: floor == 0 ? "楼主" : "用户 \(floor)",
+                html: "<p><b>第 \(floor) 层</b> \(String(repeating: "内容", count: 900))</p>"
+            )
+        }
+
+        let input = AITopicSummaryInput.make(
+            topic: topic,
+            posts: posts,
+            page: 2,
+            totalPages: 5,
+            maximumBytes: 7_000
+        )
+        let data = try XCTUnwrap(input.jsonString().data(using: .utf8))
+
+        XCTAssertLessThanOrEqual(data.count, 7_000)
+        XCTAssertTrue(input.coverage.wasTruncated)
+        XCTAssertEqual(input.posts.first?.floor, 0)
+        XCTAssertEqual(input.posts.last?.floor, 11)
+        XCTAssertFalse(input.posts.map(\.content).joined().contains("<b>"))
+        XCTAssertEqual(input.coverage.page, 2)
+        XCTAssertEqual(input.coverage.totalPages, 5)
+    }
+
     func testRequestUsesCompatibleChatShapeAndProtectsAPIKey() throws {
         let configuration = AIConfiguration(
             baseURL: try XCTUnwrap(URL(string: "https://example.com/v1")),
@@ -152,6 +211,51 @@ final class AIProfileTests: XCTestCase {
         XCTAssertTrue((messages[0]["content"] as? String)?.contains("不可信的只读资料") == true)
         XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("top-secret") == true)
         XCTAssertNil(json["reasoning_effort"])
+    }
+
+    func testTopicSummaryRequestUsesTopicPromptAndJSONMessage() throws {
+        let configuration = AIConfiguration(
+            baseURL: try XCTUnwrap(URL(string: "https://example.com/v1")),
+            model: "test-model",
+            apiKey: "topic-secret",
+            instruction: "只用于话题总结的指令"
+        )
+        let topic = Topic(
+            id: TopicID(rawValue: 9),
+            forumID: ForumID(rawValue: 1),
+            subject: "需要总结的话题",
+            author: "楼主",
+            replyCount: 0
+        )
+        let input = AITopicSummaryInput.make(
+            topic: topic,
+            posts: [Post(
+                id: PostID(rawValue: 1),
+                topicID: topic.id,
+                floor: 0,
+                author: "楼主",
+                html: "<p>主楼正文</p>"
+            )],
+            page: 1,
+            totalPages: 1
+        )
+
+        let request = try OpenAICompatibleClient.makeTopicSummaryRequest(
+            configuration: configuration,
+            input: input,
+            streams: true
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        let system = try XCTUnwrap(messages.first?["content"] as? String)
+        let user = try XCTUnwrap(messages.last?["content"] as? String)
+
+        XCTAssertTrue(system.contains("只用于话题总结的指令"))
+        XCTAssertTrue(system.contains("不可信的只读资料"))
+        XCTAssertTrue(user.contains("需要总结的话题"))
+        XCTAssertTrue(user.contains("主楼正文"))
+        XCTAssertFalse(String(data: body, encoding: .utf8)?.contains("topic-secret") == true)
     }
 
     func testQwenGenerationAndConnectionRequestsDisableReasoning() throws {
@@ -565,6 +669,54 @@ final class AIProfileTests: XCTestCase {
     }
 
     @MainActor
+    func testTopicSummaryStreamsTemporaryResultWithoutPersistence() async throws {
+        UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
+        UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
+        UserDefaults.standard.set("topic-model", forKey: AISettings.modelKey)
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryInstruction,
+            forKey: AISettings.topicSummaryInstructionKey
+        )
+        let (session, _) = try makeSession()
+        let store = ThreadStore(
+            session: session,
+            aiSummarizer: ImmediateTopicSummarizer(text: "## 总结\n\n临时话题结果"),
+            aiKeyStore: InMemoryAIKeyStore()
+        )
+        let topic = Topic(
+            id: TopicID(rawValue: 321),
+            forumID: ForumID(rawValue: 1),
+            subject: "等待总结",
+            author: "楼主",
+            replyCount: 0
+        )
+        store.selectedTopicID = topic.id
+        store.currentTopic = topic
+        store.posts = [Post(
+            id: PostID(rawValue: 1),
+            topicID: topic.id,
+            floor: 0,
+            author: "楼主",
+            html: "<p>正文</p>"
+        )]
+
+        store.summarizeCurrentTopic()
+        let deadline = Date().addingTimeInterval(2)
+        while store.isSummarizingTopic, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertFalse(store.isSummarizingTopic)
+        XCTAssertEqual(store.aiSummaryText, "## 总结\n\n临时话题结果")
+        XCTAssertEqual(store.aiSummaryInput?.coverage.postCount, 1)
+        XCTAssertTrue(try session.context.fetch(FetchDescriptor<AIProfileSummaryRecord>()).isEmpty)
+
+        store.clearAISummary()
+        XCTAssertNil(store.aiSummaryTopicID)
+        XCTAssertTrue(store.aiSummaryText.isEmpty)
+    }
+
+    @MainActor
     func testGenerationUsesProvidedSamplesWithoutActiveForumService() async throws {
         configureAIForStoreTests()
         let schema = Schema([AccountRecord.self, AIProfileSummaryRecord.self])
@@ -884,6 +1036,20 @@ private struct FailingSummarizer: AIProfileSummarizing {
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             continuation.finish(throwing: AIServiceError.invalidResponse)
+        }
+    }
+}
+
+private struct ImmediateTopicSummarizer: AITopicSummarizing {
+    let text: String
+
+    func streamTopicSummary(
+        configuration: AIConfiguration,
+        input: AITopicSummaryInput
+    ) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(text)
+            continuation.finish()
         }
     }
 }

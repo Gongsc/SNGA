@@ -18,6 +18,7 @@ private struct ThreadPresentation {
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     @State private var replyTarget: Post?
     @State private var writesNewReply = false
     @State private var showsLockedTopicAlert = false
@@ -93,46 +94,56 @@ struct ThreadView: View {
                     topic: presentation.topic,
                     previousTitle: presentation.previousTitle,
                     isNavigationEnabled: !isLinkedThreadTransitioning,
-                    navigateBack: navigateBack
+                    navigateBack: navigateBack,
+                    showsAISummaryButton: aiEnabled,
+                    canSummarize: !presentation.posts.isEmpty && !showsSkeleton,
+                    summarize: summarizeTopic
                 )
 
                 ScrollView {
-                    ZStack(alignment: .top) {
-                        ThreadPageContentView(
-                            identity: contentIdentity,
-                            topAnchor: topAnchor,
-                            posts: presentation.posts,
-                            hotReplies: presentation.hotReplies,
-                            topicRating: presentation.topic.rating,
-                            reply: startReply,
-                            openPost: { postID, page, topicID in
-                                revealPost(
-                                    postID,
-                                    page: page,
-                                    topicID: topicID,
-                                    proxy: proxy
-                                )
-                            },
-                            openInternalLink: { destination in
-                                openInternalLink(destination, proxy: proxy)
-                            },
-                            onReady: markThreadContentReady
-                        )
-                        .id(contentIdentity)
-                        .opacity(showsSkeleton ? 0 : 1)
-                        .allowsHitTesting(!showsSkeleton)
-                        .accessibilityHidden(showsSkeleton)
+                    VStack(spacing: 12) {
+                        if aiEnabled,
+                           model.thread.aiSummaryTopicID == presentation.topic.id {
+                            AITopicSummaryCard()
+                        }
 
-                        ThreadContentSkeletonView()
-                            .opacity(showsSkeleton ? 1 : 0)
-                            .allowsHitTesting(showsSkeleton)
-                            .accessibilityHidden(!showsSkeleton)
+                        ZStack(alignment: .top) {
+                            ThreadPageContentView(
+                                identity: contentIdentity,
+                                topAnchor: topAnchor,
+                                posts: presentation.posts,
+                                hotReplies: presentation.hotReplies,
+                                topicRating: presentation.topic.rating,
+                                reply: startReply,
+                                openPost: { postID, page, topicID in
+                                    revealPost(
+                                        postID,
+                                        page: page,
+                                        topicID: topicID,
+                                        proxy: proxy
+                                    )
+                                },
+                                openInternalLink: { destination in
+                                    openInternalLink(destination, proxy: proxy)
+                                },
+                                onReady: markThreadContentReady
+                            )
+                            .id(contentIdentity)
+                            .opacity(showsSkeleton ? 0 : 1)
+                            .allowsHitTesting(!showsSkeleton)
+                            .accessibilityHidden(showsSkeleton)
+
+                            ThreadContentSkeletonView()
+                                .opacity(showsSkeleton ? 1 : 0)
+                                .allowsHitTesting(showsSkeleton)
+                                .accessibilityHidden(!showsSkeleton)
+                        }
+                        .animation(
+                            reduceMotion ? nil : .easeOut(duration: 0.18),
+                            value: showsSkeleton
+                        )
                     }
                     .padding()
-                    .animation(
-                        reduceMotion ? nil : .easeOut(duration: 0.18),
-                        value: showsSkeleton
-                    )
                 }
                 .accessibilityIdentifier("thread-content-scroll")
                 .scrollDisabled(showsSkeleton)
@@ -301,6 +312,14 @@ struct ThreadView: View {
                 }
             }
         }
+    }
+
+    private func summarizeTopic() {
+        guard AISettings.isTopicSummaryConfigured else {
+            model.openSettings(section: .ai)
+            return
+        }
+        model.thread.summarizeCurrentTopic()
     }
 
     private var threadTransition: AnyTransition {
@@ -603,35 +622,44 @@ private struct ThreadTitleHeader: View {
     let previousTitle: String?
     let isNavigationEnabled: Bool
     let navigateBack: () -> Void
+    let showsAISummaryButton: Bool
+    let canSummarize: Bool
+    let summarize: () -> Void
 
     var body: some View {
-        let title = HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if topic.isAnonymous {
-                AnonymousBadge(scale: .medium)
-                    .font(.title2)
-                    .accessibilityIdentifier("thread-topic-anonymous")
-            }
-            ThreadTitleText(text: normalizedTitle)
-                .accessibilityLabel(normalizedTitle)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("thread-topic-title")
-        }
-
-        Group {
+        HStack(alignment: .top, spacing: 10) {
             if let previousTitle {
-                HStack(alignment: .top, spacing: 10) {
-                    AnimatedThreadBackButton(
-                        previousTitle: previousTitle,
-                        isEnabled: isNavigationEnabled,
-                        action: navigateBack
-                    )
-                    title
-                        .layoutPriority(1)
+                AnimatedThreadBackButton(
+                    previousTitle: previousTitle,
+                    isEnabled: isNavigationEnabled,
+                    action: navigateBack
+                )
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if topic.isAnonymous {
+                    AnonymousBadge(scale: .medium)
+                        .font(.title2)
+                        .accessibilityIdentifier("thread-topic-anonymous")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                title
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ThreadTitleText(text: normalizedTitle)
+                    .accessibilityLabel(normalizedTitle)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("thread-topic-title")
+            }
+            .layoutPriority(1)
+
+            if showsAISummaryButton {
+                Button(action: summarize) {
+                    Label("AI 总结", systemImage: "sparkles")
+                }
+                .buttonStyle(.bordered)
+                .fixedSize()
+                .disabled(!canSummarize)
+                .help("总结当前页已经加载的标题和楼层文字")
+                .accessibilityLabel("AI 总结话题")
+                .accessibilityHint("当前页内容会发送到已配置的 AI 服务")
+                .accessibilityIdentifier("thread-ai-summary-button")
             }
         }
         .padding(.horizontal, 12)
@@ -650,6 +678,98 @@ private struct ThreadTitleHeader: View {
         topic.subject
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
+    }
+}
+
+private struct AITopicSummaryCard: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(theme.accentColor)
+                    .accessibilityHidden(true)
+                Text("AI 话题总结")
+                    .font(.headline)
+                Spacer()
+                if model.thread.isSummarizingTopic {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("AI 正在总结话题")
+                }
+            }
+
+            if let input = model.thread.aiSummaryInput {
+                HStack(spacing: 6) {
+                    Text("当前第 \(input.coverage.page)/\(input.coverage.totalPages) 页")
+                    Text("·")
+                    Text("\(input.coverage.postCount) 层")
+                    if input.coverage.wasTruncated {
+                        Text("· 输入已裁剪")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if model.thread.aiSummaryText.isEmpty,
+               model.thread.isSummarizingTopic {
+                Text("正在等待 AI 返回内容…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if !model.thread.aiSummaryText.isEmpty {
+                AIMarkdownView(
+                    markdown: model.thread.aiSummaryText,
+                    accessibilityIdentifier: "thread-ai-summary-content"
+                )
+            }
+
+            if let error = model.thread.aiSummaryErrorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("thread-ai-summary-error")
+            }
+
+            HStack(spacing: 10) {
+                if model.thread.isSummarizingTopic {
+                    Button("取消", role: .cancel) {
+                        model.thread.cancelAISummary()
+                    }
+                    .accessibilityIdentifier("thread-ai-summary-cancel")
+                } else {
+                    Button(
+                        model.thread.aiSummaryText.isEmpty ? "重试" : "重新总结",
+                        systemImage: "arrow.clockwise"
+                    ) {
+                        model.thread.summarizeCurrentTopic()
+                    }
+                    .accessibilityIdentifier("thread-ai-summary-regenerate")
+                }
+
+                Button("关闭") {
+                    model.thread.clearAISummary()
+                }
+                .accessibilityIdentifier("thread-ai-summary-close")
+
+                Spacer()
+                Text("临时结果，不会保存")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(theme.separatorColor)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread-ai-summary-card")
     }
 }
 

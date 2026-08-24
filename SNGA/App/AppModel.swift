@@ -57,6 +57,7 @@ final class AppModel {
         sessionStore: any SessionStore = LocalSessionStore.shared,
         notificationService: NotificationService = .shared,
         aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
+        aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
         aiKeyStore: any AIKeyStore = KeychainAIKeyStore.shared
     ) {
@@ -66,7 +67,11 @@ final class AppModel {
             notificationService: notificationService
         )
         self.session = session
-        thread = ThreadStore(session: session)
+        thread = ThreadStore(
+            session: session,
+            aiSummarizer: aiTopicSummarizer,
+            aiKeyStore: aiKeyStore
+        )
         messaging = MessageStore(session: session)
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
@@ -436,6 +441,7 @@ final class AppModel {
     }
 
     func generateAIProfile(for profile: Profile) {
+        guard AISettings.isEnabled else { return }
         let samples = cachedAIProfileActivities(uid: profile.uid)
         aiProfiles.generate(
             uid: profile.uid,
@@ -446,7 +452,7 @@ final class AppModel {
     }
 
     func regenerateSelectedAIProfile() {
-        guard let uid = aiProfiles.selectedUID else { return }
+        guard AISettings.isEnabled, let uid = aiProfiles.selectedUID else { return }
         let record = aiProfiles.record(for: uid)
         let fallback: Profile
         if let currentProfile, currentProfile.uid == uid {
@@ -459,6 +465,16 @@ final class AppModel {
             )
         }
         generateAIProfile(for: fallback)
+    }
+
+    func applyAIEnabledState(_ isEnabled: Bool) {
+        guard !isEnabled else { return }
+        aiProfiles.cancelGeneration(showsMessage: false)
+        aiProfiles.select(uid: nil)
+        thread.clearAISummary()
+        if sidebarSelection == .aiProfiles {
+            sidebarSelection = .userCenter(nil)
+        }
     }
 
     func cachedAIProfileSampleCounts(uid: Int64) -> (topics: Int, replies: Int) {
@@ -820,6 +836,7 @@ final class AppModel {
 
 #if DEBUG
     private func seedUITestData() {
+        UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
         UserDefaults.standard.set(
             RecentForumSettings.defaultMaximumCount,
             forKey: RecentForumSettings.maximumCountKey
@@ -827,6 +844,10 @@ final class AppModel {
         UserDefaults.standard.set(AISettings.defaultBaseURL, forKey: AISettings.baseURLKey)
         UserDefaults.standard.set("ui-test-model", forKey: AISettings.modelKey)
         UserDefaults.standard.set(AISettings.defaultInstruction, forKey: AISettings.instructionKey)
+        UserDefaults.standard.set(
+            AISettings.defaultTopicSummaryInstruction,
+            forKey: AISettings.topicSummaryInstructionKey
+        )
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
         let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")

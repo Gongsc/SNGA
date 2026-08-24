@@ -216,9 +216,10 @@ enum AIProfileMarkdown {
     }
 }
 
-private struct AIProfileMarkdownView: View {
+struct AIMarkdownView: View {
     @Environment(\.sngaTheme) private var theme
     let markdown: String
+    var accessibilityIdentifier = "ai-profile-summary"
 
     private var blocks: [AIProfileMarkdownBlock] {
         AIProfileMarkdown.blocks(from: markdown)
@@ -233,7 +234,7 @@ private struct AIProfileMarkdownView: View {
         .frame(maxWidth: 760, alignment: .leading)
         .textSelection(.enabled)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("ai-profile-summary")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     @ViewBuilder
@@ -544,7 +545,7 @@ struct AIProfileDetailView: View {
                 }
 
                 if !displayedText.isEmpty {
-                    AIProfileMarkdownView(markdown: displayedText)
+                    AIMarkdownView(markdown: displayedText)
                 } else if !isGenerating {
                     ContentUnavailableView(
                         "没有可显示的画像",

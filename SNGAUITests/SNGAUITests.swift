@@ -770,6 +770,9 @@ final class SNGAUITests: XCTestCase {
             mainWindow.descendants(matching: .any)["ai-instruction-editor"].exists
         )
         XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["ai-topic-summary-instruction-editor"].exists
+        )
+        XCTAssertTrue(
             mainWindow.descendants(matching: .any)["ai-history-limit"].exists
         )
 
@@ -783,6 +786,52 @@ final class SNGAUITests: XCTestCase {
         let statusValue = connectionStatus.value as? String ?? ""
         XCTAssertTrue(statusValue.contains("连接成功"), "实际连接状态：\(statusValue)")
         XCTAssertTrue(statusValue.contains("ui-test-model"), "实际连接状态：\(statusValue)")
+    }
+
+    func testAITopicSummaryStreamsAndMasterSwitchHidesFeatures() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let forum = mainWindow.buttons["艾泽拉斯国家地理"]
+        XCTAssertTrue(forum.waitForExistence(timeout: 8))
+        forum.click()
+        let topic = mainWindow.buttons["topic-9001"]
+        XCTAssertTrue(topic.waitForExistence(timeout: 8))
+        topic.click()
+
+        let summarize = mainWindow.buttons["thread-ai-summary-button"]
+        XCTAssertTrue(summarize.waitForExistence(timeout: 8))
+        summarize.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["thread-ai-summary-card"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["thread-ai-summary-content"]
+                .waitForExistence(timeout: 8)
+        )
+        XCTAssertTrue(
+            mainWindow.buttons["thread-ai-summary-regenerate"].waitForExistence(timeout: 8)
+        )
+
+        mainWindow.descendants(matching: .any)["sidebar-settings-button"].click()
+        let aiSection = mainWindow.descendants(matching: .any)["settings-section-ai"]
+        XCTAssertTrue(aiSection.waitForExistence(timeout: 5))
+        if !aiSection.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        aiSection.click()
+
+        let enabledToggle = mainWindow.descendants(matching: .any)["ai-enabled-toggle"]
+        XCTAssertTrue(enabledToggle.waitForExistence(timeout: 5))
+        enabledToggle.click()
+        XCTAssertFalse(mainWindow.buttons["AI 画像"].waitForExistence(timeout: 1))
+        XCTAssertFalse(mainWindow.textFields["ai-base-url-field"].exists)
+        XCTAssertFalse(mainWindow.descendants(matching: .any)["ai-instruction-editor"].exists)
     }
 
     func testAIConnectionFailureShowsDiagnosticDetails() {

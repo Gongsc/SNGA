@@ -42,10 +42,13 @@ struct SettingsMenuView: View {
     private var customToolboxBaseURL = ""
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @AppStorage(RuntimeLogSettings.directoryPathKey) private var runtimeLogDirectoryPath = ""
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     @AppStorage(AISettings.baseURLKey) private var aiBaseURL = AISettings.defaultBaseURL
     @AppStorage(AISettings.modelKey) private var aiModel = ""
     @AppStorage(AISettings.instructionKey)
     private var aiInstruction = AISettings.defaultInstruction
+    @AppStorage(AISettings.topicSummaryInstructionKey)
+    private var aiTopicSummaryInstruction = AISettings.defaultTopicSummaryInstruction
     @AppStorage(AISettings.historyLimitKey)
     private var aiHistoryLimit = AISettings.defaultHistoryLimit
 
@@ -91,10 +94,12 @@ struct SettingsMenuView: View {
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
             return "无图模式\(imageFreeMode ? "已开" : "已关") · 最近访问 \(count) 条"
         case .ai:
+            guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
             guard AISettings.normalizedBaseURL(from: aiBaseURL) != nil,
                   !model.isEmpty,
-                  !aiInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                  !aiInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !aiTopicSummaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return "OpenAI 兼容接口 · 待配置"
             }
             return "\(model) · 最近 \(AISettings.normalizedHistoryLimit(aiHistoryLimit)) 人"
@@ -364,10 +369,13 @@ private struct SettingsBrowsingPane: View {
 private struct SettingsAIPane: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     @AppStorage(AISettings.baseURLKey) private var baseURL = AISettings.defaultBaseURL
     @AppStorage(AISettings.modelKey) private var aiModel = ""
     @AppStorage(AISettings.instructionKey)
-    private var instruction = AISettings.defaultInstruction
+    private var profileInstruction = AISettings.defaultInstruction
+    @AppStorage(AISettings.topicSummaryInstructionKey)
+    private var topicSummaryInstruction = AISettings.defaultTopicSummaryInstruction
     @AppStorage(AISettings.historyLimitKey)
     private var historyLimit = AISettings.defaultHistoryLimit
 
@@ -383,7 +391,26 @@ private struct SettingsAIPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SettingsCard(label: "OpenAI 兼容接口") {
+            SettingsCard(label: "AI 功能") {
+                Toggle(isOn: $aiEnabled) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("启用 AI")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("关闭后隐藏 AI 用户画像、画像历史入口和话题总结。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("ai-enabled-toggle")
+                .onChange(of: aiEnabled) { _, isEnabled in
+                    clearConnectionStatus()
+                    model.applyAIEnabledState(isEnabled)
+                }
+            }
+
+            if aiEnabled {
+                SettingsCard(label: "OpenAI 兼容接口") {
                 TextField("Base URL", text: $baseURL, prompt: Text(AISettings.defaultBaseURL))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("ai-base-url-field")
@@ -496,8 +523,8 @@ private struct SettingsAIPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            SettingsCard(label: "分析指令") {
-                TextEditor(text: $instruction)
+                SettingsCard(label: "用户画像提示词") {
+                TextEditor(text: $profileInstruction)
                     .font(.body)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 220)
@@ -516,13 +543,39 @@ private struct SettingsAIPane: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("恢复默认") {
-                        instruction = AISettings.defaultInstruction
+                        profileInstruction = AISettings.defaultInstruction
                     }
                     .accessibilityIdentifier("ai-reset-instruction")
                 }
             }
 
-            SettingsCard(label: "画像历史") {
+                SettingsCard(label: "话题总结提示词") {
+                    TextEditor(text: $topicSummaryInstruction)
+                        .font(.body)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 220)
+                        .padding(7)
+                        .background(theme.fillColor, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(theme.controlBorderColor)
+                        }
+                        .accessibilityLabel("AI 话题总结指令")
+                        .accessibilityIdentifier("ai-topic-summary-instruction-editor")
+
+                    HStack {
+                        Text("仅发送当前页面已经加载的标题与楼层文本，不会额外请求 NGA。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("恢复默认") {
+                            topicSummaryInstruction = AISettings.defaultTopicSummaryInstruction
+                        }
+                        .accessibilityIdentifier("ai-reset-topic-summary-instruction")
+                    }
+                }
+
+                SettingsCard(label: "画像历史") {
                 Stepper(value: $historyLimit, in: AISettings.allowedHistoryLimit) {
                     Text("最多保留 \(AISettings.normalizedHistoryLimit(historyLimit)) 位用户")
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -539,12 +592,13 @@ private struct SettingsAIPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            SettingsCard {
+                SettingsCard {
                 Label("隐私提示", systemImage: "hand.raised")
                     .font(.headline)
-                Text("生成画像时，用户公开资料以及最近两页话题和回复摘要会发送到你配置的 AI 服务。AI 结果仅供参考。")
+                Text("生成画像时会发送公开用户资料与已加载的发布记录；总结话题时会发送当前页标题和楼层文字。AI 结果仅供参考。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                }
             }
         }
         .task { await loadKeyStatus() }
@@ -595,7 +649,7 @@ private struct SettingsAIPane: View {
 
         let testedBaseURL = baseURL
         let testedModel = aiModel
-        let testedInstruction = instruction
+        let testedInstruction = profileInstruction
         let testedAPIKey = newAPIKey
         connectionTestTask = Task {
             do {

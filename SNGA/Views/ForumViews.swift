@@ -3,6 +3,7 @@ import SwiftUI
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     let uid: Int64?
 
     var body: some View {
@@ -21,7 +22,7 @@ struct UserCenterView: View {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         profileHeader
 
-                        if let profile {
+                        if aiEnabled, let profile {
                             AIProfileUserCard(profile: profile)
                         }
 

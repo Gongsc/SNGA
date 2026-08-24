@@ -356,6 +356,7 @@ private struct DetailColumnView: View {
     }
 
     private var showsAIProfileDetail: Bool {
+        guard AISettings.isEnabled else { return false }
         if model.sidebarSelection == .aiProfiles { return true }
         guard case .userCenter = model.sidebarSelection else { return false }
         return model.aiProfiles.isShowingDetail
