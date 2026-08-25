@@ -20,6 +20,54 @@
 
 ---
 
+## 第 T 组 · 小工具独立（已完成，在 C1 之前）
+
+小工具读的是 60s 开放接口，和任何论坛都没关系，所以先把它从论坛领域里摘出来 ——
+这样阶段 1 后面那些改动都不会再牵连到它。
+
+### T1 — Move the toolbox models out of the forum domain file
+
+`ToolboxFeed`、`WorldBriefing`、`ToolboxArticle`、`ToolboxContent` 从 `DomainModels.swift`（107 行）
+搬到新的 `SNGA/Models/ToolboxModels.swift`。`SettingsSection.toolbox` 与 `SidebarSelection.toolbox`
+是导航枚举，留在原处。
+
+### T2 — Extract HTTPTransport into its own file
+
+`HTTPTransport` 与 `URLSessionTransport` 从 `ForumService.swift` 搬到 `SNGA/Network/HTTPTransport.swift`，
+小工具不再依赖一个论坛命名的文件。
+
+顺带修掉一个真实的小 bug：`URLSessionTransport` 原本抛 `NGAServiceError.invalidResponse`，
+于是小工具自己的网络失败会显示「NGA 返回了无法识别的响应」。现在改抛
+`HTTPTransportError.invalidResponse`，由 `NGANetworkClient` 和 `ToolboxAPIService`
+各自翻译成自己领域的错误 —— NGA 那边的写入重试判断（`!(lastError is NGAServiceError)`）
+因此保持原样。
+
+### T3 — Give the toolbox its own store, independent of the forum session
+
+新增 `SNGA/App/ToolboxStore.swift`。`AppModel` 交出 `selectedToolboxFeed`、
+`toolboxRefreshRevision` 和 `refreshToolbox()`，改为持有 `let toolbox = ToolboxStore()` ——
+**它是唯一一个不吃 `AppSession` 的 store**，这就是「独立」的落点。
+
+`ToolboxMenuView` 与 `ToolboxFeedView` 从 `@Environment(AppModel.self)` 换成
+`@Environment(ToolboxStore.self)`，两个文件里对 `AppModel` 的引用清零。
+
+### T4 — Show the toolbox without a forum account
+
+小工具原本在 `activeAccountID != nil` 的门槛里面，一个账号都没添加时根本点不到 ——
+而它压根不需要账号。现在移到边栏一个始终可见的「工具」分组。
+
+新增 UI 用例 `testToolboxIsReachableWithoutAnyAccount`：不带 `--uitesting-seed` 启动，
+断言「全部版面」不存在而小工具可用。
+
+### T5 — Move the toolbox tests into their own file
+
+`ToolboxAPIParserTests` 和两个私有 transport 从 `FavoriteAndCheckInTests.swift`
+（1088 → 699 行）搬到 `SNGATests/ToolboxTests.swift`。
+
+**验证**：全量 246 个单测 + 23 个 UI 测试通过。
+
+---
+
 ## 第 0 组 · 安全网
 
 ### C1 — Pin current ForumID and persistence behaviour with characterization tests
