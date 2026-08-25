@@ -7,14 +7,14 @@ import XCTest
 ///
 /// 第二件事是这里真正的风险所在 —— 主键算法一改，没补过的老行就查不到了，
 /// 接着会被当成新行插进去，用户看到的是重复的最近访问和丢失的子版面偏好。
-final class ForumKeyBackfillTests: XCTestCase {
+final class LegacyStoreBackfillTests: XCTestCase {
 
     private var defaults: UserDefaults!
     private var suiteName: String!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        suiteName = "ForumKeyBackfillTests.\(UUID().uuidString)"
+        suiteName = "LegacyStoreBackfillTests.\(UUID().uuidString)"
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
     }
 
@@ -45,7 +45,7 @@ final class ForumKeyBackfillTests: XCTestCase {
         }
         try context.save()
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
 
         let stored = try context.fetch(
             FetchDescriptor<FavoriteRecord>(sortBy: [SortDescriptor(\.order)])
@@ -70,7 +70,7 @@ final class ForumKeyBackfillTests: XCTestCase {
         let newID = RecentForumRecord.recordID(accountID: accountID, forumID: forum.id)
         XCTAssertNotEqual(record.id, newID, "先得确实是老格式，否则这条用例什么也没验")
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
 
         let stored = try context.fetch(FetchDescriptor<RecentForumRecord>())
         XCTAssertEqual(stored.count, 1, "回填不该多出行来")
@@ -97,7 +97,7 @@ final class ForumKeyBackfillTests: XCTestCase {
         context.insert(record)
         try context.save()
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
 
         let stored = try XCTUnwrap(
             try context.fetch(FetchDescriptor<SubforumPreferenceRecord>()).first
@@ -126,11 +126,11 @@ final class ForumKeyBackfillTests: XCTestCase {
         context.insert(record)
         try context.save()
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
         let afterFirst = try context.fetch(FetchDescriptor<RecentForumRecord>())
             .map { ($0.id, $0.forumKey) }
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
         let afterSecond = try context.fetch(FetchDescriptor<RecentForumRecord>())
             .map { ($0.id, $0.forumKey) }
 
@@ -154,7 +154,7 @@ final class ForumKeyBackfillTests: XCTestCase {
         context.insert(record)
         try context.save()
 
-        ForumKeyBackfill.runIfNeeded(in: context, defaults: defaults)
+        LegacyStoreBackfill.runIfNeeded(in: context, defaults: defaults)
         XCTAssertEqual(
             try context.fetch(FetchDescriptor<FavoriteRecord>()).first?.forumKey,
             "414"
@@ -163,12 +163,40 @@ final class ForumKeyBackfillTests: XCTestCase {
         // 标记已经落地，第二趟不该再动数据；把键清掉验证它确实没跑。
         try context.fetch(FetchDescriptor<FavoriteRecord>()).first?.forumKey = ""
         try context.save()
-        ForumKeyBackfill.runIfNeeded(in: context, defaults: defaults)
+        LegacyStoreBackfill.runIfNeeded(in: context, defaults: defaults)
         XCTAssertEqual(
             try context.fetch(FetchDescriptor<FavoriteRecord>()).first?.forumKey,
             "",
             "标记已落地就不该再跑"
         )
+    }
+
+    /// 画像原本按裸 uid 存主键。不迁移的话下次生成会新插一条，
+    /// 列表里就出现两条同一个人的画像。
+    @MainActor
+    func testBackfillRekeysAIProfilesBySite() throws {
+        let context = try makeContext("AIProfile")
+        let record = AIProfileSummaryRecord(
+            site: .nga,
+            uid: 42,
+            displayName: "某用户",
+            avatarURL: nil,
+            summary: "画像正文",
+            model: "gpt-test",
+            topicCount: 1,
+            replyCount: 2,
+            wasTruncated: false
+        )
+        record.id = "42"          // 老格式：只有 uid
+        context.insert(record)
+        try context.save()
+
+        LegacyStoreBackfill.run(in: context)
+
+        let stored = try context.fetch(FetchDescriptor<AIProfileSummaryRecord>())
+        XCTAssertEqual(stored.count, 1, "回填不该多出行来")
+        XCTAssertEqual(stored.first?.id, "nga:42")
+        XCTAssertEqual(stored.first?.summary, "画像正文", "花过 token 的结果要留住")
     }
 
     // MARK: -
@@ -203,7 +231,7 @@ final class ForumKeyBackfillTests: XCTestCase {
             for: schema,
             configurations: [
                 ModelConfiguration(
-                    "ForumKeyBackfillTests.\(name).\(UUID().uuidString)",
+                    "LegacyStoreBackfillTests.\(name).\(UUID().uuidString)",
                     schema: schema,
                     isStoredInMemoryOnly: true
                 )

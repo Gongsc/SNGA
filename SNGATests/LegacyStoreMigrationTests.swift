@@ -83,7 +83,7 @@ final class LegacyStoreMigrationTests: XCTestCase {
             try context.fetch(FetchDescriptor<AccountRecord>()).first?.accountID
         )
 
-        ForumKeyBackfill.run(in: context)
+        LegacyStoreBackfill.run(in: context)
 
         let favorites = try context.fetch(
             FetchDescriptor<FavoriteRecord>(sortBy: [SortDescriptor(\.order)])

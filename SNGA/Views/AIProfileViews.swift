@@ -515,7 +515,7 @@ struct AIProfileDetailView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("只会删除本机保存的画像结果，不影响 NGA 用户资料。")
+            Text("只会删除本机保存的画像结果，不影响论坛上的用户资料。")
         }
     }
 
@@ -659,8 +659,8 @@ struct AIProfileDetailView: View {
 
     private func displayName(uid: Int64) -> String {
         if let record { return record.displayName }
-        if model.currentProfile?.uid == uid { return model.currentProfile?.displayName ?? "NGA \(uid)" }
-        return "NGA \(uid)"
+        if model.currentProfile?.uid == uid { return model.currentProfile?.displayName ?? "用户 \(uid)" }
+        return "用户 \(uid)"
     }
 
     private func regenerate() {
@@ -700,7 +700,7 @@ struct AIProfileUserCard: View {
                 }
             }
 
-            Text("生成不会额外请求 NGA；已加载的资料会发送到你配置的 AI 服务，结果仅供参考。")
+            Text("生成不会额外请求论坛；已加载的资料会发送到你配置的 AI 服务，结果仅供参考。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 

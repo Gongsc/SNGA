@@ -26,6 +26,7 @@ final class AIProfileStore {
     private(set) var errorUID: Int64?
 
     @ObservationIgnored private let context: ModelContext
+    @ObservationIgnored private let session: AppSession
     @ObservationIgnored private let summarizer: any AIProfileSummarizing
     @ObservationIgnored private let connectionTester: any AIConnectionTesting
     @ObservationIgnored let keyStore: any AIKeyStore
@@ -40,11 +41,17 @@ final class AIProfileStore {
         keyStore: any AIKeyStore
     ) {
         self.context = context
+        self.session = session
         self.summarizer = summarizer
         self.connectionTester = connectionTester
         self.keyStore = keyStore
         reloadRecords()
         trimToHistoryLimit(AISettings.historyLimit)
+    }
+
+    /// 画像记的是「某个站上的某个用户」，查找和写入都按当前账号所在的站来。
+    private var currentSite: ForumSite {
+        session.activeService?.site ?? .nga
     }
 
     var selectedRecord: AIProfileSummaryRecord? {
@@ -60,7 +67,7 @@ final class AIProfileStore {
     }
 
     func record(for uid: Int64) -> AIProfileSummaryRecord? {
-        records.first { $0.uid == uid }
+        records.first { $0.uid == uid && $0.site == currentSite }
     }
 
     func testConnection(
@@ -210,8 +217,8 @@ final class AIProfileStore {
             guard generationID == requestID else { return }
 
             var profile = fallbackProfile
-                ?? Profile(uid: uid, displayName: "NGA \(uid)", avatarURL: nil)
-            if profile.displayName == "NGA \(uid)", let fallbackProfile {
+                ?? Profile(uid: uid, displayName: "用户 \(uid)", avatarURL: nil)
+            if profile.displayName == "用户 \(uid)", let fallbackProfile {
                 profile.displayName = fallbackProfile.displayName
             }
             if profile.avatarURL == nil {
@@ -275,6 +282,7 @@ final class AIProfileStore {
             )
         } else {
             context.insert(AIProfileSummaryRecord(
+                site: currentSite,
                 uid: profile.uid,
                 displayName: profile.displayName,
                 avatarURL: profile.avatarURL,

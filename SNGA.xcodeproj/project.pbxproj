@@ -54,7 +54,6 @@
 		7E9B82035431E045A806580A /* ToolboxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */; };
 		8068022DFEA8DA8817A8F659 /* RequestSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE63CCBDAE8C39CF3822F2 /* RequestSlot.swift */; };
 		8181B06DB484770CF7EE15FF /* PostQuoteExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DF2A889872424BD68EAB4B /* PostQuoteExpander.swift */; };
-		81C7A196A2ADD704B4FA210D /* ForumKeyBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B959F0B601FC1856E96BD79 /* ForumKeyBackfillTests.swift */; };
 		83505E6115CD187A72A532EF /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9F0E0FF7141D702E8718F9 /* MessageDetailView.swift */; };
 		855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */; };
 		856977811D12DE1E3A892E46 /* TopicPollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A58344EE25283916F5E325 /* TopicPollView.swift */; };
@@ -83,6 +82,7 @@
 		B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */; };
 		B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F28E6EC3AF398C4F536780 /* ForumService.swift */; };
 		BB6637F2401D16C87335AC86 /* ForumIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40AB79D13D930F294866FB6 /* ForumIdentityTests.swift */; };
+		BC47A76D9A01B30CB144A57F /* LegacyStoreBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84856451E805FCC4DE1D5A4B /* LegacyStoreBackfillTests.swift */; };
 		BCF771AFD480CE0FC1C1821D /* TopicRating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D152B99A5DF01863D36322 /* TopicRating.swift */; };
 		BDAEE253CAF0C6B01A52E046 /* EmoticonImageStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */; };
 		C01203A07C9340D03D23162B /* TopicRatingDimension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B4AC21823D6D34A2090256F /* TopicRatingDimension.swift */; };
@@ -98,12 +98,12 @@
 		D0A27031E2C58EF65C3F0AD6 /* FavoriteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3180FEA94D1F725A0242698D /* FavoriteStore.swift */; };
 		D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D5977B956991E18788ADB30 /* MessageViews.swift */; };
 		D506C12DBFB018535C82577E /* ToolboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E950E4FF757AC971AA2BD8 /* ToolboxTests.swift */; };
-		D9FE4B1A6CB93F74720CB598 /* ForumKeyBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812CF2F1844423B6A578EDB4 /* ForumKeyBackfill.swift */; };
 		DAA62276959C740AEA77C810 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF41ABB8FA16D66B3B59DCF /* ThreadPageContentView.swift */; };
 		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
 		DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */; };
 		DE3A6C4DAFE20039C0B2493C /* PostImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A7586BF4AC6813B245D13 /* PostImageStore.swift */; };
 		DEB9009DC6D8170A6D3EB0A3 /* ForumSiteDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33847F3879CFBFC802EC7E15 /* ForumSiteDescriptor.swift */; };
+		E28F6AD8A0A89F082B1D4FEC /* LegacyStoreBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5B80085DD6532C5A1D63E9 /* LegacyStoreBackfill.swift */; };
 		E622DAB7529F0FDC20F6F194 /* ThreadContentSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F69307BDD9C5C94916D32B4 /* ThreadContentSkeletonView.swift */; };
 		E945BE3066202C7B72BEBE49 /* TopicListSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9847512A478EB7C51B73A80E /* TopicListSortOrder.swift */; };
 		EA2B802B1BFC2285F9FD75B5 /* CheckInScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04583C294B1E0994FAB7581D /* CheckInScheduler.swift */; };
@@ -198,8 +198,8 @@
 		7AF41ABB8FA16D66B3B59DCF /* ThreadPageContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadPageContentView.swift; sourceTree = "<group>"; };
 		7F9F0E0FF7141D702E8718F9 /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
 		7FF2DDE4B8F222F0A02D5BF5 /* PaginationBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaginationBarTests.swift; sourceTree = "<group>"; };
-		812CF2F1844423B6A578EDB4 /* ForumKeyBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumKeyBackfill.swift; sourceTree = "<group>"; };
 		823D55982FFC6FA57BF04E9D /* AnonymousBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousBadge.swift; sourceTree = "<group>"; };
+		84856451E805FCC4DE1D5A4B /* LegacyStoreBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyStoreBackfillTests.swift; sourceTree = "<group>"; };
 		872BDE23AA1AE8A84FC9F909 /* ForumSearchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchRequest.swift; sourceTree = "<group>"; };
 		8832D4CE472AC37C4868F769 /* SNGA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SNGA.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmoticonImageStoreTests.swift; sourceTree = "<group>"; };
@@ -207,7 +207,6 @@
 		91A6ABB86221363E412C05AB /* ForumSite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSite.swift; sourceTree = "<group>"; };
 		968AD6C8D179F5C0E8E952D6 /* CurrentForumSearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentForumSearchBar.swift; sourceTree = "<group>"; };
 		9847512A478EB7C51B73A80E /* TopicListSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListSortOrder.swift; sourceTree = "<group>"; };
-		9B959F0B601FC1856E96BD79 /* ForumKeyBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumKeyBackfillTests.swift; sourceTree = "<group>"; };
 		9BAADA84295798A12F8151D1 /* ToolboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxModels.swift; sourceTree = "<group>"; };
 		9F69307BDD9C5C94916D32B4 /* ThreadContentSkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadContentSkeletonView.swift; sourceTree = "<group>"; };
 		A3D8E23F9B9158F42160E1EF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -215,6 +214,7 @@
 		AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2A3630313FF101D2020A0A /* SNGATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2FE63519863D051826534B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AC5B80085DD6532C5A1D63E9 /* LegacyStoreBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyStoreBackfill.swift; sourceTree = "<group>"; };
 		ADEF7A599A975F59C182B61A /* TopicRatingEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicRatingEditorView.swift; sourceTree = "<group>"; };
 		AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UBBRichEditor.swift; sourceTree = "<group>"; };
 		B2AA5E0624D43795D13C6C9F /* ThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePalette.swift; sourceTree = "<group>"; };
@@ -337,7 +337,7 @@
 				04583C294B1E0994FAB7581D /* CheckInScheduler.swift */,
 				34CB07AA27560EA85CD09759 /* DebugForumService.swift */,
 				4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */,
-				812CF2F1844423B6A578EDB4 /* ForumKeyBackfill.swift */,
+				AC5B80085DD6532C5A1D63E9 /* LegacyStoreBackfill.swift */,
 				466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */,
 				D92C014C3D8A3473B7341EC7 /* NotificationService.swift */,
 				1D633B4306BF609269215986 /* RuntimeLogger.swift */,
@@ -448,9 +448,9 @@
 				8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */,
 				2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */,
 				F40AB79D13D930F294866FB6 /* ForumIdentityTests.swift */,
-				9B959F0B601FC1856E96BD79 /* ForumKeyBackfillTests.swift */,
 				53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */,
 				2EB1E6EBF89005A786C462A2 /* ForumSiteTests.swift */,
+				84856451E805FCC4DE1D5A4B /* LegacyStoreBackfillTests.swift */,
 				21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
 				7FF2DDE4B8F222F0A02D5BF5 /* PaginationBarTests.swift */,
@@ -612,7 +612,6 @@
 				8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */,
 				F4059492B76C341CED2B6710 /* ForumCapabilities.swift in Sources */,
 				1BE059CE6B0DD6A518122831 /* ForumID+NGA.swift in Sources */,
-				D9FE4B1A6CB93F74720CB598 /* ForumKeyBackfill.swift in Sources */,
 				714C9844E7177DC7EB3CC06B /* ForumSearchKind.swift in Sources */,
 				C63FF6AFBB265C51A1484BC1 /* ForumSearchPage.swift in Sources */,
 				39CFCC34C6A5074AB02DB705 /* ForumSearchPaginationBar.swift in Sources */,
@@ -626,6 +625,7 @@
 				4B2A6686585FCC183A735602 /* GlobalForumSearchView.swift in Sources */,
 				88C03FB7FEFCF80D3914F26F /* HTTPTransport.swift in Sources */,
 				589ECF182CD27AF1B8B2EFA6 /* Identifiers.swift in Sources */,
+				E28F6AD8A0A89F082B1D4FEC /* LegacyStoreBackfill.swift in Sources */,
 				B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */,
 				2C35932AD881A29C313E16F8 /* LoginWebView.swift in Sources */,
 				83505E6115CD187A72A532EF /* MessageDetailView.swift in Sources */,
@@ -697,9 +697,9 @@
 				BDAEE253CAF0C6B01A52E046 /* EmoticonImageStoreTests.swift in Sources */,
 				FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */,
 				BB6637F2401D16C87335AC86 /* ForumIdentityTests.swift in Sources */,
-				81C7A196A2ADD704B4FA210D /* ForumKeyBackfillTests.swift in Sources */,
 				2B527AAC590E9D6EF7E2C82C /* ForumSearchTests.swift in Sources */,
 				89DEACFB4C13307021BC7370 /* ForumSiteTests.swift in Sources */,
+				BC47A76D9A01B30CB144A57F /* LegacyStoreBackfillTests.swift in Sources */,
 				783A1A3511B715C849A5B8AA /* LegacyStoreMigrationTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
 				49B7230BEF08492DC0757E7E /* PaginationBarTests.swift in Sources */,

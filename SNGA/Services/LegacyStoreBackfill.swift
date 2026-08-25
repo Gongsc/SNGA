@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// 把 C12 之前写下的行补齐：站点、版面键，以及按键重算的主键。
+/// 把老版本写下的行补齐：站点、版面键，以及按新规则重算的主键。
 ///
 /// C12 给三张表加了 `forumSiteRaw` 和 `forumKey` 两列并开始双写，但已经存在的行
 /// 只有那个 NGA Int64。读取端会回落，所以功能不受影响；这里把存量一次补完，
@@ -13,9 +13,9 @@ import SwiftData
 ///
 /// 整趟是幂等的。做完才记标记，中途崩了下次重来 —— 已经补好的行键不为空会被跳过，
 /// 主键重算出来和上次相同，再赋一次值没有影响。
-enum ForumKeyBackfill {
+enum LegacyStoreBackfill {
     private static let versionKey = "forumKeyBackfillVersion"
-    private static let currentVersion = 1
+    private static let currentVersion = 2
 
     static func runIfNeeded(
         in context: ModelContext,
@@ -32,6 +32,7 @@ enum ForumKeyBackfill {
         touched += backfillFavorites(in: context)
         touched += backfillRecentForums(in: context)
         touched += backfillSubforumPreferences(in: context)
+        touched += backfillAIProfiles(in: context)
 
         guard touched > 0 else { return }
         do {
@@ -82,6 +83,23 @@ enum ForumKeyBackfill {
                 accountID: accountID,
                 forumID: record.forumIdentifier
             )
+            if record.id != expected {
+                record.id = expected
+                touched += 1
+            }
+        }
+        return touched
+    }
+
+    /// 画像原本按裸 uid 存，两个站的同号用户会共用一条。主键改成带站点之后，
+    /// 老行要跟着改 —— 不改的话下次生成会新插一条，列表里出现两条同一个人的画像。
+    ///
+    /// 画像是可再生的缓存，清掉也不会错，但它是花过 token 生成的，能留就留。
+    private static func backfillAIProfiles(in context: ModelContext) -> Int {
+        let records = (try? context.fetch(FetchDescriptor<AIProfileSummaryRecord>())) ?? []
+        var touched = 0
+        for record in records {
+            let expected = AIProfileSummaryRecord.recordID(site: record.site, uid: record.uid)
             if record.id != expected {
                 record.id = expected
                 touched += 1

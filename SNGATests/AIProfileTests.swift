@@ -647,6 +647,7 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(store.records.first?.replyCount, 1)
 
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 43,
             displayName: "用户 43",
             avatarURL: nil,
@@ -658,6 +659,7 @@ final class AIProfileTests: XCTestCase {
             wasTruncated: false
         ))
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 44,
             displayName: "用户 44",
             avatarURL: nil,
@@ -865,6 +867,7 @@ final class AIProfileTests: XCTestCase {
         let (session, container) = try makeSession()
         _ = container
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 42,
             displayName: "测试用户",
             avatarURL: nil,
@@ -939,6 +942,7 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(accounts.map(\.displayName), ["迁移前账号"])
 
         currentContainer.mainContext.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 10001,
             displayName: "迁移前账号",
             avatarURL: nil,

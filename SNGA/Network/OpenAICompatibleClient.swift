@@ -703,7 +703,7 @@ struct DebugAIProfileSummarizer: AIProfileSummarizing, AITopicSummarizing {
             let task = Task {
                 let fragments = [
                     "## 一句话概览\n\n",
-                    "这是一位持续关注游戏与数码讨论的 NGA 用户。\n\n",
+                    "这是一位持续关注游戏与数码讨论的论坛用户。\n\n",
                     "## 兴趣与风格\n\n",
                     "近期记录显示其表达简洁，并会结合实际体验参与讨论。\n\n",
                     "## 样本局限\n\n",
