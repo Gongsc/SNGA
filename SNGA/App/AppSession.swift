@@ -56,6 +56,15 @@ final class AppSession {
         return services[activeAccountID]
     }
 
+    /// 当前账号所在站点支持的功能。没有账号时是空集，对应的控件一律不画。
+    var activeCapabilities: ForumCapabilities {
+        activeService?.capabilities ?? []
+    }
+
+    func supports(_ capability: ForumCapabilities) -> Bool {
+        activeCapabilities.contains(capability)
+    }
+
     func service(for accountID: AccountID) -> (any ForumService)? {
         services[accountID]
     }

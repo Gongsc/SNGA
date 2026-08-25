@@ -166,6 +166,49 @@ final class ForumSiteTests: XCTestCase {
         }
     }
 
+    // MARK: - 能力集
+
+    /// 加了新能力却忘了并进 `.all`，NGA 会悄悄少掉一个功能。
+    /// 这里按位盯住：`.all` 必须是所有已声明位的全集。
+    func testAllContainsEveryDeclaredCapability() {
+        let declared: [ForumCapabilities] = [
+            .checkIn, .postVote, .topicRating, .poll, .subforums,
+            .topicFavoriteFolders, .privateMessages, .globalSearch,
+            .userActivities, .ubbEditor, .anonymousPosts
+        ]
+        for capability in declared {
+            XCTAssertTrue(ForumCapabilities.all.contains(capability))
+        }
+        XCTAssertEqual(
+            ForumCapabilities.all.rawValue,
+            (1 << declared.count) - 1,
+            "有位没并进 .all，或者 .all 里多了没声明的位"
+        )
+    }
+
+    /// 阶段 1 的验收标准：NGA 声明全集，所以门控不该让界面少任何东西。
+    @MainActor
+    func testNGADeclaresEveryCapabilitySoNothingGetsHidden() throws {
+        let session = try Self.makeSession(withServiceFor: AccountID())
+
+        XCTAssertEqual(session.activeCapabilities, .all)
+        for capability in [
+            ForumCapabilities.checkIn, .postVote, .privateMessages,
+            .globalSearch, .ubbEditor
+        ] {
+            XCTAssertTrue(session.supports(capability))
+        }
+    }
+
+    /// 没有账号就没有能力，对应的控件一律不画。
+    @MainActor
+    func testNoAccountMeansNoCapabilities() throws {
+        let session = try Self.makeSession(withServiceFor: nil)
+
+        XCTAssertEqual(session.activeCapabilities, [])
+        XCTAssertFalse(session.supports(.checkIn))
+    }
+
     // MARK: -
 
     @MainActor

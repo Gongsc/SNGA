@@ -53,12 +53,14 @@ struct SidebarView: View {
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
-                    sidebarButton(
-                        "论坛消息",
-                        systemImage: "bell",
-                        selection: .messages(.notifications),
-                        badge: model.messaging.unreadCount
-                    )
+                    if model.session.supports(.privateMessages) {
+                        sidebarButton(
+                            "论坛消息",
+                            systemImage: "bell",
+                            selection: .messages(.notifications),
+                            badge: model.messaging.unreadCount
+                        )
+                    }
                 }
 
                 Section("最近访问") {

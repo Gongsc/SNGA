@@ -66,9 +66,16 @@ struct GlobalForumSearchView: View {
             .accessibilityIdentifier("global-search-field")
     }
 
+    /// 站点不支持全站搜索时，只留下能在当前版面里做的那几种。
+    private var availableKinds: [ForumSearchKind] {
+        model.session.supports(.globalSearch)
+            ? ForumSearchKind.allCases
+            : ForumSearchKind.currentForumKinds
+    }
+
     private var kindPicker: some View {
         Picker("搜索类型", selection: $kind) {
-            ForEach(ForumSearchKind.allCases) { searchKind in
+            ForEach(availableKinds) { searchKind in
                 Label(searchKind.title, systemImage: searchKind.systemImage)
                     .tag(searchKind)
             }

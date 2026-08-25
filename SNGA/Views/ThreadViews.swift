@@ -1020,8 +1020,10 @@ struct PostRow: View {
                         .accessibilityIdentifier("post-edited-\(post.id.rawValue)")
                 }
                 Spacer()
-                voteButton(direction: .up)
-                voteButton(direction: .down)
+                if model.session.supports(.postVote) {
+                    voteButton(direction: .up)
+                    voteButton(direction: .down)
+                }
             }
         }
         .padding(12)
@@ -1577,17 +1579,19 @@ struct ReplyComposerView: View {
             }
         }
 
-        Button {
-            showsEmoticons = true
-        } label: {
-            Label("选择表情", systemImage: "face.smiling")
-        }
-        .labelStyle(.iconOnly)
-        .help("选择 NGA 表情")
-        .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
-            NGAEmoticonPicker { emoticon in
-                apply(.insertUBB(emoticon.code))
-                showsEmoticons = false
+        if model.session.supports(.ubbEditor) {
+            Button {
+                showsEmoticons = true
+            } label: {
+                Label("选择表情", systemImage: "face.smiling")
+            }
+            .labelStyle(.iconOnly)
+            .help("选择表情")
+            .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
+                NGAEmoticonPicker { emoticon in
+                    apply(.insertUBB(emoticon.code))
+                    showsEmoticons = false
+                }
             }
         }
 

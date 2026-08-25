@@ -26,7 +26,8 @@ struct UserCenterView: View {
                             AIProfileUserCard(profile: profile)
                         }
 
-                        if model.isDisplayingActiveAccount {
+                        if model.isDisplayingActiveAccount,
+                           model.session.supports(.checkIn) {
                             checkInContent
                         }
 
