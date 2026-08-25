@@ -42,6 +42,11 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var pinnedTopicID: TopicID? = nil
     /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
     var isSelectedInParent: Bool? = nil
+    /// 这是不是一个子版面。由适配器在构造时盖章。
+    ///
+    /// 展示层要的是「画哪个图标」，不该为此去问 `ForumID` 是怎么编码的 —— 那是
+    /// NGA 一家的事，别的站点根本没有子版面这个概念。
+    var isSubforum: Bool = false
 }
 
 struct ForumCategory: Identifiable, Hashable, Sendable {

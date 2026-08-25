@@ -106,7 +106,13 @@ final class FavoriteRecord {
     }
 
     var forum: Forum {
-        Forum(id: ForumID(rawValue: forumID), name: forumName, subtitle: forumSubtitle)
+        Forum(
+            id: ForumID(rawValue: forumID),
+            name: forumName,
+            subtitle: forumSubtitle,
+            // C12 之后这一位改从存下来的字符串键读，不再从 Int64 里推。
+            isSubforum: ForumID(rawValue: forumID).isSubforum
+        )
     }
 }
 
@@ -212,7 +218,9 @@ final class RecentForumRecord {
             subtitle: forumSubtitle,
             iconURL: forumIconURLString.flatMap(URL.init(string:)),
             category: forumCategory,
-            pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:))
+            pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:)),
+            // C12 之后这一位改从存下来的字符串键读，不再从 Int64 里推。
+            isSubforum: ForumID(rawValue: forumID).isSubforum
         )
     }
 

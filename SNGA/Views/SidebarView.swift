@@ -252,7 +252,7 @@ private struct SidebarForumIcon: View {
                 .resizable()
                 .scaledToFit()
         } placeholder: {
-            Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+            Image(systemName: forum.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
                 .resizable()
                 .scaledToFit()
                 .foregroundStyle(.secondary)

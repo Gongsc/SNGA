@@ -294,7 +294,7 @@ struct NGAParser: Sendable {
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
-            result.append(Forum(id: forumID, name: name))
+            result.append(Forum(id: forumID, name: name, isSubforum: forumID.isSubforum))
         }
         guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
@@ -347,7 +347,9 @@ struct NGAParser: Sendable {
                 continue
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { result.append(Forum(id: id, name: name)) }
+            if !name.isEmpty {
+                result.append(Forum(id: id, name: name, isSubforum: id.isSubforum))
+            }
         }
         guard !result.isEmpty else {
             throw ForumServiceError.unexpectedPage("未找到账号收藏版面")
@@ -390,7 +392,9 @@ struct NGAParser: Sendable {
                         ?? forumMetadata
                             .flatMap { string($0["set_topic_subject"]) }
                             .flatMap { name in
-                                name.isEmpty ? nil : Forum(id: forumID, name: name)
+                                name.isEmpty
+                                    ? nil
+                                    : Forum(id: forumID, name: name, isSubforum: true)
                             }
                 } else {
                     parsedForum = forumMetadata.flatMap {
@@ -2862,7 +2866,8 @@ struct NGAParser: Sendable {
             iconURL: iconURL,
             category: category ?? string(dictionary["group"]),
             pinnedTopicID: pinnedTopicID(in: dictionary),
-            isSelectedInParent: selectedSubforumState(from: dictionary)
+            isSelectedInParent: selectedSubforumState(from: dictionary),
+            isSubforum: forumID.isSubforum
         )
     }
 
@@ -3080,7 +3085,8 @@ struct NGAParser: Sendable {
                 name: name,
                 subtitle: subtitle,
                 pinnedTopicID: pinnedTopicID,
-                isSelectedInParent: attributes.map(isSelectedSubforumAttributes)
+                isSelectedInParent: attributes.map(isSelectedSubforumAttributes),
+                isSubforum: id.isSubforum
             )
         }
     }

@@ -109,6 +109,8 @@ final class ForumIdentityTests: XCTestCase {
         XCTAssertEqual(stored.map(\.forum.name), [plain.name, subforum.name])
         XCTAssertEqual(stored.map(\.forum.subtitle), [plain.subtitle, subforum.subtitle])
         XCTAssertEqual(stored.map(\.forum.id.isSubforum), [false, true])
+        // 展示层读的是盖在 Forum 上的这一位；C13 拿掉 Int64 之后只剩它。
+        XCTAssertEqual(stored.map(\.forum.isSubforum), [false, true])
     }
 
     @MainActor
@@ -139,6 +141,7 @@ final class ForumIdentityTests: XCTestCase {
 
         XCTAssertEqual(stored.forum.id, forum.id)
         XCTAssertTrue(stored.forum.id.isSubforum)
+        XCTAssertTrue(stored.forum.isSubforum)
         XCTAssertEqual(stored.forum.name, forum.name)
         XCTAssertEqual(stored.forum.subtitle, forum.subtitle)
         XCTAssertEqual(stored.forum.iconURL, iconURL)

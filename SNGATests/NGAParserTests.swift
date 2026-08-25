@@ -1440,7 +1440,12 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(
             page.forum,
-            Forum(id: selectedID, name: "独立游戏", isSelectedInParent: false)
+            Forum(
+                id: selectedID,
+                name: "独立游戏",
+                isSelectedInParent: false,
+                isSubforum: true
+            )
         )
         XCTAssertTrue(page.subforums.isEmpty)
         XCTAssertNil(page.topics.first?.sourceForumID)

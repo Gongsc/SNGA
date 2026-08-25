@@ -1648,7 +1648,7 @@ private struct SubforumTile: View {
                     AsyncImage(url: forum.iconURL) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
-                        Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+                        Image(systemName: forum.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
                             .foregroundStyle(.secondary)
                     }
                     .frame(width: 28, height: 28)
