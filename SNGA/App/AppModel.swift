@@ -773,7 +773,7 @@ final class AppModel {
                 if topic.sourceForumName?.isEmpty != false {
                     topic.sourceForumID = topic.forumID
                     topic.sourceForumName = knownForums[topic.forumID]?.name
-                        ?? "\(topic.forumID.queryName) \(topic.forumID.description)"
+                        ?? "版面 \(topic.forumID.description)"
                 }
                 return topic
             }

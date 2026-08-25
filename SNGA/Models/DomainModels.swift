@@ -47,6 +47,11 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     /// 展示层要的是「画哪个图标」，不该为此去问 `ForumID` 是怎么编码的 —— 那是
     /// NGA 一家的事，别的站点根本没有子版面这个概念。
     var isSubforum: Bool = false
+    /// 适配器额外给的搜索词，用来在版面目录里按站点自己的说法过滤。
+    ///
+    /// NGA 放的是 `fid` / `stid`，于是「fid 510381」能搜到东西。这类词是各站自己的
+    /// 术语，目录搜索只管把它们并进待匹配的文本，不必知道它们是什么意思。
+    var searchAliases: [String] = []
 }
 
 struct ForumCategory: Identifiable, Hashable, Sendable {

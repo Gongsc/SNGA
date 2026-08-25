@@ -119,7 +119,17 @@ final class NGAParserTests: XCTestCase {
     func testParsesStructuredForumsTopicsAndPosts() throws {
         let forumResponse = response(#"{"__F":[{"fid":-7,"name":"艾泽拉斯国家地理","info":"综合讨论"}]}"#)
         let forums = try parser.forums(from: forumResponse)
-        XCTAssertEqual(forums, [Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "综合讨论")])
+        XCTAssertEqual(
+            forums,
+            [
+                Forum(
+                    id: ForumID(rawValue: -7),
+                    name: "艾泽拉斯国家地理",
+                    subtitle: "综合讨论",
+                    searchAliases: ["fid"]
+                )
+            ]
+        )
 
         let topicResponse = response(#"{"__T":[{"tid":101,"fid":-7,"subject":"测试主题","author":"Alice","replies":12,"postdate":1700000000}]}"#)
         let page = try parser.forumPage(from: topicResponse, forumID: ForumID(rawValue: -7), page: 1)
@@ -1444,7 +1454,8 @@ final class NGAParserTests: XCTestCase {
                 id: selectedID,
                 name: "独立游戏",
                 isSelectedInParent: false,
-                isSubforum: true
+                isSubforum: true,
+                searchAliases: ["stid"]
             )
         )
         XCTAssertTrue(page.subforums.isEmpty)

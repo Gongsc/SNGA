@@ -713,15 +713,13 @@ enum ForumDirectorySearch {
 
         return categories.compactMap { category in
             let matchingForums = category.forums.filter { forum in
-                let searchableText = [
+                let searchableText = ([
                     category.name,
                     forum.name,
                     forum.subtitle,
                     forum.category,
-                    forum.id.queryName,
                     forum.id.description
-                ]
-                .compactMap { $0 }
+                ].compactMap { $0 } + forum.searchAliases)
                 .joined(separator: " ")
 
                 return terms.allSatisfy { term in

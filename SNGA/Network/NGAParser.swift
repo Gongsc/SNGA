@@ -294,7 +294,12 @@ struct NGAParser: Sendable {
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
-            result.append(Forum(id: forumID, name: name, isSubforum: forumID.isSubforum))
+            result.append(Forum(
+                id: forumID,
+                name: name,
+                isSubforum: forumID.isSubforum,
+                searchAliases: [forumID.queryName]
+            ))
         }
         guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
@@ -348,7 +353,12 @@ struct NGAParser: Sendable {
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty {
-                result.append(Forum(id: id, name: name, isSubforum: id.isSubforum))
+                result.append(Forum(
+                    id: id,
+                    name: name,
+                    isSubforum: id.isSubforum,
+                    searchAliases: [id.queryName]
+                ))
             }
         }
         guard !result.isEmpty else {
@@ -394,7 +404,12 @@ struct NGAParser: Sendable {
                             .flatMap { name in
                                 name.isEmpty
                                     ? nil
-                                    : Forum(id: forumID, name: name, isSubforum: true)
+                                    : Forum(
+                                        id: forumID,
+                                        name: name,
+                                        isSubforum: true,
+                                        searchAliases: [forumID.queryName]
+                                    )
                             }
                 } else {
                     parsedForum = forumMetadata.flatMap {
@@ -2867,7 +2882,8 @@ struct NGAParser: Sendable {
             category: category ?? string(dictionary["group"]),
             pinnedTopicID: pinnedTopicID(in: dictionary),
             isSelectedInParent: selectedSubforumState(from: dictionary),
-            isSubforum: forumID.isSubforum
+            isSubforum: forumID.isSubforum,
+            searchAliases: [forumID.queryName]
         )
     }
 
@@ -3086,7 +3102,8 @@ struct NGAParser: Sendable {
                 subtitle: subtitle,
                 pinnedTopicID: pinnedTopicID,
                 isSelectedInParent: attributes.map(isSelectedSubforumAttributes),
-                isSubforum: id.isSubforum
+                isSubforum: id.isSubforum,
+                searchAliases: [id.queryName]
             )
         }
     }

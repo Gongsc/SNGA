@@ -640,12 +640,15 @@ final class ForumDirectorySearchTests: XCTestCase {
                     id: ForumID(rawValue: 510381),
                     name: "晴风村",
                     subtitle: "FINAL FANTASY XIV",
-                    category: "游戏社区"
+                    category: "游戏社区",
+                    searchAliases: ["fid"]
                 ),
                 Forum(
                     id: ForumID(stid: 35925536),
                     name: "二次元综合",
-                    category: "游戏社区"
+                    category: "游戏社区",
+                    isSubforum: true,
+                    searchAliases: ["stid"]
                 )
             ]
         )
