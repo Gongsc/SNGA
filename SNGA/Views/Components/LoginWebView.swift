@@ -26,8 +26,7 @@ struct LoginWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.startMonitoringCookies(in: webView)
-        let url = URL(string: "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login")!
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: ForumSiteDescriptor.nga.loginURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         webView.load(request)
@@ -200,17 +199,21 @@ struct LoginWebView: NSViewRepresentable {
             guard !completed else { return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self, !self.completed else { return }
-                let ngaCookies = cookies.filter { cookie in
-                    let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                    return domain == "nga.cn" || domain.hasSuffix(".nga.cn")
-                }.map(SessionCookie.init)
-                let uidCookie = ngaCookies.first { $0.name.caseInsensitiveCompare("ngaPassportUid") == .orderedSame }
-                let credentialCookie = ngaCookies.first { $0.name.caseInsensitiveCompare("ngaPassportCid") == .orderedSame }
+                let descriptor = ForumSiteDescriptor.nga
+                let siteCookies = cookies
+                    .filter { descriptor.owns(cookieDomain: $0.domain) }
+                    .map(SessionCookie.init)
+                let uidCookie = siteCookies.first {
+                    $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame
+                }
+                let credentialCookie = siteCookies.first {
+                    $0.name.caseInsensitiveCompare(descriptor.credentialCookieName) == .orderedSame
+                }
                 guard let uid = uidCookie.flatMap({ Int64($0.value) }), credentialCookie != nil else { return }
                 self.completed = true
                 self.stopMonitoringCookies()
                 Task { @MainActor in
-                    self.onAuthenticated(LoginCapture(uid: uid, cookies: ngaCookies))
+                    self.onAuthenticated(LoginCapture(uid: uid, cookies: siteCookies))
                 }
             }
         }

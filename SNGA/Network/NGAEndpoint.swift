@@ -8,17 +8,11 @@ enum NGAInternalDestination: Hashable, Sendable {
 }
 
 enum NGAInternalLink {
-    private static let forumDomains = [
-        "nga.cn",
-        "ngacn.cc",
-        "ngabbs.com"
-    ]
-
     static func destination(for url: URL) -> NGAInternalDestination? {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = url.host?.lowercased(),
-              isForumHost(host),
+              ForumSiteDescriptor.nga.owns(host: host),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
             return nil
         }
@@ -72,15 +66,6 @@ enum NGAInternalLink {
 
         return nil
     }
-
-    private static func isForumHost(_ host: String) -> Bool {
-        if host == "nga.178.com" || host.hasSuffix(".nga.178.com") {
-            return true
-        }
-        return forumDomains.contains { domain in
-            host == domain || host.hasSuffix(".\(domain)")
-        }
-    }
 }
 
 enum HTTPMethod: String, Sendable {
@@ -89,7 +74,7 @@ enum HTTPMethod: String, Sendable {
 }
 
 struct NGAEndpoint: Sendable {
-    static let baseURL = URL(string: "https://bbs.nga.cn")!
+    static let baseURL = ForumSiteDescriptor.nga.baseURL
 
     var path: String
     var queryItems: [URLQueryItem] = []

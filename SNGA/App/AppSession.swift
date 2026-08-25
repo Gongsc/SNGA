@@ -90,12 +90,13 @@ final class AppSession {
             services.removeAll()
             for record in records {
                 let cookies = try await sessionStore.cookies(for: record.accountID)
+                let descriptor = ForumSiteDescriptor.nga
                 let hasUID = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportUid") == .orderedSame &&
+                    $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame &&
                         Int64($0.value) == record.ngaUID
                 }
                 let hasCredential = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportCid") == .orderedSame &&
+                    $0.name.caseInsensitiveCompare(descriptor.credentialCookieName) == .orderedSame &&
                         !$0.value.isEmpty
                 }
                 if !hasUID || !hasCredential {

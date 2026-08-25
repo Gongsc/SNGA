@@ -109,21 +109,37 @@ actor RuntimeLogger {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return redacted(url.absoluteString)
         }
-        let sensitiveNames = Set([
-            "access_token", "access_uid", "auth", "token",
-            "ngaPassportCid", "ngaPassportUid"
-        ])
         components.queryItems = components.queryItems?.map { item in
-            guard sensitiveNames.contains(item.name) else { return item }
+            guard sensitiveQueryNames.contains(item.name) else { return item }
             return URLQueryItem(name: item.name, value: "<redacted>")
         }
         return components.string.map(redacted) ?? redacted(url.absoluteString)
     }
 
-    /// 每行日志都会走一次脱敏，正则只编译一次。
-    private static let redactionExpression = try? NSRegularExpression(
-        pattern: #"(?i)\b(access_token|access_uid|auth|authorization|cookie|ngaPassportCid|ngaPassportUid|token)\s*([=:]\s*)("[^"]*"|'[^']*'|[^\s&,;]+)"#
+    /// 各站的登录凭据 Cookie 名，从站点资料里取。
+    ///
+    /// 写死一份的话，接第二个站点时它的会话 Cookie 会原样落进日志 —— 这里让它跟着
+    /// `ForumSite.allCases` 走，加站点就自动纳入脱敏。
+    private static let siteCredentialNames: [String] = ForumSite.allCases.flatMap {
+        [$0.descriptor.uidCookieName, $0.descriptor.credentialCookieName]
+    }
+
+    private static let sensitiveQueryNames: Set<String> = Set(
+        ["access_token", "access_uid", "auth", "token"] + siteCredentialNames
     )
+
+    /// 每行日志都会走一次脱敏，正则只编译一次。
+    private static let redactionExpression: NSRegularExpression? = {
+        let names = (
+            ["access_token", "access_uid", "auth", "authorization", "cookie", "token"]
+                + siteCredentialNames
+        )
+        .map { NSRegularExpression.escapedPattern(for: $0) }
+        .joined(separator: "|")
+        return try? NSRegularExpression(
+            pattern: #"(?i)\b("# + names + #")\s*([=:]\s*)("[^"]*"|'[^']*'|[^\s&,;]+)"#
+        )
+    }()
 
     nonisolated static func redacted(_ value: String) -> String {
         guard let expression = redactionExpression else {
