@@ -18,6 +18,7 @@
 		1DF747F01EC4CEDF4CC0F797 /* PostContentDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */; };
 		25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */; };
 		26B721BD8D05B28C170741BF /* NGAForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE78B47EBCD9C893087DA621 /* NGAForumService.swift */; };
+		26E7AB779B62E3203120C11B /* legacy-1.8.2.store in Resources */ = {isa = PBXBuildFile; fileRef = C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */; };
 		2934AB6BE9151E1F731E6B2E /* ForumStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5563DC9E0A09F3C8F42BA7D5 /* ForumStore.swift */; };
 		2B527AAC590E9D6EF7E2C82C /* ForumSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */; };
 		2C35932AD881A29C313E16F8 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */; };
@@ -48,6 +49,7 @@
 		6C12086467FC7DBC330187B6 /* NGAEmoticonPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BD3C08D36E702185370505 /* NGAEmoticonPicker.swift */; };
 		714C9844E7177DC7EB3CC06B /* ForumSearchKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0734A89E0257A2AF3D07BEF8 /* ForumSearchKind.swift */; };
 		77CE3F840056CB3A8D542724 /* ToolboxViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 275484E9D5B99D03DF123C6C /* ToolboxViews.swift */; };
+		783A1A3511B715C849A5B8AA /* LegacyStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */; };
 		7E996C3830A2C734EAF175DF /* AIProfileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A45B49A6E59E9F94E9C655 /* AIProfileModels.swift */; };
 		7E9B82035431E045A806580A /* ToolboxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */; };
 		8068022DFEA8DA8817A8F659 /* RequestSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE63CCBDAE8C39CF3822F2 /* RequestSlot.swift */; };
@@ -142,6 +144,7 @@
 		1651E18DEBA97612EDEDD172 /* AIProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProfileStore.swift; sourceTree = "<group>"; };
 		1D633B4306BF609269215986 /* RuntimeLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLogger.swift; sourceTree = "<group>"; };
 		2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteAndCheckInTests.swift; sourceTree = "<group>"; };
+		21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyStoreMigrationTests.swift; sourceTree = "<group>"; };
 		239CFB8B7E4CE369AAF0C698 /* RequestSlotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSlotTests.swift; sourceTree = "<group>"; };
 		23A74E7EB732AD54BDC8A068 /* BottomActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomActionBar.swift; sourceTree = "<group>"; };
 		24BC0DF2EC80E7ABE9E38B97 /* PostContentBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentBuilder.swift; sourceTree = "<group>"; };
@@ -218,6 +221,7 @@
 		BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAEndpoint.swift; sourceTree = "<group>"; };
 		BE78B47EBCD9C893087DA621 /* NGAForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAForumService.swift; sourceTree = "<group>"; };
 		BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxAPIService.swift; sourceTree = "<group>"; };
+		C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */ = {isa = PBXFileReference; path = "legacy-1.8.2.store"; sourceTree = "<group>"; };
 		C2369D4A4F5DB8E996528CFF /* PostParagraphLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostParagraphLayoutTests.swift; sourceTree = "<group>"; };
 		C414AA0229E2093B7A0C16F1 /* SNGA.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SNGA.entitlements; sourceTree = "<group>"; };
 		C595E939887CE5215A4959D7 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
@@ -283,6 +287,14 @@
 				AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		59DA29325D562ED46C198DA9 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */,
+			);
+			path = Fixtures;
 			sourceTree = "<group>";
 		};
 		8D96745DD65BEBEF64B609F9 /* SNGAUITests */ = {
@@ -428,6 +440,7 @@
 		E83F715C57A40DEB0B666CCA /* SNGATests */ = {
 			isa = PBXGroup;
 			children = (
+				59DA29325D562ED46C198DA9 /* Fixtures */,
 				DF4BEC812B67CFBF0FC40F6F /* AIProfileTests.swift */,
 				8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */,
 				2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */,
@@ -435,6 +448,7 @@
 				9B959F0B601FC1856E96BD79 /* ForumKeyBackfillTests.swift */,
 				53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */,
 				2EB1E6EBF89005A786C462A2 /* ForumSiteTests.swift */,
+				21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
 				7FF2DDE4B8F222F0A02D5BF5 /* PaginationBarTests.swift */,
 				6CC7C1AE50020FE2E32DA135 /* PostContentBuilderTests.swift */,
@@ -459,6 +473,7 @@
 			buildConfigurationList = EC7248AF52CC3683BB0EE686 /* Build configuration list for PBXNativeTarget "SNGATests" */;
 			buildPhases = (
 				397B72AA306D6BD14A6E9841 /* Sources */,
+				681F3213907E786D9E8AC614 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -552,6 +567,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		681F3213907E786D9E8AC614 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26E7AB779B62E3203120C11B /* legacy-1.8.2.store in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		709CC1A01CC640AB4C578F77 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -673,6 +696,7 @@
 				81C7A196A2ADD704B4FA210D /* ForumKeyBackfillTests.swift in Sources */,
 				2B527AAC590E9D6EF7E2C82C /* ForumSearchTests.swift in Sources */,
 				89DEACFB4C13307021BC7370 /* ForumSiteTests.swift in Sources */,
+				783A1A3511B715C849A5B8AA /* LegacyStoreMigrationTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
 				49B7230BEF08492DC0757E7E /* PaginationBarTests.swift in Sources */,
 				B67C7B7D4B04E72B20253C93 /* PostContentBuilderTests.swift in Sources */,
