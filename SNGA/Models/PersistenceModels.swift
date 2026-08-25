@@ -4,6 +4,8 @@ import SwiftData
 @Model
 final class AccountRecord {
     @Attribute(.unique) var id: UUID
+    /// 账号属于哪个站。带默认值，老库走轻量迁移 —— 1.8.2 的账号全是 NGA 的。
+    var siteRaw: String = ForumSite.nga.rawValue
     var ngaUID: Int64
     var displayName: String
     var avatarURLString: String?
@@ -18,6 +20,7 @@ final class AccountRecord {
 
     init(
         id: UUID = UUID(),
+        site: ForumSite,
         ngaUID: Int64,
         displayName: String,
         avatarURLString: String? = nil,
@@ -25,6 +28,7 @@ final class AccountRecord {
         isCurrent: Bool = false
     ) {
         self.id = id
+        self.siteRaw = site.rawValue
         self.ngaUID = ngaUID
         self.displayName = displayName
         self.avatarURLString = avatarURLString
@@ -34,6 +38,11 @@ final class AccountRecord {
     }
 
     var accountID: AccountID { AccountID(rawValue: id) }
+
+    var site: ForumSite {
+        get { ForumSite(rawValue: siteRaw) ?? .nga }
+        set { siteRaw = newValue.rawValue }
+    }
     var seenUnreadMessageKeys: [String]? {
         get {
             seenUnreadMessageKeysRaw?.split(separator: "\n").map(String.init)
@@ -60,6 +69,7 @@ final class AccountRecord {
     func summary() -> AccountSummary {
         AccountSummary(
             id: accountID,
+            site: site,
             ngaUID: ngaUID,
             displayName: displayName,
             avatarURL: avatarURLString.flatMap(URL.init(string:)),

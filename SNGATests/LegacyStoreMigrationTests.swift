@@ -38,6 +38,8 @@ final class LegacyStoreMigrationTests: XCTestCase {
         XCTAssertEqual(accounts.first?.displayName, "老库账号")
         XCTAssertEqual(accounts.first?.isCurrent, true)
         XCTAssertEqual(accounts.first?.lastCheckInDay, "2026-08-01")
+        // 1.8.2 的库里根本没有站点这一列，迁移后应当取到默认值。
+        XCTAssertEqual(accounts.first?.site, .nga)
 
         XCTAssertEqual(try context.fetch(FetchDescriptor<FavoriteRecord>()).count, 2)
         XCTAssertEqual(try context.fetch(FetchDescriptor<RecentForumRecord>()).count, 2)

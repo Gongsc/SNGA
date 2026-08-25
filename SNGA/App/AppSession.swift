@@ -66,12 +66,22 @@ final class AppSession {
 
     // MARK: - 账号与服务
 
+    /// 按站点造服务。现在只有一个分支 —— 加站点时编译器会要求补上。
     func makeService(
+        site: ForumSite,
         accountID: AccountID,
         cookies: [SessionCookie]
     ) -> any ForumService {
-        NGAForumService(accountID: accountID, cookies: cookies) { [sessionStore] cookies in
+        let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
+        }
+        switch site {
+        case .nga:
+            return NGAForumService(
+                accountID: accountID,
+                cookies: cookies,
+                cookieDidChange: persist
+            )
         }
     }
 
@@ -90,7 +100,7 @@ final class AppSession {
             services.removeAll()
             for record in records {
                 let cookies = try await sessionStore.cookies(for: record.accountID)
-                let descriptor = ForumSiteDescriptor.nga
+                let descriptor = record.site.descriptor
                 let hasUID = cookies.contains {
                     $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame &&
                         Int64($0.value) == record.ngaUID
@@ -102,10 +112,11 @@ final class AppSession {
                 if !hasUID || !hasCredential {
                     record.sessionState = .requiresLogin
                 } else {
-                    // 本地凭据仍完整时先恢复为有效。单个 NGA 接口的偶发鉴权失败
+                    // 本地凭据仍完整时先恢复为有效。单个接口的偶发鉴权失败
                     // 不应在下次启动后继续污染整个账号状态。
                     record.sessionState = .valid
                     services[record.accountID] = makeService(
+                        site: record.site,
                         accountID: record.accountID,
                         cookies: cookies
                     )

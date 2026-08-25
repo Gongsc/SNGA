@@ -26,6 +26,7 @@ enum FavoriteSyncState: String, Codable, CaseIterable, Sendable {
 
 struct AccountSummary: Identifiable, Hashable, Sendable {
     let id: AccountID
+    var site: ForumSite
     var ngaUID: Int64
     var displayName: String
     var avatarURL: URL?

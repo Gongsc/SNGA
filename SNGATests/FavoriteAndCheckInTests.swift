@@ -340,6 +340,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             notificationService: .shared
         )
         let record = AccountRecord(
+            site: .nga,
             ngaUID: 10_001,
             displayName: "签到测试账号",
             isCurrent: true

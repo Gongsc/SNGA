@@ -220,18 +220,31 @@ final class AppModel {
     func addAccount(capture: LoginCapture) async {
         do {
             let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
+            // C18 起站点由 capture 带来；在那之前只有 NGA 能登录。
+            let site = ForumSite.nga
             let record: AccountRecord
-            if let existing = records.first(where: { $0.ngaUID == capture.uid }) {
+            // 认账号要连站点一起看：两个站的同号用户是两个账号。
+            if let existing = records.first(where: {
+                $0.site == site && $0.ngaUID == capture.uid
+            }) {
                 record = existing
                 record.sessionState = .valid
             } else {
-                record = AccountRecord(ngaUID: capture.uid, displayName: "NGA \(capture.uid)")
+                record = AccountRecord(
+                    site: site,
+                    ngaUID: capture.uid,
+                    displayName: "\(site.displayName) \(capture.uid)"
+                )
                 session.context.insert(record)
             }
             records.forEach { $0.isCurrent = false }
             record.isCurrent = true
             try await session.sessionStore.save(cookies: capture.cookies, for: record.accountID)
-            let service = session.makeService(accountID: record.accountID, cookies: capture.cookies)
+            let service = session.makeService(
+                site: site,
+                accountID: record.accountID,
+                cookies: capture.cookies
+            )
             session.setService(service, for: record.accountID)
             if let profile = try? await service.profile(uid: capture.uid) {
                 record.displayName = profile.displayName
@@ -852,8 +865,8 @@ final class AppModel {
         )
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
-        let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
-        let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
+        let accountA = AccountRecord(site: .nga, ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
+        let accountB = AccountRecord(site: .nga, ngaUID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)
         session.context.insert(accountB)
         let favoriteForum = Forum(id: ForumID(nga: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
