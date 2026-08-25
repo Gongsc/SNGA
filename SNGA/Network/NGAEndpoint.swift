@@ -47,10 +47,10 @@ enum NGAInternalLink {
 
         if path.hasSuffix("/thread.php") || path == "thread.php" {
             if let stid = int64(named: "stid"), stid >= 0 {
-                return .forum(ForumID(stid: stid))
+                return .forum(ForumID(ngaSubforum: stid))
             }
             if let fid = int64(named: "fid") {
-                return .forum(ForumID(rawValue: fid))
+                return .forum(ForumID(nga: fid))
             }
         }
 
@@ -144,7 +144,7 @@ struct NGAEndpoint: Sendable {
         featuredOnly: Bool
     ) -> NGAEndpoint {
         var queryItems: [URLQueryItem] = [
-            .init(name: forumID.queryName, value: forumID.description),
+            .init(name: forumID.ngaQueryName, value: String(forumID.ngaValue)),
             .init(name: "order_by", value: sortOrder.queryValue),
             .init(name: "page", value: String(max(1, page))),
             .init(name: "__output", value: "11")
@@ -171,8 +171,8 @@ struct NGAEndpoint: Sendable {
         if let forumID = request.forumID {
             items.insert(
                 URLQueryItem(
-                    name: forumID.queryName,
-                    value: forumID.description
+                    name: forumID.ngaQueryName,
+                    value: String(forumID.ngaValue)
                 ),
                 at: 0
             )

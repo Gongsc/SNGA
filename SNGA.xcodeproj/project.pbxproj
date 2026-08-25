@@ -14,6 +14,7 @@
 		189986D3BF5D6C041C9703FB /* UBBRichEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE4AA26B253DC98F8474076A /* UBBRichEditor.swift */; };
 		19745F82297470AA6FBAF9C7 /* NGAEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */; };
 		19DCED2DD724125EA07BAEB0 /* ToolboxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BAADA84295798A12F8151D1 /* ToolboxModels.swift */; };
+		1BE059CE6B0DD6A518122831 /* ForumID+NGA.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFE9C0E4443C0531394B0374 /* ForumID+NGA.swift */; };
 		1DF747F01EC4CEDF4CC0F797 /* PostContentDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */; };
 		25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */; };
 		26B721BD8D05B28C170741BF /* NGAForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE78B47EBCD9C893087DA621 /* NGAForumService.swift */; };
@@ -236,6 +237,7 @@
 		F564D433707A82BCD347E9AC /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		F78187F7A7D91C4B955A2FEB /* PersistenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceModels.swift; sourceTree = "<group>"; };
 		FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SNGAApp.swift; sourceTree = "<group>"; };
+		FFE9C0E4443C0531394B0374 /* ForumID+NGA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ForumID+NGA.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -340,6 +342,7 @@
 		B0E9269AAA2BBF7019360B58 /* Network */ = {
 			isa = PBXGroup;
 			children = (
+				FFE9C0E4443C0531394B0374 /* ForumID+NGA.swift */,
 				30F28E6EC3AF398C4F536780 /* ForumService.swift */,
 				33847F3879CFBFC802EC7E15 /* ForumSiteDescriptor.swift */,
 				753C0696D4CF917F2B27823E /* HTTPTransport.swift */,
@@ -575,6 +578,7 @@
 				9DF1C4CEEAD493FF5DFA7A39 /* EmoticonImageStore.swift in Sources */,
 				D0A27031E2C58EF65C3F0AD6 /* FavoriteStore.swift in Sources */,
 				8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */,
+				1BE059CE6B0DD6A518122831 /* ForumID+NGA.swift in Sources */,
 				714C9844E7177DC7EB3CC06B /* ForumSearchKind.swift in Sources */,
 				C63FF6AFBB265C51A1484BC1 /* ForumSearchPage.swift in Sources */,
 				39CFCC34C6A5074AB02DB705 /* ForumSearchPaginationBar.swift in Sources */,

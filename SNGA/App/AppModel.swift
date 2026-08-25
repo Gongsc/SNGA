@@ -125,7 +125,7 @@ final class AppModel {
         case let .requestsTopic(id, subject, author):
             await openTopic(Topic(
                 id: id,
-                forumID: ForumID(rawValue: 0),
+                forumID: .placeholder(site: session.activeService?.site ?? .nga),
                 subject: subject,
                 author: author,
                 replyCount: 0
@@ -501,7 +501,8 @@ final class AppModel {
     func openUserActivity(_ activity: UserActivity) async {
         let topic = Topic(
             id: activity.topicID,
-            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            forumID: activity.forumID
+                    ?? .placeholder(site: session.activeService?.site ?? .nga),
             subject: activity.subject,
             author: currentProfile?.displayName ?? "",
             replyCount: 0,
@@ -580,7 +581,8 @@ final class AppModel {
     func openForumSearchActivity(_ activity: UserActivity) async {
         let topic = Topic(
             id: activity.topicID,
-            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            forumID: activity.forumID
+                    ?? .placeholder(site: session.activeService?.site ?? .nga),
             subject: activity.subject,
             author: forumSearchPage?.users.first?.displayName ?? "",
             replyCount: 0,
@@ -854,7 +856,7 @@ final class AppModel {
         let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)
         session.context.insert(accountB)
-        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
+        let favoriteForum = Forum(id: ForumID(nga: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
         session.context.insert(FavoriteRecord(
             accountID: accountA.accountID,
             forum: favoriteForum,
@@ -867,7 +869,7 @@ final class AppModel {
         session.activeAccountID = accountA.accountID
         session.setService(DebugForumService(accountID: accountA.accountID), for: accountA.accountID)
         session.setService(DebugForumService(accountID: accountB.accountID), for: accountB.accountID)
-        browsing.forums = [favoriteForum, Forum(id: ForumID(rawValue: 510381), name: "晴风村")]
+        browsing.forums = [favoriteForum, Forum(id: ForumID(nga: 510381), name: "晴风村")]
         favorite.favorites = [FavoriteSnapshot(forum: favoriteForum, order: 0, state: .localOnly)]
         sidebarSelection = .userCenter(accountA.ngaUID)
         currentProfile = Profile(

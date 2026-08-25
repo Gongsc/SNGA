@@ -42,12 +42,12 @@ final class FavoriteAndCheckInTests: XCTestCase {
             URL(string: "https://img4.nga.cn/ngabbs/nga_classic/f/app/35925536.png")
         )
         let firstForum = Forum(
-            id: ForumID(rawValue: 414),
+            id: ForumID(nga: 414),
             name: "综合游戏讨论区",
             iconURL: firstIconURL
         )
         let secondForum = Forum(
-            id: ForumID(stid: 35_925_536),
+            id: ForumID(ngaSubforum: 35_925_536),
             name: "幻兽帕鲁"
         )
         let model = AppModel(container: container)
@@ -102,34 +102,34 @@ final class FavoriteAndCheckInTests: XCTestCase {
         let model = AppModel(container: container)
         model.session.activeAccountID = accountID
 
-        await model.openForum(Forum(id: ForumID(rawValue: 1), name: "版面一"))
-        await model.openForum(Forum(id: ForumID(rawValue: 2), name: "版面二"))
-        await model.openForum(Forum(id: ForumID(rawValue: 3), name: "版面三"))
+        await model.openForum(Forum(id: ForumID(nga: 1), name: "版面一"))
+        await model.openForum(Forum(id: ForumID(nga: 2), name: "版面二"))
+        await model.openForum(Forum(id: ForumID(nga: 3), name: "版面三"))
 
         model.session.activeAccountID = secondAccountID
-        await model.openForum(Forum(id: ForumID(rawValue: 11), name: "版面十一"))
-        await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
-        await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
+        await model.openForum(Forum(id: ForumID(nga: 11), name: "版面十一"))
+        await model.openForum(Forum(id: ForumID(nga: 12), name: "版面十二"))
+        await model.openForum(Forum(id: ForumID(nga: 13), name: "版面十三"))
 
         model.browsing.updateRecentForumLimit(2)
 
         XCTAssertEqual(model.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 13),
-            ForumID(rawValue: 12)
+            ForumID(nga: 13),
+            ForumID(nga: 12)
         ])
 
         let restoredModel = AppModel(container: container)
         restoredModel.session.activeAccountID = accountID
         restoredModel.browsing.loadRecentForums()
         XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 3),
-            ForumID(rawValue: 2)
+            ForumID(nga: 3),
+            ForumID(nga: 2)
         ])
         restoredModel.session.activeAccountID = secondAccountID
         restoredModel.browsing.loadRecentForums()
         XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 13),
-            ForumID(rawValue: 12)
+            ForumID(nga: 13),
+            ForumID(nga: 12)
         ])
     }
 
@@ -153,7 +153,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             configurations: [configuration]
         )
         let model = AppModel(container: container)
-        let forumID = ForumID(rawValue: -7)
+        let forumID = ForumID(nga: -7)
         let topicA = Topic(
             id: TopicID(rawValue: 101),
             forumID: forumID,
@@ -270,9 +270,9 @@ final class FavoriteAndCheckInTests: XCTestCase {
     }
 
     func testPendingLocalOperationsWinDuringMerge() {
-        let one = Forum(id: ForumID(rawValue: 1), name: "一号板块")
-        let two = Forum(id: ForumID(rawValue: 2), name: "二号板块")
-        let three = Forum(id: ForumID(rawValue: 3), name: "三号板块")
+        let one = Forum(id: ForumID(nga: 1), name: "一号板块")
+        let two = Forum(id: ForumID(nga: 2), name: "二号板块")
+        let three = Forum(id: ForumID(nga: 3), name: "三号板块")
         let local = [
             FavoriteSnapshot(forum: one, order: 0, state: .pendingRemove),
             FavoriteSnapshot(forum: two, order: 1, state: .pendingAdd)
@@ -286,8 +286,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
     }
 
     func testServerAdditionsKeepLocalOrder() {
-        let localForum = Forum(id: ForumID(rawValue: 1), name: "本地")
-        let serverForum = Forum(id: ForumID(rawValue: 2), name: "站端")
+        let localForum = Forum(id: ForumID(nga: 1), name: "本地")
+        let serverForum = Forum(id: ForumID(nga: 2), name: "站端")
         let result = FavoriteSyncEngine.merge(
             server: [localForum, serverForum],
             local: [FavoriteSnapshot(forum: localForum, order: 4, state: .synced)]
@@ -378,10 +378,10 @@ final class FavoriteAndCheckInTests: XCTestCase {
 
     func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {
         let accountID = AccountID(rawValue: UUID())
-        let parentForumID = ForumID(rawValue: 414)
+        let parentForumID = ForumID(nga: 414)
         let selectedForumIDs: Set<ForumID> = [
-            ForumID(rawValue: 614),
-            ForumID(stid: 35_925_536)
+            ForumID(nga: 614),
+            ForumID(ngaSubforum: 35_925_536)
         ]
         let record = SubforumPreferenceRecord(
             accountID: accountID,
@@ -625,7 +625,7 @@ final class ForumDirectorySearchTests: XCTestCase {
             name: "综合讨论",
             forums: [
                 Forum(
-                    id: ForumID(rawValue: 7),
+                    id: ForumID(nga: 7),
                     name: "艾泽拉斯国家地理",
                     subtitle: "魔兽世界综合讨论",
                     category: "综合讨论"
@@ -637,14 +637,14 @@ final class ForumDirectorySearchTests: XCTestCase {
             name: "游戏社区",
             forums: [
                 Forum(
-                    id: ForumID(rawValue: 510381),
+                    id: ForumID(nga: 510381),
                     name: "晴风村",
                     subtitle: "FINAL FANTASY XIV",
                     category: "游戏社区",
                     searchAliases: ["fid"]
                 ),
                 Forum(
-                    id: ForumID(stid: 35925536),
+                    id: ForumID(ngaSubforum: 35925536),
                     name: "二次元综合",
                     category: "游戏社区",
                     isSubforum: true,

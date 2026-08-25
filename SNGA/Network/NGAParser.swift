@@ -101,7 +101,7 @@ struct NGAParser: Sendable {
             in: text,
             sectionName: "__T"
         )
-        let fallbackForumID = request.forumID ?? ForumID(rawValue: 0)
+        let fallbackForumID = request.forumID ?? ForumID(nga: 0)
         let topics = unique(topicValues.compactMap {
             parseTopic(from: $0, fallbackForumID: fallbackForumID)
         })
@@ -156,7 +156,7 @@ struct NGAParser: Sendable {
             let boardLink = try row.select(".titleadd2 a[href*='fid='], .titleadd2 a").first()
             let forumID = try boardLink.flatMap {
                 absoluteURL(try $0.attr("href"), relativeTo: response.url)
-            }.flatMap { queryInt64("fid", in: $0) }.map(ForumID.init(rawValue:))
+            }.flatMap { queryInt64("fid", in: $0) }.map(ForumID.init(nga:))
             let forumName = try boardLink?.text()
                 .trimmingCharacters(in: CharacterSet(charactersIn: "[]").union(.whitespacesAndNewlines))
             let dateElement = try row.select(".c3 .postdate, .postdate").first()
@@ -286,9 +286,9 @@ struct NGAParser: Sendable {
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else { continue }
             let forumID: ForumID
             if let stid = queryInt64("stid", in: target) {
-                forumID = ForumID(stid: stid)
+                forumID = ForumID(ngaSubforum: stid)
             } else if let fid = queryInt64("fid", in: target) {
-                forumID = ForumID(rawValue: fid)
+                forumID = ForumID(nga: fid)
             } else {
                 continue
             }
@@ -297,8 +297,8 @@ struct NGAParser: Sendable {
             result.append(Forum(
                 id: forumID,
                 name: name,
-                isSubforum: forumID.isSubforum,
-                searchAliases: [forumID.queryName]
+                isSubforum: forumID.ngaIsSubforum,
+                searchAliases: [forumID.ngaQueryName]
             ))
         }
         guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到版面目录") }
@@ -345,9 +345,9 @@ struct NGAParser: Sendable {
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else { continue }
             let id: ForumID
             if let stid = queryInt64("stid", in: target) {
-                id = ForumID(stid: stid)
+                id = ForumID(ngaSubforum: stid)
             } else if let fid = queryInt64("fid", in: target) {
-                id = ForumID(rawValue: fid)
+                id = ForumID(nga: fid)
             } else {
                 continue
             }
@@ -356,8 +356,8 @@ struct NGAParser: Sendable {
                 result.append(Forum(
                     id: id,
                     name: name,
-                    isSubforum: id.isSubforum,
-                    searchAliases: [id.queryName]
+                    isSubforum: id.ngaIsSubforum,
+                    searchAliases: [id.ngaQueryName]
                 ))
             }
         }
@@ -397,7 +397,7 @@ struct NGAParser: Sendable {
                     fallbackTopicCount: topics.count
                 )
                 let parsedForum: Forum?
-                if forumID.isSubforum {
+                if forumID.ngaIsSubforum {
                     parsedForum = subforums.first { $0.id == forumID }
                         ?? forumMetadata
                             .flatMap { string($0["set_topic_subject"]) }
@@ -408,7 +408,7 @@ struct NGAParser: Sendable {
                                         id: forumID,
                                         name: name,
                                         isSubforum: true,
-                                        searchAliases: [forumID.queryName]
+                                        searchAliases: [forumID.ngaQueryName]
                                     )
                             }
                 } else {
@@ -476,7 +476,7 @@ struct NGAParser: Sendable {
         if let root = jsonRoot(response.data) {
             try throwJSONErrorIfPresent(in: root)
             let topics = dictionaries(in: root).compactMap {
-                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+                parseTopic(from: $0, fallbackForumID: ForumID(nga: 0))
             }.map { topic in
                 var topic = topic
                 topic.isFavorite = true
@@ -508,7 +508,7 @@ struct NGAParser: Sendable {
         }
         var result = try forumPage(
             from: response,
-            forumID: ForumID(rawValue: 0),
+            forumID: ForumID(nga: 0),
             page: page
         )
         result.topics = result.topics.map { topic in
@@ -600,12 +600,12 @@ struct NGAParser: Sendable {
                 topicMetadata = nil
             }
             var topic = topicMetadata.flatMap {
-                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+                parseTopic(from: $0, fallbackForumID: ForumID(nga: 0))
             }
                 ?? dictionaries(in: root)
-                    .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0)) }
+                    .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(nga: 0)) }
                     .first { $0.id == topicID }
-                ?? Topic(id: topicID, forumID: ForumID(rawValue: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
+                ?? Topic(id: topicID, forumID: ForumID(nga: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
             let customLevelSource = (payload?["__F"] as? [String: Any])
                 .flatMap { string($0["custom_level"]) }
             var users = payload
@@ -760,7 +760,7 @@ struct NGAParser: Sendable {
         posts.sort(by: postOrder)
         let topic = Topic(
             id: topicID,
-            forumID: ForumID(rawValue: 0),
+            forumID: ForumID(nga: 0),
             subject: title,
             author: posts.first(where: { $0.floor == 0 })?.author ?? "",
             authorUID: posts.first(where: { $0.floor == 0 })?.authorUID,
@@ -2855,9 +2855,9 @@ struct NGAParser: Sendable {
     ) -> Forum? {
         let forumID: ForumID
         if let stid = int64(dictionary["stid"]), stid > 0 {
-            forumID = ForumID(stid: stid)
+            forumID = ForumID(ngaSubforum: stid)
         } else if let fid = int64(dictionary["fid"]) {
-            forumID = ForumID(rawValue: fid)
+            forumID = ForumID(nga: fid)
         } else {
             return nil
         }
@@ -2882,8 +2882,8 @@ struct NGAParser: Sendable {
             category: category ?? string(dictionary["group"]),
             pinnedTopicID: pinnedTopicID(in: dictionary),
             isSelectedInParent: selectedSubforumState(from: dictionary),
-            isSubforum: forumID.isSubforum,
-            searchAliases: [forumID.queryName]
+            isSubforum: forumID.ngaIsSubforum,
+            searchAliases: [forumID.ngaQueryName]
         )
     }
 
@@ -2974,7 +2974,7 @@ struct NGAParser: Sendable {
         let type = int(dictionary["type"]) ?? 0
         return Topic(
             id: TopicID(rawValue: tid),
-            forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
+            forumID: int64(dictionary["fid"]).map(ForumID.init(nga:)) ?? fallbackForumID,
             subject: subject,
             author: normalizedUsername(string(dictionary["author"])) ?? "",
             authorUID: postAuthorID(in: dictionary),
@@ -3065,7 +3065,7 @@ struct NGAParser: Sendable {
         guard type & 2_097_152 != 0 || parentName == "版面镜像" else {
             return nil
         }
-        return ForumID(rawValue: rawForumID)
+        return ForumID(nga: rawForumID)
     }
 
     private func subforums(from forumMetadata: [String: Any]) -> [Forum] {
@@ -3087,9 +3087,9 @@ struct NGAParser: Sendable {
             let id: ForumID
             if key.lowercased().hasPrefix("t") {
                 guard rawID >= 0 else { return nil }
-                id = ForumID(stid: rawID)
+                id = ForumID(ngaSubforum: rawID)
             } else {
-                id = ForumID(rawValue: rawID)
+                id = ForumID(nga: rawID)
             }
             let subtitle = fields.count > 2 ? string(fields[2]).map(plainText) : nil
             let pinnedTopicID = fields.count > 3
@@ -3102,8 +3102,8 @@ struct NGAParser: Sendable {
                 subtitle: subtitle,
                 pinnedTopicID: pinnedTopicID,
                 isSelectedInParent: attributes.map(isSelectedSubforumAttributes),
-                isSubforum: id.isSubforum,
-                searchAliases: [id.queryName]
+                isSubforum: id.ngaIsSubforum,
+                searchAliases: [id.ngaQueryName]
             )
         }
     }
@@ -3132,11 +3132,11 @@ struct NGAParser: Sendable {
             return nil
         }
         let parentID = int64(parent["0"]).map {
-            ForumID(rawValue: $0)
+            ForumID(nga: $0)
         }
         let id: ForumID
         if let stid = int64(parent["1"]), stid > 0 {
-            id = ForumID(stid: stid)
+            id = ForumID(ngaSubforum: stid)
         } else if let parentID {
             id = parentID
         } else {

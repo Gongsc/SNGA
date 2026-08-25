@@ -91,7 +91,7 @@ final class FavoriteRecord {
     ) {
         self.id = id
         self.accountIDString = accountID.description
-        self.forumID = forum.id.rawValue
+        self.forumID = forum.id.ngaRawValue ?? 0
         self.forumName = forum.name
         self.forumSubtitle = forum.subtitle
         self.order = order
@@ -107,11 +107,11 @@ final class FavoriteRecord {
 
     var forum: Forum {
         Forum(
-            id: ForumID(rawValue: forumID),
+            id: ForumID(ngaStoredValue: forumID),
             name: forumName,
             subtitle: forumSubtitle,
             // C12 之后这一位改从存下来的字符串键读，不再从 Int64 里推。
-            isSubforum: ForumID(rawValue: forumID).isSubforum
+            isSubforum: ForumID(ngaStoredValue: forumID).ngaIsSubforum
         )
     }
 }
@@ -150,7 +150,7 @@ final class SubforumPreferenceRecord {
     ) {
         self.id = Self.recordID(accountID: accountID, parentForumID: parentForumID)
         self.accountIDString = accountID.description
-        self.parentForumID = parentForumID.rawValue
+        self.parentForumID = parentForumID.ngaRawValue ?? 0
         self.selectedForumIDsRaw = Self.encode(selectedForumIDs)
         self.updatedAt = Date()
     }
@@ -161,7 +161,7 @@ final class SubforumPreferenceRecord {
                 selectedForumIDsRaw
                     .split(separator: ",")
                     .compactMap { Int64($0) }
-                    .map { ForumID(rawValue: $0) }
+                    .map { ForumID(ngaStoredValue: $0) }
             )
         }
         set {
@@ -171,12 +171,12 @@ final class SubforumPreferenceRecord {
     }
 
     static func recordID(accountID: AccountID, parentForumID: ForumID) -> String {
-        "\(accountID.description):\(parentForumID.rawValue)"
+        "\(accountID.description):\(parentForumID.ngaRawValue ?? 0)"
     }
 
     private static func encode(_ forumIDs: Set<ForumID>) -> String {
         forumIDs
-            .map(\.rawValue)
+            .compactMap(\.ngaRawValue)
             .sorted()
             .map(String.init)
             .joined(separator: ",")
@@ -202,7 +202,7 @@ final class RecentForumRecord {
     ) {
         self.id = Self.recordID(accountID: accountID, forumID: forum.id)
         self.accountIDString = accountID.description
-        self.forumID = forum.id.rawValue
+        self.forumID = forum.id.ngaRawValue ?? 0
         self.forumName = forum.name
         self.forumSubtitle = forum.subtitle
         self.forumIconURLString = forum.iconURL?.absoluteString
@@ -213,14 +213,14 @@ final class RecentForumRecord {
 
     var forum: Forum {
         Forum(
-            id: ForumID(rawValue: forumID),
+            id: ForumID(ngaStoredValue: forumID),
             name: forumName,
             subtitle: forumSubtitle,
             iconURL: forumIconURLString.flatMap(URL.init(string:)),
             category: forumCategory,
             pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:)),
             // C12 之后这一位改从存下来的字符串键读，不再从 Int64 里推。
-            isSubforum: ForumID(rawValue: forumID).isSubforum
+            isSubforum: ForumID(ngaStoredValue: forumID).ngaIsSubforum
         )
     }
 
@@ -238,6 +238,6 @@ final class RecentForumRecord {
     }
 
     static func recordID(accountID: AccountID, forumID: ForumID) -> String {
-        "\(accountID.description):\(forumID.rawValue)"
+        "\(accountID.description):\(forumID.ngaRawValue ?? 0)"
     }
 }

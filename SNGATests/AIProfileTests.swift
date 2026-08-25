@@ -166,7 +166,7 @@ final class AIProfileTests: XCTestCase {
     func testTopicSummaryInputUsesPlainTextAndKeepsOpeningAndNewestPosts() throws {
         let topic = Topic(
             id: TopicID(rawValue: 88),
-            forumID: ForumID(rawValue: 7),
+            forumID: ForumID(nga: 7),
             subject: "测试话题",
             author: "楼主",
             replyCount: 12,
@@ -241,7 +241,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 9),
-            forumID: ForumID(rawValue: 1),
+            forumID: ForumID(nga: 1),
             subject: "需要总结的话题",
             author: "楼主",
             replyCount: 0
@@ -706,7 +706,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 321),
-            forumID: ForumID(rawValue: 1),
+            forumID: ForumID(nga: 1),
             subject: "等待总结",
             author: "楼主",
             replyCount: 0
@@ -756,7 +756,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 9001),
-            forumID: ForumID(rawValue: -7),
+            forumID: ForumID(nga: -7),
             subject: "三页话题",
             author: "楼主",
             replyCount: 5

@@ -8,7 +8,7 @@ actor DebugForumService: ForumService {
     private var checkInRequestCount = 0
     private var checkInStatusRequestCount = 0
     private let forum = Forum(
-        id: ForumID(rawValue: -7),
+        id: ForumID(nga: -7),
         name: "艾泽拉斯国家地理",
         subtitle: "UI 测试版面",
         pinnedTopicID: TopicID(rawValue: 9003)
@@ -66,7 +66,7 @@ actor DebugForumService: ForumService {
                 category: "网事杂谈",
                 pinnedTopicID: forum.pinnedTopicID
             ),
-            Forum(id: ForumID(rawValue: 510381), name: "晴风村", category: "手机游戏")
+            Forum(id: ForumID(nga: 510381), name: "晴风村", category: "手机游戏")
         ]
     }
 

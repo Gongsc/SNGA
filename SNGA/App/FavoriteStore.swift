@@ -133,7 +133,9 @@ final class FavoriteStore {
     func toggleFavorite(_ forum: Forum) async {
         guard let accountID = session.activeAccountID else { return }
         let records = favoriteRecords(accountID: accountID)
-        if let record = records.first(where: { $0.forumID == forum.id.rawValue }) {
+        if let record = records.first(where: {
+            ForumID(ngaStoredValue: $0.forumID) == forum.id
+        }) {
             if record.syncState == .localOnly || !record.serverPresent {
                 session.context.delete(record)
             } else {
@@ -478,9 +480,11 @@ final class FavoriteStore {
 
     private func reconcileFavorites(_ snapshots: [FavoriteSnapshot], accountID: AccountID) {
         let records = favoriteRecords(accountID: accountID)
-        let snapshotIDs = Set(snapshots.map { $0.forum.id.rawValue })
+        let snapshotIDs = Set(snapshots.map(\.forum.id))
         for snapshot in snapshots {
-            if let record = records.first(where: { $0.forumID == snapshot.forum.id.rawValue }) {
+            if let record = records.first(where: {
+                ForumID(ngaStoredValue: $0.forumID) == snapshot.forum.id
+            }) {
                 record.forumName = snapshot.forum.name
                 record.forumSubtitle = snapshot.forum.subtitle
                 record.order = snapshot.order
@@ -496,7 +500,9 @@ final class FavoriteStore {
                 ))
             }
         }
-        for record in records where !snapshotIDs.contains(record.forumID) && record.syncState != .pendingRemove {
+        for record in records
+        where !snapshotIDs.contains(ForumID(ngaStoredValue: record.forumID))
+            && record.syncState != .pendingRemove {
             session.context.delete(record)
         }
         try? session.context.save()
@@ -507,7 +513,10 @@ final class FavoriteStore {
         for record in records where record.syncState == .pendingAdd || record.syncState == .pendingRemove {
             let adding = record.syncState == .pendingAdd
             do {
-                try await service.updateFavorite(forumID: ForumID(rawValue: record.forumID), isFavorite: adding)
+                try await service.updateFavorite(
+                    forumID: ForumID(ngaStoredValue: record.forumID),
+                    isFavorite: adding
+                )
                 if adding {
                     record.syncState = .synced
                     record.serverPresent = true

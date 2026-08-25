@@ -24,18 +24,18 @@ final class ForumSearchTests: XCTestCase {
         XCTAssertNotNil(ForumSearchRequest(
             query: "  测试  ",
             kind: .topicSubject,
-            forumID: ForumID(rawValue: 414)
+            forumID: ForumID(nga: 414)
         ))
         XCTAssertNil(ForumSearchRequest(
             query: "用户",
             kind: .user,
-            forumID: ForumID(rawValue: 414)
+            forumID: ForumID(nga: 414)
         ))
         XCTAssertNil(ForumSearchRequest(query: " \n ", kind: .topicContent))
     }
 
     func testTopicListEndpointUsesSelectedSortOrder() {
-        let forumID = ForumID(rawValue: 414)
+        let forumID = ForumID(nga: 414)
         let latestReply = NGAEndpoint.topics(
             forumID: forumID,
             page: 2,
@@ -118,7 +118,7 @@ final class ForumSearchTests: XCTestCase {
         XCTAssertNil(globalItems["fid"])
         XCTAssertNil(globalItems["stid"])
 
-        let subforumID = ForumID(stid: 35_925_536)
+        let subforumID = ForumID(ngaSubforum: 35_925_536)
         let currentRequest = try XCTUnwrap(
             ForumSearchRequest(
                 query: "客户端",
@@ -167,7 +167,7 @@ final class ForumSearchTests: XCTestCase {
         )
 
         XCTAssertEqual(page.topics.first?.id, TopicID(rawValue: 47_240_001))
-        XCTAssertEqual(page.topics.first?.forumID, ForumID(rawValue: 414))
+        XCTAssertEqual(page.topics.first?.forumID, ForumID(nga: 414))
         XCTAssertEqual(page.topics.first?.subject, "测试主题")
         XCTAssertEqual(page.topics.first?.replyCount, 12)
         XCTAssertEqual(page.totalPages, 3)
@@ -193,8 +193,8 @@ final class ForumSearchTests: XCTestCase {
             from: response(xml, contentType: "text/xml; charset=utf-8")
         )
         XCTAssertEqual(forums.map(\.id), [
-            ForumID(rawValue: 414),
-            ForumID(stid: 35_925_536)
+            ForumID(nga: 414),
+            ForumID(ngaSubforum: 35_925_536)
         ])
 
         let profile = try parser.searchedProfile(from: response("""
