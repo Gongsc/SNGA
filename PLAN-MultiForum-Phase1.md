@@ -1,5 +1,9 @@
 # 阶段 1 提交序列（通用化重构）
 
+> **已完成。** 19 个提交全部落地，另加 3 个计划外的（登录用例改手动、真库迁移验证、
+> 小工具那一组的收尾）。290 单测 + 22 UI 测试通过。执行中与本文不一致的地方记在末尾
+> 「实际执行与计划的出入」。
+
 对应 [PLAN-MultiForum.md](PLAN-MultiForum.md) 的阶段 1。基线为 `e766911`，共 19 个提交。
 
 ## 三条规则
@@ -264,3 +268,56 @@ xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug \
 ```
 
 另外在 C7、C8、C12、C13 之后，各用一份 1.8.2 时期的库跑一次真机启动，确认账号、收藏、最近访问、草稿、子版面偏好都还在。
+
+---
+
+## 实际执行与计划的出入
+
+按提交顺序记，只记与本文写法不同的部分。
+
+**C8 —— `@Attribute(originalName:)` 是对的，但差点被误判。**
+中途一次批量替换把注解本身也改了（`originalName: "siteUserID"` 指向自己），迁移失败，
+我一度以为这个机制对隐式轻量迁移无效。改回正确的列名后一次通过。老库夹具里那条
+1.8.2 写的 `ngaUID` 能读成 `siteUserID`，就是它生效的证据。
+
+**C10 —— 差点静默删掉一个有测试保护的功能。**
+计划写「改成 `forumID.description`」。实际发现目录搜索把 `queryName` 放进了待匹配文本，
+输入「fid 510381」能搜到版面，而且有用例盯着。改成给 `Forum` 加 `searchAliases`，由适配器
+盖章，行为一字不差。
+
+**C12 —— 没有按计划改 `recordID`。**
+改主键算法会让老行查不到，接着被当成新行插进去，变成重复。挪到 C13，和回填同一趟做。
+
+**C13 —— 因此比计划多做一件事：重写存量行的主键。**
+顺带填掉一个阶段 2 的坑：`recordID` 原本回落到 `ngaRawValue ?? 0`，所有 V2EX 版面会撞在 0 上。
+
+**C15 —— 放在描述上而不是服务上。**
+计划写 `ForumService.sanitizedPreviewHTML(_:)`。做不到：`ForumService` 是 actor，而调用点在
+视图 `body` 里，等不了。改放 `ForumSiteDescriptor`，各站的清洗器本来就是无状态值。
+顺带把 `NGAEndpoint.topicWebURL` 一起搬了。
+
+**C17 —— 能力门控比计划里说的小。**
+只有五处「没数据也照样画」的控件需要显式门控，其余在数据为空时本来就不画。
+
+**C19 —— 老画像迁移而不是清空。**
+计划说画像是可再生缓存，清掉即可。但它是花过 token 生成的，而一次性回填那一趟已经在为
+另外三张表做同样的事，加第四张几乎不要钱。`ForumKeyBackfill` 因此更名 `LegacyStoreBackfill`。
+
+**计划外的三个提交：**
+
+- 官方登录页那条 UI 用例改成手动。它弹的对话框是 `NSAlert.beginSheetModal` 挂在
+  SwiftUI sheet 上，XCUITest 查不进内部，每次尝试要 76–96 秒超时，整套跑起来像卡死在
+  弹窗上，而且没人点掉它。排除方式是把方法名从 `test` 前缀改掉 —— 环境变量传不进
+  UI 测试运行器（`SNGA_MANUAL_UI_TESTS=1` 和 `TEST_RUNNER_` 前缀都试过）。
+- 真库迁移验证。在 1.8.2 的工作树里用那个版本自己的模型定义生成了一份真实的 `.store`，
+  作为夹具提交。此前所有迁移用例都是拿新 schema 建内存库再手动装成老行，验的是回落
+  逻辑而不是迁移本身。
+- 小工具独立（T1–T5）排在 C1 之前。
+
+## 遗留
+
+- `AppSession.makeService` 里仍然直接写着 `NGAForumService` —— 那正是 factory 的分支，
+  加站点时编译器会要求补上，不是漏出。
+- 持久化层仍在写 `forumID: Int64` 那一列。**下一个版本可以删掉它**，以及
+  `ForumID.ngaRawValue` / `init(ngaStoredValue:)` 和 `LegacyStoreBackfill` 里的回落分支。
+- 版本号还是 1.8.2，README 未更新。
