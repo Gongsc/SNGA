@@ -1907,7 +1907,11 @@ final class NGAParserTests: XCTestCase {
         let html = parser.sanitizedPostHTML(
             "[img]./mon_202607/23/example.jpg[/img]\n[s:ac:blink]"
         )
-        let deferred = PostImagePolicy.applying(to: html, hidesRemoteImages: true)
+        let deferred = PostImagePolicy.applying(
+            to: html,
+            hidesRemoteImages: true,
+            baseURL: ForumSiteDescriptor.nga.baseURL
+        )
         let document = try SwiftSoup.parse(deferred)
 
         XCTAssertEqual(try document.select(".snga-image-placeholder").count, 1)
@@ -1917,7 +1921,11 @@ final class NGAParserTests: XCTestCase {
         )
         XCTAssertEqual(try document.select("img.nga-smile[src]").count, 1)
         XCTAssertEqual(
-            PostImagePolicy.applying(to: html, hidesRemoteImages: false),
+            PostImagePolicy.applying(
+            to: html,
+            hidesRemoteImages: false,
+            baseURL: ForumSiteDescriptor.nga.baseURL
+        ),
             html
         )
     }

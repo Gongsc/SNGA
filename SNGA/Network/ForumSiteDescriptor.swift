@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// 一个站点的固定资料：从哪里发请求、去哪里登录、哪些域算它的、登录凭据叫什么。
 ///
@@ -62,4 +63,14 @@ extension ForumSiteDescriptor {
         uidCookieName: "ngaPassportUid",
         credentialCookieName: "ngaPassportCid"
     )
+}
+
+extension EnvironmentValues {
+    /// 当前账号所属站点的资料。
+    ///
+    /// 正文渲染埋在 `ThreadPageContentView` → `PostContentView` → `PostWebView` 这一串
+    /// 里面，逐层加参数会把一整条签名链都改一遍，所以走环境。
+    ///
+    /// 默认值是 NGA：目前只有这一个站，缺注入时的表现与从前一致。
+    @Entry var forumSiteDescriptor: ForumSiteDescriptor = .nga
 }

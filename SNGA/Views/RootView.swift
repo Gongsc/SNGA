@@ -25,6 +25,11 @@ struct RootView: View {
                 .background(theme.backgroundColor)
         }
         .navigationSplitViewStyle(.balanced)
+        // 正文渲染要按当前账号所属的站点解析相对地址和站内链接。
+        .environment(
+            \.forumSiteDescriptor,
+            (model.session.activeService?.site ?? .nga).descriptor
+        )
         .background(theme.backgroundColor)
         .tint(theme.accentColor)
         .toolbar {

@@ -90,10 +90,10 @@ final class PostContentHeightCache {
 }
 
 enum PostImagePolicy {
-    static func applying(to html: String, hidesRemoteImages: Bool) -> String {
+    static func applying(to html: String, hidesRemoteImages: Bool, baseURL: URL) -> String {
         guard hidesRemoteImages else { return html }
         do {
-            let document = try SwiftSoup.parse(html, NGAEndpoint.baseURL.absoluteString)
+            let document = try SwiftSoup.parse(html, baseURL.absoluteString)
             for image in try document.select("img") {
                 let source = try image.attr("src")
                 guard !source.isEmpty, !isEmoticon(image, source: source) else { continue }
@@ -123,6 +123,7 @@ enum PostImagePolicy {
 }
 
 struct PostWebView: NSViewRepresentable {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     private static let heightMessageName = "sngaContentHeightChanged"
     private static let imageMessageName = "sngaImageClicked"
     private static let contentReadyMessageName = "sngaContentReady"
@@ -394,7 +395,7 @@ struct PostWebView: NSViewRepresentable {
         configure(webView, coordinator: context.coordinator)
         webView.setValue(false, forKey: "drawsBackground")
         context.coordinator.prepareForLoad(themedHTML)
-        webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
+        webView.loadHTMLString(themedHTML, baseURL: siteDescriptor.baseURL)
         return webView
     }
 
@@ -427,21 +428,24 @@ struct PostWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.siteDescriptor = siteDescriptor
         let themedHTML = context.coordinator.renderedHTML(for: self)
         if context.coordinator.lastHTML != themedHTML {
             context.coordinator.prepareForLoad(themedHTML)
-            webView.loadHTMLString(themedHTML, baseURL: NGAEndpoint.baseURL)
+            webView.loadHTMLString(themedHTML, baseURL: siteDescriptor.baseURL)
         }
     }
 
     fileprivate static func render(
         html: String,
         theme: ResolvedAppTheme,
-        imageFreeMode: Bool
+        imageFreeMode: Bool,
+        baseURL: URL
     ) -> String {
         PostImagePolicy.applying(
             to: theme.applying(to: html),
-            hidesRemoteImages: imageFreeMode
+            hidesRemoteImages: imageFreeMode,
+            baseURL: baseURL
         )
     }
 
@@ -481,6 +485,8 @@ struct PostWebView: NSViewRepresentable {
         let onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void
         let onOpenImage: @MainActor (URL) -> Void
         let onContentReady: @MainActor () -> Void
+        /// 由 `updateNSView` 灌进来 —— Coordinator 读不到环境。
+        var siteDescriptor: ForumSiteDescriptor = .nga
         var lastHTML = ""
         private var renderCache: RenderCache?
         private var documentGeneration = 0
@@ -509,6 +515,8 @@ struct PostWebView: NSViewRepresentable {
             let source: String
             let theme: ResolvedAppTheme
             let imageFreeMode: Bool
+            /// 换站点就要重渲染 —— 相对地址是按它解析的。
+            let baseURL: URL
             let output: String
         }
 
@@ -521,18 +529,21 @@ struct PostWebView: NSViewRepresentable {
             if let renderCache,
                renderCache.source == view.html,
                renderCache.theme == view.theme,
-               renderCache.imageFreeMode == view.imageFreeMode {
+               renderCache.imageFreeMode == view.imageFreeMode,
+               renderCache.baseURL == view.siteDescriptor.baseURL {
                 return renderCache.output
             }
             let output = PostWebView.render(
                 html: view.html,
                 theme: view.theme,
-                imageFreeMode: view.imageFreeMode
+                imageFreeMode: view.imageFreeMode,
+                baseURL: view.siteDescriptor.baseURL
             )
             renderCache = RenderCache(
                 source: view.html,
                 theme: view.theme,
                 imageFreeMode: view.imageFreeMode,
+                baseURL: view.siteDescriptor.baseURL,
                 output: output
             )
             return output
@@ -656,7 +667,7 @@ struct PostWebView: NSViewRepresentable {
                 self.prepareForLoad(html)
                 try? await Task.sleep(for: .milliseconds(200))
                 guard !Task.isCancelled, !self.isInvalidated else { return }
-                webView.loadHTMLString(html, baseURL: NGAEndpoint.baseURL)
+                webView.loadHTMLString(html, baseURL: siteDescriptor.baseURL)
             }
         }
 
@@ -703,7 +714,7 @@ struct PostWebView: NSViewRepresentable {
                 return
             }
             decisionHandler(.cancel)
-            if let destination = NGAInternalLink.destination(for: url) {
+            if let destination = siteDescriptor.internalDestination(for: url) {
                 Task { @MainActor in onOpenInternalLink(destination) }
             } else {
                 NSWorkspace.shared.open(url)
@@ -805,6 +816,7 @@ enum PostContextMenuLocalization {
 }
 
 struct PostBodyView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
@@ -858,7 +870,7 @@ struct PostBodyView: View {
             content: content,
             imageFreeMode: imageFreeMode,
             onOpenLink: { url in
-                if let destination = NGAInternalLink.destination(for: url) {
+                if let destination = siteDescriptor.internalDestination(for: url) {
                     onOpenInternalLink(destination)
                 } else {
                     NSWorkspace.shared.open(url)
