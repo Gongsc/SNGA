@@ -110,7 +110,25 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
     }
 
-    func testOfficialLoginFormDisplaysJavaScriptValidation() {
+    /// 手动用例：对着 NGA 的线上登录页跑，确认官方页面还是那个结构，
+    /// 并且页面用 `alert()` 报的校验错误会弹成原生对话框。
+    ///
+    /// 不进自动化。两个原因：
+    ///
+    /// 1. 校验对话框是 `NSAlert.beginSheetModal` 挂在 SwiftUI sheet 弹出的窗口上，
+    ///    XCUITest 查不进它内部 —— 弹窗元素本身能找到，里面的文字和按钮都是
+    ///    No matches found，而每次尝试要 76–96 秒才超时。整个套件跑起来就像卡死在
+    ///    这张弹窗上，而且用例结束时也没人点掉它。
+    /// 2. 它依赖 nga.cn 的线上页面，慢且会随对方改版而红。
+    ///
+    /// 单独跑的时候是能过的（约五分钟），跑完记得手动点掉最后那张弹窗。
+    ///
+    /// 方法名不以 `test` 开头，XCTest 就发现不了它 —— 这是唯一不依赖环境变量能否传进
+    /// UI 测试运行器的办法（`SNGA_MANUAL_UI_TESTS=1` 和 `TEST_RUNNER_` 前缀都试过，
+    /// 都到不了测试包里）。要跑就把方法名临时改回 `test` 开头，再：
+    ///
+    ///     -only-testing:SNGAUITests/SNGAUITests/testOfficialLoginFormDisplaysJavaScriptValidation
+    func manualOfficialLoginFormDisplaysJavaScriptValidation() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting"]
