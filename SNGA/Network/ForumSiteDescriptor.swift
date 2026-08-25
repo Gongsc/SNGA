@@ -43,6 +43,22 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 编辑器预览用的正文清洗。
+    ///
+    /// 同步返回：视图 body 里等不了 actor，而各站的清洗器都是无状态的。
+    func sanitizedPreviewHTML(_ source: String) -> String {
+        switch site {
+        case .nga: NGAParser().sanitizedPostHTML(source)
+        }
+    }
+
+    /// 话题在网页版的地址，用于「复制链接」和「在浏览器中打开」。
+    func topicWebURL(topicID: TopicID) -> URL {
+        switch site {
+        case .nga: NGAEndpoint.topicWebURL(topicID: topicID)
+        }
+    }
+
     private static func matches(_ host: String, against domains: [String]) -> Bool {
         let host = host.lowercased()
         return domains.contains { domain in

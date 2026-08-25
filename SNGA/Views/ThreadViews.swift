@@ -16,6 +16,7 @@ private struct ThreadPresentation {
 }
 
 struct ThreadView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
@@ -536,7 +537,7 @@ struct ThreadView: View {
     }
 
     private var topicURL: URL? {
-        model.thread.selectedTopicID.map(NGAEndpoint.topicWebURL(topicID:))
+        model.thread.selectedTopicID.map(siteDescriptor.topicWebURL(topicID:))
     }
 
     private func copyTopicLink() {
@@ -1336,6 +1337,7 @@ struct HotRepliesSection: View {
 }
 
 struct ReplyComposerView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.sngaTheme) private var theme
@@ -1441,7 +1443,7 @@ struct ReplyComposerView: View {
                     .padding(8)
             case .preview:
                 ScrollView {
-                    PostBodyView(html: NGAParser().sanitizedPostHTML(content))
+                    PostBodyView(html: siteDescriptor.sanitizedPreviewHTML(content))
                         .padding()
                 }
             }
