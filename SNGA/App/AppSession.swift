@@ -70,7 +70,7 @@ final class AppSession {
         accountID: AccountID,
         cookies: [SessionCookie]
     ) -> any ForumService {
-        LiveNGAForumService(accountID: accountID, cookies: cookies) { [sessionStore] cookies in
+        NGAForumService(accountID: accountID, cookies: cookies) { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
     }

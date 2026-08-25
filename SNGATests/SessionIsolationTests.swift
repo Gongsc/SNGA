@@ -132,7 +132,7 @@ final class SessionIsolationTests: XCTestCase {
             SessionCookie(name: "ngaPassportUid", value: "123", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true),
             SessionCookie(name: "ngaPassportCid", value: "secret-token", domain: "bbs.nga.cn", path: "/", expiresAt: nil, isSecure: true, isHTTPOnly: true)
         ]
-        let service = LiveNGAForumService(
+        let service = NGAForumService(
             accountID: AccountID(),
             cookies: cookies,
             transport: transport
@@ -161,7 +161,7 @@ final class SessionIsolationTests: XCTestCase {
 
     func testTopicRatingUsesDimensionIDInReplyFormAndSubmitsExactlyOnce() async throws {
         let transport = ReplySubmissionTransport()
-        let service = LiveNGAForumService(
+        let service = NGAForumService(
             accountID: AccountID(),
             cookies: [],
             transport: transport
@@ -196,7 +196,7 @@ final class SessionIsolationTests: XCTestCase {
 
     func testTopicPollSubmitsOfficialFormExactlyOnce() async throws {
         let transport = TopicPollSubmissionTransport()
-        let service = LiveNGAForumService(
+        let service = NGAForumService(
             accountID: AccountID(),
             cookies: [],
             transport: transport
@@ -235,7 +235,7 @@ final class SessionIsolationTests: XCTestCase {
 
     func testThreadFallsBackToWebHTMLWhenStructuredResponseHasNoPosts() async throws {
         let transport = ThreadFallbackTransport()
-        let service = LiveNGAForumService(
+        let service = NGAForumService(
             accountID: AccountID(),
             cookies: [],
             transport: transport
