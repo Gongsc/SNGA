@@ -3,6 +3,7 @@ import Foundation
 actor NGAForumService: ForumService {
     nonisolated let accountID: AccountID
     nonisolated let site: ForumSite = .nga
+    nonisolated let capabilities: ForumCapabilities = .all
     private let client: NGANetworkClient
     private let parser: NGAParser
 
