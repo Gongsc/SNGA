@@ -9,11 +9,17 @@ enum LoginPageState: Equatable {
 }
 
 struct LoginWebView: NSViewRepresentable {
+    /// 去哪个站登录、认哪些 Cookie，全从这里读。
+    var descriptor: ForumSiteDescriptor
     var onStateChange: @MainActor (LoginPageState) -> Void
     var onAuthenticated: @MainActor (LoginCapture) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onStateChange: onStateChange, onAuthenticated: onAuthenticated)
+        Coordinator(
+            descriptor: descriptor,
+            onStateChange: onStateChange,
+            onAuthenticated: onAuthenticated
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -26,7 +32,7 @@ struct LoginWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.startMonitoringCookies(in: webView)
-        var request = URLRequest(url: ForumSiteDescriptor.nga.loginURL)
+        var request = URLRequest(url: descriptor.loginURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         webView.load(request)
@@ -43,15 +49,18 @@ struct LoginWebView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        private let descriptor: ForumSiteDescriptor
         private let onStateChange: @MainActor (LoginPageState) -> Void
         private let onAuthenticated: @MainActor (LoginCapture) -> Void
         private var completed = false
         private var cookieMonitor: Task<Void, Never>?
 
         init(
+            descriptor: ForumSiteDescriptor,
             onStateChange: @escaping @MainActor (LoginPageState) -> Void,
             onAuthenticated: @escaping @MainActor (LoginCapture) -> Void
         ) {
+            self.descriptor = descriptor
             self.onStateChange = onStateChange
             self.onAuthenticated = onAuthenticated
         }
@@ -100,7 +109,7 @@ struct LoginWebView: NSViewRepresentable {
             completionHandler: @escaping @MainActor @Sendable () -> Void
         ) {
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = message
             alert.addButton(withTitle: "好")
             present(alert, in: webView) { _ in completionHandler() }
@@ -113,7 +122,7 @@ struct LoginWebView: NSViewRepresentable {
             completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
         ) {
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = message
             alert.addButton(withTitle: "确定")
             alert.addButton(withTitle: "取消")
@@ -133,7 +142,7 @@ struct LoginWebView: NSViewRepresentable {
             field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
 
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = prompt
             alert.accessoryView = field
             alert.addButton(withTitle: "确定")
@@ -180,7 +189,7 @@ struct LoginWebView: NSViewRepresentable {
         private func report(_ error: Error) {
             let nsError = error as NSError
             guard nsError.code != NSURLErrorCancelled else { return }
-            onStateChange(.failed("无法载入 NGA 登录页面：\(error.localizedDescription)"))
+            onStateChange(.failed("无法载入\(descriptor.displayName)登录页面：\(error.localizedDescription)"))
         }
 
         private func present(
@@ -199,7 +208,7 @@ struct LoginWebView: NSViewRepresentable {
             guard !completed else { return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self, !self.completed else { return }
-                let descriptor = ForumSiteDescriptor.nga
+                let descriptor = self.descriptor
                 let siteCookies = cookies
                     .filter { descriptor.owns(cookieDomain: $0.domain) }
                     .map(SessionCookie.init)
@@ -213,7 +222,11 @@ struct LoginWebView: NSViewRepresentable {
                 self.completed = true
                 self.stopMonitoringCookies()
                 Task { @MainActor in
-                    self.onAuthenticated(LoginCapture(uid: uid, cookies: siteCookies))
+                    self.onAuthenticated(LoginCapture(
+                        site: descriptor.site,
+                        uid: uid,
+                        cookies: siteCookies
+                    ))
                 }
             }
         }
@@ -223,7 +236,9 @@ struct LoginWebView: NSViewRepresentable {
 struct LoginSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    var title = "登录 NGA"
+    /// 要登录哪个站。站点选择菜单属于阶段 4，在那之前只有 NGA 可选。
+    var site: ForumSite = .nga
+    var title: String { "登录 \(site.displayName)" }
     @State private var pageState: LoginPageState = .loading
     @State private var loadAttempt = UUID()
 
@@ -233,7 +248,7 @@ struct LoginSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.headline)
-                    Text("登录过程由 NGA 官方页面完成，SNGA 不读取或保存密码。")
+                    Text("登录过程由 \(site.displayName) 官方页面完成，SNGA 不读取或保存密码。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -247,6 +262,7 @@ struct LoginSheet: View {
 
             ZStack {
                 LoginWebView(
+                    descriptor: site.descriptor,
                     onStateChange: { pageState = $0 },
                     onAuthenticated: { capture in
                         Task {
@@ -261,7 +277,7 @@ struct LoginSheet: View {
                 case .loading:
                     VStack(spacing: 10) {
                         ProgressView()
-                        Text("正在载入 NGA 登录页面…")
+                        Text("正在载入 \(site.displayName) 登录页面…")
                             .foregroundStyle(.secondary)
                     }
                     .padding(20)

@@ -448,6 +448,8 @@ struct SessionCookie: Codable, Hashable, Sendable {
 }
 
 struct LoginCapture: Sendable {
+    /// 这次登录发生在哪个站。账号按「站点 + uid」认，两者缺一不可。
+    var site: ForumSite
     var uid: Int64
     var cookies: [SessionCookie]
 }

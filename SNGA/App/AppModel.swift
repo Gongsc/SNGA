@@ -220,8 +220,7 @@ final class AppModel {
     func addAccount(capture: LoginCapture) async {
         do {
             let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
-            // C18 起站点由 capture 带来；在那之前只有 NGA 能登录。
-            let site = ForumSite.nga
+            let site = capture.site
             let record: AccountRecord
             // 认账号要连站点一起看：两个站的同号用户是两个账号。
             if let existing = records.first(where: {
