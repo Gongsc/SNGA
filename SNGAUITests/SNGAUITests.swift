@@ -655,6 +655,36 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
+    /// 小工具读的是 60s 开放接口，不需要账号 —— 一个账号都没添加时它也得能用。
+    ///
+    /// 这里不带 `--uitesting-seed` 启动，因此边栏上除了「账号」就只剩「工具」。
+    /// 只断言导航，不碰网络：资讯拉没拉到手在这条用例的关心范围之外。
+    func testToolboxIsReachableWithoutAnyAccount() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["添加账号"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["全部版面"].exists)
+
+        XCTAssertTrue(app.buttons["小工具"].waitForExistence(timeout: 5))
+        app.buttons["小工具"].click()
+        assertModule(
+            "小工具",
+            refreshIdentifier: "toolbox-refresh",
+            in: app
+        )
+
+        XCTAssertTrue(app.buttons["toolbox-feed-worldBriefing"].waitForExistence(timeout: 5))
+        app.buttons["toolbox-feed-aiNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-aiNews"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
     /// 设置整个长在主窗口里：应用菜单里的「设置…」不再弹窗，而是把边栏切到
     /// 设置，中栏列分类、右栏放面板。断言全部落在主窗口内。
     ///

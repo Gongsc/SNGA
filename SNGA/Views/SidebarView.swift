@@ -32,6 +32,11 @@ struct SidebarView: View {
                 .sidebarListRow()
             }
 
+            // 小工具读的是 60s 开放接口，不需要账号 —— 所以它在账号门槛外面。
+            Section("工具") {
+                sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
+            }
+
             if model.session.activeAccountID != nil {
                 Section("浏览") {
                     sidebarButton(
@@ -48,7 +53,6 @@ struct SidebarView: View {
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
-                    sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
                     sidebarButton(
                         "论坛消息",
                         systemImage: "bell",
