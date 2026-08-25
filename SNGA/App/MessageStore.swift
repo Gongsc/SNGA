@@ -259,7 +259,7 @@ final class MessageStore {
     }
 
     private func unifiedMessageFeedPage(
-        service: any NGAForumService,
+        service: any ForumService,
         page: Int,
         accountID: AccountID
     ) async throws -> MessagePage {

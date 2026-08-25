@@ -30,7 +30,7 @@ enum ForumServiceError: LocalizedError, Equatable, Sendable {
     }
 }
 
-protocol NGAForumService: Sendable {
+protocol ForumService: Sendable {
     var accountID: AccountID { get }
 
     func profile(uid: Int64) async throws -> Profile

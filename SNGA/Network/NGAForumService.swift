@@ -1,6 +1,6 @@
 import Foundation
 
-actor LiveNGAForumService: NGAForumService {
+actor LiveNGAForumService: ForumService {
     nonisolated let accountID: AccountID
     private let client: NGANetworkClient
     private let parser: NGAParser

@@ -50,7 +50,7 @@ final class AppModel {
     /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
     let toolbox = ToolboxStore()
 
-    private var activeService: (any NGAForumService)? { session.activeService }
+    private var activeService: (any ForumService)? { session.activeService }
 
     init(
         container: ModelContainer,

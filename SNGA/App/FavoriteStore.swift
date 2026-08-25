@@ -502,7 +502,7 @@ final class FavoriteStore {
         try? session.context.save()
     }
 
-    private func replayFavoriteChanges(accountID: AccountID, service: any NGAForumService) async {
+    private func replayFavoriteChanges(accountID: AccountID, service: any ForumService) async {
         let records = favoriteRecords(accountID: accountID)
         for record in records where record.syncState == .pendingAdd || record.syncState == .pendingRemove {
             let adding = record.syncState == .pendingAdd

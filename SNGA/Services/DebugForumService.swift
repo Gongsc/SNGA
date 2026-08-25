@@ -1,7 +1,7 @@
 #if DEBUG
 import Foundation
 
-actor DebugForumService: NGAForumService {
+actor DebugForumService: ForumService {
     nonisolated let accountID: AccountID
     private var isCheckedInToday = false
     private var checkInRequestCount = 0

@@ -28,7 +28,7 @@ final class AppSession {
     @ObservationIgnored let context: ModelContext
     @ObservationIgnored let sessionStore: any SessionStore
     @ObservationIgnored let notificationService: NotificationService
-    @ObservationIgnored private var services: [AccountID: any NGAForumService] = [:]
+    @ObservationIgnored private var services: [AccountID: any ForumService] = [:]
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
 
@@ -51,12 +51,12 @@ final class AppSession {
         accounts.first { $0.id == activeAccountID }
     }
 
-    var activeService: (any NGAForumService)? {
+    var activeService: (any ForumService)? {
         guard let activeAccountID else { return nil }
         return services[activeAccountID]
     }
 
-    func service(for accountID: AccountID) -> (any NGAForumService)? {
+    func service(for accountID: AccountID) -> (any ForumService)? {
         services[accountID]
     }
 
@@ -69,13 +69,13 @@ final class AppSession {
     func makeService(
         accountID: AccountID,
         cookies: [SessionCookie]
-    ) -> any NGAForumService {
+    ) -> any ForumService {
         LiveNGAForumService(accountID: accountID, cookies: cookies) { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
     }
 
-    func setService(_ service: (any NGAForumService)?, for accountID: AccountID) {
+    func setService(_ service: (any ForumService)?, for accountID: AccountID) {
         services[accountID] = service
     }
 
