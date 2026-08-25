@@ -90,6 +90,7 @@
 		D063609FC31CF9952CFED316 /* PostRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC014ABFCB1046028FD4BA63 /* PostRatingView.swift */; };
 		D0A27031E2C58EF65C3F0AD6 /* FavoriteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3180FEA94D1F725A0242698D /* FavoriteStore.swift */; };
 		D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D5977B956991E18788ADB30 /* MessageViews.swift */; };
+		D506C12DBFB018535C82577E /* ToolboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E950E4FF757AC971AA2BD8 /* ToolboxTests.swift */; };
 		DAA62276959C740AEA77C810 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF41ABB8FA16D66B3B59DCF /* ThreadPageContentView.swift */; };
 		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
 		DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */; };
@@ -125,6 +126,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		01E950E4FF757AC971AA2BD8 /* ToolboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxTests.swift; sourceTree = "<group>"; };
 		031E35758A35B9D8662A49B2 /* ForumSearchPaginationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchPaginationBar.swift; sourceTree = "<group>"; };
 		0326231AEBAAE74C3AD8B7F6 /* PostContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContent.swift; sourceTree = "<group>"; };
 		04583C294B1E0994FAB7581D /* CheckInScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScheduler.swift; sourceTree = "<group>"; };
@@ -423,6 +425,7 @@
 				6817FFD7353256F7177C155E /* SessionIsolationTests.swift */,
 				E0D1CDCE14043E463E93019F /* ThemeContrastTests.swift */,
 				D3B57BC737D643FDBD7E54C5 /* ThemePaletteTests.swift */,
+				01E950E4FF757AC971AA2BD8 /* ToolboxTests.swift */,
 			);
 			path = SNGATests;
 			sourceTree = "<group>";
@@ -653,6 +656,7 @@
 				4A001FD0F1762C51AB89C9DD /* SessionIsolationTests.swift in Sources */,
 				EB16F85267F3AE616A565C22 /* ThemeContrastTests.swift in Sources */,
 				8D38607079CC908C49FBAA51 /* ThemePaletteTests.swift in Sources */,
+				D506C12DBFB018535C82577E /* ToolboxTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
