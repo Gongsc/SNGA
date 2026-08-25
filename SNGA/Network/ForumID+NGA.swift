@@ -54,3 +54,18 @@ extension ForumID {
         return ngaIsSubforum ? Int64.min &+ ngaValue : ngaValue
     }
 }
+
+extension ForumID {
+    /// 从一条记录里读出版面身份。
+    ///
+    /// C12 起每行同时写站点和键；C13 回填之前，老行的键还是空的，那时只能回落到
+    /// 1.8.2 就在存的那个 NGA Int64。键一旦有值就以它为准 —— 非 NGA 的版面根本
+    /// 没有对应的 Int64 可回落。
+    init(storedSite siteRawValue: String, key: String, legacyNGAValue: Int64) {
+        guard !key.isEmpty, let site = ForumSite(rawValue: siteRawValue) else {
+            self.init(ngaStoredValue: legacyNGAValue)
+            return
+        }
+        self.init(site: site, key: key)
+    }
+}

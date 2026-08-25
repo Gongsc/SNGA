@@ -134,7 +134,7 @@ final class FavoriteStore {
         guard let accountID = session.activeAccountID else { return }
         let records = favoriteRecords(accountID: accountID)
         if let record = records.first(where: {
-            ForumID(ngaStoredValue: $0.forumID) == forum.id
+            $0.forumIdentifier == forum.id
         }) {
             if record.syncState == .localOnly || !record.serverPresent {
                 session.context.delete(record)
@@ -483,8 +483,11 @@ final class FavoriteStore {
         let snapshotIDs = Set(snapshots.map(\.forum.id))
         for snapshot in snapshots {
             if let record = records.first(where: {
-                ForumID(ngaStoredValue: $0.forumID) == snapshot.forum.id
+                $0.forumIdentifier == snapshot.forum.id
             }) {
+                // 老行的键还是空的，顺手补上；C13 会把剩下的一次补完。
+                record.forumSiteRaw = snapshot.forum.id.site.rawValue
+                record.forumKey = snapshot.forum.id.key
                 record.forumName = snapshot.forum.name
                 record.forumSubtitle = snapshot.forum.subtitle
                 record.order = snapshot.order
@@ -501,7 +504,7 @@ final class FavoriteStore {
             }
         }
         for record in records
-        where !snapshotIDs.contains(ForumID(ngaStoredValue: record.forumID))
+        where !snapshotIDs.contains(record.forumIdentifier)
             && record.syncState != .pendingRemove {
             session.context.delete(record)
         }
@@ -514,7 +517,7 @@ final class FavoriteStore {
             let adding = record.syncState == .pendingAdd
             do {
                 try await service.updateFavorite(
-                    forumID: ForumID(ngaStoredValue: record.forumID),
+                    forumID: record.forumIdentifier,
                     isFavorite: adding
                 )
                 if adding {

@@ -226,6 +226,115 @@ final class ForumIdentityTests: XCTestCase {
         XCTAssertTrue(record.selectedForumIDs.isEmpty)
     }
 
+    // MARK: - 加上键那一列之后的老行
+
+    /// 1.8.2 的库迁移过来之后，老行的样子就是这样：站点列取到默认值 nga，
+    /// 键那一列是空的，真正的版面身份只在那个 Int64 里。读出来必须还是同一个版面。
+    @MainActor
+    func testRowWrittenBeforeTheKeyColumnStillReadsItsForum() throws {
+        let container = try Self.makeContainer("ForumIdentityTests.LegacyRow")
+        let context = ModelContext(container)
+        let accountID = AccountID()
+        let plain = Forum(id: ForumID(nga: 414), name: "综合游戏讨论区")
+        let subforum = Forum(id: ForumID(ngaSubforum: 35_925_536), name: "幻兽帕鲁")
+
+        for (order, forum) in [plain, subforum].enumerated() {
+            let record = FavoriteRecord(
+                accountID: accountID,
+                forum: forum,
+                order: order,
+                syncState: .synced,
+                serverPresent: true
+            )
+            // 装成迁移过来的老行：键那一列还没人填过。
+            record.forumKey = ""
+            context.insert(record)
+        }
+        try context.save()
+
+        let stored = try ModelContext(container)
+            .fetch(FetchDescriptor<FavoriteRecord>(sortBy: [SortDescriptor(\.order)]))
+
+        XCTAssertEqual(stored.map(\.forumKey), ["", ""], "这两行应该还是老样子")
+        XCTAssertEqual(stored.map(\.forumIdentifier), [plain.id, subforum.id])
+        XCTAssertEqual(stored.map(\.forum.isSubforum), [false, true])
+    }
+
+    @MainActor
+    func testSubforumSelectionWrittenBeforeTheKeyColumnStillReads() throws {
+        let container = try Self.makeContainer("ForumIdentityTests.LegacySelection")
+        let context = ModelContext(container)
+        let selected: Set<ForumID> = [
+            ForumID(nga: 510_381),
+            ForumID(ngaSubforum: 35_925_536)
+        ]
+
+        let record = SubforumPreferenceRecord(
+            accountID: AccountID(),
+            parentForumID: ForumID(nga: 414),
+            selectedForumIDs: selected
+        )
+        record.parentForumKey = ""
+        record.selectedForumKeysRaw = ""
+        context.insert(record)
+        try context.save()
+
+        let stored = try XCTUnwrap(
+            try ModelContext(container)
+                .fetch(FetchDescriptor<SubforumPreferenceRecord>())
+                .first
+        )
+
+        XCTAssertEqual(stored.parentForumIdentifier, ForumID(nga: 414))
+        XCTAssertEqual(stored.selectedForumIDs, selected)
+    }
+
+    /// 新写的行两边都要有值，否则 C13 回填完、下个版本删掉 Int64 那天就丢数据了。
+    @MainActor
+    func testNewRowsWriteBothTheKeyAndTheLegacyValue() throws {
+        let container = try Self.makeContainer("ForumIdentityTests.DualWrite")
+        let context = ModelContext(container)
+        let accountID = AccountID()
+        let subforum = Forum(id: ForumID(ngaSubforum: 35_925_536), name: "幻兽帕鲁")
+
+        context.insert(FavoriteRecord(
+            accountID: accountID,
+            forum: subforum,
+            order: 0,
+            syncState: .synced,
+            serverPresent: true
+        ))
+        context.insert(RecentForumRecord(accountID: accountID, forum: subforum))
+        try context.save()
+
+        let fresh = ModelContext(container)
+        let favorite = try XCTUnwrap(try fresh.fetch(FetchDescriptor<FavoriteRecord>()).first)
+        let recent = try XCTUnwrap(try fresh.fetch(FetchDescriptor<RecentForumRecord>()).first)
+
+        for (key, site, legacy) in [
+            (favorite.forumKey, favorite.forumSiteRaw, favorite.forumID),
+            (recent.forumKey, recent.forumSiteRaw, recent.forumID)
+        ] {
+            XCTAssertEqual(key, "s35925536")
+            XCTAssertEqual(site, ForumSite.nga.rawValue)
+            XCTAssertEqual(legacy, Int64.min + 35_925_536)
+        }
+        XCTAssertEqual(favorite.forumIdentifier, subforum.id)
+        XCTAssertEqual(recent.forumIdentifier, subforum.id)
+    }
+
+    /// 键有值的时候以键为准 —— 非 NGA 的版面根本没有可回落的 Int64。
+    func testKeyWinsOverTheLegacyValueWhenBothArePresent() {
+        XCTAssertEqual(
+            ForumID(storedSite: "nga", key: "s35925536", legacyNGAValue: 999),
+            ForumID(ngaSubforum: 35_925_536)
+        )
+        XCTAssertEqual(
+            ForumID(storedSite: "nga", key: "", legacyNGAValue: 414),
+            ForumID(nga: 414)
+        )
+    }
+
     // MARK: - 记录主键的性质
 
     /// C12 会把主键里的版面部分从 `rawValue` 换成字符串键，所以这里钉的是性质，
