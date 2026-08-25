@@ -71,30 +71,3 @@ protocol SessionStore: Sendable {
     func save(cookies: [SessionCookie], for accountID: AccountID) async throws
     func remove(accountID: AccountID) async throws
 }
-
-protocol HTTPTransport: Sendable {
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse)
-}
-
-struct URLSessionTransport: HTTPTransport {
-    private let session: URLSession
-
-    init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpShouldSetCookies = false
-        configuration.httpCookieAcceptPolicy = .never
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 25
-        configuration.timeoutIntervalForResource = 45
-        configuration.httpMaximumConnectionsPerHost = 4
-        session = URLSession(configuration: configuration)
-    }
-
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else {
-            throw NGAServiceError.invalidResponse
-        }
-        return (data, response)
-    }
-}

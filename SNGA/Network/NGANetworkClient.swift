@@ -97,7 +97,12 @@ actor NGANetworkClient {
                     category: "network",
                     "\(request.httpMethod ?? "GET") \(RuntimeLogger.sanitizedURL(endpoint.url)) attempt=\(attempt)"
                 )
-                let (data, response) = try await transport.data(for: request)
+                let (data, response): (Data, HTTPURLResponse)
+                do {
+                    (data, response) = try await transport.data(for: request)
+                } catch HTTPTransportError.invalidResponse {
+                    throw NGAServiceError.invalidResponse
+                }
                 let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
                 await RuntimeLogger.shared.log(
                     category: "network",
