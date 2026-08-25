@@ -98,6 +98,7 @@ struct SidebarView: View {
                     }
                 }
 
+                if model.session.supports(.forumFavorites) {
                 Section("收藏版面") {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
@@ -138,6 +139,7 @@ struct SidebarView: View {
                             "favorite-forum-\(favorite.forum.id.description)"
                         )
                     }
+                }
                 }
             }
         }

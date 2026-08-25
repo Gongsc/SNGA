@@ -99,7 +99,17 @@ final class FavoriteStore {
         }
     }
 
+    /// 版面收藏是主动去拉的，所以门控放在这里而不是六个调用点上 ——
+    /// 漏一个就会在启动时弹一个「不支持」。
     func refreshFavorites() async {
+        guard session.supports(.forumFavorites) else {
+            favorites = []
+            return
+        }
+        await performRefreshFavorites()
+    }
+
+    private func performRefreshFavorites() async {
         guard let accountID = session.activeAccountID else {
             favorites = []
             return
@@ -131,7 +141,8 @@ final class FavoriteStore {
     }
 
     func toggleFavorite(_ forum: Forum) async {
-        guard let accountID = session.activeAccountID else { return }
+        guard session.supports(.forumFavorites),
+              let accountID = session.activeAccountID else { return }
         let records = favoriteRecords(accountID: accountID)
         if let record = records.first(where: {
             $0.forumIdentifier == forum.id

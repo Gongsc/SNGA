@@ -1579,7 +1579,7 @@ struct ReplyComposerView: View {
             }
         }
 
-        if model.session.supports(.ubbEditor) {
+        if siteDescriptor.replyMarkup == .ubb {
             Button {
                 showsEmoticons = true
             } label: {

@@ -1324,6 +1324,7 @@ struct TopicListView: View {
                     .help("回到话题列表顶部")
                     .accessibilityIdentifier("topic-list-scroll-to-top")
 
+                    if model.session.supports(.forumFavorites) {
                     Button {
                         guard let forum = model.browsing.currentForum else { return }
                         Task { await model.favorite.toggleFavorite(forum) }
@@ -1337,6 +1338,7 @@ struct TopicListView: View {
                     .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
                     .disabled(model.browsing.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
+                    }
 
                     Button {
                         Task {

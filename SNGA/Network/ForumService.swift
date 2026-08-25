@@ -70,6 +70,20 @@ protocol ForumService: Sendable {
     func checkIn() async throws -> CheckInResult
 }
 
+extension ForumService {
+    /// 不支持收藏版面的站点不必写这两个方法的空实现。
+    ///
+    /// 界面按 `capabilities` 决定画不画，正常路径不会走到这里；真走到了说明有个
+    /// 调用点漏了门控，这个报错就是用来指出它的。
+    func favorites() async throws -> [Forum] {
+        throw ForumServiceError.unsupported("\(site.displayName) 不支持收藏版面")
+    }
+
+    func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws {
+        throw ForumServiceError.unsupported("\(site.displayName) 不支持收藏版面")
+    }
+}
+
 protocol SessionStore: Sendable {
     func cookies(for accountID: AccountID) async throws -> [SessionCookie]
     func save(cookies: [SessionCookie], for accountID: AccountID) async throws

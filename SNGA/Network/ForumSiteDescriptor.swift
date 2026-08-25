@@ -5,8 +5,19 @@ import SwiftUI
 ///
 /// 这些值原本散在 `NGAEndpoint`、`NGAInternalLink` 和 `LoginWebView` 里各写一份。
 /// 收到这里之后，接第二个站点时要填的东西一眼可数，而不必回去把三处逐个找出来。
+/// 回复正文用哪种标记语言。
+///
+/// 不做成两个能力位：站点只会用其中一种，两个位允许出现「都开」和「都关」这两种
+/// 没有意义的状态。
+enum ReplyMarkup: String, Codable, Sendable {
+    case ubb
+    case markdown
+}
+
 struct ForumSiteDescriptor: Sendable {
     let site: ForumSite
+    /// 回复用哪种标记。决定编辑器给哪一套工具条。
+    let replyMarkup: ReplyMarkup
     /// 所有接口请求的根地址，也是渲染楼层正文时给 `WKWebView` 的 base URL。
     let baseURL: URL
     /// 内嵌登录页。登录流程由站点官方页面完成，应用不碰密码。
@@ -70,6 +81,7 @@ struct ForumSiteDescriptor: Sendable {
 extension ForumSiteDescriptor {
     static let nga = ForumSiteDescriptor(
         site: .nga,
+        replyMarkup: .ubb,
         baseURL: URL(string: "https://bbs.nga.cn")!,
         loginURL: URL(string: "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login")!,
         cookieDomains: ["nga.cn"],

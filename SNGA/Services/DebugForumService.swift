@@ -4,7 +4,8 @@ import Foundation
 actor DebugForumService: ForumService {
     nonisolated let accountID: AccountID
     nonisolated let site: ForumSite = .nga
-    nonisolated let capabilities: ForumCapabilities = .all
+    /// 可注入：用来验「站点缺某个能力时会怎样」，而不必等真适配器写出来。
+    nonisolated let capabilities: ForumCapabilities
     private var isCheckedInToday = false
     private var checkInRequestCount = 0
     private var checkInStatusRequestCount = 0
@@ -15,8 +16,9 @@ actor DebugForumService: ForumService {
         pinnedTopicID: TopicID(rawValue: 9003)
     )
 
-    init(accountID: AccountID) {
+    init(accountID: AccountID, capabilities: ForumCapabilities = .all) {
         self.accountID = accountID
+        self.capabilities = capabilities
     }
 
     func profile(uid: Int64) async throws -> Profile {

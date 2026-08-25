@@ -91,6 +91,8 @@ final class ForumSiteTests: XCTestCase {
             XCTAssertFalse(descriptor.credentialCookieName.isEmpty)
             XCTAssertTrue(descriptor.loginURL.absoluteString.hasPrefix("https://"))
             XCTAssertTrue(descriptor.baseURL.absoluteString.hasPrefix("https://"))
+            // 每个站都得挑定一种回复标记 —— 编辑器按它给工具条。
+            XCTAssertTrue([.ubb, .markdown].contains(descriptor.replyMarkup))
         }
     }
 
@@ -172,9 +174,9 @@ final class ForumSiteTests: XCTestCase {
     /// 这里按位盯住：`.all` 必须是所有已声明位的全集。
     func testAllContainsEveryDeclaredCapability() {
         let declared: [ForumCapabilities] = [
-            .checkIn, .postVote, .topicRating, .poll, .subforums,
-            .topicFavoriteFolders, .privateMessages, .globalSearch,
-            .userActivities, .ubbEditor, .anonymousPosts
+            .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
+            .subforums, .forumFavorites, .topicFavoriteFolders, .privateMessages,
+            .globalSearch, .userActivities, .anonymousPosts
         ]
         for capability in declared {
             XCTAssertTrue(ForumCapabilities.all.contains(capability))
@@ -194,7 +196,7 @@ final class ForumSiteTests: XCTestCase {
         XCTAssertEqual(session.activeCapabilities, .all)
         for capability in [
             ForumCapabilities.checkIn, .postVote, .privateMessages,
-            .globalSearch, .ubbEditor
+            .globalSearch, .forumFavorites, .quotePost
         ] {
             XCTAssertTrue(session.supports(capability))
         }
@@ -209,12 +211,50 @@ final class ForumSiteTests: XCTestCase {
         XCTAssertFalse(session.supports(.checkIn))
     }
 
+    /// 版面收藏是主动去拉的，所以门控必须挡在调用层。NodeSeek 没有这个功能，
+    /// 光把侧栏那一块藏起来的话，它一登录就会在启动时弹「不支持收藏版面」。
+    @MainActor
+    func testRefreshFavoritesDoesNotCallASiteThatCannotDoIt() async throws {
+        let accountID = AccountID()
+        let model = try Self.makeModel(
+            withServiceFor: accountID,
+            capabilities: ForumCapabilities.all.subtracting(.forumFavorites)
+        )
+
+        await model.favorite.refreshFavorites()
+
+        XCTAssertFalse(model.session.supports(.forumFavorites))
+        XCTAssertTrue(model.favorite.favorites.isEmpty)
+        XCTAssertNil(model.session.errorMessage, "不该因为拉不支持的数据而报错")
+    }
+
+    /// 反过来：能力在的时候照拉不误，否则上面那条用例可能只是因为什么都没发生。
+    @MainActor
+    func testRefreshFavoritesStillRunsWhenTheSiteSupportsIt() async throws {
+        let accountID = AccountID()
+        let model = try Self.makeModel(withServiceFor: accountID)
+
+        await model.favorite.refreshFavorites()
+
+        XCTAssertTrue(model.session.supports(.forumFavorites))
+        XCTAssertFalse(model.favorite.favorites.isEmpty, "调试服务本来会给出一个收藏版面")
+    }
+
     // MARK: -
 
     @MainActor
     private static func makeSession(
-        withServiceFor accountID: AccountID?
+        withServiceFor accountID: AccountID?,
+        capabilities: ForumCapabilities = .all
     ) throws -> AppSession {
+        try makeModel(withServiceFor: accountID, capabilities: capabilities).session
+    }
+
+    @MainActor
+    private static func makeModel(
+        withServiceFor accountID: AccountID?,
+        capabilities: ForumCapabilities = .all
+    ) throws -> AppModel {
         let schema = Schema([
             AccountRecord.self,
             FavoriteRecord.self,
@@ -233,11 +273,14 @@ final class ForumSiteTests: XCTestCase {
                 )
             ]
         )
-        let session = AppModel(container: container).session
+        let model = AppModel(container: container)
         if let accountID {
-            session.activeAccountID = accountID
-            session.setService(DebugForumService(accountID: accountID), for: accountID)
+            model.session.activeAccountID = accountID
+            model.session.setService(
+                DebugForumService(accountID: accountID, capabilities: capabilities),
+                for: accountID
+            )
         }
-        return session
+        return model
     }
 }
