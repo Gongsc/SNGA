@@ -334,12 +334,13 @@ private struct ContentColumnView: View {
 
 private struct DetailColumnView: View {
     @Environment(AppModel.self) private var model
+    @Environment(ToolboxStore.self) private var toolbox
 
     var body: some View {
         if model.sidebarSelection == .settings {
             SettingsDetailView(section: model.selectedSettingsSection)
         } else if model.sidebarSelection == .toolbox {
-            ToolboxFeedView(feed: model.selectedToolboxFeed)
+            ToolboxFeedView(feed: toolbox.selectedFeed)
         } else if showsAIProfileDetail {
             AIProfileDetailView()
         } else if model.thread.selectedTopicID != nil {

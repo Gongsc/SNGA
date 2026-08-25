@@ -23,8 +23,6 @@ final class AppModel {
     var forumSearchPage: ForumSearchPage?
     var forumSearchErrorMessage: String?
     var isSearchingForum = false
-    var selectedToolboxFeed: ToolboxFeed = .worldBriefing
-    var toolboxRefreshRevision = 0
     var selectedSettingsSection: SettingsSection = .appearance
 
 
@@ -49,6 +47,8 @@ final class AppModel {
     let favorite: FavoriteStore
     let browsing: ForumStore
     let aiProfiles: AIProfileStore
+    /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
+    let toolbox = ToolboxStore()
 
     private var activeService: (any NGAForumService)? { session.activeService }
 
@@ -703,7 +703,7 @@ final class AppModel {
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
         case .aiProfiles: break
-        case .toolbox: refreshToolbox()
+        case .toolbox: toolbox.refresh()
         // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
         case .settings: break
         case let .userCenter(uid):
@@ -718,10 +718,6 @@ final class AppModel {
             await favorite.refreshFavorites()
             await performMaintenance()
         }
-    }
-
-    func refreshToolbox() {
-        toolboxRefreshRevision &+= 1
     }
 
     /// 切到设置。清掉话题和消息的选中，右栏才轮得到设置面板 ——

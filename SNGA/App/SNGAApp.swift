@@ -569,6 +569,7 @@ struct SNGAApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                .environment(model.toolbox)
                 .environment(\.sngaTheme, selectedTheme)
                 .modelContainer(container)
                 .preferredColorScheme(selectedTheme.preferredColorScheme)

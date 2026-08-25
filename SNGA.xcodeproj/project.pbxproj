@@ -92,6 +92,7 @@
 		D4FC2113FFE8A164FD79A4C4 /* MessageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D5977B956991E18788ADB30 /* MessageViews.swift */; };
 		DAA62276959C740AEA77C810 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF41ABB8FA16D66B3B59DCF /* ThreadPageContentView.swift */; };
 		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
+		DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */; };
 		DE3A6C4DAFE20039C0B2493C /* PostImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A7586BF4AC6813B245D13 /* PostImageStore.swift */; };
 		E622DAB7529F0FDC20F6F194 /* ThreadContentSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F69307BDD9C5C94916D32B4 /* ThreadContentSkeletonView.swift */; };
 		E945BE3066202C7B72BEBE49 /* TopicListSortOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9847512A478EB7C51B73A80E /* TopicListSortOrder.swift */; };
@@ -153,6 +154,7 @@
 		466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSessionStore.swift; sourceTree = "<group>"; };
 		4787E82FB948ED6BE5E3CAF0 /* SkeletonShimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonShimmerView.swift; sourceTree = "<group>"; };
 		4918CF73881A05E72606BAA3 /* FavoriteSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoriteSyncEngine.swift; sourceTree = "<group>"; };
+		50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxStore.swift; sourceTree = "<group>"; };
 		51D152B99A5DF01863D36322 /* TopicRating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicRating.swift; sourceTree = "<group>"; };
 		53569497661BA95D730D632C /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchTests.swift; sourceTree = "<group>"; };
@@ -252,6 +254,7 @@
 				FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */,
 				B2AA5E0624D43795D13C6C9F /* ThemePalette.swift */,
 				EBD861A9EA008D4337E70013 /* ThreadStore.swift */,
+				50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -608,6 +611,7 @@
 				85D2688295B8F283A860E15D /* ThreadViews.swift in Sources */,
 				7E9B82035431E045A806580A /* ToolboxAPIService.swift in Sources */,
 				19DCED2DD724125EA07BAEB0 /* ToolboxModels.swift in Sources */,
+				DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */,
 				77CE3F840056CB3A8D542724 /* ToolboxViews.swift in Sources */,
 				9686995B6BE350438D814139 /* TopicListSkeletonView.swift in Sources */,
 				E945BE3066202C7B72BEBE49 /* TopicListSortOrder.swift in Sources */,
