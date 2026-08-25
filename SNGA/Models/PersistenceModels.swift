@@ -203,7 +203,7 @@ final class SubforumPreferenceRecord {
     }
 
     static func recordID(accountID: AccountID, parentForumID: ForumID) -> String {
-        "\(accountID.description):\(parentForumID.ngaRawValue ?? 0)"
+        "\(accountID.description):\(parentForumID.site.rawValue):\(parentForumID.key)"
     }
 
     private static func encode(_ forumIDs: Set<ForumID>) -> String {
@@ -287,6 +287,6 @@ final class RecentForumRecord {
     }
 
     static func recordID(accountID: AccountID, forumID: ForumID) -> String {
-        "\(accountID.description):\(forumID.ngaRawValue ?? 0)"
+        "\(accountID.description):\(forumID.site.rawValue):\(forumID.key)"
     }
 }
