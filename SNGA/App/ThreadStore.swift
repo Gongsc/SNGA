@@ -96,7 +96,7 @@ final class ThreadStore {
         // 话题被锁只有话题域知道该怎么反应；AppSession 只负责统一呈现错误。
         session.onError { [weak self] error in
             guard let self,
-                  let serviceError = error as? NGAServiceError,
+                  let serviceError = error as? ForumServiceError,
                   serviceError == .topicLocked,
                   currentTopic?.id == selectedTopicID else {
                 return
@@ -643,11 +643,11 @@ final class ThreadStore {
             return false
         }
         guard poll.isAcceptingResponses(at: .now) else {
-            session.present(NGAServiceError.unsupported("该投票已经结束"))
+            session.present(ForumServiceError.unsupported("该投票已经结束"))
             return false
         }
         guard poll.containsValidSelection(selection) else {
-            session.present(NGAServiceError.unsupported("请选择有效的投票选项"))
+            session.present(ForumServiceError.unsupported("请选择有效的投票选项"))
             return false
         }
 
@@ -698,21 +698,21 @@ final class ThreadStore {
             return false
         }
         if currentTopic?.id == topicID, currentTopic?.isLocked == true {
-            session.present(NGAServiceError.topicLocked)
+            session.present(ForumServiceError.topicLocked)
             return false
         }
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
-                session.present(NGAServiceError.unsupported("当前话题没有可用的评分"))
+                session.present(ForumServiceError.unsupported("当前话题没有可用的评分"))
                 return false
             }
             guard rating.isAcceptingResponses(at: .now) else {
-                session.present(NGAServiceError.unsupported("该评分已经结束"))
+                session.present(ForumServiceError.unsupported("该评分已经结束"))
                 return false
             }
             guard rating.containsValidScores(ratingScores) else {
-                session.present(NGAServiceError.unsupported("请选择有效的评分"))
+                session.present(ForumServiceError.unsupported("请选择有效的评分"))
                 return false
             }
         }
@@ -798,7 +798,7 @@ final class ThreadStore {
     }
 
     private func voteSubmissionMayHaveSucceeded(_ error: Error) -> Bool {
-        guard let serviceError = error as? NGAServiceError else { return false }
+        guard let serviceError = error as? ForumServiceError else { return false }
         switch serviceError {
         case .ambiguousWrite:
             return true

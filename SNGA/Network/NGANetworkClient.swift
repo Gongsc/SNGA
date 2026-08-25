@@ -22,7 +22,7 @@ struct NGAHTTPResponse: Sendable {
         if let value = String(data: data, encoding: .utf8) { return value }
         let raw = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
         if let value = String(data: data, encoding: String.Encoding(rawValue: raw)) { return value }
-        throw NGAServiceError.invalidResponse
+        throw ForumServiceError.invalidResponse
     }
 }
 
@@ -101,7 +101,7 @@ actor NGANetworkClient {
                 do {
                     (data, response) = try await transport.data(for: request)
                 } catch HTTPTransportError.invalidResponse {
-                    throw NGAServiceError.invalidResponse
+                    throw ForumServiceError.invalidResponse
                 }
                 let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
                 await RuntimeLogger.shared.log(
@@ -131,10 +131,10 @@ actor NGANetworkClient {
             }
         }
 
-        if endpoint.isWrite, !(lastError is NGAServiceError) {
-            throw NGAServiceError.ambiguousWrite
+        if endpoint.isWrite, !(lastError is ForumServiceError) {
+            throw ForumServiceError.ambiguousWrite
         }
-        throw lastError ?? NGAServiceError.invalidResponse
+        throw lastError ?? ForumServiceError.invalidResponse
     }
 
     private func throttle() async throws {
@@ -162,28 +162,28 @@ actor NGANetworkClient {
         case 200..<300:
             break
         case 401:
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         case 403:
             if explicitlyRequiresLogin {
-                throw NGAServiceError.requiresLogin
+                throw ForumServiceError.requiresLogin
             }
             if responseIndicatesLockedTopic(response) {
-                throw NGAServiceError.topicLocked
+                throw ForumServiceError.topicLocked
             }
             if responseIndicatesDeletedTopic(response) {
-                throw NGAServiceError.topicDeleted
+                throw ForumServiceError.topicDeleted
             }
-            throw NGAServiceError.restricted("NGA 暂时拒绝了本次访问（HTTP 403），请稍后重试")
+            throw ForumServiceError.restricted("NGA 暂时拒绝了本次访问（HTTP 403），请稍后重试")
         case 429:
-            throw NGAServiceError.rateLimited
+            throw ForumServiceError.rateLimited
         case 500...599:
-            throw NGAServiceError.server(response.statusCode)
+            throw ForumServiceError.server(response.statusCode)
         default:
-            throw NGAServiceError.server(response.statusCode)
+            throw ForumServiceError.server(response.statusCode)
         }
 
         if explicitlyRequiresLogin {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
     }
 
@@ -256,7 +256,7 @@ actor NGANetworkClient {
     }
 
     private func isRetryable(_ error: Error) -> Bool {
-        if let error = error as? NGAServiceError {
+        if let error = error as? ForumServiceError {
             switch error {
             // 429/503 往往是 NGA 的临时限流或防护响应，立即重试只会延长封锁。
             case .rateLimited, .server(503): false

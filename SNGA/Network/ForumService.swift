@@ -1,6 +1,6 @@
 import Foundation
 
-enum NGAServiceError: LocalizedError, Equatable, Sendable {
+enum ForumServiceError: LocalizedError, Equatable, Sendable {
     case invalidURL
     case invalidResponse
     case requiresLogin
@@ -15,15 +15,15 @@ enum NGAServiceError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: "NGA 地址无效"
-        case .invalidResponse: "NGA 返回了无法识别的响应"
-        case .requiresLogin: "当前请求未通过 NGA 登录验证，请重试；如果持续出现，请重新登录"
+        case .invalidURL: "论坛地址无效"
+        case .invalidResponse: "论坛返回了无法识别的响应"
+        case .requiresLogin: "当前请求未通过论坛登录验证，请重试；如果持续出现，请重新登录"
         case .topicDeleted: "帖子被删除"
         case .topicLocked: "帖子已锁定，无法查看或回复"
         case let .restricted(message): message.isEmpty ? "当前账号无权访问" : message
         case .rateLimited: "请求过于频繁，请稍后重试"
-        case let .server(status): "NGA 服务暂时不可用（HTTP \(status)）"
-        case let .unexpectedPage(detail): "NGA 页面结构已变化：\(detail)"
+        case let .server(status): "论坛服务暂时不可用（HTTP \(status)）"
+        case let .unexpectedPage(detail): "论坛页面结构已变化：\(detail)"
         case let .unsupported(detail): detail
         case .ambiguousWrite: "提交结果不明确，为避免重复发送已停止自动重试"
         }

@@ -514,7 +514,7 @@ final class FavoriteStore {
                 } else {
                     session.context.delete(record)
                 }
-            } catch let error as NGAServiceError {
+            } catch let error as ForumServiceError {
                 if case .unsupported = error {
                     if adding {
                         record.syncState = .localOnly

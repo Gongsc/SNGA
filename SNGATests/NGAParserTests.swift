@@ -585,7 +585,7 @@ final class NGAParserTests: XCTestCase {
             topicID: TopicID(rawValue: 47_305_779),
             page: 1
         )) { error in
-            XCTAssertEqual(error as? NGAServiceError, .topicLocked)
+            XCTAssertEqual(error as? ForumServiceError, .topicLocked)
         }
     }
 
@@ -2623,7 +2623,7 @@ final class NGAParserTests: XCTestCase {
                 page: 1
             )
         ) { error in
-            guard case let NGAServiceError.restricted(message) = error else {
+            guard case let ForumServiceError.restricted(message) = error else {
                 return XCTFail("访客权限错误不应被识别为登录失效：\(error)")
             }
             XCTAssertTrue(message.contains("访客"))

@@ -187,7 +187,7 @@ final class AppSession {
         }
         for observe in errorObservers { observe(error) }
 
-        guard let serviceError = error as? NGAServiceError,
+        guard let serviceError = error as? ForumServiceError,
               serviceError == .requiresLogin,
               let activeAccountID else {
             errorMessage = error.localizedDescription

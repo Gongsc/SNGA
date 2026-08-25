@@ -121,7 +121,7 @@ actor LiveNGAForumService: NGAForumService {
                 topicID: topicID,
                 page: page
             )
-        } catch let error as NGAServiceError {
+        } catch let error as ForumServiceError {
             switch error {
             case .unexpectedPage, .restricted:
                 result = try parser.threadPage(
@@ -188,7 +188,7 @@ actor LiveNGAForumService: NGAForumService {
         }
         for (dimensionID, score) in submission.ratingScores {
             guard Int64(dimensionID).map({ $0 > 0 }) == true else {
-                throw NGAServiceError.unsupported("评分维度无效")
+                throw ForumServiceError.unsupported("评分维度无效")
             }
             form.fields[dimensionID] = score.description
         }
@@ -206,7 +206,7 @@ actor LiveNGAForumService: NGAForumService {
 
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
         guard !optionIDs.isEmpty else {
-            throw NGAServiceError.unsupported("请至少选择一个投票选项")
+            throw ForumServiceError.unsupported("请至少选择一个投票选项")
         }
         let response = try await client.request(.topicPollVote(
             topicID: topicID,
@@ -242,7 +242,7 @@ actor LiveNGAForumService: NGAForumService {
     func favorites() async throws -> [Forum] {
         do {
             return try parser.favoriteForums(from: await client.request(.favorites))
-        } catch let error as NGAServiceError where error == .requiresLogin {
+        } catch let error as ForumServiceError where error == .requiresLogin {
             throw error
         } catch {
             // 一些账号仍返回旧版网页收藏结构，保留官网旧接口作为只读兼容路径。
@@ -254,7 +254,7 @@ actor LiveNGAForumService: NGAForumService {
         do {
             let response = try await client.request(.updateFavorite(forumID: forumID, isFavorite: isFavorite))
             try parser.actionSucceeded(from: response)
-        } catch NGAServiceError.server(404) {
+        } catch ForumServiceError.server(404) {
             // 只有在服务器明确表示当前路由不存在时才切旧协议，避免不明确结果下重复写入。
             let response = try await client.request(.updateFavorite(forumID: forumID, isFavorite: isFavorite, legacy: true))
             try parser.actionSucceeded(from: response)
@@ -357,7 +357,7 @@ actor LiveNGAForumService: NGAForumService {
         guard url.scheme == "https",
               let host = url.host?.lowercased(),
               host == "nga.cn" || host.hasSuffix(".nga.cn") else {
-            throw NGAServiceError.restricted("已阻止向非 NGA 地址提交数据")
+            throw ForumServiceError.restricted("已阻止向非 NGA 地址提交数据")
         }
     }
 }

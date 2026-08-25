@@ -75,7 +75,7 @@ struct NGAParser: Sendable {
     func searchedProfile(from response: NGAHTTPResponse) throws -> Profile? {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("未找到用户搜索数据")
+            throw ForumServiceError.unexpectedPage("未找到用户搜索数据")
         }
         if let dictionary = root as? [String: Any],
            let errorValue = dictionary["error"] ?? dictionary["__MESSAGE"] {
@@ -138,7 +138,7 @@ struct NGAParser: Sendable {
             try throwJSONErrorIfPresent(in: root)
         }
         if text.contains("你必须登录") || text.contains("必须登录后") {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
 
         let document = try SwiftSoup.parse(text, response.url.absoluteString)
@@ -206,7 +206,7 @@ struct NGAParser: Sendable {
         }
 
         if activities.isEmpty, !rows.isEmpty {
-            throw NGAServiceError.unexpectedPage("未能解析用户\(kind.title)列表")
+            throw ForumServiceError.unexpectedPage("未能解析用户\(kind.title)列表")
         }
         if activities.isEmpty, rows.isEmpty {
             let pageTitle = try document.title()
@@ -214,7 +214,7 @@ struct NGAParser: Sendable {
                     || text.contains("没有符合条件")
                     || text.contains("没有找到")
                     || text.contains("暂无") else {
-                throw NGAServiceError.unexpectedPage("未找到用户\(kind.title)列表")
+                throw ForumServiceError.unexpectedPage("未找到用户\(kind.title)列表")
             }
         }
 
@@ -244,9 +244,9 @@ struct NGAParser: Sendable {
             if let code = int(root["code"]), code != 0 {
                 let message = string(root["msg"]) ?? "版面目录请求失败（代码 \(code)）"
                 if code == 5 || message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(message)
+                throw ForumServiceError.restricted(message)
             }
 
             if let categories = root["result"] as? [Any] {
@@ -269,7 +269,7 @@ struct NGAParser: Sendable {
                     }
                 }
                 guard !result.isEmpty else {
-                    throw NGAServiceError.unexpectedPage("官方版面目录返回为空")
+                    throw ForumServiceError.unexpectedPage("官方版面目录返回为空")
                 }
                 return unique(result)
             }
@@ -296,7 +296,7 @@ struct NGAParser: Sendable {
             guard !name.isEmpty else { continue }
             result.append(Forum(id: forumID, name: name))
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到版面目录") }
+        guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
     }
 
@@ -307,9 +307,9 @@ struct NGAParser: Sendable {
                code != 0 {
                 let message = string(dictionary["msg"]) ?? flattenedText(dictionary)
                 if code == 5 || message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(concise(message))
+                throw ForumServiceError.restricted(concise(message))
             }
 
             let result = dictionaries(in: root).compactMap { dictionary in
@@ -350,7 +350,7 @@ struct NGAParser: Sendable {
             if !name.isEmpty { result.append(Forum(id: id, name: name)) }
         }
         guard !result.isEmpty else {
-            throw NGAServiceError.unexpectedPage("未找到账号收藏版面")
+            throw ForumServiceError.unexpectedPage("未找到账号收藏版面")
         }
         return unique(result)
     }
@@ -431,7 +431,7 @@ struct NGAParser: Sendable {
                 isAnonymous: isAnonymousUsername(rawAuthor)
             ))
         }
-        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
+        guard !topics.isEmpty else { throw ForumServiceError.unexpectedPage("未找到话题列表") }
         let paginationPages = try document.select("a[href*='page=']").compactMap { link -> Int? in
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else {
                 return nil
@@ -503,7 +503,7 @@ struct NGAParser: Sendable {
     func favoriteTopicFolders(from response: NGAHTTPResponse) throws -> [TopicFavoriteFolder] {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("未找到收藏目录数据")
+            throw ForumServiceError.unexpectedPage("未找到收藏目录数据")
         }
         try throwJSONErrorIfPresent(in: root)
         let folders = dictionaries(in: jsonPayload(in: root)).compactMap { dictionary -> TopicFavoriteFolder? in
@@ -539,7 +539,7 @@ struct NGAParser: Sendable {
     func createdTopicFavoriteFolderID(from response: NGAHTTPResponse) throws -> String? {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.ambiguousWrite
+            throw ForumServiceError.ambiguousWrite
         }
         try throwJSONErrorIfPresent(in: root)
         let payload = jsonPayload(in: root)
@@ -737,7 +737,7 @@ struct NGAParser: Sendable {
                 ))
             }
         }
-        guard !posts.isEmpty else { throw NGAServiceError.unexpectedPage("未找到帖子楼层") }
+        guard !posts.isEmpty else { throw ForumServiceError.unexpectedPage("未找到帖子楼层") }
         posts.sort(by: postOrder)
         let topic = Topic(
             id: topicID,
@@ -869,7 +869,7 @@ struct NGAParser: Sendable {
         if result.isEmpty, text.contains("暂无") || text.contains("没有消息") {
             return MessagePage(folder: folder, messages: [], page: page, hasMore: false)
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到消息列表") }
+        guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到消息列表") }
         return MessagePage(folder: folder, messages: unique(result), page: page, hasMore: result.count >= 20)
     }
 
@@ -967,7 +967,7 @@ struct NGAParser: Sendable {
     func checkInStatus(from response: NGAHTTPResponse) throws -> CheckInStatistics {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("无法读取签到状态")
+            throw ForumServiceError.unexpectedPage("无法读取签到状态")
         }
         try throwJSONErrorIfPresent(in: root)
 
@@ -977,7 +977,7 @@ struct NGAParser: Sendable {
         let consecutiveDays = int(values["continued"]),
         let totalDays = int(values["sum"]),
         let lastCheckInTimestamp = int64(values["last_time"]) else {
-            throw NGAServiceError.unexpectedPage("签到统计字段缺失")
+            throw ForumServiceError.unexpectedPage("签到统计字段缺失")
         }
 
         let serverTimestamp = (root as? [String: Any]).flatMap { int64($0["time"]) }
@@ -1003,7 +1003,7 @@ struct NGAParser: Sendable {
                 return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
             }
             if message.localizedCaseInsensitiveContains("client error") {
-                throw NGAServiceError.restricted("签到请求被 NGA 拒绝，请稍后重试")
+                throw ForumServiceError.restricted("签到请求被 NGA 拒绝，请稍后重试")
             }
             try throwJSONErrorIfPresent(in: root)
             if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
@@ -1022,7 +1022,7 @@ struct NGAParser: Sendable {
         if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
             return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
         }
-        throw NGAServiceError.unexpectedPage("无法确认签到结果")
+        throw ForumServiceError.unexpectedPage("无法确认签到结果")
     }
 
     private func checkInAlreadyCompletedMessage(from source: String) -> String {
@@ -1044,7 +1044,7 @@ struct NGAParser: Sendable {
     func submissionSucceeded(from response: NGAHTTPResponse) throws -> PostID? {
         let text = try response.decodedString()
         if text.contains("ERROR:") || text.contains("操作失败") || text.contains("发送失败") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
         if let root = jsonRoot(response.data) {
             for dictionary in dictionaries(in: root) {
@@ -1061,9 +1061,9 @@ struct NGAParser: Sendable {
                 return nil
             }
             if message.contains("登录") {
-                throw NGAServiceError.requiresLogin
+                throw ForumServiceError.requiresLogin
             }
-            throw NGAServiceError.restricted(concise(message))
+            throw ForumServiceError.restricted(concise(message))
         }
         if let pidText = try document.select("root > pid").first()?.text(),
            let pid = Int64(pidText.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -1072,7 +1072,7 @@ struct NGAParser: Sendable {
         if text.contains("成功") || text.contains("正在跳转") || response.statusCode == 302 {
             return nil
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func actionSucceeded(from response: NGAHTTPResponse) throws {
@@ -1084,15 +1084,15 @@ struct NGAParser: Sendable {
                 guard code == 0 else {
                     let message = string(dictionary["msg"]) ?? flattenedText(root)
                     if code == 5 || message.contains("登录") {
-                        throw NGAServiceError.requiresLogin
+                        throw ForumServiceError.requiresLogin
                     }
-                    throw NGAServiceError.restricted(concise(message))
+                    throw ForumServiceError.restricted(concise(message))
                 }
                 return
             }
             let flattened = flattenedText(root)
             if flattened.contains("失败") || flattened.contains("错误") {
-                throw NGAServiceError.restricted(concise(flattened))
+                throw ForumServiceError.restricted(concise(flattened))
             }
             return
         }
@@ -1100,9 +1100,9 @@ struct NGAParser: Sendable {
             return
         }
         if text.contains("失败") || text.contains("ERROR") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func voteState(from response: NGAHTTPResponse) throws -> PostVoteState {
@@ -1136,9 +1136,9 @@ struct NGAParser: Sendable {
         }
 
         if text.contains("ERROR:") || text.contains("失败") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func form(from response: NGAHTTPResponse, requiredField: String) throws -> ParsedHTMLForm {
@@ -1168,9 +1168,9 @@ struct NGAParser: Sendable {
                     ?? messageItems.first(where: { !$0.isEmpty })
                     ?? ""
                 if message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(concise(message))
+                throw ForumServiceError.restricted(concise(message))
             }
 
             let replyPayloadTags = ["auth", "content", "subject", "attach_url"]
@@ -1200,7 +1200,7 @@ struct NGAParser: Sendable {
             }
             return ParsedHTMLForm(action: response.url, fields: values)
         }
-        throw NGAServiceError.unsupported("NGA 当前页面没有可用的提交表单")
+        throw ForumServiceError.unsupported("NGA 当前页面没有可用的提交表单")
     }
 
     private func structuredMessageItems(in source: String) -> [String] {
@@ -1236,9 +1236,9 @@ struct NGAParser: Sendable {
             ?? ""
         guard !message.isEmpty else { return }
         if explicitlyRequiresLogin(message) {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
-        throw NGAServiceError.restricted(concise(message))
+        throw ForumServiceError.restricted(concise(message))
     }
 
     private func structuredItemDictionaries(
@@ -1380,7 +1380,7 @@ struct NGAParser: Sendable {
         var clean: String
         var nativeContent: PostContent?
         do {
-            guard let whitelist else { throw NGAServiceError.invalidResponse }
+            guard let whitelist else { throw ForumServiceError.invalidResponse }
             let document = try SwiftSoup.parseBodyFragment(rendered.html, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
                 for textNode in element.textNodes() {
@@ -1420,7 +1420,7 @@ struct NGAParser: Sendable {
             // （`SwiftSoup.clean` 额外做的 nbsp 归一化只对纯文本白名单生效，这里不适用。）
             let cleaner = Cleaner(headWhitelist: nil, bodyWhitelist: whitelist)
             guard let cleanBody = try cleaner.clean(document).body() else {
-                throw NGAServiceError.invalidResponse
+                throw ForumServiceError.invalidResponse
             }
             nativeContent = PostContentBuilder.content(from: cleanBody)
             clean = compactedPostSpacing(try cleanBody.html())
@@ -4503,12 +4503,12 @@ struct NGAParser: Sendable {
         let message = concise(flattenedText(errorValue))
         guard !message.isEmpty else { return }
         if explicitlyRequiresLogin(message) {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
         if indicatesLockedTopic(message) {
-            throw NGAServiceError.topicLocked
+            throw ForumServiceError.topicLocked
         }
-        throw NGAServiceError.restricted(message)
+        throw ForumServiceError.restricted(message)
     }
 
     private func indicatesLockedTopic(_ message: String) -> Bool {

@@ -549,7 +549,7 @@ final class AppModel {
             }
             forumSearchPage = nil
             forumSearchErrorMessage = error.localizedDescription
-            if let serviceError = error as? NGAServiceError,
+            if let serviceError = error as? ForumServiceError,
                serviceError == .requiresLogin {
                 session.present(error)
             } else {
