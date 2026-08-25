@@ -144,12 +144,12 @@ final class AppModel {
 
     var displayedUserUID: Int64? {
         guard case let .userCenter(uid) = sidebarSelection else { return nil }
-        return uid ?? session.activeAccount?.ngaUID
+        return uid ?? session.activeAccount?.siteUserID
     }
 
     var isDisplayingActiveAccount: Bool {
         guard let displayedUserUID, let activeAccount = session.activeAccount else { return false }
-        return displayedUserUID == activeAccount.ngaUID
+        return displayedUserUID == activeAccount.siteUserID
     }
 
 
@@ -205,9 +205,9 @@ final class AppModel {
         await session.reloadAccountsAndServices()
         if let activeAccount = session.activeAccount {
             browsing.loadRecentForums()
-            sidebarSelection = .userCenter(activeAccount.ngaUID)
+            sidebarSelection = .userCenter(activeAccount.siteUserID)
             currentProfile = Profile(
-                uid: activeAccount.ngaUID,
+                uid: activeAccount.siteUserID,
                 displayName: activeAccount.displayName,
                 avatarURL: activeAccount.avatarURL
             )
@@ -225,14 +225,14 @@ final class AppModel {
             let record: AccountRecord
             // 认账号要连站点一起看：两个站的同号用户是两个账号。
             if let existing = records.first(where: {
-                $0.site == site && $0.ngaUID == capture.uid
+                $0.site == site && $0.siteUserID == capture.uid
             }) {
                 record = existing
                 record.sessionState = .valid
             } else {
                 record = AccountRecord(
                     site: site,
-                    ngaUID: capture.uid,
+                    siteUserID: capture.uid,
                     displayName: "\(site.displayName) \(capture.uid)"
                 )
                 session.context.insert(record)
@@ -255,9 +255,9 @@ final class AppModel {
             await session.reloadAccountsAndServices()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -273,7 +273,7 @@ final class AppModel {
     func selectAccount(_ accountID: AccountID) async {
         if session.activeAccountID == accountID, let account = session.activeAccount {
             await openUserCenter(
-                uid: account.ngaUID,
+                uid: account.siteUserID,
                 fallbackName: account.displayName,
                 fallbackAvatarURL: account.avatarURL
             )
@@ -289,9 +289,9 @@ final class AppModel {
             clearVisibleContent()
             browsing.loadRecentForums()
             if let activeAccount = session.activeAccount {
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -301,7 +301,7 @@ final class AppModel {
             await session.queryActiveAccountCheckInStatus()
             if let activeAccount = session.activeAccount {
                 await openUserCenter(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     fallbackName: activeAccount.displayName,
                     fallbackAvatarURL: activeAccount.avatarURL
                 )
@@ -338,9 +338,9 @@ final class AppModel {
             clearVisibleContent()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -376,7 +376,7 @@ final class AppModel {
         userActivityHasMore = false
         userActivityTotalPages = 1
 
-        let account = session.accounts.first { $0.ngaUID == uid }
+        let account = session.accounts.first { $0.siteUserID == uid }
         let resolvedName = fallbackName ?? account?.displayName ?? "NGA \(uid)"
         let resolvedAvatarURL = fallbackAvatarURL ?? account?.avatarURL
         currentProfile = Profile(
@@ -722,7 +722,7 @@ final class AppModel {
         // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
         case .settings: break
         case let .userCenter(uid):
-            if let targetUID = uid ?? session.activeAccount?.ngaUID {
+            if let targetUID = uid ?? session.activeAccount?.siteUserID {
                 await openUserCenter(uid: targetUID)
             }
             await browsing.loadForums()
@@ -865,8 +865,8 @@ final class AppModel {
         )
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
-        let accountA = AccountRecord(site: .nga, ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
-        let accountB = AccountRecord(site: .nga, ngaUID: 10002, displayName: "测试账号 B")
+        let accountA = AccountRecord(site: .nga, siteUserID: 10001, displayName: "测试账号 A", isCurrent: true)
+        let accountB = AccountRecord(site: .nga, siteUserID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)
         session.context.insert(accountB)
         let favoriteForum = Forum(id: ForumID(nga: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
@@ -884,9 +884,9 @@ final class AppModel {
         session.setService(DebugForumService(accountID: accountB.accountID), for: accountB.accountID)
         browsing.forums = [favoriteForum, Forum(id: ForumID(nga: 510381), name: "晴风村")]
         favorite.favorites = [FavoriteSnapshot(forum: favoriteForum, order: 0, state: .localOnly)]
-        sidebarSelection = .userCenter(accountA.ngaUID)
+        sidebarSelection = .userCenter(accountA.siteUserID)
         currentProfile = Profile(
-            uid: accountA.ngaUID,
+            uid: accountA.siteUserID,
             displayName: accountA.displayName,
             avatarURL: nil
         )

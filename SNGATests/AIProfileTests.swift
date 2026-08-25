@@ -918,7 +918,7 @@ final class AIProfileTests: XCTestCase {
             )
             legacyContainer.mainContext.insert(AccountRecord(
                 site: .nga,
-                ngaUID: 10001,
+                siteUserID: 10001,
                 displayName: "迁移前账号",
                 isCurrent: true
             ))

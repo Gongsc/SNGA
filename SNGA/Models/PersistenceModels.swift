@@ -6,7 +6,8 @@ final class AccountRecord {
     @Attribute(.unique) var id: UUID
     /// 账号属于哪个站。带默认值，老库走轻量迁移 —— 1.8.2 的账号全是 NGA 的。
     var siteRaw: String = ForumSite.nga.rawValue
-    var ngaUID: Int64
+    /// 用户在该站的编号。老库里这一列叫 `ngaUID`。
+    @Attribute(originalName: "ngaUID") var siteUserID: Int64
     var displayName: String
     var avatarURLString: String?
     var sessionStateRaw: String
@@ -21,7 +22,7 @@ final class AccountRecord {
     init(
         id: UUID = UUID(),
         site: ForumSite,
-        ngaUID: Int64,
+        siteUserID: Int64,
         displayName: String,
         avatarURLString: String? = nil,
         sessionState: SessionState = .valid,
@@ -29,7 +30,7 @@ final class AccountRecord {
     ) {
         self.id = id
         self.siteRaw = site.rawValue
-        self.ngaUID = ngaUID
+        self.siteUserID = siteUserID
         self.displayName = displayName
         self.avatarURLString = avatarURLString
         self.sessionStateRaw = sessionState.rawValue
@@ -70,7 +71,7 @@ final class AccountRecord {
         AccountSummary(
             id: accountID,
             site: site,
-            ngaUID: ngaUID,
+            siteUserID: siteUserID,
             displayName: displayName,
             avatarURL: avatarURLString.flatMap(URL.init(string:)),
             sessionState: sessionState,

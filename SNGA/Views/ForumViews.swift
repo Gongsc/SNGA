@@ -397,7 +397,7 @@ struct UserCenterView: View {
     }
 
     private var targetUID: Int64? {
-        uid ?? model.session.activeAccount?.ngaUID
+        uid ?? model.session.activeAccount?.siteUserID
     }
 
     private var profile: Profile? {
@@ -406,11 +406,11 @@ struct UserCenterView: View {
             return currentProfile
         }
         guard let account = model.session.activeAccount,
-              account.ngaUID == targetUID else {
+              account.siteUserID == targetUID else {
             return nil
         }
         return Profile(
-            uid: account.ngaUID,
+            uid: account.siteUserID,
             displayName: account.displayName,
             avatarURL: account.avatarURL
         )

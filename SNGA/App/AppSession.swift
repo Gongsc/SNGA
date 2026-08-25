@@ -103,7 +103,7 @@ final class AppSession {
                 let descriptor = record.site.descriptor
                 let hasUID = cookies.contains {
                     $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame &&
-                        Int64($0.value) == record.ngaUID
+                        Int64($0.value) == record.siteUserID
                 }
                 let hasCredential = cookies.contains {
                     $0.name.caseInsensitiveCompare(descriptor.credentialCookieName) == .orderedSame &&

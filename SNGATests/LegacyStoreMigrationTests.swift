@@ -34,7 +34,9 @@ final class LegacyStoreMigrationTests: XCTestCase {
 
         let accounts = try context.fetch(FetchDescriptor<AccountRecord>())
         XCTAssertEqual(accounts.count, 1)
-        XCTAssertEqual(accounts.first?.ngaUID, accountUID)
+        // 1.8.2 把这个值写在名为 ngaUID 的列里。读得出来，就说明
+        // @Attribute(originalName:) 确实驱动了隐式轻量迁移的列改名。
+        XCTAssertEqual(accounts.first?.siteUserID, accountUID)
         XCTAssertEqual(accounts.first?.displayName, "老库账号")
         XCTAssertEqual(accounts.first?.isCurrent, true)
         XCTAssertEqual(accounts.first?.lastCheckInDay, "2026-08-01")

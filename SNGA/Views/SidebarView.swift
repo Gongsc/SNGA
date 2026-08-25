@@ -42,7 +42,7 @@ struct SidebarView: View {
                     sidebarButton(
                         "用户中心",
                         systemImage: "person.crop.circle",
-                        selection: .userCenter(model.session.activeAccount?.ngaUID),
+                        selection: .userCenter(model.session.activeAccount?.siteUserID),
                         attentionLabel: model.session.activeAccountCheckInStatus.needsCheckInPrompt
                             ? "待签到"
                             : nil
@@ -192,7 +192,7 @@ struct SidebarView: View {
             case .favorites, .toolbox, .settings:
                 break
             case let .userCenter(uid):
-                if let uid = uid ?? model.session.activeAccount?.ngaUID {
+                if let uid = uid ?? model.session.activeAccount?.siteUserID {
                     Task { await model.openUserCenter(uid: uid) }
                 }
             case .forum, .messages:
@@ -233,7 +233,7 @@ struct SidebarView: View {
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {
         if case .userCenter = selection {
-            guard let activeUID = model.session.activeAccount?.ngaUID,
+            guard let activeUID = model.session.activeAccount?.siteUserID,
                   case let .userCenter(displayedUID)? = model.sidebarSelection else {
                 return false
             }
