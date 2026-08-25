@@ -3,6 +3,7 @@ import Foundation
 
 actor DebugForumService: ForumService {
     nonisolated let accountID: AccountID
+    nonisolated let site: ForumSite = .nga
     private var isCheckedInToday = false
     private var checkInRequestCount = 0
     private var checkInStatusRequestCount = 0

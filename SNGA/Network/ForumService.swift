@@ -32,6 +32,8 @@ enum ForumServiceError: LocalizedError, Equatable, Sendable {
 
 protocol ForumService: Sendable {
     var accountID: AccountID { get }
+    /// 这个服务连的是哪个站。展示层靠它说清楚是谁出的错。
+    var site: ForumSite { get }
 
     func profile(uid: Int64) async throws -> Profile
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage

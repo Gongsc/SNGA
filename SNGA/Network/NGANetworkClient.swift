@@ -173,7 +173,7 @@ actor NGANetworkClient {
             if responseIndicatesDeletedTopic(response) {
                 throw ForumServiceError.topicDeleted
             }
-            throw ForumServiceError.restricted("NGA 暂时拒绝了本次访问（HTTP 403），请稍后重试")
+            throw ForumServiceError.restricted("暂时拒绝了本次访问（HTTP 403），请稍后重试")
         case 429:
             throw ForumServiceError.rateLimited
         case 500...599:

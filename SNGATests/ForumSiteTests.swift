@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import XCTest
 @testable import SNGA
 
@@ -93,6 +94,59 @@ final class ForumSiteTests: XCTestCase {
         }
     }
 
+    // MARK: - 错误文案里的站名
+
+    /// 站名不在 `ForumServiceError` 里，是展示时冠上去的。多个站点并存时，
+    /// 用户得知道刚才是哪个站出的错。
+    @MainActor
+    func testPresentedErrorsCarryTheSiteName() throws {
+        let session = try Self.makeSession(withServiceFor: AccountID())
+
+        session.present(ForumServiceError.invalidURL)
+
+        XCTAssertEqual(session.errorMessage, "NGA：论坛地址无效")
+    }
+
+    /// 不是 `ForumServiceError` 的错误也一样冠名 —— 用户关心的是哪个站坏了，
+    /// 而不是错误来自哪一层。
+    @MainActor
+    func testPresentedForeignErrorsAlsoCarryTheSiteName() throws {
+        let session = try Self.makeSession(withServiceFor: AccountID())
+
+        session.present(URLError(.timedOut))
+
+        let message = try XCTUnwrap(session.errorMessage)
+        XCTAssertTrue(message.hasPrefix("NGA："), message)
+    }
+
+    /// 适配器自己造的文案不该再写站名，否则展示时会冠出「NGA：NGA 暂时拒绝了…」。
+    /// 这条盯的就是那个重复。
+    @MainActor
+    func testPresentedErrorsNameTheSiteExactlyOnce() throws {
+        let session = try Self.makeSession(withServiceFor: AccountID())
+
+        session.present(
+            ForumServiceError.restricted("暂时拒绝了本次访问（HTTP 403），请稍后重试")
+        )
+
+        let message = try XCTUnwrap(session.errorMessage)
+        XCTAssertEqual(
+            message.components(separatedBy: "NGA").count - 1,
+            1,
+            "站名出现了不止一次：\(message)"
+        )
+    }
+
+    /// 一个账号都没有时没有「哪个站」可言，就别硬冠一个。
+    @MainActor
+    func testPresentedErrorsAreNotQualifiedWithoutAnActiveService() throws {
+        let session = try Self.makeSession(withServiceFor: nil)
+
+        session.present(ForumServiceError.invalidURL)
+
+        XCTAssertEqual(session.errorMessage, "论坛地址无效")
+    }
+
     /// 日志脱敏名单从站点资料里推导，新加的站点不该漏出会话 Cookie。
     func testRuntimeLoggerRedactsEverySiteCredentialCookie() {
         for site in ForumSite.allCases {
@@ -110,5 +164,37 @@ final class ForumSiteTests: XCTestCase {
                 )
             }
         }
+    }
+
+    // MARK: -
+
+    @MainActor
+    private static func makeSession(
+        withServiceFor accountID: AccountID?
+    ) throws -> AppSession {
+        let schema = Schema([
+            AccountRecord.self,
+            FavoriteRecord.self,
+            DraftRecord.self,
+            SubforumPreferenceRecord.self,
+            RecentForumRecord.self,
+            AIProfileSummaryRecord.self
+        ])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [
+                ModelConfiguration(
+                    "ForumSiteTests.\(UUID().uuidString)",
+                    schema: schema,
+                    isStoredInMemoryOnly: true
+                )
+            ]
+        )
+        let session = AppModel(container: container).session
+        if let accountID {
+            session.activeAccountID = accountID
+            session.setService(DebugForumService(accountID: accountID), for: accountID)
+        }
+        return session
     }
 }

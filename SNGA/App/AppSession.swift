@@ -191,7 +191,7 @@ final class AppSession {
         guard let serviceError = error as? ForumServiceError,
               serviceError == .requiresLogin,
               let activeAccountID else {
-            errorMessage = error.localizedDescription
+            errorMessage = siteQualified(error.localizedDescription)
             return
         }
 
@@ -204,13 +204,23 @@ final class AppSession {
 
         if !isConsecutiveFailure,
            accounts.first(where: { $0.id == activeAccountID })?.sessionState != .requiresLogin {
-            statusMessage = "NGA 暂时未验证本次请求，已保留当前登录状态，请重试"
+            statusMessage = siteQualified("暂时未验证本次请求，已保留当前登录状态，请重试")
             statusMessageIsError = true
             return
         }
 
-        errorMessage = error.localizedDescription
+        errorMessage = siteQualified(error.localizedDescription)
         markSessionRequiresLogin(accountID: activeAccountID)
+    }
+
+    /// 给一条要展示的消息冠上站名。
+    ///
+    /// 站名不放进 `ForumServiceError`：错误值会跨账号传递和比较，为了文案给每一处
+    /// 构造都加一个参数不划算。展示的时候本来就知道当前是哪个账号，从这里补最省。
+    /// 一个账号都没有时不冠 —— 那种情况下也没有「哪个站」可言。
+    private func siteQualified(_ message: String) -> String {
+        guard let site = activeService?.site else { return message }
+        return "\(site.displayName)：\(message)"
     }
 
     func clearError() { errorMessage = nil }
@@ -300,7 +310,7 @@ final class AppSession {
                 statusMessageIsError = false
             }
         } catch {
-            let message = checkInFailureMessage(error)
+            let message = checkInFailureMessage(error, site: service.site)
             checkInStatuses[activeAccountID] = .failed(message: message)
             statusMessage = message
             statusMessageIsError = true
@@ -308,11 +318,13 @@ final class AppSession {
         updateActiveAccountCheckInStatus()
     }
 
-    private func checkInFailureMessage(_ error: Error) -> String {
-        if error.localizedDescription.localizedCaseInsensitiveContains("client error") {
-            return "签到请求被 NGA 拒绝，请稍后重试"
-        }
-        return error.localizedDescription
+    /// 签到的失败提示走的是 `statusMessage`，不经过 `present(_:)`，所以站名在这里冠。
+    private func checkInFailureMessage(_ error: Error, site: ForumSite) -> String {
+        let detail = error.localizedDescription
+            .localizedCaseInsensitiveContains("client error")
+            ? "签到请求被拒绝，请稍后重试"
+            : error.localizedDescription
+        return "\(site.displayName)：\(detail)"
     }
 
     func updateActiveAccountCheckInStatus() {

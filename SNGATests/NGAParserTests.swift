@@ -2729,7 +2729,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertThrowsError(try parser.checkIn(from: response(
             #"{"error":{"0":"CLIENT ERROR"},"data":null}"#
         ))) { error in
-            XCTAssertEqual(error.localizedDescription, "签到请求被 NGA 拒绝，请稍后重试")
+            XCTAssertEqual(error.localizedDescription, "签到请求被拒绝，请稍后重试")
         }
 
         XCTAssertEqual(

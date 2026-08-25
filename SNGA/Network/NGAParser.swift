@@ -1003,7 +1003,7 @@ struct NGAParser: Sendable {
                 return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
             }
             if message.localizedCaseInsensitiveContains("client error") {
-                throw ForumServiceError.restricted("签到请求被 NGA 拒绝，请稍后重试")
+                throw ForumServiceError.restricted("签到请求被拒绝，请稍后重试")
             }
             try throwJSONErrorIfPresent(in: root)
             if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
@@ -1200,7 +1200,7 @@ struct NGAParser: Sendable {
             }
             return ParsedHTMLForm(action: response.url, fields: values)
         }
-        throw ForumServiceError.unsupported("NGA 当前页面没有可用的提交表单")
+        throw ForumServiceError.unsupported("当前页面没有可用的提交表单")
     }
 
     private func structuredMessageItems(in source: String) -> [String] {

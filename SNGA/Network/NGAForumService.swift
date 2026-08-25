@@ -2,6 +2,7 @@ import Foundation
 
 actor NGAForumService: ForumService {
     nonisolated let accountID: AccountID
+    nonisolated let site: ForumSite = .nga
     private let client: NGANetworkClient
     private let parser: NGAParser
 
@@ -357,7 +358,7 @@ actor NGAForumService: ForumService {
         guard url.scheme == "https",
               let host = url.host?.lowercased(),
               host == "nga.cn" || host.hasSuffix(".nga.cn") else {
-            throw ForumServiceError.restricted("已阻止向非 NGA 地址提交数据")
+            throw ForumServiceError.restricted("已阻止向站外地址提交数据")
         }
     }
 }
