@@ -28,7 +28,7 @@ struct NGAHTTPResponse: Sendable {
 
 actor NGANetworkClient {
     private let transport: any HTTPTransport
-    private var cookies: [SessionCookie]
+    private var jar: SessionCookieJar
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
     /// 站点要求的 UA。见 `SiteUserAgent` —— 有的站点不接受应用自报家门。
     private let defaultUserAgent: String
@@ -42,14 +42,12 @@ actor NGANetworkClient {
         cookieDidChange: @escaping @Sendable ([SessionCookie]) async -> Void = { _ in }
     ) {
         self.defaultUserAgent = defaultUserAgent
-        self.cookies = cookies
+        self.jar = SessionCookieJar(cookies)
         self.transport = transport
         self.cookieDidChange = cookieDidChange
     }
 
-    func currentCookies() -> [SessionCookie] {
-        cookies.filter { !$0.isExpired }
-    }
+    func currentCookies() -> [SessionCookie] { jar.unexpired }
 
     func request(_ endpoint: NGAEndpoint) async throws -> NGAHTTPResponse {
         let maximumAttempts = endpoint.isWrite ? 1 : 2
@@ -273,23 +271,11 @@ actor NGANetworkClient {
     }
 
     private func makeCookieHeader(for url: URL) -> String {
-        let host = url.host?.lowercased() ?? ""
-        let requestPath = url.path.isEmpty ? "/" : url.path
-        return cookies
-            .filter { cookie in
-                guard !cookie.isExpired else { return false }
-                let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                return (host == domain || host.hasSuffix(".\(domain)")) && requestPath.hasPrefix(cookie.path)
-            }
-            .sorted { $0.name < $1.name }
-            .map { "\($0.name)=\($0.value)" }
-            .joined(separator: "; ")
+        jar.header(for: url)
     }
 
     private func cookieValue(named name: String) -> String {
-        cookies.first {
-            !$0.isExpired && $0.name.caseInsensitiveCompare(name) == .orderedSame
-        }?.value ?? ""
+        jar.value(named: name)
     }
 
     private func formEncoded(_ fields: [String: String]) -> Data {
@@ -299,19 +285,8 @@ actor NGANetworkClient {
     }
 
     private func mergeResponseCookies(headers: [String: String], url: URL) async {
-        let normalized = headers.reduce(into: [String: String]()) { result, item in
-            if item.key.caseInsensitiveCompare("Set-Cookie") == .orderedSame {
-                result["Set-Cookie"] = item.value
-            }
-        }
-        guard !normalized.isEmpty else { return }
-        let newCookies = HTTPCookie.cookies(withResponseHeaderFields: normalized, for: url).map(SessionCookie.init)
-        guard !newCookies.isEmpty else { return }
-        for cookie in newCookies {
-            cookies.removeAll { $0.name == cookie.name && $0.domain == cookie.domain && $0.path == cookie.path }
-            if !cookie.isExpired { cookies.append(cookie) }
-        }
-        await cookieDidChange(cookies)
+        guard jar.merge(responseHeaders: headers, url: url) else { return }
+        await cookieDidChange(jar.cookies)
     }
 }
 

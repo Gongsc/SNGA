@@ -171,3 +171,129 @@ final class NodeSeekEndpointTests: XCTestCase {
         XCTAssertFalse(NodeSeekNetworkClient.isSessionScoped(open))
     }
 }
+
+/// 请求路径：头带对没有、失败形态映射对没有。
+///
+/// 用假 transport，不联网。
+final class NodeSeekNetworkClientTests: XCTestCase {
+
+    private func makeClient(_ transport: RecordingTransport) -> NodeSeekNetworkClient {
+        NodeSeekNetworkClient(
+            cookies: [
+                SessionCookie(name: "session", value: "s", domain: "nodeseek.com", path: "/",
+                              expiresAt: nil, isSecure: true, isHTTPOnly: true),
+                SessionCookie(name: "cf_clearance", value: "c", domain: ".nodeseek.com", path: "/",
+                              expiresAt: nil, isSecure: true, isHTTPOnly: true)
+            ],
+            transport: transport,
+            userAgent: "WebViewUA/1.0",
+            cookieDidChange: { _ in }
+        )
+    }
+
+    /// UA 必须是传进来的那个，cookie 必须一个不落。
+    func testRequestCarriesTheWebViewAgentAndEveryCookie() async throws {
+        let transport = RecordingTransport(body: Data(#"{"ok":true}"#.utf8))
+        _ = try await makeClient(transport).get(NodeSeekEndpoint.unreadCount)
+
+        let recorded = await transport.lastRequest
+        let request = try XCTUnwrap(recorded)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "WebViewUA/1.0")
+        let cookie = try XCTUnwrap(request.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertTrue(cookie.contains("session=s"))
+        XCTAssertTrue(cookie.contains("cf_clearance=c"), "少带一个就会被挑战")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Requested-With"), "XMLHttpRequest")
+    }
+
+    /// 网页请求不该带 XHR 那套头，`Accept` 也不一样。
+    func testHTMLRequestsDropTheXHRHeaders() async throws {
+        let transport = RecordingTransport(body: Data("<html></html>".utf8))
+        let home = NodeSeekEndpoint.forumID(key: NodeSeekEndpoint.homeKey)
+        _ = try await makeClient(transport).get(
+            NodeSeekEndpoint.topicList(forumID: home, page: 1, sortByPostTime: false),
+            asJSON: false
+        )
+
+        let recorded = await transport.lastRequest
+        let request = try XCTUnwrap(recorded)
+        XCTAssertNil(request.value(forHTTPHeaderField: "X-Requested-With"))
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), ForumSiteDescriptor.htmlAccept)
+    }
+
+    /// 被挑战时不能说成「服务器错误」—— 用户要做的是回去过验证。
+    func testChallengeAsksForVerificationRatherThanRetry() async {
+        let transport = RecordingTransport(
+            body: Data("<!DOCTYPE html><title>Just a moment…</title>".utf8),
+            status: 403,
+            headers: ["cf-mitigated": "challenge"]
+        )
+        do {
+            _ = try await makeClient(transport).get(NodeSeekEndpoint.unreadCount)
+            XCTFail("挑战应当抛错")
+        } catch let error as ForumServiceError {
+            guard case let .restricted(message) = error else {
+                return XCTFail("应当是 restricted，实际是 \(error)")
+            }
+            XCTAssertTrue(message.contains("人机验证"), message)
+        } catch {
+            XCTFail("意外的错误：\(error)")
+        }
+    }
+
+    /// 会话端点的 500 是「没登录」，不是「服务器坏了」。
+    func testFiveHundredOnASessionEndpointMeansSignIn() async {
+        let transport = RecordingTransport(body: Data(), status: 500)
+        do {
+            _ = try await makeClient(transport).get(NodeSeekEndpoint.unreadCount)
+            XCTFail("应当抛错")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .requiresLogin)
+        }
+    }
+
+    /// 但普通端点的 500 仍然是服务器故障，不能一律说成要登录。
+    func testFiveHundredElsewhereStaysAServerFault() async {
+        let transport = RecordingTransport(body: Data(), status: 500)
+        do {
+            _ = try await makeClient(transport).get(NodeSeekEndpoint.accountInfo(uid: 1))
+            XCTFail("应当抛错")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .server(500))
+        }
+    }
+
+    /// 响应里换发的 cookie 要跟上 —— Cloudflare 会不定时换 `cf_clearance`。
+    func testRotatedCookiesAreKept() async throws {
+        let transport = RecordingTransport(
+            body: Data(#"{"ok":true}"#.utf8),
+            headers: ["Set-Cookie": "cf_clearance=rotated; Path=/; Domain=.nodeseek.com"]
+        )
+        let client = makeClient(transport)
+        _ = try await client.get(NodeSeekEndpoint.unreadCount)
+
+        let value = await client.currentCookies()
+            .first { $0.name == "cf_clearance" }?.value
+        XCTAssertEqual(value, "rotated")
+    }
+}
+
+private actor RecordingTransport: HTTPTransport {
+    private(set) var lastRequest: URLRequest?
+    private let body: Data
+    private let status: Int
+    private let headers: [String: String]
+
+    init(body: Data, status: Int = 200, headers: [String: String] = [:]) {
+        self.body = body
+        self.status = status
+        self.headers = headers
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        lastRequest = request
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers
+        )!
+        return (body, response)
+    }
+}

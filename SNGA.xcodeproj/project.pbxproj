@@ -32,6 +32,7 @@
 		39CFCC34C6A5074AB02DB705 /* ForumSearchPaginationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031E35758A35B9D8662A49B2 /* ForumSearchPaginationBar.swift */; };
 		3E41478D41CAC90E84B80CF4 /* NodeSeekInternalLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91D93050AFFAE305062FB12 /* NodeSeekInternalLink.swift */; };
 		417B84607EC81D1AF477CA30 /* PostQuoteExpanderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA68ED4CDA3D00903F923345 /* PostQuoteExpanderTests.swift */; };
+		434C98C8A76E1BFBD4DA407F /* SessionCookieJar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C25321213642C72401CBA0B1 /* SessionCookieJar.swift */; };
 		4886EE12B42D50AB38EB2EE6 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92C014C3D8A3473B7341EC7 /* NotificationService.swift */; };
 		4964F6AA45C249E65709846B /* AnonymousBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823D55982FFC6FA57BF04E9D /* AnonymousBadge.swift */; };
 		49B7230BEF08492DC0757E7E /* PaginationBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF2DDE4B8F222F0A02D5BF5 /* PaginationBarTests.swift */; };
@@ -237,6 +238,7 @@
 		BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxAPIService.swift; sourceTree = "<group>"; };
 		C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */ = {isa = PBXFileReference; path = "legacy-1.8.2.store"; sourceTree = "<group>"; };
 		C2369D4A4F5DB8E996528CFF /* PostParagraphLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostParagraphLayoutTests.swift; sourceTree = "<group>"; };
+		C25321213642C72401CBA0B1 /* SessionCookieJar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCookieJar.swift; sourceTree = "<group>"; };
 		C414AA0229E2093B7A0C16F1 /* SNGA.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SNGA.entitlements; sourceTree = "<group>"; };
 		C595E939887CE5215A4959D7 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		C926F674DF7FD9306C451DFF /* PaginationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaginationBar.swift; sourceTree = "<group>"; };
@@ -391,6 +393,7 @@
 				24BC0DF2EC80E7ABE9E38B97 /* PostContentBuilder.swift */,
 				0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */,
 				39DF2A889872424BD68EAB4B /* PostQuoteExpander.swift */,
+				C25321213642C72401CBA0B1 /* SessionCookieJar.swift */,
 				BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */,
 			);
 			path = Network;
@@ -678,6 +681,7 @@
 				F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */,
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
 				316D18F65BE8E39EBF9FBC10 /* SNGAApp.swift in Sources */,
+				434C98C8A76E1BFBD4DA407F /* SessionCookieJar.swift in Sources */,
 				5E9C0DC6A6525D27E6F479AF /* SettingsView.swift in Sources */,
 				25579D1C898FE5E0CAF2F1BB /* SidebarView.swift in Sources */,
 				133C038F5CFB0BD6B218FDE9 /* SkeletonShimmerView.swift in Sources */,

@@ -120,6 +120,10 @@ struct ForumSiteDescriptor: Sendable {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
         "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
+    /// 请求网页时的 `Accept`。解析用的页面走这个，不是 JSON 那套。
+    static let htmlAccept =
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+
     private static func matches(_ host: String, against domains: [String]) -> Bool {
         let host = host.lowercased()
         return domains.contains { domain in
