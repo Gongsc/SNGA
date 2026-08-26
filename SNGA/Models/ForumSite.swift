@@ -6,18 +6,21 @@ import Foundation
 /// 会把每一处需要补分支的地方一次指出来，不必靠人去搜。
 enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable {
     case nga
+    case nodeseek
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
         case .nga: "NGA"
+        case .nodeseek: "NodeSeek"
         }
     }
 
     var descriptor: ForumSiteDescriptor {
         switch self {
         case .nga: .nga
+        case .nodeseek: .nodeseek
         }
     }
 }

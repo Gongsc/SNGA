@@ -89,6 +89,13 @@ final class AppSession {
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
         switch site {
+        case .nodeseek:
+            return NodeSeekForumService(
+                accountID: accountID,
+                cookies: cookies,
+                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                cookieDidChange: persist
+            )
         case .nga:
             return NGAForumService(
                 accountID: accountID,

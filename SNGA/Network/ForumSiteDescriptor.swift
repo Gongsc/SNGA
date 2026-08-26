@@ -90,6 +90,7 @@ struct ForumSiteDescriptor: Sendable {
         guard let host = url.host?.lowercased(), owns(host: host) else { return nil }
         switch site {
         case .nga: return NGAInternalLink.destination(for: url)
+        case .nodeseek: return NodeSeekInternalLink.destination(for: url)
         }
     }
 
@@ -99,6 +100,9 @@ struct ForumSiteDescriptor: Sendable {
     func sanitizedPreviewHTML(_ source: String) -> String {
         switch site {
         case .nga: NGAParser().sanitizedPostHTML(source)
+        // Markdown 站点的预览要先渲染成 HTML。渲染器还没有，所以先把源码原样显示 ——
+        // 比给一段假的富文本诚实。跟 Markdown 编辑器一起做。
+        case .nodeseek: NodeSeekMarkdown.plainPreviewHTML(source)
         }
     }
 
@@ -106,6 +110,7 @@ struct ForumSiteDescriptor: Sendable {
     func topicWebURL(topicID: TopicID) -> URL {
         switch site {
         case .nga: NGAEndpoint.topicWebURL(topicID: topicID)
+        case .nodeseek: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
         }
     }
 
@@ -136,6 +141,24 @@ extension ForumSiteDescriptor {
         sessionCookieNames: ["ngaPassportCid"],
         uidCookieName: "ngaPassportUid",
         userAgent: .fixed("SNGA/1.0 (macOS; native client)")
+    )
+}
+
+extension ForumSiteDescriptor {
+    static let nodeseek = ForumSiteDescriptor(
+        site: .nodeseek,
+        replyMarkup: .markdown,
+        baseURL: URL(string: "https://www.nodeseek.com")!,
+        loginURL: URL(string: "https://www.nodeseek.com/signIn.html")!,
+        cookieDomains: ["nodeseek.com"],
+        linkDomains: ["nodeseek.com"],
+        // 登录后站点会下发 6 个 cookie，判断登录与否只看这一个；保存一律按域名全收，
+        // 只带其中几个会被 Cloudflare 挑战（实测）。
+        sessionCookieNames: ["session"],
+        // 用户编号不在 cookie 里，登录后要问 `currentUserID()`。
+        uidCookieName: nil,
+        // 必须用 WebView 的真实 UA。写死会和页面 JS 环境对不上，触发无限挑战。
+        userAgent: .webView
     )
 }
 

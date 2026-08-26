@@ -1,0 +1,88 @@
+import Foundation
+
+/// NodeSeek 的适配器。
+///
+/// 现在只声明身份和能力，各个方法还没实现 —— 一层一层加，每加一层就有一个真能用的功能。
+/// 没实现的一律抛 `.unsupported`，界面按 `capabilities` 决定画不画，正常路径走不到那里。
+///
+/// 三条传输约束（`Design/SiteProbe-NodeSeek.md` 第〇节，实测）：
+///
+/// 1. 请求必须带 `WKWebView` 自报的真实 UA。写死会和页面 JS 环境对不上，触发无限挑战。
+/// 2. 必须带站点的**全部** cookie。登录后有 6 个，只带其中两个会被 Cloudflare 拒。
+/// 3. 别用 curl 验证这个站 —— 同样的请求 curl 被挑战、`URLSession` 通过。
+actor NodeSeekForumService: ForumService {
+    nonisolated let accountID: AccountID
+    nonisolated let site: ForumSite = .nodeseek
+
+    /// 站点实际有的功能。缺的四样：版面收藏、子版面、话题评分、匿名楼层。
+    /// 话题收藏有，但没有文件夹。
+    nonisolated let capabilities: ForumCapabilities = [
+        .checkIn, .postVote, .postDownvote, .quotePost,
+        .poll, .privateMessages, .globalSearch, .userActivities
+    ]
+
+    private let client: NodeSeekNetworkClient
+
+    init(
+        accountID: AccountID,
+        cookies: [SessionCookie],
+        transport: any HTTPTransport = URLSessionTransport(),
+        userAgent: String,
+        cookieDidChange: @escaping @Sendable ([SessionCookie]) async -> Void = { _ in }
+    ) {
+        self.accountID = accountID
+        self.client = NodeSeekNetworkClient(
+            cookies: cookies,
+            transport: transport,
+            userAgent: userAgent,
+            cookieDidChange: cookieDidChange
+        )
+    }
+
+    // MARK: - 还没实现的
+
+    private func notYet(_ what: String) -> ForumServiceError {
+        .unsupported("NodeSeek 的\(what)还没做")
+    }
+
+    func currentUserID() async throws -> Int64 { throw notYet("登录身份识别") }
+    func profile(uid: Int64) async throws -> Profile { throw notYet("用户资料") }
+    func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage {
+        throw notYet("用户动态")
+    }
+    func forums() async throws -> [Forum] { throw notYet("分类目录") }
+    func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
+        throw notYet("搜索")
+    }
+    func topics(
+        forumID: ForumID,
+        page: Int,
+        sortOrder: TopicListSortOrder,
+        featuredOnly: Bool
+    ) async throws -> ForumPage { throw notYet("话题列表") }
+    func threadPage(topicID: TopicID, page: Int, authorUID: Int64?) async throws -> ThreadPage {
+        throw notYet("帖子页")
+    }
+    func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
+        throw notYet("回复")
+    }
+    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
+        throw notYet("楼层反应")
+    }
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws { throw notYet("投票") }
+    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage { throw notYet("消息") }
+    func message(id: MessageID) async throws -> ForumMessage { throw notYet("消息详情") }
+    func replyMessage(id: MessageID, content: String) async throws { throw notYet("私信回复") }
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { [] }
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage { throw notYet("收藏话题") }
+    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
+        throw notYet("收藏话题")
+    }
+    func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? {
+        throw notYet("收藏夹")
+    }
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws { throw notYet("收藏夹") }
+    func deleteTopicFavoriteFolder(folderID: String) async throws { throw notYet("收藏夹") }
+    func checkInStatus() async throws -> CheckInStatistics { throw notYet("签到状态") }
+    func checkIn() async throws -> CheckInResult { throw notYet("签到") }
+}
