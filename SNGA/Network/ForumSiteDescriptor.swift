@@ -1,10 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// 一个站点的固定资料：从哪里发请求、去哪里登录、哪些域算它的、登录凭据叫什么。
-///
-/// 这些值原本散在 `NGAEndpoint`、`NGAInternalLink` 和 `LoginWebView` 里各写一份。
-/// 收到这里之后，接第二个站点时要填的东西一眼可数，而不必回去把三处逐个找出来。
 /// 回复正文用哪种标记语言。
 ///
 /// 不做成两个能力位：站点只会用其中一种，两个位允许出现「都开」和「都关」这两种
@@ -14,6 +10,10 @@ enum ReplyMarkup: String, Codable, Sendable {
     case markdown
 }
 
+/// 一个站点的固定资料：从哪里发请求、去哪里登录、哪些域算它的、登录凭据叫什么。
+///
+/// 这些值原本散在 `NGAEndpoint`、`NGAInternalLink` 和 `LoginWebView` 里各写一份。
+/// 收到这里之后，接第二个站点时要填的东西一眼可数，而不必回去把三处逐个找出来。
 struct ForumSiteDescriptor: Sendable {
     let site: ForumSite
     /// 回复用哪种标记。决定编辑器给哪一套工具条。
