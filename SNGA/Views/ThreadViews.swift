@@ -1353,6 +1353,29 @@ struct ReplyComposerView: View {
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
     @State private var loadedDraft = false
+
+    /// 引用某一层时预填的开头。
+    ///
+    /// 两种标记语言的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
+    /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
+    /// 得把被引的话真的抄进去。
+    private func quotedPrefix(_ replyTo: Post) -> String {
+        switch siteDescriptor.replyMarkup {
+        case .ubb:
+            return "[quote]\(replyTo.author) 于 #\(replyTo.floor) 的内容[/quote]\n"
+        case .markdown:
+            let quoted = replyTo.html
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .prefix(6)
+                .map { "> \($0.trimmingCharacters(in: .whitespaces))" }
+                .joined(separator: "\n")
+            let head = "> **\(replyTo.author)** 在 #\(replyTo.floor) 楼说："
+            return ([head] + (quoted.isEmpty ? [] : [quoted]) + ["", ""])
+                .joined(separator: "\n")
+        }
+    }
     @State private var submitted = false
 
     init(topic: Topic, replyTo: Post?) {
@@ -1478,7 +1501,7 @@ struct ReplyComposerView: View {
             if let draft = model.thread.draft(topicID: topic.id) {
                 content = draft.content
             } else if let replyTo {
-                content = "[quote]\(replyTo.author) 于 #\(replyTo.floor) 的内容[/quote]\n"
+                content = quotedPrefix(replyTo)
             }
         }
         .onChange(of: content) { _, newValue in

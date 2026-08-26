@@ -380,3 +380,36 @@ extension NodeSeekParserTests {
         XCTAssertEqual(NodeSeekParser.signedInUserID(inHTML: html), 66675)
     }
 }
+
+/// 写操作的确认。站点把结论放在响应体里，状态码只是附带。
+extension NodeSeekParserTests {
+
+    func testASuccessfulWritePassesQuietly() throws {
+        try NodeSeekParser().confirmWrite(
+            // 分隔符用两个井号：正文里的 "#3 会把单井号的原始字符串提前收掉。
+            json: Data(##"{"success":true,"redirect":"/post-1-1","redirectHash":"#3"}"##.utf8),
+            what: "回复"
+        )
+    }
+
+    /// 失败时把站点自己的话原样抛出去 —— 换成自己编的会把原因盖掉。
+    func testAFailedWriteCarriesTheSitesReason() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().confirmWrite(
+                json: Data(#"{"success":false,"message":"评论间隔太短，请稍后再试"}"#.utf8),
+                what: "回复"
+            )
+        ) { error in
+            guard case let .restricted(message) = error as? ForumServiceError else {
+                return XCTFail("应当是 restricted，实际是 \(error)")
+            }
+            XCTAssertEqual(message, "评论间隔太短，请稍后再试")
+        }
+    }
+
+    func testAWriteWithoutAnyReasonStillFails() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().confirmWrite(json: Data("{}".utf8), what: "回复")
+        )
+    }
+}

@@ -343,6 +343,18 @@ struct NodeSeekParser: Sendable {
         )
     }
 
+    /// 确认一次写操作成功了。
+    ///
+    /// 这个站的写接口把结论放在响应体里，状态码只是附带。失败时 `message` 就是该展示给
+    /// 用户的那句话，所以原样抛出去，不要换成自己编的。
+    func confirmWrite(json data: Data, what: String) throws {
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        if (root?["success"] as? NSNumber)?.boolValue == true { return }
+        let message = (root?["message"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        throw ForumServiceError.restricted(message.isEmpty ? "\(what)未能提交" : message)
+    }
+
     /// 签到的答复。
     ///
     /// 这个站的写接口把话写在响应体里，状态码只是个附带 —— 重复签到答的是 HTTP 500，

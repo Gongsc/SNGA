@@ -119,8 +119,29 @@ actor NodeSeekForumService: ForumService {
         }
         return try parser.threadPage(html: html, topicID: topicID, page: page)
     }
+    /// 发一条回复。
+    ///
+    /// `replyTo` 在这里用不上：站点没有服务端的引用机制，引用是把被引的话作为 Markdown
+    /// 引用块写进正文 —— 那由编辑器在起草时完成，到这一层已经是正文的一部分了。
+    ///
+    /// 返回 nil：响应只给 `redirect` 和 `redirectHash`（形如 `#3`），那是**楼层号**不是
+    /// 楼层编号，拿它构造 `PostID` 会指向别的东西。调用方本来也不看返回值。
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
-        throw notYet("回复")
+        let text = submission.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw ForumServiceError.unsupported("回复内容不能为空")
+        }
+        let data = try await client.postJSON(
+            NodeSeekEndpoint.newComment,
+            body: [
+                "content": text,
+                "mode": "new-comment",
+                "postId": topicID.rawValue
+            ],
+            referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+        )
+        try parser.confirmWrite(json: data, what: "回复")
+        return nil
     }
     func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
         throw notYet("楼层反应")
