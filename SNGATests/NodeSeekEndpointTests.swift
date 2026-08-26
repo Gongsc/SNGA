@@ -150,13 +150,25 @@ final class NodeSeekEndpointTests: XCTestCase {
 
     func testChallengeIsRecognizedInAllThreeShapes() {
         XCTAssertTrue(NodeSeekNetworkClient.isChallenge(
-            status: 403, headers: ["cf-mitigated": "challenge"], body: Data()))
+            status: 403, headers: ["cf-mitigated": "challenge"], body: Data(), expectedJSON: true))
         XCTAssertTrue(NodeSeekNetworkClient.isChallenge(
-            status: 403, headers: [:], body: Data("<!DOCTYPE html><html>".utf8)))
+            status: 403, headers: [:], body: Data("<!DOCTYPE html><html>".utf8), expectedJSON: true))
         XCTAssertTrue(NodeSeekNetworkClient.isChallenge(
-            status: 200, headers: [:], body: Data("<title>Just a moment…</title>".utf8)))
+            status: 200, headers: [:], body: Data("<title>Just a moment…</title>".utf8),
+            expectedJSON: true))
         XCTAssertFalse(NodeSeekNetworkClient.isChallenge(
-            status: 200, headers: [:], body: Data(#"{"success":true}"#.utf8)))
+            status: 200, headers: [:], body: Data(#"{"success":true}"#.utf8), expectedJSON: true))
+    }
+
+    /// 网页请求拿到 HTML 是正常的，不能当成挑战 —— 这样判会把每一次成功都判死。
+    func testHTMLIsNotAChallengeWhenHTMLIsWhatWasAskedFor() {
+        let page = Data("<!DOCTYPE html><html><body>列表</body></html>".utf8)
+        XCTAssertFalse(NodeSeekNetworkClient.isChallenge(
+            status: 200, headers: [:], body: page, expectedJSON: false))
+        // 但挑战页即使在网页请求上也认得出来。
+        XCTAssertTrue(NodeSeekNetworkClient.isChallenge(
+            status: 403, headers: [:], body: Data("<html><title>Just a moment…</title>".utf8),
+            expectedJSON: false))
     }
 
     /// 这几族接口未登录时答 500 而不是 401，得认出来才能提示「去登录」而不是「重试」。

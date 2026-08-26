@@ -111,7 +111,12 @@ actor NodeSeekNetworkClient {
         }
 
         // 挑战要在看状态码之前判：「请去验证」和「请去登录」是两条不同的恢复路径。
-        if Self.isChallenge(status: response.statusCode, headers: headers, body: data) {
+        if Self.isChallenge(
+            status: response.statusCode,
+            headers: headers,
+            body: data,
+            expectedJSON: asJSON
+        ) {
             throw ForumServiceError.restricted(
                 "需要在浏览器里完成一次人机验证。请重新登录本站账号，验证通过后再试。"
             )
@@ -134,16 +139,27 @@ actor NodeSeekNetworkClient {
         }
     }
 
-    /// Cloudflare 把请求拦下来的三种形态。要在看状态码之前判 ——
+    /// Cloudflare 把请求拦下来的形态。要在看状态码之前判 ——
     /// 「请去验证」和「请去登录」是两条不同的恢复路径。
-    static func isChallenge(status: Int, headers: [String: String], body: Data) -> Bool {
+    ///
+    /// `expectedJSON` 是承重的：「响应体是 HTML」只有在**问 JSON 的时候**才说明被拦截了。
+    /// 网页请求本来就该拿到以 `<!DOCTYPE` 开头的东西，拿这条去判网页会把每一次成功
+    /// 都当成挑战 —— 列表页正是这样被自己判死过一次。
+    static func isChallenge(
+        status: Int,
+        headers: [String: String],
+        body: Data,
+        expectedJSON: Bool
+    ) -> Bool {
         if headers.first(where: { $0.key.caseInsensitiveCompare("cf-mitigated") == .orderedSame })?
             .value.caseInsensitiveCompare("challenge") == .orderedSame {
             return true
         }
         let head = String(data: body.prefix(600), encoding: .utf8) ?? ""
-        return head.contains("Just a moment")
-            || head.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<!DOCTYPE")
+        // 挑战页本身的特征，网页和 JSON 都算。
+        if head.contains("Just a moment") { return true }
+        guard expectedJSON else { return false }
+        return head.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<")
     }
 
     /// 这几族接口在**未登录**时答 500 而不是 401。照常识把 500 显示成「服务器错误，请重试」，

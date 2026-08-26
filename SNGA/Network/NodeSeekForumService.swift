@@ -22,6 +22,7 @@ actor NodeSeekForumService: ForumService {
     ]
 
     private let client: NodeSeekNetworkClient
+    private let parser = NodeSeekParser()
 
     init(
         accountID: AccountID,
@@ -50,16 +51,45 @@ actor NodeSeekForumService: ForumService {
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage {
         throw notYet("用户动态")
     }
-    func forums() async throws -> [Forum] { throw notYet("分类目录") }
+    /// 分类是固定的一组，没有接口能列全，所以直接给出来 —— 不发请求。
+    func forums() async throws -> [Forum] {
+        NodeSeekEndpoint.categories.map { entry in
+            Forum(
+                id: NodeSeekEndpoint.forumID(key: entry.key),
+                name: entry.name,
+                category: "分类"
+            )
+        }
+    }
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
         throw notYet("搜索")
     }
+    /// 一页话题列表。
+    ///
+    /// `featuredOnly` 无处可去：站点没有精华筛选。界面上那个开关由 NGA 的能力驱动，
+    /// 这里收到了也只能忽略。
     func topics(
         forumID: ForumID,
         page: Int,
         sortOrder: TopicListSortOrder,
         featuredOnly: Bool
-    ) async throws -> ForumPage { throw notYet("话题列表") }
+    ) async throws -> ForumPage {
+        let url = NodeSeekEndpoint.topicList(
+            forumID: forumID,
+            page: page,
+            sortByPostTime: sortOrder == .latestTopic
+        )
+        let data = try await client.get(url, asJSON: false)
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw ForumServiceError.invalidResponse
+        }
+        var result = try parser.topicList(html: html, forumID: forumID, page: page)
+        // 列表页不带分类自己的名字，从固定表里补上。
+        result.forum = NodeSeekEndpoint.categories
+            .first { $0.key == forumID.key }
+            .map { Forum(id: forumID, name: $0.name, category: "分类") }
+        return result
+    }
     func threadPage(topicID: TopicID, page: Int, authorUID: Int64?) async throws -> ThreadPage {
         throw notYet("帖子页")
     }
