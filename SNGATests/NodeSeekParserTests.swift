@@ -11,7 +11,7 @@ final class NodeSeekParserTests: XCTestCase {
     private let parser = NodeSeekParser()
     private let daily = NodeSeekEndpoint.forumID(key: "daily")
 
-    private func fixture(_ name: String) throws -> String {
+    fileprivate func fixture(_ name: String) throws -> String {
         let url = try XCTUnwrap(
             Bundle(for: Self.self).url(forResource: name, withExtension: "html"),
             "测试包里没有夹具 \(name).html"
@@ -114,5 +114,96 @@ final class NodeSeekParserTests: XCTestCase {
         XCTAssertEqual(NodeSeekParser.uid(fromPath: "/space/1769"), 1769)
         XCTAssertEqual(NodeSeekParser.forumID(fromPath: "/categories/daily"), daily)
         XCTAssertEqual(NodeSeekParser.page(fromPath: "/categories/daily/page-100"), 100)
+    }
+}
+
+/// 帖子页。夹具取自 `/post-857694-1` 的真实响应，留了标题、主楼和两条回复。
+extension NodeSeekParserTests {
+
+    private func threadFixture() throws -> ThreadPage {
+        try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post"),
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+    }
+
+    /// 主楼在 `.nsk-post` 里、回复在 `.comment-container` 里，两块要一起收上来。
+    func testOpeningPostAndRepliesArriveTogether() throws {
+        let page = try threadFixture()
+
+        XCTAssertEqual(page.posts.count, 3, "主楼 + 两条回复")
+        XCTAssertEqual(page.posts.map(\.floor), [0, 1, 2], "主楼是第 0 层")
+    }
+
+    func testEachFloorCarriesItsAuthorAndTime() throws {
+        let page = try threadFixture()
+        let opening = try XCTUnwrap(page.posts.first)
+
+        XCTAssertEqual(opening.author, "Monkeypox")
+        XCTAssertEqual(opening.authorUID, 57815)
+        XCTAssertEqual(opening.id.rawValue, 11_697_742, "楼层身份是 data-comment-id")
+        XCTAssertNotNil(opening.postedAt)
+        XCTAssertEqual(opening.avatarURL?.absoluteString,
+                       "https://www.nodeseek.com/avatar/57815.png")
+    }
+
+    func testTopicTakesItsTitleAndCategoryFromThePage() throws {
+        let page = try threadFixture()
+
+        XCTAssertEqual(page.topic.subject, "【投票】大学流量卡哪家好")
+        XCTAssertEqual(page.topic.forumID, NodeSeekEndpoint.forumID(key: "daily"))
+        XCTAssertEqual(page.topic.sourceForumName, "日常")
+        XCTAssertEqual(page.topic.author, "Monkeypox", "楼主取自主楼")
+    }
+
+    func testFloorBodyIsKept() throws {
+        let page = try threadFixture()
+        let reply = try XCTUnwrap(page.posts.first { $0.floor == 1 })
+
+        XCTAssertTrue(reply.html.contains("移动"), reply.html)
+    }
+
+    /// 正文是别人写的，要进 WKWebView —— 脚本和事件属性必须清掉。
+    func testScriptsAndEventAttributesAreStripped() throws {
+        let hostile = """
+        <html><body><div class="nsk-post">
+        <div id="0" data-comment-id="1" class="content-item">
+        <a href="/space/1" class="author-name">恶意</a>
+        <article class="post-content">
+          <p onclick="steal()">正文</p>
+          <script>steal()</script>
+          <iframe src="https://example.com"></iframe>
+        </article></div></div></body></html>
+        """
+        let page = try NodeSeekParser().threadPage(
+            html: hostile, topicID: TopicID(rawValue: 1), page: 1
+        )
+        let html = try XCTUnwrap(page.posts.first?.html)
+
+        XCTAssertFalse(html.contains("<script"), html)
+        XCTAssertFalse(html.contains("onclick"), html)
+        XCTAssertFalse(html.contains("<iframe"), html)
+        XCTAssertTrue(html.contains("正文"), "正文本身要留着")
+    }
+
+    /// 只有一页时没有分页条，不能因此报错。
+    func testASinglePageThreadHasNoMore() throws {
+        let page = try threadFixture()
+
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.hasMore)
+    }
+
+    func testAPageWithoutFloorsIsAnError() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().threadPage(
+                html: "<html><body></body></html>", topicID: TopicID(rawValue: 1), page: 1
+            )
+        ) { error in
+            guard case .unexpectedPage = error as? ForumServiceError else {
+                return XCTFail("应当是 unexpectedPage，实际是 \(error)")
+            }
+        }
     }
 }

@@ -92,6 +92,107 @@ struct NodeSeekParser: Sendable {
         return maximum
     }
 
+    /// 一页帖子。
+    ///
+    /// 主楼和回复在页面上分处两块 —— 主楼在 `.nsk-post` 里，回复在 `.comment-container` 里 ——
+    /// 但两者用同一个 `.content-item` 类，`id` 属性就是楼层号（主楼是 `0`）。所以一次选完，
+    /// 不必分别处理。
+    func threadPage(html: String, topicID: TopicID, page: Int) throws -> ThreadPage {
+        let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
+        let items = try document.select(".content-item")
+        guard !items.isEmpty() else {
+            throw ForumServiceError.unexpectedPage("未找到帖子楼层")
+        }
+
+        var posts: [Post] = []
+        for item in items {
+            guard let post = try self.post(from: item, topicID: topicID) else { continue }
+            posts.append(post)
+        }
+        guard !posts.isEmpty else {
+            throw ForumServiceError.unexpectedPage("帖子楼层为空")
+        }
+
+        let totalPages = try self.totalPages(in: document, currentPage: page)
+        return ThreadPage(
+            topic: try self.topic(of: document, topicID: topicID, opening: posts.first),
+            posts: posts,
+            page: page,
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
+    }
+
+    private func post(from item: Element, topicID: TopicID) throws -> Post? {
+        guard let rawID = try? item.attr("data-comment-id"), let commentID = Int64(rawID) else {
+            return nil
+        }
+        // 楼层号在 id 属性上，主楼是 0。缺了就从 `#3` 那个锚点读。
+        var floor = Int((try? item.attr("id")) ?? "") ?? -1
+        if floor < 0, let link = try item.select("a.floor-link").first() {
+            let text = try link.text().trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+            floor = Int(text) ?? 0
+        }
+        if floor < 0 { floor = 0 }
+
+        let authorLink = try item.select("a.author-name").first()
+        let author = try authorLink?.text().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let authorUID = try authorLink.flatMap { Self.uid(fromPath: try $0.attr("href")) }
+
+        let postedAt = try item.select("span.date-created time[datetime]").first()
+            .flatMap { Self.date(fromISO8601: try $0.attr("datetime")) }
+
+        let body = try item.select("article.post-content").first()
+        let sanitized = try body.map { try Self.sanitized($0) } ?? ""
+
+        return Post(
+            id: PostID(rawValue: commentID),
+            topicID: topicID,
+            floor: floor,
+            author: author,
+            authorUID: authorUID,
+            avatarURL: authorUID.flatMap {
+                URL(string: "\(ForumSiteDescriptor.nodeseek.baseURL.absoluteString)/avatar/\($0).png")
+            },
+            postedAt: postedAt,
+            html: sanitized
+        )
+    }
+
+    private func topic(of document: Document, topicID: TopicID, opening: Post?) throws -> Topic {
+        let subject = try document.select("h1 a.post-title-link").first()
+            .map { try $0.text().trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        // 分类只挂在主楼上。
+        let categoryLink = try document.select(".content-category a[href]").first()
+        let forumID = try categoryLink
+            .flatMap { Self.forumID(fromPath: try $0.attr("href")) }
+            ?? NodeSeekEndpoint.forumID(key: NodeSeekEndpoint.homeKey)
+        return Topic(
+            id: topicID,
+            forumID: forumID,
+            subject: subject,
+            author: opening?.author ?? "",
+            authorUID: opening?.authorUID,
+            replyCount: 0,
+            publishedAt: opening?.postedAt,
+            sourceForumName: try categoryLink?.text().trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    /// 正文清洗：脚本、样式、iframe、表单、事件属性一律去掉。
+    ///
+    /// 楼层正文是别人写的，要进 `WKWebView`。SwiftSoup 的 relaxed 白名单已经挡掉了
+    /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
+    private static func sanitized(_ element: Element) throws -> String {
+        let inner = try element.html()
+        let cleaned = try SwiftSoup.clean(inner, Whitelist.relaxed()) ?? ""
+        let document = try SwiftSoup.parseBodyFragment(cleaned)
+        for tag in ["script", "style", "iframe", "form", "object", "embed"] {
+            try document.select(tag).remove()
+        }
+        return try document.body()?.html() ?? cleaned
+    }
+
     // MARK: - 路径
 
     /// `/post-857694-2` → 857694。

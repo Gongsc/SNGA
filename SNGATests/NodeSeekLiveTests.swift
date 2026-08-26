@@ -34,4 +34,24 @@ final class NodeSeekLiveTests: XCTestCase {
         XCTAssertGreaterThan(first.id.rawValue, 0)
         print("线上第一条：#\(first.id) \(first.subject.prefix(30))，共 \(page.totalPages) 页")
     }
+
+    func manualLiveThreadPageParses() async throws {
+        let service = NodeSeekForumService(
+            accountID: AccountID(),
+            cookies: [],
+            userAgent: ForumSiteDescriptor.nodeseek.resolvedUserAgent(fallback: nil)
+        )
+
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 857_694), page: 1, authorUID: nil
+        )
+
+        XCTAssertFalse(page.posts.isEmpty, "线上帖子页解析不出楼层 —— 多半是选择器过时了")
+        XCTAssertFalse(page.topic.subject.isEmpty)
+        XCTAssertEqual(page.posts.first?.floor, 0, "第一层应当是主楼")
+        let opening = try XCTUnwrap(page.posts.first)
+        XCTAssertFalse(opening.author.isEmpty)
+        XCTAssertFalse(opening.html.isEmpty)
+        print("线上帖子：\(page.topic.subject.prefix(30))，本页 \(page.posts.count) 层，共 \(page.totalPages) 页")
+    }
 }

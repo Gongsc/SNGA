@@ -90,8 +90,18 @@ actor NodeSeekForumService: ForumService {
             .map { Forum(id: forumID, name: $0.name, category: "分类") }
         return result
     }
+    /// 一页帖子。
+    ///
+    /// `authorUID` 用不上：站点没有「只看楼主」。界面上那个开关由 NGA 的能力驱动。
     func threadPage(topicID: TopicID, page: Int, authorUID: Int64?) async throws -> ThreadPage {
-        throw notYet("帖子页")
+        let data = try await client.get(
+            NodeSeekEndpoint.thread(topicID: topicID, page: page),
+            asJSON: false
+        )
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw ForumServiceError.invalidResponse
+        }
+        return try parser.threadPage(html: html, topicID: topicID, page: page)
     }
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
         throw notYet("回复")
