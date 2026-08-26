@@ -21,6 +21,8 @@ actor DebugForumService: ForumService {
         self.capabilities = capabilities
     }
 
+    func currentUserID() async throws -> Int64 { 10001 }
+
     func profile(uid: Int64) async throws -> Profile {
         Profile(
             uid: uid,

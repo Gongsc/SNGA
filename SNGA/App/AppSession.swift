@@ -76,10 +76,14 @@ final class AppSession {
     // MARK: - 账号与服务
 
     /// 按站点造服务。现在只有一个分支 —— 加站点时编译器会要求补上。
+    ///
+    /// `userAgent` 由调用方解析后传入：要求用 WebView 真实 UA 的站点得先去问一次 WebView，
+    /// 而那是 `@MainActor` 上的异步动作，不能塞进这里。
     func makeService(
         site: ForumSite,
         accountID: AccountID,
-        cookies: [SessionCookie]
+        cookies: [SessionCookie],
+        userAgent: String? = nil
     ) -> any ForumService {
         let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
@@ -89,8 +93,20 @@ final class AppSession {
             return NGAForumService(
                 accountID: accountID,
                 cookies: cookies,
+                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
+        }
+    }
+
+    /// 解析出该站点要用的 UA。要求用 WebView 真实 UA 的站点在这里去问一次。
+    func resolvedUserAgent(for site: ForumSite) async -> String {
+        switch site.descriptor.userAgent {
+        case let .fixed(value):
+            return value
+        case .webView:
+            return await WebViewUserAgent.resolve()
+                ?? site.descriptor.resolvedUserAgent(fallback: nil)
         }
     }
 
@@ -110,15 +126,21 @@ final class AppSession {
             for record in records {
                 let cookies = try await sessionStore.cookies(for: record.accountID)
                 let descriptor = record.site.descriptor
-                let hasUID = cookies.contains {
-                    $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame &&
-                        Int64($0.value) == record.siteUserID
+                // 会话 Cookie 必须一个不缺，且都不能是空值。
+                let hasSession = descriptor.sessionCookieNames.allSatisfy { name in
+                    cookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.value.isEmpty
+                    }
                 }
-                let hasCredential = cookies.contains {
-                    $0.name.caseInsensitiveCompare(descriptor.credentialCookieName) == .orderedSame &&
-                        !$0.value.isEmpty
-                }
-                if !hasUID || !hasCredential {
+                // 有 uid Cookie 的站点顺便核对这份 Cookie 是不是这个账号的；没有的站点跳过 ——
+                // 那种站的用户编号不在 Cookie 里，本地无从校验。
+                let matchesAccount = descriptor.uidCookieName.map { name in
+                    cookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame &&
+                            Int64($0.value) == record.siteUserID
+                    }
+                } ?? true
+                if !hasSession || !matchesAccount {
                     record.sessionState = .requiresLogin
                 } else {
                     // 本地凭据仍完整时先恢复为有效。单个接口的偶发鉴权失败
@@ -127,7 +149,8 @@ final class AppSession {
                     services[record.accountID] = makeService(
                         site: record.site,
                         accountID: record.accountID,
-                        cookies: cookies
+                        cookies: cookies,
+                        userAgent: await resolvedUserAgent(for: record.site)
                     )
                 }
             }

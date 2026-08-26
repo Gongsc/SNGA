@@ -37,6 +37,11 @@ protocol ForumService: Sendable {
     /// 这个站支持哪些功能。界面据此决定画不画对应的控件。
     var capabilities: ForumCapabilities { get }
 
+    /// 当前这份会话属于哪个用户。
+    ///
+    /// 登录时用：用户编号写在 Cookie 里的站点（NGA）直接从抓取结果读；不写的站点
+    /// （NodeSeek 只有一个 `session`）只能登录之后问一次。
+    func currentUserID() async throws -> Int64
     func profile(uid: Int64) async throws -> Profile
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage
     func forums() async throws -> [Forum]

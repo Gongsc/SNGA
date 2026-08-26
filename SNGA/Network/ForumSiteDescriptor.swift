@@ -10,6 +10,18 @@ enum ReplyMarkup: String, Codable, Sendable {
     case markdown
 }
 
+/// 请求该用什么 User-Agent。
+///
+/// 不是所有站点都能自报家门。NodeSeek 站前的 Cloudflare 会拿请求头里的 UA 去和页面 JS 环境
+/// （`navigator.userAgentData`、`Sec-CH-UA`）交叉核对，而后者由 `WKWebView` 按它真实的引擎版本
+/// 上报、改不动 —— 两边对不上就再发一次挑战，永远勾不完。这种站只能用 WebView 的真实 UA。
+enum SiteUserAgent: Sendable, Hashable {
+    /// 自报家门。站点不校验 UA 时用这个。
+    case fixed(String)
+    /// 从 `WKWebView` 读出它自己的 UA。见 `WebViewUserAgent`。
+    case webView
+}
+
 /// 一个站点的固定资料：从哪里发请求、去哪里登录、哪些域算它的、登录凭据叫什么。
 ///
 /// 这些值原本散在 `NGAEndpoint`、`NGAInternalLink` 和 `LoginWebView` 里各写一份。
@@ -26,12 +38,36 @@ struct ForumSiteDescriptor: Sendable {
     let cookieDomains: [String]
     /// 正文里指向这些域的链接算站内链接，交给原生导航而不是浏览器。
     let linkDomains: [String]
-    /// 会话里标识用户编号的 Cookie。
-    let uidCookieName: String
-    /// 会话里承载登录凭据的 Cookie。
-    let credentialCookieName: String
+    /// 构成会话的 Cookie。这些都在，才算还登录着。
+    ///
+    /// 不是「一个 uid + 一个凭据」那种固定两件套 —— 那是 NGA 的形状。NodeSeek 只有一个
+    /// `session`，别的站可能更多。
+    let sessionCookieNames: [String]
+    /// 会话里直接带着用户编号的 Cookie；没有这种 Cookie 的站点为 nil。
+    ///
+    /// NGA 有，所以本地就能校验「这份 Cookie 是不是这个账号的」。NodeSeek 没有，
+    /// 用户编号得另外去问接口。
+    let uidCookieName: String?
+    /// 请求带哪个 User-Agent。
+    let userAgent: SiteUserAgent
 
     var displayName: String { site.displayName }
+
+    /// 拿不到 WebView 的真实 UA 时退回什么。
+    ///
+    /// 对 `.webView` 的站点这是个降级：真实 UA 读不出来时，宁可用一个像浏览器的串去试，
+    /// 也好过用「SNGA/1.0」—— 后者必然触发挑战。
+    func resolvedUserAgent(fallback: String?) -> String {
+        switch userAgent {
+        case let .fixed(value): value
+        case .webView: fallback ?? Self.browserFallbackUserAgent
+        }
+    }
+
+    /// 日志脱敏和会话校验都要认这些名字。
+    var credentialCookieNames: [String] {
+        sessionCookieNames + [uidCookieName].compactMap { $0 }
+    }
 
     /// 这个域名是不是本站的。主域本身和它的任意子域都算。
     func owns(host: String) -> Bool {
@@ -70,6 +106,12 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 只在读不出 WebView 真实 UA 时用。写死这个值当作**主要** UA 正是造成无限挑战的原因，
+    /// 所以它只是最后的退路。
+    static let browserFallbackUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 " +
+        "(KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
     private static func matches(_ host: String, against domains: [String]) -> Bool {
         let host = host.lowercased()
         return domains.contains { domain in
@@ -88,8 +130,9 @@ extension ForumSiteDescriptor {
         // nga.178.com 原本是 isForumHost 里单写的一个特例，规则和其余三个域一样，
         // 所以直接并进列表。
         linkDomains: ["nga.cn", "ngacn.cc", "ngabbs.com", "nga.178.com"],
+        sessionCookieNames: ["ngaPassportCid"],
         uidCookieName: "ngaPassportUid",
-        credentialCookieName: "ngaPassportCid"
+        userAgent: .fixed("SNGA/1.0 (macOS; native client)")
     )
 }
 

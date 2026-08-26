@@ -121,7 +121,7 @@ actor RuntimeLogger {
     /// 写死一份的话，接第二个站点时它的会话 Cookie 会原样落进日志 —— 这里让它跟着
     /// `ForumSite.allCases` 走，加站点就自动纳入脱敏。
     private static let siteCredentialNames: [String] = ForumSite.allCases.flatMap {
-        [$0.descriptor.uidCookieName, $0.descriptor.credentialCookieName]
+        $0.descriptor.credentialCookieNames
     }
 
     private static let sensitiveQueryNames: Set<String> = Set(

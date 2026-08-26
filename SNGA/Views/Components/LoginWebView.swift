@@ -27,7 +27,11 @@ struct LoginWebView: NSViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        configuration.applicationNameForUserAgent = "SNGA/1.0"
+        // 只有明说自报家门的站点才动 UA。要求用 WebView 真实 UA 的站点一行都不能设 ——
+        // 设置本身会把 UA 标记为已覆盖并改变客户端提示的上报方式，即使设成原值也一样。
+        if case .fixed = descriptor.userAgent {
+            configuration.applicationNameForUserAgent = "SNGA/1.0"
+        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -212,13 +216,19 @@ struct LoginWebView: NSViewRepresentable {
                 let siteCookies = cookies
                     .filter { descriptor.owns(cookieDomain: $0.domain) }
                     .map(SessionCookie.init)
-                let uidCookie = siteCookies.first {
-                    $0.name.caseInsensitiveCompare(descriptor.uidCookieName) == .orderedSame
+                let hasSession = descriptor.sessionCookieNames.allSatisfy { name in
+                    siteCookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.value.isEmpty
+                    }
                 }
-                let credentialCookie = siteCookies.first {
-                    $0.name.caseInsensitiveCompare(descriptor.credentialCookieName) == .orderedSame
+                guard hasSession else { return }
+                // 用户编号在 Cookie 里的站点当场就能读出来；没有的站点留给适配器登录后去问接口。
+                let uid = descriptor.uidCookieName.flatMap { name in
+                    siteCookies.first {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame
+                    }.flatMap { Int64($0.value) }
                 }
-                guard let uid = uidCookie.flatMap({ Int64($0.value) }), credentialCookie != nil else { return }
+                guard descriptor.uidCookieName == nil || uid != nil else { return }
                 self.completed = true
                 self.stopMonitoringCookies()
                 Task { @MainActor in

@@ -221,18 +221,30 @@ final class AppModel {
         do {
             let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
             let site = capture.site
+            // 用户编号不在 Cookie 里的站点，得先拿这份会话问一次「我是谁」，
+            // 才知道该认哪个账号 —— 这一步必须在建记录之前。
+            let uid: Int64
+            if let captured = capture.uid {
+                uid = captured
+            } else {
+                uid = try await session.makeService(
+                    site: site,
+                    accountID: AccountID(),
+                    cookies: capture.cookies
+                ).currentUserID()
+            }
             let record: AccountRecord
             // 认账号要连站点一起看：两个站的同号用户是两个账号。
             if let existing = records.first(where: {
-                $0.site == site && $0.siteUserID == capture.uid
+                $0.site == site && $0.siteUserID == uid
             }) {
                 record = existing
                 record.sessionState = .valid
             } else {
                 record = AccountRecord(
                     site: site,
-                    siteUserID: capture.uid,
-                    displayName: "\(site.displayName) \(capture.uid)"
+                    siteUserID: uid,
+                    displayName: "\(site.displayName) \(uid)"
                 )
                 session.context.insert(record)
             }
@@ -245,7 +257,7 @@ final class AppModel {
                 cookies: capture.cookies
             )
             session.setService(service, for: record.accountID)
-            if let profile = try? await service.profile(uid: capture.uid) {
+            if let profile = try? await service.profile(uid: uid) {
                 record.displayName = profile.displayName
                 record.avatarURLString = profile.avatarURL?.absoluteString
             }

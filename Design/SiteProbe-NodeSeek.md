@@ -156,10 +156,30 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 | 2 | `AppSession.reloadAccountsAndServices` 按"uid cookie + 凭据 cookie 都在"判断会话完整 | 同上，对 NodeSeek 不成立 |
 | 3 | `URLSessionTransport` 写死 `User-Agent: SNGA/1.0 (macOS; native client)` | **对 NodeSeek 是致命的** —— 会触发无限挑战 |
 | 4 | `LoginWebView` 设 `applicationNameForUserAgent = "SNGA/1.0"` | 同样致命。而且"设成原值也不是 no-op" |
-| 5 | `LoginWebView` 用 `.nonPersistent()` 数据存储 | NodeSeek 需要 WebView 与 HTTP 共用 cookie（含 `cf_clearance`） |
+| 5 | `LoginWebView` 用 `.nonPersistent()` 数据存储 | ~~需要共用 cookie~~ —— **复查后作废，见下** |
 | 6 | `PostVoteState.optimisticallyApplying` 假设点赞可撤销、且只有上下两个方向 | NodeSeek 是**三种、都不可撤销、其中两种要花钱** |
 
 第 3、4 条尤其要注意：它们现在对 NGA 是正确的，不能直接删，得改成按站点取值。
+
+### 第 5 条：复查后作废
+
+初读时我把它记成了「WebView 和 HTTP 必须共用一份 cookie 存储」。回头对照 SNGA 的实际做法后，
+这条不成立：
+
+- 登录时的抓取按**域名**过滤而不是按名字，`cf_clearance` 本来就会被一起收走
+- `NGANetworkClient` 有 `mergeResponseCookies`，响应里换发的 cookie 会被合并并持久化，
+  所以 Cloudflare 轮换 `cf_clearance` 也跟得上
+- `.nonPersistent()` 指的是不与 Safari 共享，这是想要的行为，不是问题
+
+**真正缺的是另一件事**：会话中途再次出现挑战时，SNGA 没有把用户送回 WebView 去解一次的路径。
+那是 NodeSeek 适配器要做的事，不是抽象层的缺陷。
+
+### 第 6 条：留到写适配器时再定
+
+NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都不可撤销、其中两个花钱」。
+这不是加一个能力位能抹平的差别，是领域模型不同。现在照着 NodeSeek 改会做出一个 NGA 用不上的
+抽象，等真写适配器时手上有完整信息再定更合算。`postDownvote` 那一位已经在了，能表达
+「没有反方向」这一半。
 
 ## 七、仍然欠着的
 

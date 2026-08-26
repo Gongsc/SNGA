@@ -30,14 +30,18 @@ actor NGANetworkClient {
     private let transport: any HTTPTransport
     private var cookies: [SessionCookie]
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
+    /// 站点要求的 UA。见 `SiteUserAgent` —— 有的站点不接受应用自报家门。
+    private let defaultUserAgent: String
     private var lastRequestAt: ContinuousClock.Instant?
     private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
         transport: any HTTPTransport = URLSessionTransport(),
+        defaultUserAgent: String = "SNGA/1.0 (macOS; native client)",
         cookieDidChange: @escaping @Sendable ([SessionCookie]) async -> Void = { _ in }
     ) {
+        self.defaultUserAgent = defaultUserAgent
         self.cookies = cookies
         self.transport = transport
         self.cookieDidChange = cookieDidChange
@@ -58,7 +62,7 @@ actor NGANetworkClient {
                 var request = URLRequest(url: endpoint.url)
                 request.httpMethod = endpoint.method.rawValue
                 request.timeoutInterval = endpoint.isWrite ? 40 : 25
-                let userAgent = endpoint.userAgentOverride ?? "SNGA/1.0 (macOS; native client)"
+                let userAgent = endpoint.userAgentOverride ?? defaultUserAgent
                 request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
                 if endpoint.url.lastPathComponent == "app_api.php" ||
                     endpoint.userAgentOverride != nil {

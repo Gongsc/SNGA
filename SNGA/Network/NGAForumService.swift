@@ -11,11 +11,30 @@ actor NGAForumService: ForumService {
         accountID: AccountID,
         cookies: [SessionCookie],
         transport: any HTTPTransport = URLSessionTransport(),
+        userAgent: String = ForumSiteDescriptor.nga.resolvedUserAgent(fallback: nil),
         cookieDidChange: @escaping @Sendable ([SessionCookie]) async -> Void = { _ in }
     ) {
         self.accountID = accountID
-        self.client = NGANetworkClient(cookies: cookies, transport: transport, cookieDidChange: cookieDidChange)
+        self.client = NGANetworkClient(
+            cookies: cookies,
+            transport: transport,
+            defaultUserAgent: userAgent,
+            cookieDidChange: cookieDidChange
+        )
         self.parser = NGAParser()
+    }
+
+    /// NGA 把用户编号写在 `ngaPassportUid` 里，不用发请求。
+    func currentUserID() async throws -> Int64 {
+        let name = ForumSiteDescriptor.nga.uidCookieName
+        guard let name,
+              let value = await client.currentCookies().first(where: {
+                  $0.name.caseInsensitiveCompare(name) == .orderedSame
+              })?.value,
+              let uid = Int64(value) else {
+            throw ForumServiceError.requiresLogin
+        }
+        return uid
     }
 
     func profile(uid: Int64) async throws -> Profile {

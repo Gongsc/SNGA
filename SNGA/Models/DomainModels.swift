@@ -450,7 +450,9 @@ struct SessionCookie: Codable, Hashable, Sendable {
 struct LoginCapture: Sendable {
     /// 这次登录发生在哪个站。账号按「站点 + uid」认，两者缺一不可。
     var site: ForumSite
-    var uid: Int64
+    /// 用户编号。只有把它写在 Cookie 里的站点能当场读到；其余为 nil，
+    /// 登录后由 `ForumService.currentUserID()` 问出来。
+    var uid: Int64?
     var cookies: [SessionCookie]
 }
 

@@ -87,13 +87,63 @@ final class ForumSiteTests: XCTestCase {
             XCTAssertFalse(site.displayName.isEmpty)
             XCTAssertFalse(descriptor.cookieDomains.isEmpty)
             XCTAssertFalse(descriptor.linkDomains.isEmpty)
-            XCTAssertFalse(descriptor.uidCookieName.isEmpty)
-            XCTAssertFalse(descriptor.credentialCookieName.isEmpty)
+            XCTAssertFalse(descriptor.sessionCookieNames.isEmpty, "会话总得由某个 Cookie 构成")
+            XCTAssertFalse(descriptor.sessionCookieNames.contains(where: \.isEmpty))
+            // uid Cookie 可以没有 —— NodeSeek 就没有；有的话不能是空名字。
+            XCTAssertNotEqual(descriptor.uidCookieName, "")
             XCTAssertTrue(descriptor.loginURL.absoluteString.hasPrefix("https://"))
             XCTAssertTrue(descriptor.baseURL.absoluteString.hasPrefix("https://"))
             // 每个站都得挑定一种回复标记 —— 编辑器按它给工具条。
             XCTAssertTrue([.ubb, .markdown].contains(descriptor.replyMarkup))
         }
+    }
+
+    // MARK: - User-Agent
+
+    /// NGA 不校验 UA，自报家门即可 —— 保持原样。
+    func testNGAKeepsItsOwnUserAgent() {
+        XCTAssertEqual(nga.userAgent, .fixed("SNGA/1.0 (macOS; native client)"))
+        XCTAssertEqual(nga.resolvedUserAgent(fallback: nil), "SNGA/1.0 (macOS; native client)")
+    }
+
+    /// 要求用 WebView 真实 UA 的站点，在读不出来的时候也**绝不能**退回自报家门 ——
+    /// 那正是无限挑战的成因。退路必须是一个像浏览器的串。
+    func testWebViewUserAgentNeverFallsBackToTheAppsOwnName() {
+        let probe = ForumSiteDescriptor(
+            site: .nga,
+            replyMarkup: .markdown,
+            baseURL: nga.baseURL,
+            loginURL: nga.loginURL,
+            cookieDomains: nga.cookieDomains,
+            linkDomains: nga.linkDomains,
+            sessionCookieNames: ["session"],
+            uidCookieName: nil,
+            userAgent: .webView
+        )
+
+        let resolved = probe.resolvedUserAgent(fallback: nil)
+        XCTAssertFalse(resolved.contains("SNGA"), "退路里不能出现应用自己的名字：\(resolved)")
+        XCTAssertTrue(resolved.contains("Mozilla/5.0"), resolved)
+        // 真读出来了就用真的。
+        XCTAssertEqual(probe.resolvedUserAgent(fallback: "Real/1.0"), "Real/1.0")
+    }
+
+    /// 没有 uid Cookie 的站点，凭据集合就只有会话那几个，脱敏名单也照样覆盖。
+    func testCredentialNamesCoverSitesWithoutAUidCookie() {
+        let probe = ForumSiteDescriptor(
+            site: .nga,
+            replyMarkup: .markdown,
+            baseURL: nga.baseURL,
+            loginURL: nga.loginURL,
+            cookieDomains: nga.cookieDomains,
+            linkDomains: nga.linkDomains,
+            sessionCookieNames: ["session"],
+            uidCookieName: nil,
+            userAgent: .webView
+        )
+
+        XCTAssertEqual(probe.credentialCookieNames, ["session"])
+        XCTAssertEqual(nga.credentialCookieNames, ["ngaPassportCid", "ngaPassportUid"])
     }
 
     // MARK: - 错误文案里的站名
@@ -153,7 +203,7 @@ final class ForumSiteTests: XCTestCase {
     func testRuntimeLoggerRedactsEverySiteCredentialCookie() {
         for site in ForumSite.allCases {
             let descriptor = site.descriptor
-            for name in [descriptor.uidCookieName, descriptor.credentialCookieName] {
+            for name in descriptor.credentialCookieNames {
                 XCTAssertEqual(
                     RuntimeLogger.redacted("Cookie: \(name)=very-secret"),
                     "Cookie: <redacted>",
