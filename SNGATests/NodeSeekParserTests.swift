@@ -305,3 +305,78 @@ extension NodeSeekParserTests {
         XCTAssertFalse(unsigned.isCheckedInToday, "榜上没有今天这条就是还没签")
     }
 }
+
+/// 页面内嵌的那段 base64 初始状态。
+///
+/// 它比抓 HTML 全：反应计数、我反应过没有、总页数、锁帖、已收藏，HTML 里一个都没有。
+/// 先前一路搜 `member_id` 都搜不到身份，正是因为整段被 base64 编过。
+extension NodeSeekParserTests {
+
+    func testEmbeddedStateIsPreferredOverScraping() throws {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+
+        XCTAssertEqual(page.posts.count, 3)
+        XCTAssertEqual(page.posts.map(\.floor), [0, 1, 2])
+        XCTAssertEqual(page.topic.subject, "【投票】大学流量卡哪家好")
+        // 这两样只有内嵌状态里有。
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.topic.isLocked)
+    }
+
+    /// 界面上的赞对应免费的「投喂」。加鸡腿和反对都要花读者的钱，不在这里露出来。
+    func testReactionCountsComeFromTheFreeOne() throws {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+        let opening = try XCTUnwrap(page.posts.first)
+
+        XCTAssertEqual(opening.upvoteCount, 0)
+        XCTAssertNil(opening.userVote, "没投喂过就是没有")
+        XCTAssertEqual(opening.downvoteCount, 0, "反对要花两个鸡腿，界面上不给这个入口")
+    }
+
+    /// 正文仍然取渲染好的 HTML —— 内嵌状态给的是 Markdown 原文，应用还没有渲染器。
+    func testBodiesStillComeFromTheRenderedHTML() throws {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+
+        XCTAssertFalse(try XCTUnwrap(page.posts.first).html.isEmpty)
+    }
+
+    /// 解不开就退回抓 HTML —— `nodeseek-post.html` 是不含内嵌状态的那份。
+    func testScrapingStillWorksWhenTheStateIsMissing() throws {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post"),
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+
+        XCTAssertEqual(page.posts.count, 3)
+        XCTAssertEqual(page.topic.subject, "【投票】大学流量卡哪家好")
+    }
+
+    /// 匿名页面里 `user` 是 null，读不出编号。
+    func testAnonymousPageHasNoSignedInUser() throws {
+        XCTAssertNil(
+            NodeSeekParser.signedInUserID(inHTML: try fixture("nodeseek-post-state"))
+        )
+    }
+
+    func testSignedInUserIsReadFromTheState() throws {
+        // 造一份带 user 的状态，字段名照站点的样子。
+        let json = #"{"pageType":"post","user":{"uid":66675,"name":"someone"}}"#
+        let encoded = Data(json.utf8).base64EncodedString()
+        let html = "<html><body><script>var d = \"\(encoded)\";</script></body></html>"
+
+        XCTAssertEqual(NodeSeekParser.signedInUserID(inHTML: html), 66675)
+    }
+}

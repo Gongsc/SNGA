@@ -46,18 +46,20 @@ actor NodeSeekForumService: ForumService {
         .unsupported("NodeSeek 的\(what)还没做")
     }
 
-    /// 这个站问不出来 —— 用户编号只在浏览器渲染完的 DOM 里。
+    /// 从任意一页的内嵌状态里读出「我是谁」。
     ///
-    /// 排除过：没有 who-am-I 接口（六个候选路径全 404，而存在但未登录的端点答 500，
-    /// 所以这个判别可信）；`pjwt` 不是 JWT；服务端 HTML 登录与否都不含身份；
-    /// `unread-count`、`list-collection`、`progress/today` 等六个会话接口的字段里也没有。
-    ///
-    /// 编号在登录时由 `LoginWebView` 从用户卡片里读出来，存进 `AccountRecord.siteUserID`，
-    /// 之后不会再变。见 `ForumSiteDescriptor.userIDSource`。
+    /// 先前一路排除下来（没有 who-am-I 接口、`pjwt` 不是 JWT、会话接口不带编号、
+    /// HTML 里搜不到 `member_id`）得出的结论是「只有浏览器 DOM 里才有」—— 那个结论是错的。
+    /// 页面确实带着身份，只是**整段 base64 编过**，所以按明文搜什么都搜不到。
     func currentUserID() async throws -> Int64 {
-        throw ForumServiceError.unsupported(
-            "NodeSeek 的用户编号只在登录时取得到，不能在这里问"
-        )
+        let data = try await client.get(ForumSiteDescriptor.nodeseek.baseURL, asJSON: false)
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw ForumServiceError.invalidResponse
+        }
+        guard let uid = NodeSeekParser.signedInUserID(inHTML: html) else {
+            throw ForumServiceError.requiresLogin
+        }
+        return uid
     }
     func profile(uid: Int64) async throws -> Profile {
         try parser.profile(json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid)))

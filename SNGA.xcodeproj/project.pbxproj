@@ -116,6 +116,7 @@
 		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
 		DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */; };
 		DE3A6C4DAFE20039C0B2493C /* PostImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 464A7586BF4AC6813B245D13 /* PostImageStore.swift */; };
+		DE7634E7269F93E5F92E07F0 /* nodeseek-post-state.html in Resources */ = {isa = PBXBuildFile; fileRef = 9B1096C51DC193D854FA80DE /* nodeseek-post-state.html */; };
 		DEB9009DC6D8170A6D3EB0A3 /* ForumSiteDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33847F3879CFBFC802EC7E15 /* ForumSiteDescriptor.swift */; };
 		E28F6AD8A0A89F082B1D4FEC /* LegacyStoreBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC5B80085DD6532C5A1D63E9 /* LegacyStoreBackfill.swift */; };
 		E622DAB7529F0FDC20F6F194 /* ThreadContentSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F69307BDD9C5C94916D32B4 /* ThreadContentSkeletonView.swift */; };
@@ -232,6 +233,7 @@
 		968AD6C8D179F5C0E8E952D6 /* CurrentForumSearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentForumSearchBar.swift; sourceTree = "<group>"; };
 		9847512A478EB7C51B73A80E /* TopicListSortOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListSortOrder.swift; sourceTree = "<group>"; };
 		9A7CBB26141FA3CAE97268E1 /* NodeSeekParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekParserTests.swift; sourceTree = "<group>"; };
+		9B1096C51DC193D854FA80DE /* nodeseek-post-state.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "nodeseek-post-state.html"; sourceTree = "<group>"; };
 		9BAADA84295798A12F8151D1 /* ToolboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxModels.swift; sourceTree = "<group>"; };
 		9F69307BDD9C5C94916D32B4 /* ThreadContentSkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadContentSkeletonView.swift; sourceTree = "<group>"; };
 		A3D8E23F9B9158F42160E1EF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -325,6 +327,7 @@
 				C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */,
 				54ADFE593AD633DC1962B7DC /* nodeseek-account-info.json */,
 				4ECC34770491D89E9E51DAD0 /* nodeseek-category-daily.html */,
+				9B1096C51DC193D854FA80DE /* nodeseek-post-state.html */,
 				029CC8A954ECB8ECA167689B /* nodeseek-post.html */,
 			);
 			path = Fixtures;
@@ -619,6 +622,7 @@
 				26E7AB779B62E3203120C11B /* legacy-1.8.2.store in Resources */,
 				26D2C83AB57F5ACF0AF125D5 /* nodeseek-account-info.json in Resources */,
 				BD645E1D0D3A50A13D9AFD58 /* nodeseek-category-daily.html in Resources */,
+				DE7634E7269F93E5F92E07F0 /* nodeseek-post-state.html in Resources */,
 				5D4949FDDD8615BAC9851FF8 /* nodeseek-post.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

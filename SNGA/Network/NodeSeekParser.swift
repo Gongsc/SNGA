@@ -98,6 +98,11 @@ struct NodeSeekParser: Sendable {
     /// 但两者用同一个 `.content-item` 类，`id` 属性就是楼层号（主楼是 `0`）。所以一次选完，
     /// 不必分别处理。
     func threadPage(html: String, topicID: TopicID, page: Int) throws -> ThreadPage {
+        // 内嵌状态里什么都有，优先用它；解不开再退回抓 HTML。
+        if let state = Self.embeddedState(inHTML: html),
+           let page = try? threadPage(state: state, html: html, topicID: topicID, page: page) {
+            return page
+        }
         let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
         let items = try document.select(".content-item")
         guard !items.isEmpty() else {
@@ -121,6 +126,84 @@ struct NodeSeekParser: Sendable {
             hasMore: page < totalPages,
             totalPages: totalPages
         )
+    }
+
+    /// 用内嵌状态构造一页帖子。
+    ///
+    /// 正文取渲染好的 HTML（内嵌状态里给的是 Markdown 原文，应用还没有渲染器），
+    /// 其余一律取内嵌状态 —— 反应计数、我反应过没有、楼主标记、编辑时间都只有它有。
+    private func threadPage(
+        state: [String: Any],
+        html: String,
+        topicID: TopicID,
+        page: Int
+    ) throws -> ThreadPage {
+        guard let postData = state["postData"] as? [String: Any],
+              let comments = postData["comments"] as? [[String: Any]],
+              !comments.isEmpty else {
+            throw ForumServiceError.unexpectedPage("内嵌状态里没有楼层")
+        }
+        let renderedBodies = try self.renderedBodies(inHTML: html)
+
+        var posts: [Post] = []
+        for comment in comments {
+            guard let commentID = (comment["commentId"] as? NSNumber)?.int64Value else { continue }
+            let poster = comment["poster"] as? [String: Any] ?? [:]
+            let uid = (poster["uid"] as? NSNumber)?.int64Value
+            func count(_ key: String) -> Int { (comment[key] as? NSNumber)?.intValue ?? 0 }
+            let times = comment["time"] as? [String: Any] ?? [:]
+
+            posts.append(Post(
+                id: PostID(rawValue: commentID),
+                topicID: topicID,
+                floor: (comment["floorIndex"] as? NSNumber)?.intValue ?? posts.count,
+                author: poster["name"] as? String ?? "",
+                authorUID: uid,
+                avatarURL: uid.flatMap(Self.avatarURL(uid:)),
+                postedAt: (times["createdDate"] as? String).flatMap(Self.date(fromISO8601:)),
+                html: renderedBodies[commentID] ?? "",
+                // 投喂是免费的那个，所以它对应界面上的赞；加鸡腿和反对都要花钱，
+                // 不在这里露出来。见 `NodeSeekReaction`。
+                upvoteCount: count("upvoteCount"),
+                userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil
+            ))
+        }
+        guard !posts.isEmpty else {
+            throw ForumServiceError.unexpectedPage("内嵌状态里的楼层都读不出来")
+        }
+
+        let totalPages = max(1, (postData["postPageCount"] as? NSNumber)?.intValue ?? 1)
+        let categoryKey = postData["category"] as? String
+        return ThreadPage(
+            topic: Topic(
+                id: topicID,
+                forumID: NodeSeekEndpoint.forumID(key: categoryKey ?? NodeSeekEndpoint.homeKey),
+                subject: postData["title"] as? String ?? "",
+                author: posts.first?.author ?? "",
+                authorUID: posts.first?.authorUID,
+                replyCount: max(0, comments.count - 1),
+                publishedAt: posts.first?.postedAt,
+                isLocked: (postData["locked"] as? NSNumber)?.intValue == 1,
+                sourceForumName: postData["categoryWord"] as? String,
+                isFavorite: (postData["collected"] as? NSNumber)?.boolValue ?? false
+            ),
+            posts: posts,
+            page: page,
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
+    }
+
+    /// 楼层编号 → 渲染好的正文 HTML。
+    private func renderedBodies(inHTML html: String) throws -> [Int64: String] {
+        let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
+        var bodies: [Int64: String] = [:]
+        for item in try document.select(".content-item") {
+            guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw),
+                  let body = try item.select("article.post-content").first() else { continue }
+            bodies[id] = try Self.sanitized(body)
+        }
+        return bodies
     }
 
     private func post(from item: Element, topicID: TopicID) throws -> Post? {
@@ -189,6 +272,43 @@ struct NodeSeekParser: Sendable {
             try document.select(tag).remove()
         }
         return try document.body()?.html() ?? cleaned
+    }
+
+    // MARK: - 页面里内嵌的初始状态
+
+    /// 页面里那段 base64 的初始状态。
+    ///
+    /// 站点把渲染要用的数据整个塞在一个 base64 字符串里，客户端解开后拿它建页面 ——
+    /// `window.user` 就是从这来的。它比抓 HTML 好得多：楼层的反应计数、我有没有反应过、
+    /// 是不是楼主、编辑时间、正文的 Markdown 原文，HTML 里一个都没有，这里全有。
+    ///
+    /// 也解释了先前为什么怎么搜都搜不到身份 —— 它被 base64 编过，搜 `member_id` 当然搜不着。
+    static func embeddedState(inHTML html: String) -> [String: Any]? {
+        // 这段是 JS 里的一个字符串字面量，以 eyJ 开头（`{"` 的 base64）。
+        //
+        // 页面上不止这一处 base64，所以不能撞见第一个就用；也不按长度筛 —— 那是个
+        // 拍脑袋的阈值。改成挨个试着解，认里面有没有站点自己那几个键。
+        for match in html.matches(of: /(eyJ[A-Za-z0-9+\/=]{16,})/) {
+            var encoded = String(match.1)
+            encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+            guard let data = Data(base64Encoded: encoded),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            guard root["pageType"] != nil || root["postData"] != nil || root.keys.contains("user")
+            else { continue }
+            return root
+        }
+        return nil
+    }
+
+    /// 当前会话属于谁。匿名时 `user` 是 null。
+    static func signedInUserID(inHTML html: String) -> Int64? {
+        guard let user = embeddedState(inHTML: html)?["user"] as? [String: Any] else { return nil }
+        for key in ["uid", "member_id", "memberId", "id"] {
+            if let value = (user[key] as? NSNumber)?.int64Value { return value }
+        }
+        return nil
     }
 
     // MARK: - JSON
