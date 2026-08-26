@@ -89,8 +89,11 @@ final class ForumSiteTests: XCTestCase {
             XCTAssertFalse(descriptor.linkDomains.isEmpty)
             XCTAssertFalse(descriptor.sessionCookieNames.isEmpty, "会话总得由某个 Cookie 构成")
             XCTAssertFalse(descriptor.sessionCookieNames.contains(where: \.isEmpty))
-            // uid Cookie 可以没有 —— NodeSeek 就没有；有的话不能是空名字。
-            XCTAssertNotEqual(descriptor.uidCookieName, "")
+            // 编号的来源可以不是 Cookie —— NodeSeek 就在渲染后的 DOM 里。
+            switch descriptor.userIDSource {
+            case let .cookie(name): XCTAssertFalse(name.isEmpty)
+            case let .renderedDOM(script): XCTAssertFalse(script.isEmpty)
+            }
             XCTAssertTrue(descriptor.loginURL.absoluteString.hasPrefix("https://"))
             XCTAssertTrue(descriptor.baseURL.absoluteString.hasPrefix("https://"))
             // 每个站都得挑定一种回复标记 —— 编辑器按它给工具条。
@@ -117,7 +120,7 @@ final class ForumSiteTests: XCTestCase {
             cookieDomains: nga.cookieDomains,
             linkDomains: nga.linkDomains,
             sessionCookieNames: ["session"],
-            uidCookieName: nil,
+            userIDSource: .renderedDOM(javaScript: "0"),
             userAgent: .webView
         )
 
@@ -138,7 +141,7 @@ final class ForumSiteTests: XCTestCase {
             cookieDomains: nga.cookieDomains,
             linkDomains: nga.linkDomains,
             sessionCookieNames: ["session"],
-            uidCookieName: nil,
+            userIDSource: .renderedDOM(javaScript: "0"),
             userAgent: .webView
         )
 

@@ -46,13 +46,19 @@ actor NodeSeekForumService: ForumService {
         .unsupported("NodeSeek 的\(what)还没做")
     }
 
-    /// 站点没有「我是谁」这样的接口 —— 六个可能的路径都探过，全是 404
-    /// （对照：存在但未登录的端点答 500，所以这个判别是可信的）。
+    /// 这个站问不出来 —— 用户编号只在浏览器渲染完的 DOM 里。
     ///
-    /// 用户编号也不在 cookie 里。剩下两条路：`pjwt` 那个 cookie 如果真是 JWT，编号可能在
-    /// 它的载荷里；否则只能登录后抓一次页面，从导航里的个人主页链接读。
-    /// 两条都要有会话才看得见，所以还没做。
-    func currentUserID() async throws -> Int64 { throw notYet("登录身份识别") }
+    /// 排除过：没有 who-am-I 接口（六个候选路径全 404，而存在但未登录的端点答 500，
+    /// 所以这个判别可信）；`pjwt` 不是 JWT；服务端 HTML 登录与否都不含身份；
+    /// `unread-count`、`list-collection`、`progress/today` 等六个会话接口的字段里也没有。
+    ///
+    /// 编号在登录时由 `LoginWebView` 从用户卡片里读出来，存进 `AccountRecord.siteUserID`，
+    /// 之后不会再变。见 `ForumSiteDescriptor.userIDSource`。
+    func currentUserID() async throws -> Int64 {
+        throw ForumServiceError.unsupported(
+            "NodeSeek 的用户编号只在登录时取得到，不能在这里问"
+        )
+    }
     func profile(uid: Int64) async throws -> Profile {
         try parser.profile(json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid)))
     }

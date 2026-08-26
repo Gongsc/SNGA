@@ -10,6 +10,23 @@ enum ReplyMarkup: String, Codable, Sendable {
     case markdown
 }
 
+/// 登录之后从哪里得知「我是谁」。
+///
+/// 两种站点都存在，而且差别不小：
+///
+/// - NGA 把编号写在 Cookie 里，登录抓取当场就能读到，还能反过来校验「这份 Cookie 是不是
+///   这个账号的」。
+/// - NodeSeek 哪儿都没写：没有 who-am-I 接口（六个候选路径全 404）、`pjwt` 不是 JWT、
+///   服务端 HTML 不含身份、会话接口的响应里也没有。它的用户卡片是**客户端渲染**的，
+///   所以编号只在浏览器渲染完的 DOM 里 —— 只有登录用的 `WKWebView` 看得见，
+///   `URLSession` 抓多少次都没有。
+enum SiteUserIDSource: Sendable, Hashable {
+    /// 从这个名字的 Cookie 里读。
+    case cookie(name: String)
+    /// 在登录页渲染完的 DOM 上跑这段脚本，取回编号字符串。取不到就返回空串。
+    case renderedDOM(javaScript: String)
+}
+
 /// 请求该用什么 User-Agent。
 ///
 /// 不是所有站点都能自报家门。NodeSeek 站前的 Cloudflare 会拿请求头里的 UA 去和页面 JS 环境
@@ -46,11 +63,8 @@ struct ForumSiteDescriptor: Sendable {
     /// 不是「一个 uid + 一个凭据」那种固定两件套 —— 那是 NGA 的形状。NodeSeek 只有一个
     /// `session`，别的站可能更多。
     let sessionCookieNames: [String]
-    /// 会话里直接带着用户编号的 Cookie；没有这种 Cookie 的站点为 nil。
-    ///
-    /// NGA 有，所以本地就能校验「这份 Cookie 是不是这个账号的」。NodeSeek 没有，
-    /// 用户编号得另外去问接口。
-    let uidCookieName: String?
+    /// 登录之后从哪里得知用户编号。
+    let userIDSource: SiteUserIDSource
     /// 请求带哪个 User-Agent。
     let userAgent: SiteUserAgent
 
@@ -65,6 +79,12 @@ struct ForumSiteDescriptor: Sendable {
         case let .fixed(value): value
         case .webView: fallback ?? Self.browserFallbackUserAgent
         }
+    }
+
+    /// 编号写在 Cookie 里的站点，那个 Cookie 的名字。
+    var uidCookieName: String? {
+        if case let .cookie(name) = userIDSource { return name }
+        return nil
     }
 
     /// 日志脱敏和会话校验都要认这些名字。
@@ -143,7 +163,7 @@ extension ForumSiteDescriptor {
         // 所以直接并进列表。
         linkDomains: ["nga.cn", "ngacn.cc", "ngabbs.com", "nga.178.com"],
         sessionCookieNames: ["ngaPassportCid"],
-        uidCookieName: "ngaPassportUid",
+        userIDSource: .cookie(name: "ngaPassportUid"),
         userAgent: .fixed("SNGA/1.0 (macOS; native client)")
     )
 }
@@ -159,8 +179,17 @@ extension ForumSiteDescriptor {
         // 登录后站点会下发 6 个 cookie，判断登录与否只看这一个；保存一律按域名全收，
         // 只带其中几个会被 Cloudflare 挑战（实测）。
         sessionCookieNames: ["session"],
-        // 用户编号不在 cookie 里，登录后要问 `currentUserID()`。
-        uidCookieName: nil,
+        // 编号只在渲染后的用户卡片里。`.user-card` 是登录后才出现的那块，
+        // 里面的头像和用户名都指向 `/space/{uid}`。
+        userIDSource: .renderedDOM(javaScript: """
+        (() => {
+          const link = document.querySelector(
+            '.user-card a.Username, .user-card .user-head a[href^="/space/"]'
+          );
+          const match = link && link.getAttribute('href').match(/\\/space\\/(\\d+)/);
+          return match ? match[1] : '';
+        })()
+        """),
         // 必须用 WebView 的真实 UA。写死会和页面 JS 环境对不上，触发无限挑战。
         userAgent: .webView
     )

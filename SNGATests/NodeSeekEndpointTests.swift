@@ -17,8 +17,12 @@ final class NodeSeekEndpointTests: XCTestCase {
         XCTAssertEqual(site.loginURL.absoluteString, "https://www.nodeseek.com/signIn.html")
         XCTAssertEqual(site.replyMarkup, .markdown)
         XCTAssertEqual(site.sessionCookieNames, ["session"])
-        // 用户编号不在 cookie 里 —— 登录后要问接口。
+        // 编号不在 cookie 里，只在登录后渲染出来的用户卡片上。
         XCTAssertNil(site.uidCookieName)
+        guard case let .renderedDOM(script) = site.userIDSource else {
+            return XCTFail("NodeSeek 的编号来源应当是渲染后的 DOM")
+        }
+        XCTAssertTrue(script.contains(".user-card"), "取的是登录后才出现的那张用户卡片")
         // 写死 UA 会触发无限挑战。
         XCTAssertEqual(site.userAgent, .webView)
     }

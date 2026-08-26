@@ -222,23 +222,33 @@ struct LoginWebView: NSViewRepresentable {
                     }
                 }
                 guard hasSession else { return }
-                // 用户编号在 Cookie 里的站点当场就能读出来；没有的站点留给适配器登录后去问接口。
-                let uid = descriptor.uidCookieName.flatMap { name in
-                    siteCookies.first {
+
+                switch descriptor.userIDSource {
+                case let .cookie(name):
+                    guard let uid = siteCookies.first(where: {
                         $0.name.caseInsensitiveCompare(name) == .orderedSame
-                    }.flatMap { Int64($0.value) }
-                }
-                guard descriptor.uidCookieName == nil || uid != nil else { return }
-                self.completed = true
-                self.stopMonitoringCookies()
-                Task { @MainActor in
-                    self.onAuthenticated(LoginCapture(
-                        site: descriptor.site,
-                        uid: uid,
-                        cookies: siteCookies
-                    ))
+                    }).flatMap({ Int64($0.value) }) else { return }
+                    self.finish(uid: uid, cookies: siteCookies)
+
+                case let .renderedDOM(javaScript):
+                    // 编号只在渲染完的 DOM 里。Cookie 到手不代表卡片已经画出来了，
+                    // 所以读不到就先不结束 —— 轮询下一轮再试。
+                    Task { @MainActor [weak self, weak webView] in
+                        guard let self, let webView else { return }
+                        let value = try? await webView.evaluateJavaScript(javaScript)
+                        guard let text = value as? String, let uid = Int64(text) else { return }
+                        self.finish(uid: uid, cookies: siteCookies)
+                    }
                 }
             }
+        }
+
+        /// 抓取完成：停掉轮询，把结果交出去。只走一次。
+        private func finish(uid: Int64, cookies: [SessionCookie]) {
+            guard !completed else { return }
+            completed = true
+            stopMonitoringCookies()
+            onAuthenticated(LoginCapture(site: descriptor.site, uid: uid, cookies: cookies))
         }
     }
 }
