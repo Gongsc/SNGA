@@ -46,8 +46,16 @@ actor NodeSeekForumService: ForumService {
         .unsupported("NodeSeek 的\(what)还没做")
     }
 
+    /// 站点没有「我是谁」这样的接口 —— 六个可能的路径都探过，全是 404
+    /// （对照：存在但未登录的端点答 500，所以这个判别是可信的）。
+    ///
+    /// 用户编号也不在 cookie 里。剩下两条路：`pjwt` 那个 cookie 如果真是 JWT，编号可能在
+    /// 它的载荷里；否则只能登录后抓一次页面，从导航里的个人主页链接读。
+    /// 两条都要有会话才看得见，所以还没做。
     func currentUserID() async throws -> Int64 { throw notYet("登录身份识别") }
-    func profile(uid: Int64) async throws -> Profile { throw notYet("用户资料") }
+    func profile(uid: Int64) async throws -> Profile {
+        try parser.profile(json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid)))
+    }
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage {
         throw notYet("用户动态")
     }

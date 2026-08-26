@@ -207,3 +207,52 @@ extension NodeSeekParserTests {
         }
     }
 }
+
+/// 用户资料。夹具是 `/api/account/getInfo/57815?readme=1` 的真实响应。
+extension NodeSeekParserTests {
+
+    private func profileFixture() throws -> Profile {
+        let url = try XCTUnwrap(
+            Bundle(for: NodeSeekParserTests.self)
+                .url(forResource: "nodeseek-account-info", withExtension: "json")
+        )
+        return try NodeSeekParser().profile(json: try Data(contentsOf: url))
+    }
+
+    func testProfileReadsIdentityAndCounts() throws {
+        let profile = try profileFixture()
+
+        XCTAssertEqual(profile.uid, 57815)
+        XCTAssertFalse(profile.displayName.isEmpty)
+        XCTAssertEqual(profile.avatarURL?.absoluteString,
+                       "https://www.nodeseek.com/avatar/57815.png")
+        XCTAssertNotNil(profile.registeredAt)
+        XCTAssertNotNil(profile.postCount)
+        XCTAssertNotNil(profile.followerCount)
+    }
+
+    /// 站点有两种货币，别混。鸡腿（coin）是花出去的，星辰（stardust）是收到的。
+    func testTheTwoCurrenciesLandInDifferentFields() throws {
+        let profile = try profileFixture()
+
+        XCTAssertNotNil(profile.money, "鸡腿")
+        XCTAssertNotNil(profile.fame, "星辰")
+    }
+
+    /// 等级是个序号，显示成 Lv.N。
+    func testRankBecomesALevelLabel() throws {
+        let profile = try profileFixture()
+
+        XCTAssertEqual(profile.userGroup, "Lv.4")
+    }
+
+    func testAResponseWithoutDetailIsAnError() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().profile(json: Data(#"{"success":false}"#.utf8))
+        ) { error in
+            guard case .unexpectedPage = error as? ForumServiceError else {
+                return XCTFail("应当是 unexpectedPage，实际是 \(error)")
+            }
+        }
+    }
+}

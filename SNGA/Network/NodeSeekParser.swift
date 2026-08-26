@@ -151,9 +151,7 @@ struct NodeSeekParser: Sendable {
             floor: floor,
             author: author,
             authorUID: authorUID,
-            avatarURL: authorUID.flatMap {
-                URL(string: "\(ForumSiteDescriptor.nodeseek.baseURL.absoluteString)/avatar/\($0).png")
-            },
+            avatarURL: authorUID.flatMap(Self.avatarURL(uid:)),
             postedAt: postedAt,
             html: sanitized
         )
@@ -191,6 +189,42 @@ struct NodeSeekParser: Sendable {
             try document.select(tag).remove()
         }
         return try document.body()?.html() ?? cleaned
+    }
+
+    // MARK: - JSON
+
+    /// `/api/account/getInfo/{uid}?readme=1` 的响应。
+    ///
+    /// 不带 `readme=1` 时 `bio` 不在响应里 —— 个人简介会整个消失。
+    func profile(json data: Data) throws -> Profile {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = root["detail"] as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取用户资料")
+        }
+        guard let uid = (detail["member_id"] as? NSNumber)?.int64Value else {
+            throw ForumServiceError.unexpectedPage("用户资料缺少编号")
+        }
+        let name = detail["member_name"] as? String ?? ""
+        func number(_ key: String) -> Int? { (detail[key] as? NSNumber)?.intValue }
+
+        return Profile(
+            uid: uid,
+            displayName: name.isEmpty ? "用户 \(uid)" : name,
+            avatarURL: Self.avatarURL(uid: uid),
+            // rank 是等级序号，站点在界面上按它显示等级。
+            userGroup: number("rank").map { "Lv.\($0)" },
+            registeredAt: (detail["created_at"] as? String).flatMap(Self.date(fromISO8601:)),
+            postCount: number("nPost"),
+            signature: (detail["bio"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            // 站点有两种货币：鸡腿（coin，用来加鸡腿和反对）和星辰（stardust，投喂得来）。
+            fame: number("stardust"),
+            money: number("coin"),
+            followerCount: number("fans")
+        )
+    }
+
+    static func avatarURL(uid: Int64) -> URL? {
+        URL(string: "\(ForumSiteDescriptor.nodeseek.baseURL.absoluteString)/avatar/\(uid).png")
     }
 
     // MARK: - 路径
