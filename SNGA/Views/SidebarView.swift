@@ -20,16 +20,11 @@ struct SidebarView: View {
                 ForEach(model.session.accounts) { account in
                     SidebarAccountButton(account: account)
                 }
-                Button {
-                    model.session.showsLogin = true
-                } label: {
-                    SidebarInteractiveRow(isSelected: false) {
-                        Label("添加账号", systemImage: "person.badge.plus")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .buttonStyle(.plain)
-                .sidebarListRow()
+                sidebarButton(
+                    "添加账号",
+                    systemImage: "person.badge.plus",
+                    selection: .addAccount
+                )
             }
 
             // 小工具读的是 60s 开放接口，不需要账号 —— 所以它在账号门槛外面。
@@ -193,7 +188,7 @@ struct SidebarView: View {
                 model.clearForumSearch()
             case .aiProfiles:
                 model.aiProfiles.selectMostRecentIfNeeded()
-            case .favorites, .toolbox, .settings:
+            case .favorites, .toolbox, .settings, .addAccount:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.session.activeAccount?.siteUserID {
@@ -289,14 +284,19 @@ private struct SidebarAccountButton: View {
                     .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(account.displayName).lineLimit(1)
+                        HStack(spacing: 5) {
+                            Text(account.displayName).lineLimit(1)
+                            // 站点标记：栏宽够就带名字，不够只留图标。
+                            SiteBadge(site: account.site)
+                                .layoutPriority(-1)
+                        }
                         if account.sessionState != .valid {
                             Text(account.sessionState.title)
                                 .font(.caption2)
                                 .foregroundStyle(.red)
                         }
                     }
-                    Spacer()
+                    Spacer(minLength: 4)
                     if account.id == model.session.activeAccountID {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.tint)

@@ -11,6 +11,8 @@ enum LoginPageState: Equatable {
 struct LoginWebView: NSViewRepresentable {
     /// 去哪个站登录、认哪些 Cookie，全从这里读。
     var descriptor: ForumSiteDescriptor
+    /// 具体落在哪一页。同一个站可能有好几种登录方式。
+    var loginURL: URL
     var onStateChange: @MainActor (LoginPageState) -> Void
     var onAuthenticated: @MainActor (LoginCapture) -> Void
 
@@ -36,7 +38,7 @@ struct LoginWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.startMonitoringCookies(in: webView)
-        var request = URLRequest(url: descriptor.loginURL)
+        var request = URLRequest(url: loginURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         webView.load(request)
@@ -180,9 +182,13 @@ struct LoginWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            if host == "nga.cn" || host.hasSuffix(".nga.cn") || url.scheme == "about" {
+            // 站内的放行 —— 登录页之间的来回切换（比如密码登录和邮箱验证登录）走的就是这条。
+            // 之前这里写死了 NGA 的域名，NodeSeek 的站内链接会被当成外链踢到浏览器。
+            if descriptor.owns(host: host) || url.scheme == "about" {
                 decisionHandler(.allow)
             } else if navigationAction.navigationType == .linkActivated {
+                // 用户主动点开的外链交给系统浏览器；登录页嵌的第三方资源（人机验证挂件之类）
+                // 不是 linkActivated，照常加载。
                 decisionHandler(.cancel)
                 NSWorkspace.shared.open(url)
             } else {
@@ -256,9 +262,10 @@ struct LoginWebView: NSViewRepresentable {
 struct LoginSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    /// 要登录哪个站。站点选择菜单属于阶段 4，在那之前只有 NGA 可选。
     var site: ForumSite = .nga
-    var title: String { "登录 \(site.displayName)" }
+    /// 用哪种方式登录。站点可能给不止一条路。
+    var method: SiteLoginMethod = ForumSiteDescriptor.nga.loginMethods[0]
+    var title: String { "\(site.displayName) · \(method.title)" }
     @State private var pageState: LoginPageState = .loading
     @State private var loadAttempt = UUID()
 
@@ -268,7 +275,7 @@ struct LoginSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.headline)
-                    Text("登录过程由 \(site.displayName) 官方页面完成，SNGA 不读取或保存密码。")
+                    Text(method.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -283,6 +290,7 @@ struct LoginSheet: View {
             ZStack {
                 LoginWebView(
                     descriptor: site.descriptor,
+                    loginURL: method.url,
                     onStateChange: { pageState = $0 },
                     onAuthenticated: { capture in
                         Task {

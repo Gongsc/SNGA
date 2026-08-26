@@ -17,6 +17,14 @@ enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable 
         }
     }
 
+    /// 侧栏和站点列表上的图标。
+    var systemImage: String {
+        switch self {
+        case .nga: "flame"
+        case .nodeseek: "cube"
+        }
+    }
+
     var descriptor: ForumSiteDescriptor {
         switch self {
         case .nga: .nga

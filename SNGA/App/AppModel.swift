@@ -730,8 +730,8 @@ final class AppModel {
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
         case .aiProfiles: break
         case .toolbox: toolbox.refresh()
-        // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
-        case .settings: break
+        // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
+        case .settings, .addAccount: break
         case let .userCenter(uid):
             if let targetUID = uid ?? session.activeAccount?.siteUserID {
                 await openUserCenter(uid: targetUID)

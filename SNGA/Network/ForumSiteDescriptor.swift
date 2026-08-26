@@ -10,6 +10,19 @@ enum ReplyMarkup: String, Codable, Sendable {
     case markdown
 }
 
+/// 一种登录方式。
+///
+/// 同一个站点可能给好几条路。NodeSeek 的密码登录反复尝试会触发风控，邮箱验证登录不会，
+/// 但后者要收验证码 —— 哪个方便得看当时的情况，所以交给用户选，而不是替他定死。
+struct SiteLoginMethod: Sendable, Hashable, Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let url: URL
+    /// 一句话说明什么时候该用它。选择列表上显示。
+    let detail: String
+}
+
 /// 登录之后从哪里得知「我是谁」。
 ///
 /// 两种站点都存在，而且差别不小：
@@ -49,8 +62,8 @@ struct ForumSiteDescriptor: Sendable {
     let replyMarkup: ReplyMarkup
     /// 所有接口请求的根地址，也是渲染楼层正文时给 `WKWebView` 的 base URL。
     let baseURL: URL
-    /// 内嵌登录页。登录流程由站点官方页面完成，应用不碰密码。
-    let loginURL: URL
+    /// 站点提供的登录方式。至少一种；多于一种时由用户选。
+    let loginMethods: [SiteLoginMethod]
     /// 登录成功后按这些域收 Cookie。写主域即可，子域自动算在内。
     let cookieDomains: [String]
     /// 正文里指向这些域的链接算站内链接，交给原生导航而不是浏览器。
@@ -69,6 +82,9 @@ struct ForumSiteDescriptor: Sendable {
     let userAgent: SiteUserAgent
 
     var displayName: String { site.displayName }
+
+    /// 默认落地的登录页。
+    var loginURL: URL { loginMethods[0].url }
 
     /// 拿不到 WebView 的真实 UA 时退回什么。
     ///
@@ -157,7 +173,15 @@ extension ForumSiteDescriptor {
         site: .nga,
         replyMarkup: .ubb,
         baseURL: URL(string: "https://bbs.nga.cn")!,
-        loginURL: URL(string: "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login")!,
+        loginMethods: [
+            SiteLoginMethod(
+                id: "password",
+                title: "账号密码登录",
+                systemImage: "person.badge.key",
+                url: URL(string: "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login")!,
+                detail: "在 NGA 官方页面完成，SNGA 不读取或保存密码"
+            )
+        ],
         cookieDomains: ["nga.cn"],
         // nga.178.com 原本是 isForumHost 里单写的一个特例，规则和其余三个域一样，
         // 所以直接并进列表。
@@ -173,7 +197,23 @@ extension ForumSiteDescriptor {
         site: .nodeseek,
         replyMarkup: .markdown,
         baseURL: URL(string: "https://www.nodeseek.com")!,
-        loginURL: URL(string: "https://www.nodeseek.com/signIn.html")!,
+        // 邮箱验证排在前面：密码登录反复尝试会触发站点风控。
+        loginMethods: [
+            SiteLoginMethod(
+                id: "email",
+                title: "邮箱验证登录",
+                systemImage: "envelope.badge.shield.half.filled",
+                url: URL(string: "https://www.nodeseek.com/emailSignIn.html")!,
+                detail: "收一封验证码邮件。密码登录被风控挡住时用这个"
+            ),
+            SiteLoginMethod(
+                id: "password",
+                title: "账号密码登录",
+                systemImage: "person.badge.key",
+                url: URL(string: "https://www.nodeseek.com/signIn.html")!,
+                detail: "需要通过人机验证；短时间内多试几次会触发风控"
+            )
+        ],
         cookieDomains: ["nodeseek.com"],
         linkDomains: ["nodeseek.com"],
         // 登录后站点会下发 6 个 cookie，判断登录与否只看这一个；保存一律按域名全收，

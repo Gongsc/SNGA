@@ -14,7 +14,8 @@ final class NodeSeekEndpointTests: XCTestCase {
 
     func testDescriptorMatchesWhatWasMeasured() {
         XCTAssertEqual(site.baseURL.absoluteString, "https://www.nodeseek.com")
-        XCTAssertEqual(site.loginURL.absoluteString, "https://www.nodeseek.com/signIn.html")
+        // 邮箱验证登录。密码登录反复尝试会触发风控，而且那一页没有通往这里的入口。
+        XCTAssertEqual(site.loginURL.absoluteString, "https://www.nodeseek.com/emailSignIn.html")
         XCTAssertEqual(site.replyMarkup, .markdown)
         XCTAssertEqual(site.sessionCookieNames, ["session"])
         // 编号不在 cookie 里，只在登录后渲染出来的用户卡片上。

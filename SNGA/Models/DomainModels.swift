@@ -497,6 +497,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
 }
 
 enum SidebarSelection: Hashable, Sendable {
+    /// 选站点、选登录方式。加账号本身是个流程，不是一个弹窗。
+    case addAccount
     case userCenter(Int64?)
     case aiProfiles
     case forum(ForumID)

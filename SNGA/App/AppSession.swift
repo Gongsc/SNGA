@@ -15,6 +15,9 @@ final class AppSession {
 
     var isLoading = false
     var showsLogin = false
+    /// 正在给哪个站点加账号，以及用哪种方式登录。
+    var loginSite: ForumSite = .nga
+    var loginMethod: SiteLoginMethod = ForumSiteDescriptor.nga.loginMethods[0]
     var errorMessage: String?
     var statusMessage: String?
     var statusMessageIsError = false

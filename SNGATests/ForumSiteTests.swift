@@ -116,7 +116,7 @@ final class ForumSiteTests: XCTestCase {
             site: .nga,
             replyMarkup: .markdown,
             baseURL: nga.baseURL,
-            loginURL: nga.loginURL,
+            loginMethods: nga.loginMethods,
             cookieDomains: nga.cookieDomains,
             linkDomains: nga.linkDomains,
             sessionCookieNames: ["session"],
@@ -137,7 +137,7 @@ final class ForumSiteTests: XCTestCase {
             site: .nga,
             replyMarkup: .markdown,
             baseURL: nga.baseURL,
-            loginURL: nga.loginURL,
+            loginMethods: nga.loginMethods,
             cookieDomains: nga.cookieDomains,
             linkDomains: nga.linkDomains,
             sessionCookieNames: ["session"],
@@ -147,6 +147,49 @@ final class ForumSiteTests: XCTestCase {
 
         XCTAssertEqual(probe.credentialCookieNames, ["session"])
         XCTAssertEqual(nga.credentialCookieNames, ["ngaPassportCid", "ngaPassportUid"])
+    }
+
+    /// 每种登录方式都得能用：有标题、有说明、地址在自己站内。
+    func testEveryLoginMethodIsUsable() {
+        for site in ForumSite.allCases {
+            let descriptor = site.descriptor
+            XCTAssertFalse(descriptor.loginMethods.isEmpty, "\(site.rawValue) 一种登录方式都没有")
+            XCTAssertEqual(
+                Set(descriptor.loginMethods.map(\.id)).count,
+                descriptor.loginMethods.count,
+                "登录方式的 id 撞了，列表会画错"
+            )
+            for method in descriptor.loginMethods {
+                XCTAssertFalse(method.title.isEmpty)
+                XCTAssertFalse(method.detail.isEmpty, "得说清楚什么时候用它")
+                XCTAssertTrue(method.url.absoluteString.hasPrefix("https://"))
+                XCTAssertTrue(
+                    descriptor.owns(host: method.url.host()?.lowercased() ?? ""),
+                    "\(site.rawValue) 的 \(method.id) 登录页不在自己站内"
+                )
+            }
+        }
+    }
+
+    /// NodeSeek 给两条路，邮箱验证排在前面 —— 密码登录会被风控挡。
+    func testNodeSeekOffersEmailSignInFirst() {
+        let methods = ForumSiteDescriptor.nodeseek.loginMethods
+        XCTAssertEqual(methods.count, 2)
+        XCTAssertEqual(methods.first?.id, "email")
+        XCTAssertEqual(methods.last?.id, "password")
+    }
+
+    /// 登录页之间的来回切换是站内导航。写死一个站的域名会把别的站的站内链接
+    /// 当成外链踢到浏览器 —— NodeSeek 的「切换到密码登录」正是这种。
+    func testEverySiteOwnsItsOwnLoginHost() {
+        for site in ForumSite.allCases {
+            let descriptor = site.descriptor
+            let host = descriptor.loginURL.host()?.lowercased() ?? ""
+            XCTAssertTrue(
+                descriptor.owns(host: host),
+                "\(site.rawValue) 的登录页域名 \(host) 不在它自己的域名表里"
+            )
+        }
     }
 
     // MARK: - 错误文案里的站名

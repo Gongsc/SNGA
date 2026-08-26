@@ -62,7 +62,7 @@ struct RootView: View {
             for: .windowToolbar
         )
         .sheet(isPresented: $session.showsLogin) {
-            LoginSheet()
+            LoginSheet(site: model.session.loginSite, method: model.session.loginMethod)
                 .environment(model)
         }
         .alert("SNGA", isPresented: Binding(
@@ -144,6 +144,8 @@ struct RootView: View {
             "搜索"
         case .favorites:
             "收藏夹"
+        case .addAccount:
+            "添加账号"
         case .toolbox:
             "小工具"
         case .settings:
@@ -321,6 +323,8 @@ private struct ContentColumnView: View {
                 GlobalForumSearchView()
             case .favorites:
                 FavoritesView()
+            case .addAccount:
+                AddAccountView()
             case .toolbox:
                 ToolboxMenuView()
             case .settings:
