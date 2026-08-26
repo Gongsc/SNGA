@@ -223,6 +223,45 @@ struct NodeSeekParser: Sendable {
         )
     }
 
+    /// 签到的答复。
+    ///
+    /// 这个站的写接口把话写在响应体里，状态码只是个附带 —— 重复签到答的是 HTTP 500，
+    /// 而正文里正是要展示给用户的那句话。所以判断成没成不看状态码，看 `success`。
+    func checkInResult(json data: Data) throws -> CheckInResult {
+        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let message = (root?["message"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let succeeded = (root?["success"] as? NSNumber)?.boolValue ?? false
+
+        if succeeded {
+            return .success(message: message.isEmpty ? "签到成功" : message)
+        }
+        guard !message.isEmpty else {
+            throw ForumServiceError.unexpectedPage("无法确认签到结果")
+        }
+        // 站点用同一个 success:false 表示「今天已经签过」和别的失败，只有文字能区分。
+        // 认不出来的一律当成已签到而不是报错：多签一次的代价只是一句多余的提示，
+        // 而把「已签到」报成错会让界面一直催用户去签。
+        return .alreadyCheckedIn(message: message)
+    }
+
+    /// 今日是否已签到，以及连续与累计天数。
+    ///
+    /// 签到接口本身不给这些，要从签到榜的 `record` 里读。
+    func checkInStatistics(json data: Data) throws -> CheckInStatistics {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取签到状态")
+        }
+        let record = root["record"] as? [String: Any]
+        func number(_ key: String) -> Int? { (record?[key] as? NSNumber)?.intValue }
+        return CheckInStatistics(
+            // 榜上有今天这条记录就说明签过了。
+            isCheckedInToday: record != nil,
+            consecutiveDays: number("continuous") ?? number("continuousDays") ?? 0,
+            totalDays: number("total") ?? number("totalDays") ?? 0
+        )
+    }
+
     static func avatarURL(uid: Int64) -> URL? {
         URL(string: "\(ForumSiteDescriptor.nodeseek.baseURL.absoluteString)/avatar/\(uid).png")
     }

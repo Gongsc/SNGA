@@ -256,3 +256,52 @@ extension NodeSeekParserTests {
         }
     }
 }
+
+/// 签到。响应体里的话才是结论，状态码只是附带 —— 重复签到答的是 HTTP 500。
+extension NodeSeekParserTests {
+
+    func testSuccessfulCheckInCarriesTheSitesOwnWords() throws {
+        let result = try NodeSeekParser().checkInResult(
+            json: Data(#"{"success":true,"message":"签到成功，获得 5 个鸡腿"}"#.utf8)
+        )
+
+        guard case let .success(message) = result else {
+            return XCTFail("应当是成功，实际是 \(result)")
+        }
+        XCTAssertEqual(message, "签到成功，获得 5 个鸡腿")
+    }
+
+    /// 已经签过不是错误 —— 报成错会让界面一直催用户去签。
+    func testRepeatCheckInIsNotAFailure() throws {
+        let result = try NodeSeekParser().checkInResult(
+            json: Data(#"{"success":false,"message":"今天已经签到过了"}"#.utf8)
+        )
+
+        guard case let .alreadyCheckedIn(message) = result else {
+            return XCTFail("应当是已签到，实际是 \(result)")
+        }
+        XCTAssertEqual(message, "今天已经签到过了")
+    }
+
+    /// 连一句话都没有就真的不知道结果了，这时候才该报错。
+    func testAnEmptyAnswerIsAnError() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().checkInResult(json: Data(#"{"success":false}"#.utf8))
+        )
+    }
+
+    /// 今天签没签从签到榜的 record 读，签到接口自己不给。
+    func testStatisticsComeFromTheBoardRecord() throws {
+        let signed = try NodeSeekParser().checkInStatistics(
+            json: Data(#"{"success":true,"record":{"continuous":7,"total":123}}"#.utf8)
+        )
+        XCTAssertTrue(signed.isCheckedInToday)
+        XCTAssertEqual(signed.consecutiveDays, 7)
+        XCTAssertEqual(signed.totalDays, 123)
+
+        let unsigned = try NodeSeekParser().checkInStatistics(
+            json: Data(#"{"success":true}"#.utf8)
+        )
+        XCTAssertFalse(unsigned.isCheckedInToday, "榜上没有今天这条就是还没签")
+    }
+}

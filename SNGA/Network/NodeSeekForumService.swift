@@ -137,6 +137,17 @@ actor NodeSeekForumService: ForumService {
     }
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws { throw notYet("收藏夹") }
     func deleteTopicFavoriteFolder(folderID: String) async throws { throw notYet("收藏夹") }
-    func checkInStatus() async throws -> CheckInStatistics { throw notYet("签到状态") }
-    func checkIn() async throws -> CheckInResult { throw notYet("签到") }
+    func checkInStatus() async throws -> CheckInStatistics {
+        try parser.checkInStatistics(json: await client.get(NodeSeekEndpoint.checkInBoard(page: 1)))
+    }
+
+    /// 签到。
+    ///
+    /// `random=false` 领固定的 5 个鸡腿，`true` 是抽奖。这里固定用不抽奖的那种：
+    /// 应用替用户赌一把不合适，而界面上现在也没有让他选的地方。
+    func checkIn() async throws -> CheckInResult {
+        try parser.checkInResult(
+            json: await client.postJSON(NodeSeekEndpoint.checkIn(random: false), body: [:])
+        )
+    }
 }
