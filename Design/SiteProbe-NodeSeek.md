@@ -9,6 +9,55 @@
 >
 > **本文没有经过真实账号验证。** 阶段 0 的验收标准是拿真账号跑一遍，这一步仍然欠着。
 
+## 〇、实测结论（2026-08-26，本机验证）
+
+下面这一节是**我自己跑出来的**，不是从 nodyssey 读来的。其余各节仍是转述。
+
+### `URLSession` 直连可行，`WebViewTransport` 不用做
+
+用一个 `WKWebView` 登录并过掉验证框，把它的 cookie 和 UA 交给 `URLSession`，四个端点全部 200：
+
+| 端点 | 结果 |
+| --- | --- |
+| `/api/content/list-categories` | ✅ 200，2725 B |
+| `/api/notification/unread-count` | ✅ 200，71 B —— **会话被认出来了**，不是 500 |
+| `/api/statistics/list-collection?page=1` | ✅ 200，121 B |
+| `/categories/daily`（HTML 列表页） | ✅ 200，85923 B |
+
+**计划里那个「+1 周做 `WebViewTransport`」的退路可以划掉。**
+
+`URLSession` 的配置照抄了 SNGA 的 `URLSessionTransport`：ephemeral、不用共享 Cookie 容器、
+Cookie 走显式请求头。WebView 用的也是 `.nonPersistent()`，和 `LoginWebView` 一致。
+
+### 必须把站点的**全部** cookie 都带上
+
+登录后 WebView 里有 6 个：`cf_clearance`、`colorscheme`、`fog`、`pjwt`、`session`、`smac`。
+
+**只带 `session` + `cf_clearance` 会被挑战（403）。** 我先前几轮从外部浏览器只抄这两个，
+结果全红，还据此推断成「外部浏览器的 clearance 绑定不上」——**那个推断是错的**，
+真实原因就是抄漏了。
+
+SNGA 的登录抓取按**域名**过滤而不是按名字，本来就会把 6 个全收走，所以这条天然满足。
+但它同时说明：**不能"挑几个认识的 cookie 存下来"**，那样会坏。
+
+### UA 约束成立，而且形态出乎意料
+
+不设 `applicationNameForUserAgent` 时，`WKWebView` 自报的 UA 长 88 字符，**结尾没有
+`Version/x Safari/y`** —— 那截后缀正是 `applicationNameForUserAgent` 拼上去的。
+
+也就是说：**一旦设了它，UA 就和 WebView 的 JS 环境对不上了**。现在的实现（`.fixed` 才设、
+`.webView` 一行不设）方向是对的。
+
+### curl 过不去，`URLSession` 过得去
+
+同样的匿名裸请求：curl 被挑战（403 + `cf-mitigated: challenge`），`URLSession` 直接 200。
+TLS 指纹确实是因素，而 macOS 的网络栈被接受。**验证这类站点不能用 curl。**
+
+### 未登录时会话端点返回 500
+
+`/api/notification/unread-count` 不带 cookie 时是 HTTP 500，不是 401 —— 印证了 nodyssey
+文档里的说法。
+
 ## 一、传输层：最大的风险有答案了
 
 计划里把"NodeSeek 能不能用 `URLSession` 直连"列为整个项目的最大技术风险。答案是**能，但有三个硬约束**，
@@ -183,7 +232,7 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
 
 ## 七、仍然欠着的
 
-- **没有真实账号验证过。** 以上全部来自阅读第三方源码，不是我自己抓的包
+- ~~没有真实账号验证过~~ —— 传输层已验（见第〇节）。**接口的响应字段仍未验证**
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段

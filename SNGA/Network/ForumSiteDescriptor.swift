@@ -40,6 +40,9 @@ struct ForumSiteDescriptor: Sendable {
     let linkDomains: [String]
     /// 构成会话的 Cookie。这些都在，才算还登录着。
     ///
+    /// 只是**判断登录与否**的依据，不是「要保存哪几个」—— 保存一律按域名全收。
+    /// NodeSeek 实测登录后有 6 个 cookie，只带其中两个会被 Cloudflare 挑战。
+    ///
     /// 不是「一个 uid + 一个凭据」那种固定两件套 —— 那是 NGA 的形状。NodeSeek 只有一个
     /// `session`，别的站可能更多。
     let sessionCookieNames: [String]
