@@ -58,7 +58,17 @@ protocol ForumService: Sendable {
         authorUID: Int64?
     ) async throws -> ThreadPage
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID?
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState
+    /// 给某一层投票。
+    ///
+    /// `isUndo` 是「这一下是要撤掉我先前的同向投票」。光有 `direction` 不够：再点一次
+    /// 已经点过的赞，方向还是 `.up`，可站点要的是相反的动作。NGA 的接口自己会翻转，
+    /// 所以那边忽略这个参数；NodeSeek 要显式说 add 还是 remove。
+    func vote(
+        topicID: TopicID,
+        postID: PostID,
+        direction: PostVoteDirection,
+        isUndo: Bool
+    ) async throws -> PostVoteState
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage
     func message(id: MessageID) async throws -> ForumMessage

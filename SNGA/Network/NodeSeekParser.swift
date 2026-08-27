@@ -348,9 +348,15 @@ struct NodeSeekParser: Sendable {
     /// 这个站的写接口把结论放在响应体里，状态码只是附带。失败时 `message` 就是该展示给
     /// 用户的那句话，所以原样抛出去，不要换成自己编的。
     func confirmWrite(json data: Data, what: String) throws {
-        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        if (root?["success"] as? NSNumber)?.boolValue == true { return }
-        let message = (root?["message"] as? String)?
+        try confirmWrite(
+            root: (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:],
+            what: what
+        )
+    }
+
+    fileprivate func confirmWrite(root: [String: Any], what: String) throws {
+        if (root["success"] as? NSNumber)?.boolValue == true { return }
+        let message = (root["message"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         throw ForumServiceError.restricted(message.isEmpty ? "\(what)未能提交" : message)
     }
@@ -441,6 +447,26 @@ struct NodeSeekParser: Sendable {
             // 站点不给总页数。给个下界，够「还能往下翻」用。
             totalPages: hasMore ? page + 1 : page
         )
+    }
+
+    /// 一次楼层反应之后的计数。
+    ///
+    /// 响应形如 `{success, current, coin, message}`：`current` 是这一层的新计数，
+    /// `coin` 是操作完之后读者剩下的鸡腿。这里只用 `current` —— 走到这个方法的只有
+    /// 免费的投喂，不花鸡腿，`coin` 没什么可说的。
+    ///
+    /// 站点没有反方向的计数，所以 `downvoteCount` 恒为 0；界面上那一半由
+    /// `.postDownvote` 关着，不会显示。
+    func reactionState(json data: Data) throws -> PostVoteState {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取反应结果")
+        }
+        try confirmWrite(root: root, what: "投喂")
+        guard let current = (root["current"] as? NSNumber)?.intValue else {
+            // 站点说成了，却没说现在是多少 —— 硬编一个数会把界面上的计数写错。
+            throw ForumServiceError.unexpectedPage("反应结果里没有新的计数")
+        }
+        return PostVoteState(upvoteCount: current, downvoteCount: 0, userVote: .up)
     }
 
     /// 认出站点挡下批量抓取时给的那个假答复。

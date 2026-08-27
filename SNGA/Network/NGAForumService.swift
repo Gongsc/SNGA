@@ -217,7 +217,13 @@ actor NGAForumService: ForumService {
         return try parser.submissionSucceeded(from: response)
     }
 
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
+    /// NGA 的接口自己会翻转，同一个方向发第二次就是取消，所以 `isUndo` 用不上。
+    func vote(
+        topicID: TopicID,
+        postID: PostID,
+        direction: PostVoteDirection,
+        isUndo: Bool
+    ) async throws -> PostVoteState {
         try parser.voteState(from: await client.request(.vote(
             topicID: topicID,
             postID: postID,

@@ -21,8 +21,11 @@ actor NodeSeekForumService: ForumService {
     /// `/search?q=X` 会 302 到 `google.com/search?q=site:www.nodeseek.com&q=X`，
     /// 站点自己也只是把搜索转交出去。既然没有能取回结果的接口，这个位就不能点亮 ——
     /// 点亮了等于在界面上摆一个必定失败的入口。
+    /// `.postDownvote` 也没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
+    /// 一个不作声就扣钱的按钮不该摆在界面上 —— 真要接，得先让界面能把代价讲明白
+    /// （比如二次确认），那是界面那边的事。
     nonisolated let capabilities: ForumCapabilities = [
-        .checkIn, .postVote, .postDownvote, .quotePost,
+        .checkIn, .postVote, .quotePost,
         .poll, .privateMessages, .userActivities
     ]
 
@@ -162,8 +165,33 @@ actor NodeSeekForumService: ForumService {
         try parser.confirmWrite(json: data, what: "回复")
         return nil
     }
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
-        throw notYet("楼层反应")
+    /// 给一层投喂。
+    ///
+    /// 界面上的赞接的是三种反应里唯一免费的 `upvote`：它给作者星辰，不花读者的东西。
+    /// 另外两种（加鸡腿 1 个、反对 2 个）花的是用户自己的鸡腿，一次点击就扣掉、
+    /// 而且收不回来，所以这里一个都不接 —— 见 `capabilities` 里关于 `.postDownvote` 的话。
+    ///
+    /// 三种反应都不可撤销。再点一次已经投喂过的楼层不能当成取消，也不该默默再投一次，
+    /// 所以直接说清楚。
+    func vote(
+        topicID: TopicID,
+        postID: PostID,
+        direction: PostVoteDirection,
+        isUndo: Bool
+    ) async throws -> PostVoteState {
+        guard direction == .up else {
+            throw ForumServiceError.unsupported(
+                "NodeSeek 的「反对」要花掉你 2 个鸡腿且撤不回来，SNGA 没有接这个按钮"
+            )
+        }
+        guard !isUndo else {
+            throw ForumServiceError.unsupported("NodeSeek 的投喂撤不回来")
+        }
+        return try parser.reactionState(json: await client.postJSON(
+            NodeSeekEndpoint.reaction(.upvote),
+            body: ["commentId": postID.rawValue, "action": "add"],
+            referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+        ))
     }
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws { throw notYet("投票") }
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage { throw notYet("消息") }
@@ -171,8 +199,18 @@ actor NodeSeekForumService: ForumService {
     func replyMessage(id: MessageID, content: String) async throws { throw notYet("私信回复") }
     func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { [] }
     func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage { throw notYet("收藏话题") }
+    /// 收藏或取消收藏一个话题。
+    ///
+    /// 和三种反应不同，这个可逆，所以两个方向都接。站点没有收藏夹，`folderID` 无处可去。
     func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
-        throw notYet("收藏话题")
+        try parser.confirmWrite(
+            json: await client.postJSON(
+                NodeSeekEndpoint.collection,
+                body: ["postId": topicID.rawValue, "action": isFavorite ? "add" : "remove"],
+                referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+            ),
+            what: isFavorite ? "收藏" : "取消收藏"
+        )
     }
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? {
         throw notYet("收藏夹")

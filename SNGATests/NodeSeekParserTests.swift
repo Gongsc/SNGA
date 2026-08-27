@@ -554,3 +554,87 @@ extension NodeSeekParserTests {
         XCTAssertFalse(page.hasMore)
     }
 }
+
+/// 楼层反应。响应形如 `{success, current, coin, message}`。
+extension NodeSeekParserTests {
+
+    func testAReactionReturnsTheSitesNewCount() throws {
+        let state = try NodeSeekParser().reactionState(
+            json: Data(#"{"success":true,"current":42,"coin":7,"message":"投喂成功"}"#.utf8)
+        )
+
+        XCTAssertEqual(state.upvoteCount, 42)
+        XCTAssertEqual(state.userVote, .up)
+        // 站点没有反方向的计数。
+        XCTAssertEqual(state.downvoteCount, 0)
+    }
+
+    /// 说成了却不说现在是多少，宁可报错也不要编一个 —— 编出来的数会写进界面上的计数。
+    func testASuccessWithoutACountIsAnError() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().reactionState(json: Data(#"{"success":true}"#.utf8))
+        )
+    }
+
+    func testAFailedReactionCarriesTheSitesReason() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().reactionState(
+                json: Data(#"{"success":false,"message":"鸡腿不够了"}"#.utf8)
+            )
+        ) { error in
+            XCTAssertEqual(error as? ForumServiceError, .restricted("鸡腿不够了"))
+        }
+    }
+}
+
+/// 反应与收藏的写入路径。这几条守的是「不作声就花掉用户的钱」这件事。
+final class NodeSeekWriteGuardTests: XCTestCase {
+
+    private func service() -> NodeSeekForumService {
+        NodeSeekForumService(accountID: AccountID(), cookies: [], userAgent: "probe")
+    }
+
+    /// 「反对」要花 2 个鸡腿且撤不回来。哪怕有人绕过能力位调到这里，也得拦住 ——
+    /// 门控在调用层，不能只在界面上。
+    func testDownvotingIsRefusedBecauseItSpendsTheUsersCurrency() async {
+        do {
+            _ = try await service().vote(
+                topicID: TopicID(rawValue: 1),
+                postID: PostID(rawValue: 2),
+                direction: .down,
+                isUndo: false
+            )
+            XCTFail("反对不该发得出去")
+        } catch {
+            guard case let .unsupported(message) = error as? ForumServiceError else {
+                return XCTFail("应当是 unsupported，实际是 \(error)")
+            }
+            XCTAssertTrue(message.contains("鸡腿"), "得说清代价：\(message)")
+        }
+    }
+
+    /// 再点一次已经投喂过的楼层。反应不可撤销，默默再投一次等于把用户的点击
+    /// 变成一次他没打算做的操作。
+    func testUndoingAnUpvoteIsRefusedRatherThanRepeated() async {
+        do {
+            _ = try await service().vote(
+                topicID: TopicID(rawValue: 1),
+                postID: PostID(rawValue: 2),
+                direction: .up,
+                isUndo: true
+            )
+            XCTFail("撤销不该被当成再投一次")
+        } catch {
+            XCTAssertEqual(
+                error as? ForumServiceError,
+                .unsupported("NodeSeek 的投喂撤不回来")
+            )
+        }
+    }
+
+    /// 界面上不该出现那个会扣钱的按钮。
+    func testTheDownvoteButtonIsNotOffered() {
+        XCTAssertFalse(service().capabilities.contains(.postDownvote))
+        XCTAssertTrue(service().capabilities.contains(.postVote))
+    }
+}

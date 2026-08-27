@@ -36,7 +36,7 @@ final class NodeSeekEndpointTests: XCTestCase {
         ).capabilities
 
         for present in [
-            ForumCapabilities.checkIn, .postVote, .postDownvote,
+            ForumCapabilities.checkIn, .postVote,
             .quotePost, .poll, .privateMessages, .userActivities
         ] {
             XCTAssertTrue(capabilities.contains(present))
@@ -47,6 +47,12 @@ final class NodeSeekEndpointTests: XCTestCase {
         ] {
             XCTAssertFalse(capabilities.contains(absent), "NodeSeek 没有这个功能")
         }
+        // 「反对」单列一条：站点有这个功能，但它要花掉用户 2 个鸡腿而且撤不回来。
+        // 摆一个一点就扣钱、又不作声的按钮，比没有这个按钮更糟。
+        XCTAssertFalse(
+            capabilities.contains(.postDownvote),
+            "NodeSeek 的反对要花 2 个鸡腿，没有二次确认之前不该摆出按钮"
+        )
         // 搜索单列一条：它不是「站点没有这个功能」，而是站点把搜索转交给了 Google。
         // /search?q=X 会 302 到 google.com/search?q=site:www.nodeseek.com&q=X，
         // 没有任何接口能把结果取回来，所以这个位不能点亮。

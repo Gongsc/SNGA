@@ -616,7 +616,9 @@ final class ThreadStore {
             let state = try await service.vote(
                 topicID: post.topicID,
                 postID: postID,
-                direction: direction
+                direction: direction,
+                // 点在已经投过的同一个方向上，就是要撤掉它。
+                isUndo: post.userVote == direction
             )
             updateVoteState(state, postID: postID, in: &posts)
             updateVoteState(state, postID: postID, in: &hotReplies)

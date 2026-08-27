@@ -434,11 +434,16 @@ actor DebugForumService: ForumService {
         PostID(rawValue: 3)
     }
 
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
+    func vote(
+        topicID: TopicID,
+        postID: PostID,
+        direction: PostVoteDirection,
+        isUndo: Bool
+    ) async throws -> PostVoteState {
         PostVoteState(
             upvoteCount: direction == .up ? 13 : 12,
             downvoteCount: direction == .down ? 2 : 1,
-            userVote: direction
+            userVote: isUndo ? nil : direction
         )
     }
 
