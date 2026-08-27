@@ -276,8 +276,16 @@ final class ForumStore {
         forumID: ForumID,
         replaceTopics: Bool
     ) {
-        currentForum = result.forum ?? currentForum ?? forums.first { $0.id == forumID }
-        if let currentForum {
+        // 只认「这一页确实是这个版面」的描述。
+        //
+        // 请求哪个版面、回来的是不是同一个，这件事以前指望各站的解析器自己把住 ——
+        // NGA 的解析器确实有这道检查，但它在解析器里面，别的适配器不受它管。
+        // 结果是：服务端给回一个别的版面，这里照记不误，最近访问里就凭空多一条。
+        // 检查挪到用的地方，谁来都逃不过。
+        let describedForum = result.forum.flatMap { $0.id == forumID ? $0 : nil }
+        currentForum = describedForum ?? currentForum ?? forums.first { $0.id == forumID }
+        // 记的必须是刚才打开的那个版面。不是的话宁可不记 —— 记错比不记更难收拾。
+        if let currentForum, currentForum.id == forumID {
             recordRecentForum(currentForum, updatesVisitOrder: false)
         }
         topics = replaceTopics ? result.topics : merged(topics, result.topics)

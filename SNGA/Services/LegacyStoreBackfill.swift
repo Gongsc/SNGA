@@ -17,24 +17,31 @@ enum LegacyStoreBackfill {
     private static let versionKey = "forumKeyBackfillVersion"
     private static let currentVersion = 2
 
+    @discardableResult
     static func runIfNeeded(
         in context: ModelContext,
         defaults: UserDefaults = .standard
-    ) {
-        guard defaults.integer(forKey: versionKey) < currentVersion else { return }
-        run(in: context)
+    ) -> Bool {
+        guard defaults.integer(forKey: versionKey) < currentVersion else { return true }
+        // 只有真的补完才记标记。先前不管成没成都记，于是一次存不下就永远补不上了 ——
+        // 而补不上的库每点一次版面就会多一行重复。
+        guard run(in: context) else { return false }
         defaults.set(currentVersion, forKey: versionKey)
+        return true
     }
 
     /// 不看标记直接跑一趟。测试用，也留给以后需要强制重来的情况。
-    static func run(in context: ModelContext) {
+    ///
+    /// 返回这一趟是不是干净地做完了。没做完就别记标记，下次启动重来。
+    @discardableResult
+    static func run(in context: ModelContext) -> Bool {
         var touched = 0
         touched += backfillFavorites(in: context)
         touched += backfillRecentForums(in: context)
         touched += backfillSubforumPreferences(in: context)
         touched += backfillAIProfiles(in: context)
 
-        guard touched > 0 else { return }
+        guard touched > 0 else { return true }
         do {
             try context.save()
         } catch {
@@ -46,7 +53,7 @@ enum LegacyStoreBackfill {
                     "版面键回填失败：\(error.localizedDescription)"
                 )
             }
-            return
+            return false
         }
         Task {
             await RuntimeLogger.shared.log(
@@ -54,6 +61,7 @@ enum LegacyStoreBackfill {
                 "版面键回填完成，处理 \(touched) 行"
             )
         }
+        return true
     }
 
     private static func backfillFavorites(in context: ModelContext) -> Int {
