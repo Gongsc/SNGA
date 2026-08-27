@@ -83,6 +83,9 @@ enum NodeSeekEndpoint {
         url("/api/account/getInfo/\(uid)", query: [.init(name: "readme", value: "1")])
     }
 
+    /// 用户动态每页的条数。和帖子页的 `commentsPerPage` 不是一回事 —— 那是楼层分页。
+    static let activitiesPerPage = 15
+
     static func userTopics(uid: Int64, page: Int) -> URL {
         url("/api/content/list-discussions", query: [
             .init(name: "uid", value: String(uid)),

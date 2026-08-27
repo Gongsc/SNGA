@@ -413,3 +413,144 @@ extension NodeSeekParserTests {
         )
     }
 }
+
+/// 用户动态。夹具是 `/api/content/list-discussions` 和 `list-comments` 的真实响应，
+/// 各截前三条。
+extension NodeSeekParserTests {
+
+    private func activityData(_ name: String) throws -> Data {
+        let url = try XCTUnwrap(
+            Bundle(for: NodeSeekParserTests.self).url(forResource: name, withExtension: "json"),
+            "测试包里没有夹具 \(name).json"
+        )
+        return try Data(contentsOf: url)
+    }
+
+    func testTopicActivitiesCarryTitleAndTopic() throws {
+        let page = try NodeSeekParser().userActivities(
+            json: try activityData("nodeseek-activities-discussions"),
+            kind: .topics,
+            page: 1
+        )
+
+        XCTAssertEqual(page.kind, .topics)
+        XCTAssertEqual(page.activities.count, 3)
+        let first = try XCTUnwrap(page.activities.first)
+        XCTAssertEqual(first.topicID, TopicID(rawValue: 875_041))
+        XCTAssertEqual(first.subject, "听说Gemini Flash 3.7 但效果不错，所以哪里可以低成本的找到Token呢？")
+        // 主题接口不给正文，摘要该是空的而不是空串。
+        XCTAssertNil(first.excerpt)
+    }
+
+    func testCommentActivitiesCarryTheirText() throws {
+        let page = try NodeSeekParser().userActivities(
+            json: try activityData("nodeseek-activities-comments"),
+            kind: .replies,
+            page: 1
+        )
+
+        XCTAssertEqual(page.activities.count, 3)
+        let first = try XCTUnwrap(page.activities.first)
+        XCTAssertEqual(first.topicID, TopicID(rawValue: 884_844))
+        XCTAssertEqual(first.subject, "gpt的降智已经蔓延到网页版了")
+        XCTAssertEqual(first.excerpt, "看看你是不是网页用量超了？网页用量超了就会自动降级为mini模型。")
+        // floor_id 是楼层序号不是评论编号，不该被当成 PostID。
+        XCTAssertNil(first.postID)
+    }
+
+    /// 同一个帖子回了两层，两条动态得是两条，不能因为 post_id 相同就撞成一条。
+    func testTwoRepliesInOneTopicStayTwoRows() throws {
+        let page = try NodeSeekParser().userActivities(
+            json: Data(#"""
+            {"success":true,"comments":[
+              {"post_id":1,"title":"同一个帖子","floor_id":3,"text":"三楼"},
+              {"post_id":1,"title":"同一个帖子","floor_id":9,"text":"九楼"}
+            ]}
+            """#.utf8),
+            kind: .replies,
+            page: 1
+        )
+
+        XCTAssertEqual(Set(page.activities.map(\.id)).count, 2)
+    }
+
+    /// 满页就还有下一页，不满就是最后一页 —— 站点不给总数，只能这么推。
+    func testAFullPageMeansThereIsMore() throws {
+        func page(ofCount count: Int) throws -> UserActivityPage {
+            let items = (1...count)
+                .map { #"{"post_id":\#($0),"title":"第 \#($0) 条"}"# }
+                .joined(separator: ",")
+            return try NodeSeekParser().userActivities(
+                json: Data(#"{"success":true,"discussions":[\#(items)]}"#.utf8),
+                kind: .topics,
+                page: 2
+            )
+        }
+
+        let full = try page(ofCount: NodeSeekEndpoint.activitiesPerPage)
+        XCTAssertTrue(full.hasMore)
+        XCTAssertEqual(full.totalPages, 3)
+
+        let partial = try page(ofCount: NodeSeekEndpoint.activitiesPerPage - 1)
+        XCTAssertFalse(partial.hasMore)
+        XCTAssertEqual(partial.totalPages, 2)
+    }
+
+    /// 站点挡下批量抓取时会回一句像是参数错了的话。当成空列表就会把「拿不到」
+    /// 显示成「没有动态」，所以必须抛出来。
+    func testTheSitesAntiScrapingDecoyBecomesAnError() throws {
+        XCTAssertThrowsError(
+            try NodeSeekParser().userActivities(
+                json: try activityData("nodeseek-gated-decoy"),
+                kind: .topics,
+                page: 1
+            )
+        ) { error in
+            guard case let .restricted(message) = error as? ForumServiceError else {
+                return XCTFail("应当是 restricted，实际是 \(error)")
+            }
+            XCTAssertTrue(message.contains("防抓取"), "错误里得说清是被站点挡了：\(message)")
+        }
+    }
+
+    /// 未登录和被挡是两种毛病，报成同一种会把人引去做没用的事：
+    /// 前者重新登录就好，后者登录了也可能还是不行。
+    func testNotBeingSignedInIsReportedAsSuchAndNotAsScraping() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().userActivities(
+                json: Data(#"{"message":"USER NOT FOUND","status":404,"success":false}"#.utf8),
+                kind: .topics,
+                page: 1
+            )
+        ) { error in
+            XCTAssertEqual(error as? ForumServiceError, .requiresLogin)
+        }
+    }
+
+    /// 认不出来的失败别硬塞进那两类里 —— 冒认成「被挡」会让人白折腾。
+    func testAnUnfamiliarFailureIsNotDressedUpAsScraping() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().userActivities(
+                json: Data(#"{"success":false,"message":"服务器开小差了"}"#.utf8),
+                kind: .topics,
+                page: 1
+            )
+        ) { error in
+            if case let .restricted(message) = error as? ForumServiceError {
+                XCTAssertFalse(message.contains("防抓取"), "不该冒认成被挡：\(message)")
+            }
+        }
+    }
+
+    /// 真的是空的时候（翻过了最后一页）不该报错。
+    func testAGenuinelyEmptyPageIsNotAnError() throws {
+        let page = try NodeSeekParser().userActivities(
+            json: Data(#"{"success":true,"discussions":[]}"#.utf8),
+            kind: .topics,
+            page: 99
+        )
+
+        XCTAssertTrue(page.activities.isEmpty)
+        XCTAssertFalse(page.hasMore)
+    }
+}

@@ -14,11 +14,16 @@ actor NodeSeekForumService: ForumService {
     nonisolated let accountID: AccountID
     nonisolated let site: ForumSite = .nodeseek
 
-    /// 站点实际有的功能。缺的四样：版面收藏、子版面、话题评分、匿名楼层。
+    /// 站点实际有的功能。缺的五样：版面收藏、子版面、话题评分、匿名楼层、**站内搜索**。
     /// 话题收藏有，但没有文件夹。
+    ///
+    /// 搜索这一条和最初的能力表不一样，是实测改的：NodeSeek 没有自己的搜索。
+    /// `/search?q=X` 会 302 到 `google.com/search?q=site:www.nodeseek.com&q=X`，
+    /// 站点自己也只是把搜索转交出去。既然没有能取回结果的接口，这个位就不能点亮 ——
+    /// 点亮了等于在界面上摆一个必定失败的入口。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost,
-        .poll, .privateMessages, .globalSearch, .userActivities
+        .poll, .privateMessages, .userActivities
     ]
 
     private let client: NodeSeekNetworkClient
@@ -64,8 +69,21 @@ actor NodeSeekForumService: ForumService {
     func profile(uid: Int64) async throws -> Profile {
         try parser.profile(json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid)))
     }
+    /// 某个用户的主题或评论。
+    ///
+    /// 这两个接口在站点边缘有防抓取（见 `NodeSeekParser.rejectBulkGate`）。匿名抓不到，
+    /// 带完整登录 cookie 能不能过没验过 —— 验它要拿真账号的凭据去发请求。
+    /// 被挡时解析器会抛出说明，而不是给一页空的。
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage {
-        throw notYet("用户动态")
+        let url = switch kind {
+        case .topics: NodeSeekEndpoint.userTopics(uid: uid, page: page)
+        case .replies: NodeSeekEndpoint.userComments(uid: uid, page: page)
+        }
+        return try parser.userActivities(
+            json: await client.get(url),
+            kind: kind,
+            page: max(1, page)
+        )
     }
     /// 分类是固定的一组，没有接口能列全，所以直接给出来 —— 不发请求。
     func forums() async throws -> [Forum] {
@@ -77,8 +95,9 @@ actor NodeSeekForumService: ForumService {
             )
         }
     }
+    /// 站点没有站内搜索，`.globalSearch` 也没点亮，界面不会走到这里。
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
-        throw notYet("搜索")
+        throw ForumServiceError.unsupported("NodeSeek 没有站内搜索，它的搜索是转交给 Google 的")
     }
     /// 一页话题列表。
     ///

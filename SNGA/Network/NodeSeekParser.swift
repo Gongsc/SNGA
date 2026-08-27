@@ -394,6 +394,81 @@ struct NodeSeekParser: Sendable {
         )
     }
 
+    /// 一页用户动态。
+    ///
+    /// 主题和评论是两个接口，形状差一点：评论多 `floor_id` 和 `text`，主题只有标题。
+    /// 两边都很瘦 —— 没有时间、没有分类，所以 `postedAt` 和 `forumName` 只能留空，
+    /// 界面上那两行会自己不显示。
+    ///
+    /// 响应里没有总数也没有「还有没有」，只能按满页推断：站点每页固定 15 条，
+    /// 不满一页就是最后一页。
+    func userActivities(json data: Data, kind: UserActivityKind, page: Int) throws -> UserActivityPage {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取用户动态")
+        }
+        try Self.rejectBulkGate(root)
+
+        let key = kind == .topics ? "discussions" : "comments"
+        guard let items = root[key] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("用户动态缺少 \(key)")
+        }
+
+        let activities = items.compactMap { item -> UserActivity? in
+            guard let postID = (item["post_id"] as? NSNumber)?.int64Value else { return nil }
+            let floor = (item["floor_id"] as? NSNumber)?.intValue
+            let title = (item["title"] as? String) ?? ""
+            let text = (item["text"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return UserActivity(
+                // 同一个帖子可以回好几层，光用 post_id 会撞。
+                id: "\(kind.rawValue)-\(postID)-\(floor ?? 0)",
+                kind: kind,
+                topicID: TopicID(rawValue: postID),
+                // `floor_id` 是楼层序号，不是评论编号，塞进 PostID 会指向别的楼。
+                // 打开动态时只用得到 topicID，缺这个不影响。
+                postID: nil,
+                subject: title.isEmpty ? "话题 \(postID)" : title,
+                excerpt: (text?.isEmpty ?? true) ? nil : text
+            )
+        }
+
+        let hasMore = items.count >= NodeSeekEndpoint.activitiesPerPage
+        return UserActivityPage(
+            kind: kind,
+            activities: activities,
+            page: page,
+            hasMore: hasMore,
+            // 站点不给总页数。给个下界，够「还能往下翻」用。
+            totalPages: hasMore ? page + 1 : page
+        )
+    }
+
+    /// 认出站点挡下批量抓取时给的那个假答复。
+    ///
+    /// `list-discussions`、`list-comments`、`attendance/board` 这几个「带 page、批量吐公开
+    /// 数据」的接口在边缘有防抓取。不放行时它不返回挑战页，而是回一句
+    /// `{"success":false,"message":"wrong uid"}` —— 看起来像参数错了。
+    ///
+    /// 实测证明这是假的：把 `page` 故意写成 `abc`，浏览器会如实答 `wrong page`，
+    /// 而被挡的客户端**无论传什么**都只回 `wrong uid`，连参数都没解析。
+    ///
+    /// 这些请求的参数是我们自己拼的，一定合法，所以收到 `wrong 某某` 只可能是被挡了。
+    /// 不认出来的话，界面会把它当成一页空数据，显示「没有动态」——
+    /// 把「拿不到」说成「没有」是最糟的那种错。
+    private static func rejectBulkGate(_ root: [String: Any]) throws {
+        guard (root["success"] as? NSNumber)?.boolValue != true else { return }
+        let message = (root["message"] as? String) ?? ""
+
+        // 没有会话时站点答的是这句（HTTP 500，正文里的 status 却写 404）。
+        // 它和被挡是两回事：这个重新登录一定能解决，所以要分开报。
+        if message == "USER NOT FOUND" { throw ForumServiceError.requiresLogin }
+
+        guard message.hasPrefix("wrong ") else { return }
+        throw ForumServiceError.restricted(
+            "NodeSeek 挡下了这次请求。站点对批量接口有防抓取限制，重新登录后可能恢复。"
+        )
+    }
+
     static func avatarURL(uid: Int64) -> URL? {
         URL(string: "\(ForumSiteDescriptor.nodeseek.baseURL.absoluteString)/avatar/\(uid).png")
     }

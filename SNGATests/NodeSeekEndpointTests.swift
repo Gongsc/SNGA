@@ -37,7 +37,7 @@ final class NodeSeekEndpointTests: XCTestCase {
 
         for present in [
             ForumCapabilities.checkIn, .postVote, .postDownvote,
-            .quotePost, .poll, .privateMessages, .globalSearch, .userActivities
+            .quotePost, .poll, .privateMessages, .userActivities
         ] {
             XCTAssertTrue(capabilities.contains(present))
         }
@@ -47,6 +47,13 @@ final class NodeSeekEndpointTests: XCTestCase {
         ] {
             XCTAssertFalse(capabilities.contains(absent), "NodeSeek 没有这个功能")
         }
+        // 搜索单列一条：它不是「站点没有这个功能」，而是站点把搜索转交给了 Google。
+        // /search?q=X 会 302 到 google.com/search?q=site:www.nodeseek.com&q=X，
+        // 没有任何接口能把结果取回来，所以这个位不能点亮。
+        XCTAssertFalse(
+            capabilities.contains(.globalSearch),
+            "NodeSeek 没有自己的站内搜索，点亮这个位等于摆一个必定失败的入口"
+        )
     }
 
     // MARK: - 列表与帖子地址
