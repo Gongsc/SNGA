@@ -279,7 +279,19 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
   - 收藏 `collections[]`：`post_id, rank, title`。每页多少条没测出来（当时只有一条收藏）
   - 签到榜 `list[] + record + order + total`，**没有 success 字段**；
     `record` 里没有连续/累计天数，顶层的 `order`/`total` 说的是榜单不是我的天数
-- 投票的响应字段仍未验证，帖子里也还没读它 —— `.poll` 因此没点亮
+- 投票（2026-08-27 摸到一半）：
+  - **投票不在内嵌状态里**，而是写在正文的 Markdown 里：`nsapp://vote?id=3027`。
+    服务端把它渲染成 `<a href="javascript://void(0)" data-href="nsapp://vote?id=3027">`，
+    网页版的 JS 认出它、去 `/api/vote/info/{id}` 取数据、再画面板。
+  - 面板渲染出来长这样：`.vote-panel > .embed-vote`，`h2` 是标题，每个选项一个
+    `input[type=radio][name=vote-item][value=<选项id>]`，`label .vote-item-text` 是选项文字。
+    单选是 radio，多选想必是 checkbox（没见到样本）。页脚写着「(公开投票)」。
+  - **匿名看不到票数**，按钮是禁用的「登陆后再投票」。
+  - `/api/vote/info/{id}` **对手写请求一律 403**（试过 4 个 id、加过 XHR 头，
+    都是 `{"success":false}`），只有页面自己那次是 200 —— 少了什么头还不知道。
+    `Design/probe-nodeseek-vote.js` 是为这件事写的：挂住 fetch 等页面自己去拉。
+  - 投票提交的接口没见过（匿名点不动）。
+  - 响应字段和提交接口都拿到之前不点亮 `.poll` —— 见 `NodeSeekForumService.capabilities`。
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段

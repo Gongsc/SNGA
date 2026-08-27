@@ -1,4 +1,5 @@
 import Foundation
+import SwiftSoup
 import XCTest
 @testable import SNGA
 
@@ -821,5 +822,59 @@ extension NodeSeekParserTests {
                 currentUserID: 1
             )
         )
+    }
+}
+
+/// 正文里的 `nsapp://` 内嵌标记。夹具是一个真的带投票的帖子。
+extension NodeSeekParserTests {
+
+    private func pollPostBody() throws -> String {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-poll"),
+            topicID: TopicID(rawValue: 895_695),
+            page: 1
+        )
+        return try XCTUnwrap(page.posts.first?.html)
+    }
+
+    /// 清洗会丢掉 data-href 和 javascript: 的 href，只剩锚点文字 ——
+    /// 读者于是看到一行 `nsapp://vote?id=3027`。那不该出现在正文里。
+    func testTheRawNSAppURLNeverReachesTheReader() throws {
+        let html = try pollPostBody()
+
+        XCTAssertFalse(html.contains("nsapp://"), "自定义协议漏到正文里了")
+        XCTAssertFalse(html.contains("javascript:"), "伪协议漏到正文里了")
+    }
+
+    func testAPollMarkerBecomesAReadableLine() throws {
+        let html = try pollPostBody()
+
+        // 整句一起断言。只查「投票」两个字会蒙对 —— 这篇正文本来就有
+        // 「根据投票结果」这句，标记就算没换掉也照样能查到。
+        XCTAssertTrue(
+            html.contains("投票 · 在浏览器中打开本帖参与"),
+            "没告诉读者这里有个投票：\(html.prefix(400))"
+        )
+    }
+
+    /// 正文其余部分不能因为换标记而丢掉。
+    func testTheRestOfThePostSurvivesTheReplacement() throws {
+        let html = try pollPostBody()
+
+        XCTAssertTrue(html.contains("打开“隐私和安全”"), "正文被换没了")
+        XCTAssertTrue(html.contains("cdn.nodeimage.com"), "正文里的图片没了")
+    }
+
+    /// 认不出来的内嵌类型也得换掉，但别瞎猜它是什么。
+    func testAnUnknownEmbedIsReplacedWithoutGuessingWhatItIs() throws {
+        let document = try SwiftSoup.parseBodyFragment(
+            #"<article><a href="javascript://void(0)" data-href="nsapp://lottery?id=9">nsapp://lottery?id=9</a></article>"#
+        )
+        let article = try XCTUnwrap(try document.select("article").first())
+        let html = try NodeSeekParser.sanitizedForTesting(article)
+
+        XCTAssertFalse(html.contains("nsapp://"))
+        XCTAssertFalse(html.contains("投票"), "认不出来的不该当成投票")
+        XCTAssertTrue(html.contains("站点内嵌内容"))
     }
 }

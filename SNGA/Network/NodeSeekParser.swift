@@ -265,6 +265,7 @@ struct NodeSeekParser: Sendable {
     /// 楼层正文是别人写的，要进 `WKWebView`。SwiftSoup 的 relaxed 白名单已经挡掉了
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
+        try replaceEmbedMarkers(in: element)
         let inner = try element.html()
         let cleaned = try SwiftSoup.clean(inner, Whitelist.relaxed()) ?? ""
         let document = try SwiftSoup.parseBodyFragment(cleaned)
@@ -275,6 +276,48 @@ struct NodeSeekParser: Sendable {
         // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
         // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
         return PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet)
+    }
+
+    /// 把正文里的 `nsapp://` 标记换成一句人话。
+    ///
+    /// 站点用自定义协议在正文里埋组件，投票就是这么来的：服务端渲染成
+    /// `<a href="javascript://void(0)" data-href="nsapp://vote?id=3027">nsapp://vote?id=3027</a>`，
+    /// 网页版的 JS 认出它、去 `/api/vote/info/{id}` 取数据、再画出投票面板。
+    ///
+    /// 我们既不认它也留不住它：清洗白名单会丢掉 `data-href`，也会丢掉
+    /// `javascript:` 的 href，于是只剩锚点的**文字** —— 读者看到的就是一行
+    /// `nsapp://vote?id=3027`。那对读者毫无意义，还像是页面坏了。
+    ///
+    /// 在清洗之前换掉。用 `blockquote` 是因为白名单只留这几个块级标签，而它已经有
+    /// 现成的样式；换成带 class 的 div，class 会被同一个白名单丢掉。
+    ///
+    /// 真的把投票画出来还差两样：`/api/vote/info/{id}` 的响应字段，以及投票提交的
+    /// 接口 —— 前者匿名请求一律 403（页面自己那次是 200），后者要登录才点得动。
+    /// 拿到之前不假装支持，`.poll` 也不点亮。
+    /// 测试用的入口：清洗本身是私有的，但「原始协议不能漏给读者」这件事值得直接测。
+    static func sanitizedForTesting(_ element: Element) throws -> String {
+        try sanitized(element)
+    }
+
+    private static func replaceEmbedMarkers(in element: Element) throws {
+        for anchor in try element.select("a[data-href]") {
+            let target = try anchor.attr("data-href")
+            guard target.hasPrefix("nsapp://") else { continue }
+            let what = embedName(forNSAppURL: target)
+            let quote = try element.ownerDocument()?.createElement("blockquote")
+                ?? Element(Tag.valueOf("blockquote"), "")
+            try quote.text("\(what) · 在浏览器中打开本帖参与")
+            try anchor.replaceWith(quote)
+        }
+    }
+
+    /// `nsapp://vote?id=3027` → 「投票」。认不出来的说「内容」，不瞎猜。
+    private static func embedName(forNSAppURL value: String) -> String {
+        let host = value.dropFirst("nsapp://".count).prefix { $0 != "?" && $0 != "/" }
+        switch host {
+        case "vote": return "投票"
+        default: return "站点内嵌内容"
+        }
     }
 
     // MARK: - 页面里内嵌的初始状态
