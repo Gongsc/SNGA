@@ -35,17 +35,3 @@ enum NodeSeekInternalLink {
         return nil
     }
 }
-
-/// Markdown 相关的临时落脚点。
-///
-/// 站点的正文是 Markdown，而应用手上还没有渲染器。在渲染器写出来之前，预览把源码原样显示 ——
-/// 显示一段假的富文本会让人以为发出去就是那个样子。
-enum NodeSeekMarkdown {
-    static func plainPreviewHTML(_ source: String) -> String {
-        let escaped = source
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-        return "<pre style=\"white-space: pre-wrap; word-break: break-word;\">\(escaped)</pre>"
-    }
-}

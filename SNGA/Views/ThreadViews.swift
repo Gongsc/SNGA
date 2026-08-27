@@ -1437,8 +1437,8 @@ struct ReplyComposerView: View {
                 .scrollIndicators(.hidden)
 
                 Picker("编辑模式", selection: $editorMode) {
-                    ForEach(ReplyEditorMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                    ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
+                        Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
                     }
                 }
                 .labelsHidden()
@@ -1498,6 +1498,11 @@ struct ReplyComposerView: View {
         .task {
             guard !loadedDraft else { return }
             loadedDraft = true
+            // 初值只能写死成可视化 —— 属性初始化时读不到环境里的站点资料。
+            // 站点没有这一档的话在这里落到源码，别让选择器停在一个不存在的选项上。
+            if !ReplyEditorMode.modes(for: siteDescriptor.replyMarkup).contains(editorMode) {
+                editorMode = .source
+            }
             if let draft = model.thread.draft(topicID: topic.id) {
                 content = draft.content
             } else if let replyTo {
@@ -1529,11 +1534,15 @@ struct ReplyComposerView: View {
             .fontWeight(.bold)
         editorButton("斜体", title: "I", action: .italic)
             .italic()
-        editorButton("下划线", title: "U", action: .underline)
-            .underline()
+        if isUBB {
+            // Markdown 没有下划线。
+            editorButton("下划线", title: "U", action: .underline)
+                .underline()
+        }
         editorButton("删除线", title: "S", action: .strike)
             .strikethrough()
 
+        if isUBB {
         Menu {
             Button("100%") { apply(.fontSize("100%")) }
             Button("110%") { apply(.fontSize("110%")) }
@@ -1560,11 +1569,14 @@ struct ReplyComposerView: View {
         }
         .labelStyle(.iconOnly)
         .help("文字颜色")
+        }   // 字号和颜色都只有 UBB 有
 
         toolbarDivider
         editorButton("引用", systemImage: "text.quote", action: .quote)
         editorButton("代码", systemImage: "chevron.left.forwardslash.chevron.right", action: .code)
-        editorButton("折叠内容", systemImage: "rectangle.compress.vertical", action: .collapse(title: ""))
+        if isUBB {
+            editorButton("折叠内容", systemImage: "rectangle.compress.vertical", action: .collapse(title: ""))
+        }
 
         Button {
             showsLinkEditor = true
@@ -1618,18 +1630,25 @@ struct ReplyComposerView: View {
             }
         }
 
-        Menu {
-            Button("左对齐", systemImage: "text.alignleft") { apply(.align("left")) }
-            Button("居中", systemImage: "text.aligncenter") { apply(.align("center")) }
-            Button("右对齐", systemImage: "text.alignright") { apply(.align("right")) }
-        } label: {
-            Label("对齐", systemImage: "text.alignleft")
-        }
-        .labelStyle(.iconOnly)
-        .help("段落对齐")
+        if isUBB {
+            Menu {
+                Button("左对齐", systemImage: "text.alignleft") { apply(.align("left")) }
+                Button("居中", systemImage: "text.aligncenter") { apply(.align("center")) }
+                Button("右对齐", systemImage: "text.alignright") { apply(.align("right")) }
+            } label: {
+                Label("对齐", systemImage: "text.alignleft")
+            }
+            .labelStyle(.iconOnly)
+            .help("段落对齐")
 
-        editorButton("清除格式", systemImage: "eraser", action: .removeFormat)
+            // 清除格式靠可视化编辑器实现，源码模式下没有对应操作。
+            editorButton("清除格式", systemImage: "eraser", action: .removeFormat)
+        }
     }
+
+    /// 工具条上有几样是 UBB 独有的：字号、颜色、对齐、下划线、折叠。
+    /// Markdown 写不出来，摆着只会插进去一段发出去不生效的东西。
+    private var isUBB: Bool { siteDescriptor.replyMarkup == .ubb }
 
     private var toolbarDivider: some View {
         Divider()
@@ -1676,6 +1695,39 @@ struct ReplyComposerView: View {
     }
 
     private func sourceInsertion(for action: UBBEditorAction) -> String {
+        switch siteDescriptor.replyMarkup {
+        case .ubb: ubbInsertion(for: action)
+        case .markdown: markdownInsertion(for: action)
+        }
+    }
+
+    /// Markdown 里没有对应写法的几样（颜色、字号、对齐、下划线）返回空串。
+    ///
+    /// 它们的按钮已经按标记语言藏起来了，这里再兜一道：真按到了也只是什么都不插，
+    /// 而不是把 `[color=red]` 塞进一篇 Markdown。
+    private func markdownInsertion(for action: UBBEditorAction) -> String {
+        switch action {
+        case .undo, .redo, .removeFormat, .underline,
+             .color, .fontSize, .align, .collapse, .insertUBB:
+            return ""
+        case .bold:
+            return "****"
+        case .italic:
+            return "**"
+        case .strike:
+            return "~~~~"
+        case .quote:
+            return "\n> "
+        case .code:
+            return "\n```\n\n```\n"
+        case let .link(url):
+            return "[\(url)](\(url))"
+        case let .image(url):
+            return "![](\(url))"
+        }
+    }
+
+    private func ubbInsertion(for action: UBBEditorAction) -> String {
         switch action {
         case .undo, .redo, .removeFormat:
             return ""
@@ -1709,12 +1761,32 @@ struct ReplyComposerView: View {
     }
 }
 
-private enum ReplyEditorMode: String, CaseIterable, Identifiable {
-    case visual = "可视化"
-    case source = "UBB"
-    case preview = "预览"
+private enum ReplyEditorMode: Hashable, Identifiable {
+    case visual
+    case source
+    case preview
 
     var id: Self { self }
+
+    /// 源码那一档叫什么，取决于写的是哪种标记 —— 在 Markdown 站点上标着「UBB」
+    /// 是在教人写错。
+    func title(for markup: ReplyMarkup) -> String {
+        switch self {
+        case .visual: "可视化"
+        case .source: markup == .ubb ? "UBB" : "Markdown"
+        case .preview: "预览"
+        }
+    }
+
+    /// 可视化编辑器是围着 UBB 建的：它在 `WKWebView` 里把 UBB 和 HTML 来回转。
+    /// Markdown 交给它，源码会被当成 UBB 啃一遍。所以 Markdown 站点只有源码和预览
+    /// 两档 —— 少一个档，好过多一个会把正文改坏的档。
+    static func modes(for markup: ReplyMarkup) -> [ReplyEditorMode] {
+        switch markup {
+        case .ubb: [.visual, .source, .preview]
+        case .markdown: [.source, .preview]
+        }
+    }
 }
 
 private struct UBBResourcePopover: View {

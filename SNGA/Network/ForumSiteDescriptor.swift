@@ -136,9 +136,7 @@ struct ForumSiteDescriptor: Sendable {
     func sanitizedPreviewHTML(_ source: String) -> String {
         switch site {
         case .nga: NGAParser().sanitizedPostHTML(source)
-        // Markdown 站点的预览要先渲染成 HTML。渲染器还没有，所以先把源码原样显示 ——
-        // 比给一段假的富文本诚实。跟 Markdown 编辑器一起做。
-        case .nodeseek: NodeSeekMarkdown.plainPreviewHTML(source)
+        case .nodeseek: MarkdownRenderer.previewHTML(source)
         }
     }
 
