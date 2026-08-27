@@ -107,6 +107,7 @@
 		C4A9E894E1A6182F50C2B7B2 /* PostContentBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24BC0DF2EC80E7ABE9E38B97 /* PostContentBuilder.swift */; };
 		C63FF6AFBB265C51A1484BC1 /* ForumSearchPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C34AD076AC4B138FF17703 /* ForumSearchPage.swift */; };
 		C9C4BAA055ABDD0BD86DB688 /* nodeseek-activities-discussions.json in Resources */ = {isa = PBXBuildFile; fileRef = 1F8D981B85DF3E9ADB4D32E0 /* nodeseek-activities-discussions.json */; };
+		CE384CC60AD246EE55050E6A /* PostDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB3F872320818B37C5DBC0B6 /* PostDocument.swift */; };
 		CEA62E312381BDBFA9B83697 /* TopicPoll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6324C923089A730FE621EECB /* TopicPoll.swift */; };
 		CF4D5028D136A415C1B1EC74 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 74F907941FE34B2E0487DAC1 /* Assets.xcassets */; };
 		D015B988E067D1367C998F7E /* RequestSlotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239CFB8B7E4CE369AAF0C698 /* RequestSlotTests.swift */; };
@@ -249,6 +250,7 @@
 		A91D93050AFFAE305062FB12 /* NodeSeekInternalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekInternalLink.swift; sourceTree = "<group>"; };
 		AA68ED4CDA3D00903F923345 /* PostQuoteExpanderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostQuoteExpanderTests.swift; sourceTree = "<group>"; };
 		AAB61859855F5B83681BDA07 /* SNGAUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGAUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB3F872320818B37C5DBC0B6 /* PostDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostDocument.swift; sourceTree = "<group>"; };
 		AC15679961D96C111EEE4127 /* NodeSeekEndpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekEndpointTests.swift; sourceTree = "<group>"; };
 		AC2A3630313FF101D2020A0A /* SNGATests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SNGATests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC2FE63519863D051826534B /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -427,6 +429,7 @@
 				6940D09E128DDB989FAB262E /* OpenAICompatibleClient.swift */,
 				24BC0DF2EC80E7ABE9E38B97 /* PostContentBuilder.swift */,
 				0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */,
+				AB3F872320818B37C5DBC0B6 /* PostDocument.swift */,
 				39DF2A889872424BD68EAB4B /* PostQuoteExpander.swift */,
 				C25321213642C72401CBA0B1 /* SessionCookieJar.swift */,
 				BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */,
@@ -719,6 +722,7 @@
 				C4A9E894E1A6182F50C2B7B2 /* PostContentBuilder.swift in Sources */,
 				1DF747F01EC4CEDF4CC0F797 /* PostContentDiagnostics.swift in Sources */,
 				AB33B36C3107505DB395C678 /* PostContentView.swift in Sources */,
+				CE384CC60AD246EE55050E6A /* PostDocument.swift in Sources */,
 				8D4D12CE7AC97647E0492B4D /* PostImageContextMenu.swift in Sources */,
 				DE3A6C4DAFE20039C0B2493C /* PostImageStore.swift in Sources */,
 				A43B322E156285D3B24F93A1 /* PostImageView.swift in Sources */,

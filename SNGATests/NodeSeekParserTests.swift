@@ -638,3 +638,56 @@ final class NodeSeekWriteGuardTests: XCTestCase {
         XCTAssertTrue(service().capabilities.contains(.postVote))
     }
 }
+
+/// 楼层正文外面那层文档。字体和配色都在这层里 —— 缺了它，NodeSeek 的正文会用
+/// WebKit 的默认字体，深色模式下还是白底黑字。
+extension NodeSeekParserTests {
+
+    private func firstPostHTML() throws -> String {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 1),
+            page: 1
+        )
+        return try XCTUnwrap(page.posts.first?.html)
+    }
+
+    func testAPostBodyArrivesAsAThemedDocument() throws {
+        let html = try firstPostHTML()
+
+        XCTAssertTrue(html.hasPrefix("<!doctype html>"), "正文不是完整文档")
+        XCTAssertTrue(html.contains("font:14px -apple-system"), "没有带上正文字体")
+        XCTAssertTrue(html.contains("color:CanvasText"), "文字颜色没跟着系统走")
+        XCTAssertTrue(html.contains("background:transparent"), "底色该透出宿主视图")
+    }
+
+    /// 主题是靠替换 `:root` 里那几个记号字符串实现的。记号不在，换主题会静默失效。
+    func testThePostDocumentCarriesTheMarksThemingReplaces() throws {
+        let html = try firstPostHTML()
+
+        XCTAssertTrue(html.contains("color-scheme:light dark"))
+        XCTAssertTrue(html.contains("--snga-accent:"))
+        XCTAssertTrue(html.contains("--snga-quote-rail:"))
+
+        // 真的换一次主题：记号对得上，值就该被换掉。
+        let themed = AppTheme.midnight.resolved().applying(to: html)
+        XCTAssertNotEqual(themed, html, "主题没能改动这份文档")
+    }
+
+    func testTheDocumentKeepsItsContentSecurityPolicy() throws {
+        let html = try firstPostHTML()
+
+        XCTAssertTrue(html.contains("default-src 'none'"), "正文是别人写的，默认得全禁")
+        XCTAssertFalse(html.contains("script-src"), "不该给脚本开口子")
+    }
+
+    func testMarkdownBodiesGetCodeAndHeadingRules() throws {
+        let html = try firstPostHTML()
+
+        XCTAssertTrue(html.contains("ui-monospace"), "代码块没有等宽字体")
+        XCTAssertTrue(html.contains("h1,h2,h3,h4,h5,h6"), "标题没有样式")
+        // UBB 那套是 NGA 专有的，不该跟着进来。
+        XCTAssertFalse(html.contains(".ubb-color-red"), "混进了 NGA 的 UBB 样式")
+        XCTAssertFalse(html.contains(".nga-game-card"), "混进了 NGA 的游戏卡片样式")
+    }
+}

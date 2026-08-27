@@ -271,7 +271,10 @@ struct NodeSeekParser: Sendable {
         for tag in ["script", "style", "iframe", "form", "object", "embed"] {
             try document.select(tag).remove()
         }
-        return try document.body()?.html() ?? cleaned
+        let body = try document.body()?.html() ?? cleaned
+        // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
+        // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
+        return PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet)
     }
 
     // MARK: - 页面里内嵌的初始状态
