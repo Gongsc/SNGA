@@ -857,7 +857,20 @@ final class AppModel {
 
 
 #if DEBUG
+    /// 只往内存库里种。
+    ///
+    /// 种子会插两个假账号（编号 10001/10002）和一个假收藏，还会覆写一批 UserDefaults。
+    /// 落到真实的库里就是一场事故：假账号没有会话，建不出服务，于是点版面点话题
+    /// 全都没反应 —— 看起来跟应用卡死一模一样，而真正的账号还得自己找回来。
+    ///
+    /// 现在两个开关是分开的（`--uitesting` 决定内存库，`--uitesting-seed` 决定种数据），
+    /// 只给后者就会写进真实的库。这里自己确认一遍，不指望调用方两个都记得给。
     private func seedUITestData() {
+        guard session.context.container.configurations
+            .allSatisfy(\.isStoredInMemoryOnly) else {
+            assertionFailure("种子数据只能进内存库")
+            return
+        }
         UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
         UserDefaults.standard.set(
             RecentForumSettings.defaultMaximumCount,
