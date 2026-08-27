@@ -269,9 +269,17 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
 ## 七、仍然欠着的
 
 - ~~没有真实账号验证过~~ —— 传输层已验（见第〇节）。**写接口的响应字段仍未验证**
-- 用户动态的响应字段已验（`{post_id, rank, title}` / 多 `floor_id`、`text`，每页 15 条）
-- 私信、收藏列表、投票的响应字段仍未验证 —— 要登录态才看得到。
-  `Design/probe-nodeseek-session.js` 是给这件事准备的探针，只打印字段名不打印值
+- 读接口的响应字段已验（2026-08-27，登录态下用 `Design/probe-nodeseek-session.js` 跑的）：
+  - 用户动态 `{post_id, rank, title}`，评论多 `floor_id`、`text`，每页 15 条
+  - 私信 `msgArray[]`：`max_id, sender_id/name, receiver_id/name, content, viewed, created_at`
+    —— 给的是**会话**不是单条消息，一个对话方一行
+  - 通知 `at-me` / `reply-to-me` 同形状 `data[]`：`id, post_id, title, comment_id,
+    first_comment_id, floor_id, commenter_id/name, viewed, created_at`，**没有正文**
+  - 未读数 `unreadCount.{all, atMe, message, reply}`
+  - 收藏 `collections[]`：`post_id, rank, title`。每页多少条没测出来（当时只有一条收藏）
+  - 签到榜 `list[] + record + order + total`，**没有 success 字段**；
+    `record` 里没有连续/累计天数，顶层的 `order`/`total` 说的是榜单不是我的天数
+- 投票的响应字段仍未验证，帖子里也还没读它 —— `.poll` 因此没点亮
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段

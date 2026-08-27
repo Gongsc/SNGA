@@ -291,16 +291,25 @@ extension NodeSeekParserTests {
     }
 
     /// 今天签没签从签到榜的 record 读，签到接口自己不给。
+    ///
+    /// 这里的 JSON 按真实响应写。先前那份是我照着猜的字段名编的（`continuous`、
+    /// `total` 在 record 里），用例因此一直绿着 —— 咬的是一个不存在的东西。
     func testStatisticsComeFromTheBoardRecord() throws {
         let signed = try NodeSeekParser().checkInStatistics(
-            json: Data(#"{"success":true,"record":{"continuous":7,"total":123}}"#.utf8)
+            json: Data(#"""
+            {"list":[],"order":31,"total":1420,
+             "record":{"id":5896765,"member_id":17429,"day_id":1420,"gain":14,
+                       "created_at":"2026-08-26T01:02:03.000Z"}}
+            """#.utf8)
         )
         XCTAssertTrue(signed.isCheckedInToday)
-        XCTAssertEqual(signed.consecutiveDays, 7)
-        XCTAssertEqual(signed.totalDays, 123)
+        // 站点不报这两个数。顶层的 order/total 说的是榜单，不是我的天数 ——
+        // 拿它们充数会在界面上显示一个错的数字。
+        XCTAssertNil(signed.consecutiveDays)
+        XCTAssertNil(signed.totalDays)
 
         let unsigned = try NodeSeekParser().checkInStatistics(
-            json: Data(#"{"success":true}"#.utf8)
+            json: Data(#"{"list":[],"order":0,"total":1420}"#.utf8)
         )
         XCTAssertFalse(unsigned.isCheckedInToday, "榜上没有今天这条就是还没签")
     }
@@ -689,5 +698,128 @@ extension NodeSeekParserTests {
         // UBB 那套是 NGA 专有的，不该跟着进来。
         XCTAssertFalse(html.contains(".ubb-color-red"), "混进了 NGA 的 UBB 样式")
         XCTAssertFalse(html.contains(".nga-game-card"), "混进了 NGA 的游戏卡片样式")
+    }
+}
+
+/// 私信、通知、收藏列表。夹具按实测的响应字段写。
+extension NodeSeekParserTests {
+
+    private func json(_ name: String) throws -> Data {
+        try Data(contentsOf: try XCTUnwrap(
+            Bundle(for: NodeSeekParserTests.self).url(forResource: name, withExtension: "json"),
+            "测试包里没有夹具 \(name).json"
+        ))
+    }
+
+    /// 列表给的是会话不是单条消息，所以身份必须是**对方**的编号 ——
+    /// 打开会话要用它去请求 /message/with/{uid}。
+    func testAConversationIsIdentifiedByTheOtherPerson() throws {
+        let page = try NodeSeekParser().messages(
+            json: try json("nodeseek-messages"), page: 1, currentUserID: 66675
+        )
+
+        XCTAssertEqual(page.folder, .privateMessages)
+        XCTAssertEqual(page.messages.count, 2)
+
+        // 第一条是别人发给我的：对方是发件人。
+        let incoming = try XCTUnwrap(page.messages.first)
+        XCTAssertEqual(incoming.id, MessageID(rawValue: 3515))
+        XCTAssertEqual(incoming.sender, "Emmmc")
+        XCTAssertEqual(incoming.preview, "晚点把配置发你")
+        XCTAssertTrue(incoming.isUnread)
+
+        // 第二条是我发出去的：对方是收件人，不能把自己认成对方。
+        let outgoing = page.messages[1]
+        XCTAssertEqual(outgoing.id, MessageID(rawValue: 63854))
+        XCTAssertEqual(outgoing.sender, "someone")
+    }
+
+    /// 我自己刚发出去的消息不该显示成未读。
+    func testMyOwnMessageIsNeverUnread() throws {
+        let page = try NodeSeekParser().messages(
+            json: Data(#"""
+            {"success":true,"msgArray":[{"max_id":1,"sender_id":66675,"sender_name":"我",
+             "receiver_id":3515,"receiver_name":"对方","content":"在吗","viewed":0,
+             "created_at":"2026-08-26T11:20:31.000Z"}]}
+            """#.utf8),
+            page: 1,
+            currentUserID: 66675
+        )
+
+        XCTAssertFalse(try XCTUnwrap(page.messages.first).isUnread)
+    }
+
+    func testReplyNotificationsCarryTopicAndFloor() throws {
+        let items = try NodeSeekParser().notifications(
+            json: try json("nodeseek-notifications-reply"), kind: .replyToMe, page: 1
+        )
+
+        XCTAssertEqual(items.count, 2)
+        let first = try XCTUnwrap(items.first)
+        XCTAssertEqual(first.kind, .reply)
+        XCTAssertEqual(first.topicID, TopicID(rawValue: 884_844))
+        XCTAssertEqual(first.subject, "gpt的降智已经蔓延到网页版了")
+        XCTAssertTrue(first.preview.contains("回复了你"), first.preview)
+        XCTAssertTrue(first.preview.contains("#7"), first.preview)
+        XCTAssertTrue(first.isUnread)
+        XCTAssertFalse(items[1].isUnread)
+    }
+
+    /// 两类通知走同一个解析，但落到不同的类型上 —— 混成一种，界面就分不出
+    /// 「有人回你」和「有人 @ 你」。
+    func testMentionsAndRepliesStayDifferentKinds() throws {
+        let mentions = try NodeSeekParser().notifications(
+            json: try json("nodeseek-notifications-atme"), kind: .atMe, page: 1
+        )
+
+        XCTAssertEqual(try XCTUnwrap(mentions.first).kind, .mention)
+        XCTAssertTrue(try XCTUnwrap(mentions.first).preview.contains("提到了你"))
+    }
+
+    /// 通知带的楼层要能换算成正确的页码，否则点开跳到第一页。
+    func testANotificationLinksToThePageItsFloorIsOn() throws {
+        let items = try NodeSeekParser().notifications(
+            json: try json("nodeseek-notifications-atme"), kind: .atMe, page: 1
+        )
+        let url = try XCTUnwrap(try XCTUnwrap(items.first).replyURL).absoluteString
+
+        // 12 楼、每页 10 层 → 第 2 页。
+        XCTAssertTrue(url.hasSuffix("-2"), "楼层没换算成页码：\(url)")
+    }
+
+    func testCollectedTopicsComeBackMarkedAsFavorites() throws {
+        let page = try NodeSeekParser().favoriteTopics(
+            json: try json("nodeseek-collections"), page: 1
+        )
+
+        XCTAssertEqual(page.topics.map(\.id), [
+            TopicID(rawValue: 884_844), TopicID(rawValue: 875_041)
+        ])
+        XCTAssertTrue(page.topics.allSatisfy(\.isFavorite), "收藏列表里的话题当然是收藏过的")
+    }
+
+    /// 每页多少条没测出来，所以「空了才停」。非空一律再要一页。
+    func testCollectionPagingStopsOnlyWhenAPageComesBackEmpty() throws {
+        let full = try NodeSeekParser().favoriteTopics(
+            json: try json("nodeseek-collections"), page: 1
+        )
+        XCTAssertTrue(full.hasMore)
+
+        let empty = try NodeSeekParser().favoriteTopics(
+            json: Data(#"{"success":true,"collections":[]}"#.utf8), page: 2
+        )
+        XCTAssertFalse(empty.hasMore)
+        XCTAssertTrue(empty.topics.isEmpty)
+    }
+
+    /// 这几个列表也在防抓取的范围里，被挡时同样不能当成空列表。
+    func testAGatedMessageListIsAnErrorNotAnEmptyInbox() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().messages(
+                json: Data(#"{"success":false,"message":"wrong page"}"#.utf8),
+                page: 1,
+                currentUserID: 1
+            )
+        )
     }
 }

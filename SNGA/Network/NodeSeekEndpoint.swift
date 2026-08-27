@@ -102,6 +102,10 @@ enum NodeSeekEndpoint {
 
     static let newComment = url("/api/content/new-comment")
 
+    static func notifications(kind: NodeSeekNotificationKind, page: Int) -> URL {
+        notifications(kind: kind.rawValue, page: page)
+    }
+
     static func notifications(kind: String, page: Int) -> URL {
         url("/api/notification/\(kind)/list", query: [.init(name: "page", value: String(max(1, page)))])
     }
@@ -167,6 +171,27 @@ enum NodeSeekReaction: String, Sendable, CaseIterable {
         case .upvote: 0
         case .like: 1
         case .dislike: 2
+        }
+    }
+}
+
+/// 站点把「通知」分成两类，两个接口形状一样。
+enum NodeSeekNotificationKind: String, Sendable, CaseIterable {
+    case atMe = "at-me"
+    case replyToMe = "reply-to-me"
+
+    var messageKind: ForumMessageKind {
+        switch self {
+        case .atMe: .mention
+        case .replyToMe: .reply
+        }
+    }
+
+    /// 拼摘要用的那半句。响应里没有正文，只能自己说清发生了什么。
+    var verb: String {
+        switch self {
+        case .atMe: "提到了你"
+        case .replyToMe: "回复了你"
         }
     }
 }

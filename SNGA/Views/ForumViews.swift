@@ -145,17 +145,21 @@ struct UserCenterView: View {
                     .font(.headline)
                 if case let .checkedIn(statistics, _) = status {
                     HStack(spacing: 16) {
-                        Label {
-                            Text("连续签到 \(statistics.consecutiveDays) 天")
-                                .monospacedDigit()
-                        } icon: {
-                            Image(systemName: "flame.fill")
+                        if let consecutive = statistics.consecutiveDays {
+                            Label {
+                                Text("连续签到 \(consecutive) 天")
+                                    .monospacedDigit()
+                            } icon: {
+                                Image(systemName: "flame.fill")
+                            }
                         }
-                        Label {
-                            Text("历史累计 \(statistics.totalDays) 天")
-                                .monospacedDigit()
-                        } icon: {
-                            Image(systemName: "calendar")
+                        if let total = statistics.totalDays {
+                            Label {
+                                Text("历史累计 \(total) 天")
+                                    .monospacedDigit()
+                            } icon: {
+                                Image(systemName: "calendar")
+                            }
                         }
                     }
                     .font(.callout)
@@ -193,7 +197,13 @@ struct UserCenterView: View {
     private func checkInAccessibilityValue(for status: DailyCheckInStatus) -> String {
         switch status {
         case let .checkedIn(statistics, _):
-            "连续签到 \(statistics.consecutiveDays) 天，历史累计 \(statistics.totalDays) 天"
+            // 站点不报天数时这两句都不说 —— 屏幕上没有的东西，读屏也不该念出来。
+            [
+                statistics.consecutiveDays.map { "连续签到 \($0) 天" },
+                statistics.totalDays.map { "历史累计 \($0) 天" }
+            ]
+            .compactMap { $0 }
+            .joined(separator: "，")
         default:
             checkInDetail(for: status)
         }

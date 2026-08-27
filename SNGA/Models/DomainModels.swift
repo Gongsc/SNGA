@@ -338,8 +338,12 @@ enum CheckInResult: Hashable, Codable, Sendable {
 
 struct CheckInStatistics: Hashable, Codable, Sendable {
     var isCheckedInToday: Bool
-    var consecutiveDays: Int
-    var totalDays: Int
+    /// 站点不报这两个数时是 nil，界面就不显示那一行。
+    ///
+    /// 原先是 `Int`，取不到就填 0 —— 于是 NodeSeek 上永远显示「连续签到 0 天」，
+    /// 那不是「不知道」，那是在说一件错事。
+    var consecutiveDays: Int?
+    var totalDays: Int?
 }
 
 enum DailyCheckInStatus: Hashable, Sendable {

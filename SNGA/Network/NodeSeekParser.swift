@@ -394,12 +394,14 @@ struct NodeSeekParser: Sendable {
             throw ForumServiceError.unexpectedPage("无法读取签到状态")
         }
         let record = root["record"] as? [String: Any]
-        func number(_ key: String) -> Int? { (record?[key] as? NSNumber)?.intValue }
         return CheckInStatistics(
             // 榜上有今天这条记录就说明签过了。
             isCheckedInToday: record != nil,
-            consecutiveDays: number("continuous") ?? number("continuousDays") ?? 0,
-            totalDays: number("total") ?? number("totalDays") ?? 0
+            // 实测这个响应里没有连续和累计天数：`record` 只有 id、member_id、day_id、
+            // gain、created_at，顶层的 `order` 和 `total` 说的是榜单本身，不是我的天数。
+            // 先前那两行读的是并不存在的键，结果永远是 0。
+            consecutiveDays: nil,
+            totalDays: nil
         )
     }
 
@@ -470,6 +472,123 @@ struct NodeSeekParser: Sendable {
             throw ForumServiceError.unexpectedPage("反应结果里没有新的计数")
         }
         return PostVoteState(upvoteCount: current, downvoteCount: 0, userVote: .up)
+    }
+
+    /// 私信列表。
+    ///
+    /// 这个接口给的是**会话**，不是单条消息：一个对话方一行，带着最后一条的正文和
+    /// `max_id`。所以 `id` 里放的是**对方的编号**，不是消息编号 —— 打开会话要请求
+    /// `/api/notification/message/with/{uid}`，手上没有对方编号就打不开。用 `max_id`
+    /// 的话每来一条新消息这一行的身份就变了，列表会闪成新行。
+    ///
+    /// 谁是「对方」要看我是谁：我发出去的那条，对方是收件人；收到的那条，对方是发件人。
+    func messages(json data: Data, page: Int, currentUserID: Int64) throws -> MessagePage {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取私信列表")
+        }
+        try Self.rejectBulkGate(root)
+        guard let rows = root["msgArray"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("私信列表缺少 msgArray")
+        }
+
+        let messages = rows.compactMap { row -> ForumMessage? in
+            let senderID = (row["sender_id"] as? NSNumber)?.int64Value
+            let receiverID = (row["receiver_id"] as? NSNumber)?.int64Value
+            let isMine = senderID == currentUserID
+            guard let otherID = isMine ? receiverID : senderID else { return nil }
+            let otherName = (row[isMine ? "receiver_name" : "sender_name"] as? String) ?? ""
+            let content = (row["content"] as? String) ?? ""
+            return ForumMessage(
+                id: MessageID(rawValue: otherID),
+                kind: .privateMessage,
+                sender: otherName,
+                // 私信没有标题，列表上显示的就是对方。
+                subject: otherName.isEmpty ? "用户 \(otherID)" : otherName,
+                preview: content,
+                sentAt: (row["created_at"] as? String).flatMap(Self.date(fromISO8601:)),
+                // viewed 是 0/1，0 表示还没看。我自己刚发出去的那条不该算未读。
+                isUnread: !isMine && (row["viewed"] as? NSNumber)?.intValue == 0
+            )
+        }
+        return MessagePage(
+            folder: .privateMessages,
+            messages: messages,
+            page: page,
+            hasMore: !rows.isEmpty
+        )
+    }
+
+    /// 通知列表（`at-me` 和 `reply-to-me` 两个接口同一个形状）。
+    ///
+    /// 响应里没有正文，只有帖子标题和楼层，所以摘要只能自己拼一句。
+    func notifications(json data: Data, kind: NodeSeekNotificationKind, page: Int) throws -> [ForumMessage] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取通知列表")
+        }
+        try Self.rejectBulkGate(root)
+        guard let rows = root["data"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("通知列表缺少 data")
+        }
+
+        return rows.compactMap { row -> ForumMessage? in
+            guard let postID = (row["post_id"] as? NSNumber)?.int64Value,
+                  let id = (row["id"] as? NSNumber)?.int64Value else { return nil }
+            let who = (row["commenter_name"] as? String) ?? ""
+            let floor = (row["floor_id"] as? NSNumber)?.intValue
+            let title = (row["title"] as? String) ?? ""
+            let where_ = floor.map { "#\($0)" } ?? ""
+            return ForumMessage(
+                id: MessageID(rawValue: id),
+                kind: kind.messageKind,
+                sender: who,
+                subject: title.isEmpty ? "话题 \(postID)" : title,
+                preview: "\(who) 在 \(where_) \(kind.verb)",
+                sentAt: (row["created_at"] as? String).flatMap(Self.date(fromISO8601:)),
+                isUnread: (row["viewed"] as? NSNumber)?.intValue == 0,
+                topicID: TopicID(rawValue: postID),
+                replyURL: NodeSeekEndpoint.thread(
+                    topicID: TopicID(rawValue: postID),
+                    page: NodeSeekEndpoint.page(ofFloor: floor ?? 1)
+                )
+            )
+        }
+    }
+
+    /// 收藏的话题。
+    ///
+    /// 响应只有编号、标题和一个 `rank`，没有作者、回复数、时间，也没有所属分类 ——
+    /// 所以这些位置只能空着，界面上那几行会自己不显示。
+    func favoriteTopics(json data: Data, page: Int) throws -> ForumPage {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取收藏列表")
+        }
+        try Self.rejectBulkGate(root)
+        guard let rows = root["collections"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("收藏列表缺少 collections")
+        }
+
+        let topics = rows.compactMap { row -> Topic? in
+            guard let postID = (row["post_id"] as? NSNumber)?.int64Value else { return nil }
+            let title = (row["title"] as? String) ?? ""
+            return Topic(
+                id: TopicID(rawValue: postID),
+                forumID: .placeholder(site: .nodeseek),
+                subject: title.isEmpty ? "话题 \(postID)" : title,
+                author: "",
+                replyCount: 0,
+                isFavorite: true
+            )
+        }
+        return ForumPage(
+            forum: nil,
+            topics: topics,
+            page: page,
+            // 每页多少条没测出来（当时账号里只有一条收藏），所以不按「满页」判断。
+            // 非空就再要一页，空了才停 —— 代价是末尾多发一次请求，好处是不管每页
+            // 多少条都不会漏。
+            hasMore: !rows.isEmpty,
+            totalPages: rows.isEmpty ? page : page + 1
+        )
     }
 
     /// 认出站点挡下批量抓取时给的那个假答复。

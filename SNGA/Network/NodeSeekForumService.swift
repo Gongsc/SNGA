@@ -24,13 +24,18 @@ actor NodeSeekForumService: ForumService {
     /// `.postDownvote` 也没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
     /// 一个不作声就扣钱的按钮不该摆在界面上 —— 真要接，得先让界面能把代价讲明白
     /// （比如二次确认），那是界面那边的事。
+    /// `.poll` 也没点亮。站点是有投票的，但这边还不会从帖子里读它 ——
+    /// 能力位是用来回答「这里能不能用」的，不是「站点有没有」。读出来之后再打开。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost,
-        .poll, .privateMessages, .userActivities
+        .privateMessages, .userActivities
     ]
 
     private let client: NodeSeekNetworkClient
     private let parser = NodeSeekParser()
+    /// 「我是谁」要靠抓一整张页面解出来，而一个会话里它不会变。
+    /// 不记住的话，每拉一次私信列表就多抓一张首页。
+    private var cachedUserID: Int64?
 
     init(
         accountID: AccountID,
@@ -60,6 +65,7 @@ actor NodeSeekForumService: ForumService {
     /// HTML 里搜不到 `member_id`）得出的结论是「只有浏览器 DOM 里才有」—— 那个结论是错的。
     /// 页面确实带着身份，只是**整段 base64 编过**，所以按明文搜什么都搜不到。
     func currentUserID() async throws -> Int64 {
+        if let cachedUserID { return cachedUserID }
         let data = try await client.get(ForumSiteDescriptor.nodeseek.baseURL, asJSON: false)
         guard let html = String(data: data, encoding: .utf8) else {
             throw ForumServiceError.invalidResponse
@@ -67,6 +73,7 @@ actor NodeSeekForumService: ForumService {
         guard let uid = NodeSeekParser.signedInUserID(inHTML: html) else {
             throw ForumServiceError.requiresLogin
         }
+        cachedUserID = uid
         return uid
     }
     func profile(uid: Int64) async throws -> Profile {
@@ -194,11 +201,78 @@ actor NodeSeekForumService: ForumService {
         ))
     }
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws { throw notYet("投票") }
-    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage { throw notYet("消息") }
-    func message(id: MessageID) async throws -> ForumMessage { throw notYet("消息详情") }
-    func replyMessage(id: MessageID, content: String) async throws { throw notYet("私信回复") }
+    /// 私信或通知的一页。
+    ///
+    /// 两个文件夹落到完全不同的接口上：私信是一个会话列表，通知则是 `at-me` 和
+    /// `reply-to-me` **两个**接口 —— 站点把「提到我」和「回复我」分开放，而应用这边
+    /// 只有一个「通知」，所以取回来合成一份，按时间倒序。
+    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
+        switch folder {
+        case .privateMessages:
+            return try parser.messages(
+                json: await client.get(NodeSeekEndpoint.notifications(kind: "message", page: page)),
+                page: max(1, page),
+                currentUserID: await currentUserID()
+            )
+        case .notifications:
+            var merged: [ForumMessage] = []
+            for kind in NodeSeekNotificationKind.allCases {
+                merged += try parser.notifications(
+                    json: await client.get(NodeSeekEndpoint.notifications(kind: kind, page: page)),
+                    kind: kind,
+                    page: max(1, page)
+                )
+            }
+            // 没时间的排在后面，别让它们挤到最前面去。
+            merged.sort { ($0.sentAt ?? .distantPast) > ($1.sentAt ?? .distantPast) }
+            return MessagePage(
+                folder: folder,
+                messages: merged,
+                page: max(1, page),
+                hasMore: !merged.isEmpty
+            )
+        }
+    }
+
+    /// 一段私信会话。
+    ///
+    /// `id` 里放的是对方的编号（见 `NodeSeekParser.messages`），这里正好当路径用。
+    func message(id: MessageID) async throws -> ForumMessage {
+        let me = try await currentUserID()
+        let page = try parser.messages(
+            json: await client.get(NodeSeekEndpoint.messageThread(uid: id.rawValue)),
+            page: 1,
+            currentUserID: me
+        )
+        guard let message = page.messages.first else {
+            throw ForumServiceError.unexpectedPage("这段会话读不出内容")
+        }
+        return message
+    }
+
+    func replyMessage(id: MessageID, content: String) async throws {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw ForumServiceError.unsupported("私信内容不能为空")
+        }
+        try parser.confirmWrite(
+            json: await client.postJSON(
+                NodeSeekEndpoint.sendMessage,
+                // 这一个字段是 camelCase，而这套接口其余字段都是 snake_case
+                // （实测自站点自己的 notification.js）。照抄，别顺手改成统一风格。
+                body: ["receiverUid": id.rawValue, "content": text]
+            ),
+            what: "私信"
+        )
+    }
     func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { [] }
-    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage { throw notYet("收藏话题") }
+    /// 收藏的话题。站点没有收藏夹，`folderID` 无处可去。
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
+        try parser.favoriteTopics(
+            json: await client.get(NodeSeekEndpoint.collectionList(page: page)),
+            page: max(1, page)
+        )
+    }
     /// 收藏或取消收藏一个话题。
     ///
     /// 和三种反应不同，这个可逆，所以两个方向都接。站点没有收藏夹，`folderID` 无处可去。

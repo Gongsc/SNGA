@@ -37,7 +37,7 @@ final class NodeSeekEndpointTests: XCTestCase {
 
         for present in [
             ForumCapabilities.checkIn, .postVote,
-            .quotePost, .poll, .privateMessages, .userActivities
+            .quotePost, .privateMessages, .userActivities
         ] {
             XCTAssertTrue(capabilities.contains(present))
         }
@@ -47,6 +47,9 @@ final class NodeSeekEndpointTests: XCTestCase {
         ] {
             XCTAssertFalse(capabilities.contains(absent), "NodeSeek 没有这个功能")
         }
+        // 投票单列一条：站点有，但这边还不会从帖子里把它读出来。
+        // 能力位回答的是「这里能不能用」，读出来之前不能点亮。
+        XCTAssertFalse(capabilities.contains(.poll))
         // 「反对」单列一条：站点有这个功能，但它要花掉用户 2 个鸡腿而且撤不回来。
         // 摆一个一点就扣钱、又不作声的按钮，比没有这个按钮更糟。
         XCTAssertFalse(
