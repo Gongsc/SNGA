@@ -13,6 +13,42 @@
 
 下面这一节是**我自己跑出来的**，不是从 nodyssey 读来的。其余各节仍是转述。
 
+### 站内搜索：没有（2026-08-27 实测）
+
+`/search?q=X` 回 302，去向 `https://www.google.com/search?q=site:www.nodeseek.com&q=X`。
+站点自己就是把搜索转交出去的，没有任何接口能把结果取回来。
+
+所以 `.globalSearch` 这一位**不能点亮** —— 最初的能力表按「用户看得见搜索框」记成了「有」，
+那是从浏览器角度看的事实，表达不了「我们取不回结果」。
+
+### 有几个接口挡批量抓取，而且它撒谎（2026-08-27 实测）
+
+匿名 `URLSession` 请求这几个接口时，回的是一句像参数写错了的话：
+
+```
+{"success":false,"message":"wrong uid"}
+```
+
+**这句话是假的。** 判据：把 `page` 故意写成 `abc`，浏览器会如实答 `wrong page`；
+被挡的客户端无论传什么都只回 `wrong uid` —— 连 `uid` 整个不传也一样。请求根本没被解析。
+
+| 接口 | 匿名 `URLSession` | 匿名浏览器 |
+| --- | --- | --- |
+| `/api/content/list-discussions?uid=&page=` | 🚫 万能 `wrong uid` | ✅ 真数据 |
+| `/api/content/list-comments?uid=&page=` | 🚫 万能 `wrong uid` | ✅ 真数据 |
+| `/api/attendance/board?page=` | 🚫 万能 `wrong page` | ✅ 真数据 |
+| `/api/account/getInfo/{uid}` | ✅ 真解析 | ✅ |
+| 通知 / 收藏 / 未读数 | ✅ 真解析（未登录答 `USER NOT FOUND`） | 同样 |
+
+被挡的三个都是「带 `page`、批量吐公开数据」的接口，单条记录和会话内的接口不受影响。
+
+排除过的解释：不是跳转丢参数（无跳转）、不是缺 cookie（页面不下发 cookie，带 jar 也一样）、
+不是 Referer / `Sec-Fetch-*` / `Accept-Language`（逐项加过）、不是连接指纹
+（同一个 `URLSession` 里 `getInfo` 是通的）。
+
+**带完整登录 cookie（含 `cf_clearance`）能不能过，没验过** —— 验它要拿真账号的凭据发请求。
+适配器里对这句假答复做了识别（`NodeSeekParser.rejectBulkGate`），被挡时抛错而不是给一页空数据。
+
 ### `URLSession` 直连可行，`WebViewTransport` 不用做
 
 用一个 `WKWebView` 登录并过掉验证框，把它的 cookie 和 UA 交给 `URLSession`，四个端点全部 200：
@@ -232,7 +268,10 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
 
 ## 七、仍然欠着的
 
-- ~~没有真实账号验证过~~ —— 传输层已验（见第〇节）。**接口的响应字段仍未验证**
+- ~~没有真实账号验证过~~ —— 传输层已验（见第〇节）。**写接口的响应字段仍未验证**
+- 用户动态的响应字段已验（`{post_id, rank, title}` / 多 `floor_id`、`text`，每页 15 条）
+- 私信、收藏列表、投票的响应字段仍未验证 —— 要登录态才看得到。
+  `Design/probe-nodeseek-session.js` 是给这件事准备的探针，只打印字段名不打印值
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段
