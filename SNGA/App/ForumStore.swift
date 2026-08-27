@@ -122,7 +122,7 @@ final class ForumStore {
     }
 
     func loadForums() async {
-        guard let service = session.activeService else { return }
+        guard let service = session.requireService("加载版面目录") else { return }
         let requestAccountID = service.accountID
         let ticket = forumDirectoryRequests.begin()
         await session.withLoading(isCurrent: { ticket.isCurrent }) {
@@ -218,7 +218,7 @@ final class ForumStore {
     }
 
     func loadTopics(forumID: ForumID, reset: Bool) async {
-        guard let service = session.activeService else { return }
+        guard let service = session.requireService("打开版面") else { return }
         let requestAccountID = service.accountID
         let ticket = topicListRequests.begin()
         isRefreshingTopics = true
@@ -245,7 +245,7 @@ final class ForumStore {
     }
 
     func loadTopicPage(forumID: ForumID, page: Int) async {
-        guard let service = session.activeService else { return }
+        guard let service = session.requireService("刷新版面") else { return }
         let requestAccountID = service.accountID
         let ticket = topicListRequests.begin()
         isRefreshingTopics = true

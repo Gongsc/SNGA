@@ -79,3 +79,65 @@ final class RecentForumDuplicationTests: XCTestCase {
         )
     }
 }
+
+/// 会话不完整的账号建不出服务。那时点任何东西都得有个说法 —— 静默退出会被
+/// 当成应用卡死。
+final class MissingServiceFeedbackTests: XCTestCase {
+
+    @MainActor
+    func testOpeningATopicWithoutAServiceSaysWhy() async throws {
+        let model = try makeModel()
+        // 有账号，但没有对应的服务：会话失效的账号就是这个样子。
+        signInAnAccountWithoutASession(in: model)
+
+        await model.thread.open(
+            Topic(id: TopicID(rawValue: 1), forumID: ForumID(nga: 414),
+                  subject: "看不了的话题", author: "", replyCount: 0)
+        )
+
+        XCTAssertTrue(model.session.statusMessageIsError)
+        let message = try XCTUnwrap(model.session.statusMessage)
+        XCTAssertTrue(message.contains("查看话题"), "得说清是哪件事做不了：\(message)")
+        XCTAssertTrue(message.contains("重新登录"), "得说清该怎么办：\(message)")
+    }
+
+    @MainActor
+    func testOpeningAForumWithoutAServiceSaysWhy() async throws {
+        let model = try makeModel()
+        signInAnAccountWithoutASession(in: model)
+
+        await model.openForum(Forum(id: ForumID(nga: 414), name: "打不开的版面"))
+
+        XCTAssertTrue(model.session.statusMessageIsError)
+        XCTAssertTrue(
+            try XCTUnwrap(model.session.statusMessage).contains("打开版面")
+        )
+    }
+
+    /// 账号在，会话没了 —— 也就是边栏上标着「需要重新登录」的那种。
+    @MainActor
+    private func signInAnAccountWithoutASession(in model: AppModel) {
+        let record = AccountRecord(site: .nga, siteUserID: 10_001, displayName: "会话失效的账号", isCurrent: true)
+        model.session.context.insert(record)
+        try? model.session.context.save()
+        model.session.accounts = [record.summary()]
+        model.session.activeAccountID = record.accountID
+    }
+
+    @MainActor
+    private func makeModel() throws -> AppModel {
+        let schema = Schema([
+            AccountRecord.self, FavoriteRecord.self, DraftRecord.self,
+            SubforumPreferenceRecord.self, RecentForumRecord.self,
+            AIProfileSummaryRecord.self
+        ])
+        return AppModel(container: try ModelContainer(
+            for: schema,
+            configurations: [ModelConfiguration(
+                "MissingService-\(UUID().uuidString)",
+                schema: schema,
+                isStoredInMemoryOnly: true
+            )]
+        ))
+    }
+}

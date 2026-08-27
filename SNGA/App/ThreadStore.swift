@@ -324,7 +324,7 @@ final class ThreadStore {
         reset: Bool,
         showsLoadingIndicator: Bool = true
     ) async {
-        guard let service = session.activeService else { return }
+        guard let service = session.requireService("查看话题") else { return }
         clearAISummary()
         let requestAccountID = service.accountID
         let ticket = threadRequests.begin()

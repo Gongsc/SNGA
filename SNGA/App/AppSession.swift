@@ -68,6 +68,21 @@ final class AppSession {
         activeCapabilities.contains(capability)
     }
 
+    /// 取当前账号的服务；没有就说明原因，而不是当作什么都没发生。
+    ///
+    /// 会话不完整的账号建不出服务（见 `reloadAccountsAndServices`）。原先各处一律
+    /// `guard let ... else { return }` 静默退出：点版面没反应、点话题没反应、
+    /// 也没有任何提示 —— 从用户那边看就是应用卡住了。边栏上虽然给那个账号标了
+    /// 「需要重新登录」，但正在看列表的人不会盯着边栏找解释。
+    func requireService(_ what: String) -> (any ForumService)? {
+        if let activeService { return activeService }
+        statusMessage = activeAccount == nil
+            ? "还没有账号，先添加一个再\(what)"
+            : "当前账号需要重新登录，暂时无法\(what)"
+        statusMessageIsError = true
+        return nil
+    }
+
     func service(for accountID: AccountID) -> (any ForumService)? {
         services[accountID]
     }
