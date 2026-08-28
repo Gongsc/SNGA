@@ -166,9 +166,12 @@ enum NodeSeekEndpoint {
 ///
 /// 名字保持站点的原样，因为它们要直接进地址；含义写在这里，免得有人照字面接。
 enum NodeSeekReaction: String, Sendable, CaseIterable {
-    /// 投喂：免费，给作者星辰。想接「点赞」的话是这个。
+    /// 点赞：免费。站点的按钮上写的就是「点赞」。
     case upvote
     /// 加鸡腿：**花掉读者 1 个鸡腿**。
+    ///
+    /// 注意站点确认框里管它叫「投喂鸡腿」——「投喂」是**这个**动作的说法，
+    /// 不是上面那个免费的。两个词接反了，界面就会把免费的按钮标成要花钱的名字。
     case like
     /// 反对：**花掉读者 2 个鸡腿**。
     case dislike
@@ -178,7 +181,7 @@ enum NodeSeekReaction: String, Sendable, CaseIterable {
     /// 界面上的名字。用站点自己的说法。
     var title: String {
         switch self {
-        case .upvote: "投喂"
+        case .upvote: "点赞"
         case .like: "加鸡腿"
         case .dislike: "反对"
         }

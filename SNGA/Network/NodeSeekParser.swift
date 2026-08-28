@@ -270,8 +270,8 @@ struct NodeSeekParser: Sendable {
                 avatarURL: uid.flatMap(Self.avatarURL(uid:)),
                 postedAt: (times["createdDate"] as? String).flatMap(Self.date(fromISO8601:)),
                 html: renderedBodies[commentID] ?? "",
-                // 投喂是免费的那个，所以它对应界面上的赞；加鸡腿和反对都要花钱，
-                // 不在这里露出来。见 `NodeSeekReaction`。
+                // 点赞是免费的那个。加鸡腿和反对都要花鸡腿，各自的计数在
+                // `reactions` 里。见 `NodeSeekReaction`。
                 upvoteCount: count("upvoteCount"),
                 userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil,
                 // 另外两种表态要花鸡腿，各自的计数和「我点过没有」都在这份状态里。
@@ -311,7 +311,7 @@ struct NodeSeekParser: Sendable {
         )
     }
 
-    /// 楼层上的三种表态：投喂（免费）、加鸡腿（1 个鸡腿）、反对（2 个）。
+    /// 楼层上的三种表态：点赞（免费）、加鸡腿（1 个鸡腿）、反对（2 个）。
     ///
     /// 三种都带出来，因为网页版把三个数并排显示在楼层右下角，少一个就对不上。
     /// 三种也都不可撤销，所以「我点过没有」必须带出来：不显示的话，
@@ -328,7 +328,7 @@ struct NodeSeekParser: Sendable {
                 count: (comment[countKey] as? NSNumber)?.intValue,
                 isChosen: (comment[chosenKey] as? NSNumber)?.boolValue == true,
                 cost: reaction.costDescription,
-                // 三种表态站点都不给撤，免费的投喂也一样。
+                // 三种表态站点都不给撤，免费的点赞也一样。
                 isIrreversible: true
             )
         }
@@ -588,7 +588,7 @@ struct NodeSeekParser: Sendable {
             postCount: number("nPost"),
             signature: (detail["bio"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             // 站点有两种货币：鸡腿（coin，加鸡腿和反对花的）和星辰（stardust，别人
-            // 投喂给你的）。模型里正好有两个位置，鸡腿走 `money`，星辰走 `fame`。
+            // 别人给你的）。模型里正好有两个位置，鸡腿走 `money`，星辰走 `fame`。
             //
             // 先前星辰是留空的，因为那时「声望」那一段是按有没有数据显示的，星辰
             // 一填，界面上就会冒出一个这个站没有的「声望」。现在那一段改成按站点
@@ -726,7 +726,7 @@ struct NodeSeekParser: Sendable {
     ///
     /// 响应形如 `{success, current, coin, message}`：`current` 是这一层的新计数，
     /// `coin` 是操作完之后读者剩下的鸡腿。这里只用 `current` —— 走到这个方法的只有
-    /// 免费的投喂，不花鸡腿，`coin` 没什么可说的。
+    /// 免费的点赞，不花鸡腿，`coin` 没什么可说的。
     ///
     /// 站点没有反方向的计数，所以 `downvoteCount` 恒为 0；界面上那一半由
     /// `.postDownvote` 关着，不会显示。
@@ -734,7 +734,7 @@ struct NodeSeekParser: Sendable {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ForumServiceError.unexpectedPage("无法读取反应结果")
         }
-        try confirmWrite(root: root, what: "投喂")
+        try confirmWrite(root: root, what: "点赞")
         guard let current = (root["current"] as? NSNumber)?.intValue else {
             // 站点说成了，却没说现在是多少 —— 硬编一个数会把界面上的计数写错。
             throw ForumServiceError.unexpectedPage("反应结果里没有新的计数")

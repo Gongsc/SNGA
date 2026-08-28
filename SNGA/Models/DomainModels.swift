@@ -171,7 +171,7 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var userVote: PostVoteDirection? = nil
     /// 除了赞和踩之外，站点还提供的表态。
     ///
-    /// NGA 只有赞踩两种，这里就是空的。NodeSeek 有三种：投喂（免费）、加鸡腿、反对 ——
+    /// NGA 只有赞踩两种，这里就是空的。NodeSeek 有三种：点赞（免费）、加鸡腿、反对 ——
     /// 后两种**要花掉读者自己的鸡腿，而且都不可撤销**，所以每一项都带着代价，
     /// 界面必须把它说出来。
     var reactions: [PostReaction] = []

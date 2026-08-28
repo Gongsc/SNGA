@@ -183,7 +183,7 @@ struct ForumSiteDescriptor: Sendable {
                 number("主题帖", profile.postCount),
                 number("鸡腿", profile.money),
                 number("评论数", profile.commentCount),
-                // 星辰是别人投喂给你的，和鸡腿是两种东西。
+                // 星辰是别人给你的，和鸡腿是两种东西。
                 number("星辰", profile.fame),
                 // 站点管这个叫粉丝，不叫「被关注」。
                 number("粉丝", profile.followerCount),

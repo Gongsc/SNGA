@@ -351,7 +351,7 @@ extension NodeSeekParserTests {
         XCTAssertFalse(page.topic.isLocked)
     }
 
-    /// 界面上的赞对应免费的「投喂」。加鸡腿和反对都要花读者的钱，不在这里露出来。
+    /// 界面上的赞对应免费的「点赞」。加鸡腿和反对都要花读者的鸡腿。
     func testReactionCountsComeFromTheFreeOne() throws {
         let page = try NodeSeekParser().threadPage(
             html: try fixture("nodeseek-post-state"),
@@ -361,7 +361,7 @@ extension NodeSeekParserTests {
         let opening = try XCTUnwrap(page.posts.first)
 
         XCTAssertEqual(opening.upvoteCount, 0)
-        XCTAssertNil(opening.userVote, "没投喂过就是没有")
+        XCTAssertNil(opening.userVote, "没点过赞就是没有")
         XCTAssertEqual(opening.downvoteCount, 0, "反对要花两个鸡腿，界面上不给这个入口")
     }
 
@@ -584,7 +584,7 @@ extension NodeSeekParserTests {
 
     func testAReactionReturnsTheSitesNewCount() throws {
         let state = try NodeSeekParser().reactionState(
-            json: Data(#"{"success":true,"current":42,"coin":7,"message":"投喂成功"}"#.utf8)
+            json: Data(#"{"success":true,"current":42,"coin":7,"message":"点赞成功"}"#.utf8)
         )
 
         XCTAssertEqual(state.upvoteCount, 42)
@@ -637,7 +637,7 @@ final class NodeSeekWriteGuardTests: XCTestCase {
         }
     }
 
-    /// 再点一次已经投喂过的楼层。反应不可撤销，默默再投一次等于把用户的点击
+    /// 再点一次已经点过赞的楼层。表态不可撤销，默默再点一次等于把用户的点击
     /// 变成一次他没打算做的操作。
     func testUndoingAnUpvoteIsRefusedRatherThanRepeated() async {
         do {
@@ -651,7 +651,7 @@ final class NodeSeekWriteGuardTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error as? ForumServiceError,
-                .unsupported("NodeSeek 的投喂撤不回来")
+                .unsupported("NodeSeek 的点赞撤不回来")
             )
         }
     }
@@ -1408,11 +1408,13 @@ extension NodeSeekParserTests {
         let reactions = try firstPost().reactions
 
         XCTAssertEqual(reactions.map(\.id), ["upvote", "like", "dislike"])
-        XCTAssertEqual(reactions.map(\.title), ["投喂", "加鸡腿", "反对"])
+        // 站点自己的 JS 里，upvote 那颗按钮的 title 就是「点赞」。
+        // 「投喂」是它对**加鸡腿**的说法（确认框写「是否投喂鸡腿」），两个词别接反。
+        XCTAssertEqual(reactions.map(\.title), ["点赞", "加鸡腿", "反对"])
         XCTAssertEqual(
             reactions.map(\.cost),
             [nil, "花费 1 个鸡腿", "花费 2 个鸡腿"],
-            "投喂免费，另外两种的价钱必须带出来 —— 界面靠它决定问不问"
+            "点赞免费，另外两种的价钱必须带出来 —— 界面靠它决定问不问"
         )
     }
 
@@ -1421,7 +1423,7 @@ extension NodeSeekParserTests {
         XCTAssertTrue(try firstPost().reactions.allSatisfy(\.isIrreversible))
     }
 
-    /// 投喂免费，另外两种要花钱。界面靠这个区分「直接发」和「先问一次」。
+    /// 点赞免费，另外两种要花钱。界面靠这个区分「直接发」和「先问一次」。
     func testOnlyTheFreeReactionHasNoPrice() throws {
         let free = try firstPost().reactions.filter { $0.cost == nil }
 
@@ -1489,14 +1491,14 @@ final class NodeSeekPaidReactionTests: XCTestCase {
         XCTAssertNil(state)
     }
 
-    /// 免费的投喂走点赞那条路。从这里进来说明调用点串了 —— 放行会让它绕过界面的确认。
+    /// 免费的点赞走 vote 那条路。从这里进来说明调用点串了 —— 放行会让它绕过界面的确认。
     func testTheFreeReactionIsRefusedHere() async {
         let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
         do {
             _ = try await service(transport).submitPostReaction(
                 topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 1), reactionID: "upvote"
             )
-            XCTFail("投喂不该从这条路发出去")
+            XCTFail("点赞不该从这条路发出去")
         } catch {
             XCTAssertTrue(transport.requests.isEmpty)
         }
@@ -1955,7 +1957,7 @@ extension NodeSeekParserTests {
         let opening = try XCTUnwrap(try countsPage().posts.first { $0.floor == 0 })
 
         XCTAssertEqual(opening.reactions.map(\.count), [176, 307, 0])
-        XCTAssertEqual(opening.upvoteCount, 176, "赞的计数仍然是投喂那一个")
+        XCTAssertEqual(opening.upvoteCount, 176, "赞的计数仍然是免费那一个")
     }
 
     /// 收藏是话题级的，但网页版把它画在主楼那一行 —— 楼层视图拿不到 Topic，
@@ -1995,7 +1997,7 @@ extension NodeSeekParserTests {
         XCTAssertEqual(
             post.reactions.map(\.isChosen),
             [false, true, false],
-            "只加过鸡腿，投喂和反对都没点过"
+            "只加过鸡腿，点赞和反对都没点过"
         )
     }
 }

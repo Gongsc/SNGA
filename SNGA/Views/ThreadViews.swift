@@ -1953,7 +1953,7 @@ private struct PostReactionBar: View {
         return [reaction.title, reaction.cost].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// 免费的投喂走赞那条路 —— 适配器只让它从那儿过。
+    /// 免费的点赞走 vote 那条路 —— 适配器只让它从那儿过。
     private func submit(_ reaction: PostReaction) {
         Task {
             if reaction.cost == nil {

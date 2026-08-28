@@ -157,7 +157,7 @@ final class NodeSeekEndpointTests: XCTestCase {
 
     /// 动作名和含义对不上，接错会花掉用户的鸡腿。这条把对应关系钉住。
     func testReactionCostsAreNotWhatTheNamesSuggest() {
-        XCTAssertEqual(NodeSeekReaction.upvote.chickenCost, 0, "投喂是免费的")
+        XCTAssertEqual(NodeSeekReaction.upvote.chickenCost, 0, "点赞是免费的")
         XCTAssertTrue(NodeSeekReaction.upvote.isFree)
         XCTAssertEqual(NodeSeekReaction.like.chickenCost, 1, "like 是加鸡腿，要花钱")
         XCTAssertEqual(NodeSeekReaction.dislike.chickenCost, 2, "dislike 是反对，花两个")

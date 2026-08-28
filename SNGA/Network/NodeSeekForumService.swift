@@ -227,13 +227,13 @@ actor NodeSeekForumService: ForumService {
         try parser.confirmWrite(json: data, what: "回复")
         return nil
     }
-    /// 给一层投喂。
+    /// 给一层点赞。
     ///
-    /// 界面上的赞接的是三种反应里唯一免费的 `upvote`：它给作者星辰，不花读者的东西。
+    /// 接的是三种表态里唯一免费的 `upvote`，站点的按钮上写的就是「点赞」。
     /// 另外两种（加鸡腿 1 个、反对 2 个）花的是用户自己的鸡腿，一次点击就扣掉、
     /// 而且收不回来，所以这里一个都不接 —— 见 `capabilities` 里关于 `.postDownvote` 的话。
     ///
-    /// 三种反应都不可撤销。再点一次已经投喂过的楼层不能当成取消，也不该默默再投一次，
+    /// 三种表态都不可撤销。再点一次已经点过赞的楼层不能当成取消，也不该默默再点一次，
     /// 所以直接说清楚。
     func vote(
         topicID: TopicID,
@@ -248,7 +248,7 @@ actor NodeSeekForumService: ForumService {
             )
         }
         guard !isUndo else {
-            throw ForumServiceError.unsupported("NodeSeek 的投喂撤不回来")
+            throw ForumServiceError.unsupported("NodeSeek 的点赞撤不回来")
         }
         return try parser.reactionState(json: await client.postJSON(
             NodeSeekEndpoint.reaction(.upvote),
@@ -376,7 +376,7 @@ actor NodeSeekForumService: ForumService {
     /// 「要不要花这个钱」必须在界面上问清楚再调过来 —— 见 `PostReaction.cost`
     /// 和 `PostReactionMenu` 的二次确认。
     ///
-    /// 免费的投喂不走这里，它接在界面的赞上（见 `vote`）。
+    /// 免费的点赞不走这里，见 `vote`。
     func submitPostReaction(
         topicID: TopicID,
         postID: PostID,
@@ -388,7 +388,7 @@ actor NodeSeekForumService: ForumService {
         // 免费的那个从这条路进来说明调用点串了。放行会让它绕过界面的确认，
         // 而下一个从这里进来的可能就是要花钱的那两个。
         guard !reaction.isFree else {
-            throw ForumServiceError.unsupported("投喂请走点赞")
+            throw ForumServiceError.unsupported("免费的点赞请走 vote")
         }
         let data = try await client.postJSON(
             NodeSeekEndpoint.reaction(reaction),
