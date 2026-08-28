@@ -24,10 +24,8 @@ actor NodeSeekForumService: ForumService {
     /// `.postDownvote` 也没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
     /// 一个不作声就扣钱的按钮不该摆在界面上 —— 真要接，得先让界面能把代价讲明白
     /// （比如二次确认），那是界面那边的事。
-    /// `.poll` 也没点亮。站点是有投票的，但这边还不会从帖子里读它 ——
-    /// 能力位是用来回答「这里能不能用」的，不是「站点有没有」。读出来之后再打开。
     nonisolated let capabilities: ForumCapabilities = [
-        .checkIn, .postVote, .quotePost,
+        .checkIn, .postVote, .quotePost, .poll,
         .privateMessages, .userActivities
     ]
 
@@ -36,9 +34,6 @@ actor NodeSeekForumService: ForumService {
     /// 「我是谁」要靠抓一整张页面解出来，而一个会话里它不会变。
     /// 不记住的话，每拉一次私信列表就多抓一张首页。
     private var cachedUserID: Int64?
-    /// 话题编号 → 投票编号。投票有自己的编号，和话题编号是两回事，而提交投票的接口
-    /// 只给话题编号 —— 读帖子时顺手记下来，提交时才有得用。
-    private var pollIDsByTopic: [TopicID: Int64] = [:]
 
     init(
         accountID: AccountID,
@@ -167,7 +162,6 @@ actor NodeSeekForumService: ForumService {
               let pollID = NodeSeekParser.pollID(inPostHTML: page.posts[index].html) else {
             return
         }
-        pollIDsByTopic[topicID] = pollID
         do {
             page.posts[index].poll = try parser.poll(
                 json: await client.get(NodeSeekEndpoint.voteInfo(id: pollID)),
@@ -232,7 +226,34 @@ actor NodeSeekForumService: ForumService {
             referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
         ))
     }
-    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws { throw notYet("投票") }
+    /// 投票。
+    ///
+    /// 请求体只有 `{"ids":[选项编号]}` —— **没有投票编号**，说明选项编号本身就是
+    /// 全局唯一的，站点靠它反查是哪个投票。所以这里用不上话题到投票的映射。
+    ///
+    /// 多选就是往同一个数组里多放几个。上限由 `TopicPoll.maximumSelectionsPerGroup`
+    /// 在提交之前把住（见 `NodeSeekParser.poll`）。
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
+        guard !optionIDs.isEmpty else {
+            throw ForumServiceError.unsupported("请至少选择一个投票选项")
+        }
+        // 认不出来的编号宁可整单失败，也不能悄悄少投一项 —— 那样提交出去的
+        // 就不是用户选的那些了。
+        let ids = try optionIDs.map { raw -> Int64 in
+            guard let id = Int64(raw) else {
+                throw ForumServiceError.unexpectedPage("投票选项编号无法识别：\(raw)")
+            }
+            return id
+        }
+        try parser.confirmWrite(
+            json: await client.postJSON(
+                NodeSeekEndpoint.voteForItem,
+                body: ["ids": ids],
+                referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+            ),
+            what: "投票"
+        )
+    }
     /// 私信或通知的一页。
     ///
     /// 两个文件夹落到完全不同的接口上：私信是一个会话列表，通知则是 `at-me` 和

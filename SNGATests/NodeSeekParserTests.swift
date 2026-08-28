@@ -980,3 +980,134 @@ extension NodeSeekParserTests {
         XCTAssertEqual(NodeSeekParser.pollID(inPostHTML: try fixture("nodeseek-post")), 2871)
     }
 }
+
+/// 记下发出去的请求，好断言请求体到底长什么样。
+private final class RecordingTransport: HTTPTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _requests: [URLRequest] = []
+    private let body: Data
+
+    var requests: [URLRequest] { lock.withLock { _requests } }
+
+    init(responding body: String) {
+        self.body = Data(body.utf8)
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        lock.withLock { _requests.append(request) }
+        return (body, HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!)
+    }
+}
+
+/// 投票提交。请求体的形状是这一整件事里唯一靠猜会出错的地方，所以直接断言
+/// 发出去的字节。
+final class NodeSeekPollSubmissionTests: XCTestCase {
+
+    private func service(responding body: String) -> (NodeSeekForumService, RecordingTransport) {
+        let transport = RecordingTransport(responding: body)
+        return (
+            NodeSeekForumService(
+                accountID: AccountID(),
+                cookies: [],
+                transport: transport,
+                userAgent: "probe"
+            ),
+            transport
+        )
+    }
+
+    private func sentBody(_ transport: RecordingTransport) throws -> [String: Any] {
+        let request = try XCTUnwrap(transport.requests.last)
+        let data = try XCTUnwrap(request.httpBody)
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+    }
+
+    /// 站点要的是 `{"ids":[选项编号]}` —— 只有 ids，没有投票编号。
+    func testAVoteIsSentAsAnArrayOfItemIDs() async throws {
+        let (service, transport) = service(responding: #"{"success":true}"#)
+
+        try await service.submitTopicPollVote(
+            topicID: TopicID(rawValue: 895_695),
+            optionIDs: ["13789"]
+        )
+
+        let body = try sentBody(transport)
+        XCTAssertEqual(Array(body.keys), ["ids"], "请求体里只该有 ids")
+        XCTAssertEqual(body["ids"] as? [Int64] ?? [], [13789])
+        XCTAssertEqual(
+            transport.requests.last?.url?.path,
+            "/api/vote/voteforitem"
+        )
+    }
+
+    /// 编号是数字。发成字符串站点未必认，而响应只有 success，认不出来也不会告诉你。
+    func testItemIDsAreSentAsNumbersNotStrings() async throws {
+        let (service, transport) = service(responding: #"{"success":true}"#)
+
+        try await service.submitTopicPollVote(
+            topicID: TopicID(rawValue: 1), optionIDs: ["13789"]
+        )
+
+        let raw = try XCTUnwrap(
+            String(data: try XCTUnwrap(transport.requests.last?.httpBody), encoding: .utf8)
+        )
+        XCTAssertTrue(raw.contains("[13789]"), "编号被发成字符串了：\(raw)")
+    }
+
+    func testAMultipleChoiceVoteSendsEveryID() async throws {
+        let (service, transport) = service(responding: #"{"success":true}"#)
+
+        try await service.submitTopicPollVote(
+            topicID: TopicID(rawValue: 1), optionIDs: ["10", "11", "12"]
+        )
+
+        XCTAssertEqual(try sentBody(transport)["ids"] as? [Int64] ?? [], [10, 11, 12])
+    }
+
+    /// 有一个编号认不出来时，宁可整单失败也不能少投一项 —— 少投出去的那一单，
+    /// 和用户选的已经不是一回事了。
+    func testAnUnreadableIDFailsTheWholeVoteRatherThanDroppingIt() async {
+        let (service, transport) = service(responding: #"{"success":true}"#)
+
+        do {
+            try await service.submitTopicPollVote(
+                topicID: TopicID(rawValue: 1), optionIDs: ["10", "不是数字"]
+            )
+            XCTFail("认不出来的编号不该被悄悄丢掉")
+        } catch {
+            XCTAssertTrue(transport.requests.isEmpty, "不该发出去")
+        }
+    }
+
+    func testAnEmptySelectionIsRefusedBeforeSending() async {
+        let (service, transport) = service(responding: #"{"success":true}"#)
+
+        do {
+            try await service.submitTopicPollVote(topicID: TopicID(rawValue: 1), optionIDs: [])
+            XCTFail("空选择不该发出去")
+        } catch {
+            XCTAssertTrue(transport.requests.isEmpty)
+        }
+    }
+
+    /// 站点把结论写在响应体里，状态码是 200 也可能是失败。
+    func testAServerRefusalIsRaisedWithItsOwnWords() async {
+        let (service, _) = service(responding: #"{"success":false,"message":"你已经投过了"}"#)
+
+        do {
+            try await service.submitTopicPollVote(
+                topicID: TopicID(rawValue: 1), optionIDs: ["10"]
+            )
+            XCTFail("站点说失败了")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .restricted("你已经投过了"))
+        }
+    }
+}
