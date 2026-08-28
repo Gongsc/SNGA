@@ -187,7 +187,9 @@ enum NodeSeekReaction: String, Sendable, CaseIterable {
     var systemImage: String {
         switch self {
         case .upvote: "hand.thumbsup"
-        case .like: "drumstick"
+        // SF Symbols 里没有鸡腿。fork.knife 是最接近的一个 ——
+        // 写一个不存在的名字，SwiftUI 不会报错，只会画一片空白（drumstick 就是这样）。
+        case .like: "fork.knife"
         case .dislike: "hand.thumbsdown"
         }
     }
