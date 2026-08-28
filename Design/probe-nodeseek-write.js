@@ -4,10 +4,14 @@
 // 其余一律只报长度和形态。会额外告诉你某个头的值是不是等于 localStorage 里的
 // csrf_token / security_token —— 只报「是/否」，不打印值本身。
 //
+// 网页发完回复会自动刷新，控制台会被冲掉，所以结果先存进 localStorage，
+// 刷新后再粘一次就打出来。存进去的是**已经脱敏的那份描述**，不是原始值。
+//
 // 用法：
 //   1. 在已登录的 nodeseek.com 帖子页粘贴运行；
 //   2. 在网页上正常发一条回复（会真的发出去）；
-//   3. 把控制台打出来的那段贴回来。
+//   3. 页面自动刷新之后，把这段**再粘一次** —— 它会先把上一次抓到的打出来；
+//   4. 贴回来之后运行 `localStorage.removeItem("snga-write-probe")` 清掉。
 (() => {
   const store = (key) => { try { return localStorage.getItem(key); } catch (_) { return null; } };
   const known = {
@@ -31,17 +35,29 @@
     return `长度 ${value.length}`;
   };
 
+  const SAVED = 'snga-write-probe';
+
+  // 上一次抓到的先打出来 —— 发完回复页面会自动刷新，控制台留不住东西。
+  const previous = store(SAVED);
+  if (previous) {
+    console.log('【上一次抓到的写请求】\n' + previous);
+    console.log('贴回去之后清掉它：localStorage.removeItem("' + SAVED + '")');
+  }
+
   const report = async (label, method, url, headers, body) => {
     const rows = {};
     headers.forEach((value, name) => { rows[name] = describe(name, value); });
     let bodyKeys = null;
     try { bodyKeys = Object.keys(JSON.parse(body || '{}')); } catch (_) {}
-    console.log(label, JSON.stringify({
+    const text = JSON.stringify({
       方法: method,
       地址: url,
       请求体字段: bodyKeys,
       请求头: rows
-    }, null, 2));
+    }, null, 2);
+    console.log(label, text);
+    // 页面马上就要刷新，写下来才带得走。
+    try { localStorage.setItem(SAVED, text); } catch (_) {}
   };
 
   const original = window.fetch;
@@ -56,5 +72,6 @@
     }
     return original.apply(this, arguments);
   };
-  console.log('钩子已挂上。现在在网页上正常发一条回复（别刷新）。');
+  console.log('钩子已挂上。现在在网页上正常发一条回复 —— 发完页面会自动刷新，'
+            + '刷新后把这段再粘一次，就能看到抓到的东西。');
 })();
