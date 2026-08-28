@@ -1697,3 +1697,47 @@ extension NodeSeekParserTests {
         XCTAssertEqual(topic.badges.map(\.title), ["置顶"], "空元素被当成标记了")
     }
 }
+
+/// 标记旁边画不画字。
+extension NodeSeekParserTests {
+
+    private func sandboxBadges() throws -> [TopicBadge] {
+        try parser.topicList(
+            html: try fixture("nodeseek-category-sandbox"),
+            forumID: NodeSeekEndpoint.forumID(key: "sandbox"),
+            page: 1
+        ).topics.flatMap(\.badges)
+    }
+
+    /// 等级那个数字必须画在图标旁边。完整说法留给提示，但屏幕上光有一把锁，
+    /// 等于告诉读者「这帖有限制」却不说是什么限制。
+    func testTheRequiredLevelIsShownNextToTheLock() throws {
+        let badge = try XCTUnwrap(
+            try sandboxBadges().first { $0.systemImage == "lock.fill" }
+        )
+
+        XCTAssertEqual(badge.value, "1", "锁旁边得有那个数字")
+        XCTAssertEqual(badge.title, "等级 1 可见", "提示里给完整说法")
+    }
+
+    /// 站点画成文字的标记，我们也画文字。
+    func testATextBadgeKeepsItsText() throws {
+        let badge = try XCTUnwrap(try sandboxBadges().first { $0.title == "只读" })
+
+        XCTAssertEqual(badge.value, "只读")
+    }
+
+    /// 站点只画图标的标记别硬加字 —— 一行里挂着「置顶」「推荐阅读」两串字，
+    /// 标题就被挤没了。
+    func testIconOnlyBadgesStayIconOnly() throws {
+        for title in ["置顶", "推荐阅读"] {
+            let badge = try XCTUnwrap(
+                try sandboxBadges().first { $0.title == title }
+                    ?? parser.topicList(
+                        html: try fixture("nodeseek-category-daily"), forumID: daily, page: 1
+                    ).topics.flatMap(\.badges).first { $0.title == title }
+            )
+            XCTAssertNil(badge.value, "「\(title)」站点只画图标，不该加字")
+        }
+    }
+}

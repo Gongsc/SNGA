@@ -1784,15 +1784,22 @@ private struct TopicRow: View {
                 // 站点自己的标记：置顶、推荐阅读、等级限制之类。
                 // 名字用站点的原话，认不出的标记也照样显示。
                 ForEach(topic.badges) { badge in
-                    Label(badge.title, systemImage: badge.systemImage)
-                        .labelStyle(.iconOnly)
-                        .font(.caption)
-                        .foregroundStyle(theme.accentColor)
-                        .help(badge.title)
-                        .accessibilityLabel(badge.title)
-                        .accessibilityIdentifier(
-                            "topic-badge-\(topic.id.rawValue)-\(badge.title)"
-                        )
+                    HStack(spacing: 2) {
+                        Image(systemName: badge.systemImage)
+                        // 站点写了字的标记就把字画出来。等级限制光有一把锁，
+                        // 等于说「这帖有限制」却不说是什么限制。
+                        if let value = badge.value {
+                            Text(value)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+                    .help(badge.title)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(badge.title)
+                    .accessibilityIdentifier(
+                        "topic-badge-\(topic.id.rawValue)-\(badge.title)"
+                    )
                 }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))

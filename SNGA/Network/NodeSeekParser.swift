@@ -116,17 +116,30 @@ struct NodeSeekParser: Sendable {
         let text = try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
 
         let title: String
+        // 图标旁边要不要写字：站点自己写了的就跟着写。置顶和推荐阅读它只画图标，
+        // 等级限制和只读它是画了字的 —— 那些字就是这个标记的全部信息。
+        var value: String?
         if !attribute.isEmpty {
+            // title 属性存在时，元素本身通常只有一个图标，没有文字。
             title = attribute
+            value = text.isEmpty ? nil : text
         } else if icon == "lock", !text.isEmpty {
-            // 锁图标后面跟的那个数字是要求的等级，光显示「1」谁也看不懂。
-            title = text.allSatisfy(\.isNumber) ? "等级 \(text) 可见" : text
+            // 锁后面跟的那个数字是要求的等级。完整说法进提示，数字画在图标旁边 ——
+            // 只画一把锁，等于说「这帖有限制」却不说是什么限制。
+            let isLevel = text.allSatisfy(\.isNumber)
+            title = isLevel ? "等级 \(text) 可见" : text
+            value = text
         } else if !text.isEmpty {
             title = text
+            value = text
         } else {
             return nil
         }
-        return TopicBadge(title: title, systemImage: systemImage(icon: icon, in: element))
+        return TopicBadge(
+            title: title,
+            value: value,
+            systemImage: systemImage(icon: icon, in: element)
+        )
     }
 
     /// `<use href="#lock">` → `lock`。图标名比展示文字稳，也比 class 稳 ——

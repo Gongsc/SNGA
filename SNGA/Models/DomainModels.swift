@@ -415,8 +415,14 @@ struct Profile: Hashable, Codable, Sendable {
 
 /// 话题列表上标题旁边的一个标记。
 struct TopicBadge: Identifiable, Hashable, Codable, Sendable {
-    /// 站点自己的说法，直接显示给读者。
+    /// 站点自己的完整说法。用作悬停提示和读屏文字。
     let title: String
+    /// 图标旁边要画出来的那几个字。
+    ///
+    /// 有的标记光靠图标就说清楚了（置顶、推荐阅读），有的不行 ——「等级 1 可见」
+    /// 里真正的信息是那个 1，只画一把锁等于告诉读者「这帖有限制」却不说是什么限制。
+    /// 站点自己也是画一把锁再跟一个数字。
+    var value: String? = nil
     /// 画哪个图标。认不出来的标记用一个中性的。
     var systemImage: String = "tag"
 
