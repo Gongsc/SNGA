@@ -906,10 +906,14 @@ final class AppModel {
         session.activeAccountID = accountA.accountID
         // 能力位挡住的控件要能在 UI 测试里验。`--uitesting-one-way-vote` 造一个
         // 只有正方向表态的站点 —— 这是 NodeSeek 的真实形状。
-        let capabilities: ForumCapabilities =
-            ProcessInfo.processInfo.arguments.contains("--uitesting-one-way-vote")
-                ? ForumCapabilities.all.subtracting(.postDownvote)
-                : .all
+        var capabilities = ForumCapabilities.all
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-one-way-vote") {
+            capabilities.subtract(.postDownvote)
+        }
+        // 只有一个收藏列表、没有收藏夹的站点 —— NodeSeek 的真实形状。
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-no-folders") {
+            capabilities.subtract(.topicFavoriteFolders)
+        }
         session.setService(
             DebugForumService(accountID: accountA.accountID, capabilities: capabilities),
             for: accountA.accountID

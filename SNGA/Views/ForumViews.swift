@@ -807,13 +807,18 @@ struct FavoritesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.favorite.favoriteTopicFolders.isEmpty {
+            // 站点没有收藏夹时整条不画。NodeSeek 这种站点只有一个列表，应用内部
+            // 拿一个隐含的收藏夹代表它（见 `NodeSeekForumService.favoriteTopicFolders`），
+            // 那个条目没必要给用户看 —— 它不代表任何选择。
+            if supportsFolders, !model.favorite.favoriteTopicFolders.isEmpty {
                 folderBar
                 Divider()
             }
 
             Group {
-                if model.favorite.favoriteTopicFolders.isEmpty && !model.session.isLoading {
+                if supportsFolders,
+                   model.favorite.favoriteTopicFolders.isEmpty,
+                   !model.session.isLoading {
                     ContentUnavailableView {
                         Label("还没有收藏夹", systemImage: "folder")
                     } description: {
@@ -826,9 +831,11 @@ struct FavoritesView: View {
                     }
                 } else if model.favorite.favoriteTopics.isEmpty && !model.session.isLoading {
                 ContentUnavailableView {
-                    Label("收藏夹为空", systemImage: "star")
+                    Label(supportsFolders ? "收藏夹为空" : "还没有收藏话题", systemImage: "star")
                 } description: {
-                        if let folder = model.favorite.selectedFavoriteTopicFolder {
+                        if !supportsFolders {
+                            Text("打开话题后点底部的星标即可收藏。")
+                        } else if let folder = model.favorite.selectedFavoriteTopicFolder {
                             Text("“\(folder.name)”中还没有话题。打开话题后可从底部星标菜单选择收藏目录。")
                         } else {
                             Text("打开话题后可从底部星标菜单选择收藏目录。")
@@ -949,6 +956,12 @@ struct FavoritesView: View {
                 }
             )
         }
+    }
+
+    /// 这个站点有没有收藏夹这个概念。没有的话，新建/改名/删除、文件夹栏，
+    /// 以及所有说「收藏目录」的话都不该出现。
+    private var supportsFolders: Bool {
+        model.session.supports(.topicFavoriteFolders)
     }
 
     private var folderBar: some View {

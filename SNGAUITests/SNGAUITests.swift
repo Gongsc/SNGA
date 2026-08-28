@@ -24,6 +24,53 @@ final class SNGAUITests: XCTestCase {
         XCTAssertEqual(userCenter.value as? String, "")
     }
 
+    /// 没有收藏夹的站点，收藏页得能用。
+    ///
+    /// 这一条补的是一个真出过的死路：站点只有一个收藏列表，适配器返回空的收藏夹
+    /// 数组，于是收藏页永远显示「还没有收藏夹」，并给出一个点了必然报错的
+    /// 「新建收藏夹」按钮 —— 而取收藏列表和写收藏两个接口其实都是通的。
+    func testASiteWithoutFoldersStillListsItsFavourites() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-no-folders"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        // 没有收藏夹的站点，这个入口叫「收藏」。
+        XCTAssertTrue(mainWindow.buttons["收藏"].waitForExistence(timeout: 5))
+        mainWindow.buttons["收藏"].click()
+
+        // 列表里有没有话题由 `FavoriteStoreFolderlessTests` 验 —— 那是数据的事，
+        // 在这里验要跟加载时序纠缠。这条用例只管界面该不该画那几个按钮。
+        XCTAssertFalse(
+            mainWindow.buttons["favorite-folder-create"].exists,
+            "站点没有收藏夹，不该给新建按钮"
+        )
+        XCTAssertFalse(
+            mainWindow.buttons["favorite-folder-edit"].exists,
+            "站点没有收藏夹，不该给修改按钮"
+        )
+    }
+
+    /// 有收藏夹的站点，那些按钮还得在 —— 否则上一条把按钮全删了也照样绿。
+    ///
+    func testASiteWithFoldersKeepsItsFolderControls() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["收藏夹"].waitForExistence(timeout: 5))
+        mainWindow.buttons["收藏夹"].click()
+
+        XCTAssertTrue(
+            mainWindow.buttons["favorite-folder-create"].waitForExistence(timeout: 5)
+        )
+    }
+
     /// 只有单向表态的站点不该画出反对按钮。
     ///
     /// 这一条是补一个真出过的问题：`.postDownvote` 关着，但楼层底部照样两个按钮都画 ——

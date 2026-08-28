@@ -325,7 +325,21 @@ actor NodeSeekForumService: ForumService {
             what: "私信"
         )
     }
-    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { [] }
+    /// 站点没有收藏夹，只有一个列表 —— 那就给出一个隐含的「收藏夹」代表它。
+    ///
+    /// 返回空数组不行：应用里选中收藏夹、收藏/取消收藏、计数，全都挂在「有一个
+    /// 文件夹」这件事上。空数组会让收藏页永远是空的，星标按钮也一声不吭地不干活 ——
+    /// 而取列表和写收藏这两个接口其实都是通的。
+    ///
+    /// 不必担心界面上冒出一个多余的收藏夹条：`.topicFavoriteFolders` 关着，
+    /// 文件夹那一栏和新建/改名/删除都不画。
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
+        [TopicFavoriteFolder(
+            id: NodeSeekEndpoint.implicitCollectionID,
+            name: "收藏",
+            isDefault: true
+        )]
+    }
     /// 收藏的话题。站点没有收藏夹，`folderID` 无处可去。
     func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
         try parser.favoriteTopics(

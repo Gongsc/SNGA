@@ -1326,3 +1326,81 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
         )
     }
 }
+
+/// 收藏话题。站点没有收藏夹，只有一个列表。
+final class NodeSeekCollectionTests: XCTestCase {
+
+    private func service(_ transport: RecordingTransport) -> NodeSeekForumService {
+        NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+    }
+
+    /// 返回空数组会让整个收藏功能停摆：收藏页永远是空的，星标也一声不吭地不干活 ——
+    /// 应用里选中、收藏、计数全挂在「有一个收藏夹」上。所以给出一个隐含的。
+    func testAFolderlessSiteStillOffersOneImplicitFolder() async throws {
+        let folders = try await service(RecordingTransport(responding: "{}"))
+            .favoriteTopicFolders()
+
+        XCTAssertEqual(folders.count, 1)
+        XCTAssertTrue(try XCTUnwrap(folders.first).isDefault, "得是默认的，否则选不中")
+    }
+
+    /// 界面不该冒出一个收藏夹条目让人选 —— 能力位关着。
+    func testTheSiteStillDeclaresItHasNoFolders() {
+        XCTAssertFalse(
+            service(RecordingTransport(responding: "{}"))
+                .capabilities.contains(.topicFavoriteFolders)
+        )
+    }
+
+    /// 收藏是发给站点的，隐含的收藏夹编号只在应用内部用，不该出现在请求里。
+    func testTheImplicitFolderIDNeverReachesTheSite() async throws {
+        let transport = RecordingTransport(responding: #"{"success":true}"#)
+
+        try await service(transport).updateTopicFavorite(
+            topicID: TopicID(rawValue: 884_844),
+            folderID: NodeSeekEndpoint.implicitCollectionID,
+            isFavorite: true
+        )
+
+        let request = try XCTUnwrap(transport.requests.last)
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any]
+        )
+        XCTAssertEqual(Set(body.keys), ["postId", "action"])
+        XCTAssertEqual(body["postId"] as? Int64, 884_844)
+        XCTAssertEqual(body["action"] as? String, "add")
+    }
+
+    func testUnfavouritingSendsRemove() async throws {
+        let transport = RecordingTransport(responding: #"{"success":true}"#)
+
+        try await service(transport).updateTopicFavorite(
+            topicID: TopicID(rawValue: 1),
+            folderID: NodeSeekEndpoint.implicitCollectionID,
+            isFavorite: false
+        )
+
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(
+                with: try XCTUnwrap(transport.requests.last?.httpBody)
+            ) as? [String: Any]
+        )
+        XCTAssertEqual(body["action"] as? String, "remove")
+    }
+
+    /// 收藏夹的增删改仍然该拒绝 —— 站点没有这个东西。
+    func testFolderManagementIsStillRefused() async {
+        let s = service(RecordingTransport(responding: "{}"))
+
+        do {
+            _ = try await s.createTopicFavoriteFolder(name: "新", isPublic: false, isDefault: false)
+            XCTFail("站点没有收藏夹，不该能新建")
+        } catch {
+            guard case .unsupported = error as? ForumServiceError else {
+                return XCTFail("应当是 unsupported，实际是 \(error)")
+            }
+        }
+    }
+}

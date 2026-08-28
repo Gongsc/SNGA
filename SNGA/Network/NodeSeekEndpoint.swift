@@ -130,6 +130,10 @@ enum NodeSeekEndpoint {
         url("/api/attendance/board", query: [.init(name: "page", value: String(max(1, page)))])
     }
 
+    /// 站点没有收藏夹，只有一个列表。这个编号代表那唯一的一个 ——
+    /// 它不会发给站点，只是应用内部用来指代「那个列表」。
+    static let implicitCollectionID = "collection"
+
     /// 收藏话题，`{"postId":N,"action":"add"|"remove"}`。可逆，和三种反应不一样。
     static let collection = url("/api/statistics/collection")
 

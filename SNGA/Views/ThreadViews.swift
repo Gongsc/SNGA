@@ -195,6 +195,30 @@ struct ThreadView: View {
                             }
                         }
 
+                        if !model.session.supports(.topicFavoriteFolders) {
+                            // 站点只有一个收藏列表，没有可选的目录。那就是一个开关，
+                            // 不是一份菜单 —— 菜单里只有一项，等于让人多点一下去选
+                            // 一个没有第二种可能的选项。
+                            Button {
+                                if let topic = model.thread.currentTopic {
+                                    Task { await model.favorite.toggleTopicFavorite(topic) }
+                                }
+                            } label: {
+                                Label(
+                                    model.isCurrentTopicFavorite ? "取消收藏" : "收藏话题",
+                                    systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                                )
+                            }
+                            .labelStyle(.iconOnly)
+                            .help(model.isCurrentTopicFavorite ? "取消收藏这个话题" : "收藏这个话题")
+                            .disabled(
+                                model.thread.currentTopic == nil
+                                    || model.thread.currentTopic.map {
+                                        model.favorite.updatingFavoriteTopicIDs.contains($0.id)
+                                    } == true
+                            )
+                            .accessibilityIdentifier("thread-topic-favorite")
+                        } else {
                         Menu {
                             if let topic = model.thread.currentTopic {
                                 if model.favorite.favoriteTopicFolders.isEmpty {
@@ -254,6 +278,7 @@ struct ThreadView: View {
                         .help("选择话题收藏夹")
                         .disabled(model.thread.currentTopic == nil)
                         .accessibilityIdentifier("thread-topic-favorite")
+                        }
 
                         Button {
                             Task {

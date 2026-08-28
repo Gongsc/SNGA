@@ -47,7 +47,13 @@ struct SidebarView: View {
                     }
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
-                    sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
+                    // 没有收藏夹这个概念的站点只有一个列表，叫「收藏夹」是在说站点
+                    // 没有的东西。
+                    sidebarButton(
+                        model.session.supports(.topicFavoriteFolders) ? "收藏夹" : "收藏",
+                        systemImage: "star",
+                        selection: .favorites
+                    )
                     if model.session.supports(.privateMessages) {
                         sidebarButton(
                             "论坛消息",
