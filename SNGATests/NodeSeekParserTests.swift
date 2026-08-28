@@ -878,3 +878,105 @@ extension NodeSeekParserTests {
         XCTAssertTrue(html.contains("站点内嵌内容"))
     }
 }
+
+/// 投票。夹具按 `/api/vote/info/{id}` 的实测字段写。
+extension NodeSeekParserTests {
+
+    private func votePoll() throws -> TopicPoll {
+        try NodeSeekParser().poll(
+            json: try Data(contentsOf: try XCTUnwrap(
+                Bundle(for: NodeSeekParserTests.self)
+                    .url(forResource: "nodeseek-vote-info", withExtension: "json")
+            )),
+            topicID: TopicID(rawValue: 895_695)
+        )
+    }
+
+    func testAPollCarriesItsOptionsAndCounts() throws {
+        let poll = try votePoll()
+
+        XCTAssertEqual(poll.id, TopicID(rawValue: 895_695))
+        let group = try XCTUnwrap(poll.groups.first)
+        XCTAssertEqual(group.title, "tg账号是否可以通过邮箱登录")
+        XCTAssertEqual(group.options.map(\.id), ["13788", "13789", "13790", "13791", "13792"])
+        XCTAssertEqual(group.options.map(\.voteCount), [41, 12, 7, 3, 25])
+        XCTAssertEqual(poll.totalVoteCount, 88)
+    }
+
+    /// 站点报得出「我投的是哪个」，那就得显示出来 —— 否则投过的人会以为自己没投。
+    func testTheOptionIAlreadyChoseIsMarked() throws {
+        let options = try XCTUnwrap(try votePoll().groups.first).options
+
+        XCTAssertEqual(options.filter(\.isChosen).map(\.id), ["13789"])
+    }
+
+    /// `multiple` 是个布尔值，不是「最多选几个」。单选时上限必须是 1，
+    /// 放宽了就能一次投出站点不接受的组合。
+    func testASingleChoicePollAllowsExactlyOneSelection() throws {
+        let poll = try votePoll()
+
+        XCTAssertEqual(poll.maximumSelectionsPerGroup, 1)
+        XCTAssertTrue(poll.containsValidSelection(["13788"]))
+        XCTAssertFalse(poll.containsValidSelection(["13788", "13789"]))
+    }
+
+    func testAMultipleChoicePollAllowsSeveral() throws {
+        let poll = try NodeSeekParser().poll(
+            json: Data(#"""
+            {"success":true,"vote":{"id":1,"uid":2,"title":"多选","isPublic":true,
+             "locked":false,"multiple":true,"items":[
+               {"vote_item_id":10,"vote_id":1,"text":"甲","count":1,"voted":false},
+               {"vote_item_id":11,"vote_id":1,"text":"乙","count":2,"voted":false}]}}
+            """#.utf8),
+            topicID: TopicID(rawValue: 1)
+        )
+
+        XCTAssertTrue(poll.containsValidSelection(["10", "11"]))
+    }
+
+    /// 站点给的是 locked 这个布尔值，没有截止时间。硬塞一个过去的日期能骗过判断，
+    /// 但界面上就会冒出「截止于 1970 年」。
+    func testALockedPollStopsAcceptingWithoutInventingADeadline() throws {
+        let poll = try NodeSeekParser().poll(
+            json: Data(#"""
+            {"success":true,"vote":{"id":1,"uid":2,"title":"关了的","isPublic":true,
+             "locked":true,"multiple":false,"items":[
+               {"vote_item_id":10,"vote_id":1,"text":"甲","count":1,"voted":false}]}}
+            """#.utf8),
+            topicID: TopicID(rawValue: 1)
+        )
+
+        XCTAssertTrue(poll.isLocked)
+        XCTAssertFalse(poll.isAcceptingResponses(at: .now))
+        XCTAssertNil(poll.endsAt, "站点没给截止时间，就不该编一个")
+    }
+
+    func testAPollWithoutOptionsIsAnError() {
+        XCTAssertThrowsError(
+            try NodeSeekParser().poll(
+                json: Data(#"{"success":true,"vote":{"id":1,"items":[]}}"#.utf8),
+                topicID: TopicID(rawValue: 1)
+            )
+        )
+    }
+
+    // MARK: - 正文里的投票编号
+
+    /// 投票编号在正文里，而且和话题编号是两回事。
+    func testThePollIDComesFromTheMarkerNotTheTopic() throws {
+        let html = try fixture("nodeseek-post-poll")
+
+        XCTAssertEqual(NodeSeekParser.pollID(inPostHTML: html), 3027)
+    }
+
+    func testAPostWithoutAPollHasNoPollID() {
+        XCTAssertNil(NodeSeekParser.pollID(inPostHTML: "<p>一篇没有投票的帖子</p>"))
+        // 别的 nsapp:// 标记不是投票。
+        XCTAssertNil(NodeSeekParser.pollID(inPostHTML: "<p>nsapp://lottery?id=9</p>"))
+    }
+
+    /// 另一个真帖子里的投票编号，确认认的不是写死的那一个。
+    func testAnotherPostYieldsItsOwnPollID() throws {
+        XCTAssertEqual(NodeSeekParser.pollID(inPostHTML: try fixture("nodeseek-post")), 2871)
+    }
+}

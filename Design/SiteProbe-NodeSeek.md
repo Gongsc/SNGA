@@ -289,9 +289,16 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
   - **匿名看不到票数**，按钮是禁用的「登陆后再投票」。
   - `/api/vote/info/{id}` **对手写请求一律 403**（试过 4 个 id、加过 XHR 头，
     都是 `{"success":false}`），只有页面自己那次是 200 —— 少了什么头还不知道。
-    `Design/probe-nodeseek-vote.js` 是为这件事写的：挂住 fetch 等页面自己去拉。
-  - 投票提交的接口没见过（匿名点不动）。
-  - 响应字段和提交接口都拿到之前不点亮 `.poll` —— 见 `NodeSeekForumService.capabilities`。
+    登录态下页面自己那次的响应字段（2026-08-27 实测）：
+    `vote.{id, uid, title, isPublic, locked, multiple}` +
+    `vote.items[].{vote_item_id, vote_id, text, count, voted}`。
+    **注意 `multiple` 是布尔值不是上限**，`locked` 是布尔值、没有截止时间。
+  - 提交是 `POST /api/vote/voteforitem`，响应只有 `{success: boolean}`。
+    **请求体的形状还不知道** —— 响应看不出它要什么。拿到之前不实现提交。
+  - 匿名下 `URLSession` 能不能取到投票没验过（403 的原因还没查清）。取不到时
+    按「这帖没有投票」处理，不让一个附加内容把整页帖子拖垮。
+  - 因此 `.poll` 仍然不点亮：结果能看，票投不出去。界面按这个状态显示
+    「本站的投票暂时只能查看」，而不是假装投票已结束。
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段

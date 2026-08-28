@@ -5,6 +5,8 @@ struct TopicPoll: Identifiable, Hashable, Codable, Sendable {
         let id: String
         var title: String
         var voteCount: Int
+        /// 我投过这一项。站点报得出来就填，报不出来就一直是 false。
+        var isChosen: Bool = false
     }
 
     struct Group: Identifiable, Hashable, Codable, Sendable {
@@ -24,13 +26,20 @@ struct TopicPoll: Identifiable, Hashable, Codable, Sendable {
     var hidesResultsUntilVoting: Bool
     var hidesResultsUntilEnd: Bool
     var participantCount: Int
+    /// 投票被关掉了。
+    ///
+    /// 和 `endsAt` 不是一回事：有的站点给的是截止时间，有的只给一个「已锁定」的布尔值，
+    /// 没有日期可填。把锁定硬塞成一个假的过去时间能骗过 `isAcceptingResponses`，
+    /// 但界面上「截止于 1970 年」就出来了。
+    var isLocked: Bool = false
 
     var totalVoteCount: Int {
         groups.reduce(0) { $0 + $1.voteCount }
     }
 
     func isAcceptingResponses(at date: Date) -> Bool {
-        endsAt.map { date <= $0 } ?? true
+        guard !isLocked else { return false }
+        return endsAt.map { date <= $0 } ?? true
     }
 
     func showsResults(at date: Date) -> Bool {

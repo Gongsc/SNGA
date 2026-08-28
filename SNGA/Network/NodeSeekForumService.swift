@@ -36,6 +36,9 @@ actor NodeSeekForumService: ForumService {
     /// 「我是谁」要靠抓一整张页面解出来，而一个会话里它不会变。
     /// 不记住的话，每拉一次私信列表就多抓一张首页。
     private var cachedUserID: Int64?
+    /// 话题编号 → 投票编号。投票有自己的编号，和话题编号是两回事，而提交投票的接口
+    /// 只给话题编号 —— 读帖子时顺手记下来，提交时才有得用。
+    private var pollIDsByTopic: [TopicID: Int64] = [:]
 
     init(
         accountID: AccountID,
@@ -146,7 +149,36 @@ actor NodeSeekForumService: ForumService {
         guard let html = String(data: data, encoding: .utf8) else {
             throw ForumServiceError.invalidResponse
         }
-        return try parser.threadPage(html: html, topicID: topicID, page: page)
+        var result = try parser.threadPage(html: html, topicID: topicID, page: page)
+        await attachPoll(to: &result, topicID: topicID)
+        return result
+    }
+
+    /// 把投票挂到首楼上。
+    ///
+    /// 投票不在帖子数据里：正文的 Markdown 里有一行 `nsapp://vote?id=N`，得再发一次
+    /// 请求去取。所以只有第一页、且正文里真有那个标记时才多这一次请求。
+    ///
+    /// **取不到就当没有投票，不往外抛。** `/api/vote/info/{id}` 对手写的请求会回 403
+    /// （页面自己那次是 200，差在哪还没查清）。为了一个附加内容让整页帖子打不开，
+    /// 是把小毛病放大成大毛病。
+    private func attachPoll(to page: inout ThreadPage, topicID: TopicID) async {
+        guard let index = page.posts.firstIndex(where: { $0.floor == 0 }),
+              let pollID = NodeSeekParser.pollID(inPostHTML: page.posts[index].html) else {
+            return
+        }
+        pollIDsByTopic[topicID] = pollID
+        do {
+            page.posts[index].poll = try parser.poll(
+                json: await client.get(NodeSeekEndpoint.voteInfo(id: pollID)),
+                topicID: topicID
+            )
+        } catch {
+            await RuntimeLogger.shared.log(
+                category: "nodeseek",
+                "投票 \(pollID) 取不到，帖子照常显示：\(error.localizedDescription)"
+            )
+        }
     }
     /// 发一条回复。
     ///

@@ -110,6 +110,12 @@ enum NodeSeekEndpoint {
         url("/api/notification/\(kind)/list", query: [.init(name: "page", value: String(max(1, page)))])
     }
 
+    /// 一个投票的全部内容。投票编号来自正文里的 `nsapp://vote?id=N`，不是话题编号。
+    static func voteInfo(id: Int64) -> URL { url("/api/vote/info/\(id)") }
+
+    /// 投一票。请求体的形状还没验证过。
+    static let voteForItem = url("/api/vote/voteforitem")
+
     static let unreadCount = url("/api/notification/unread-count")
     static func messageThread(uid: Int64) -> URL { url("/api/notification/message/with/\(uid)") }
     static let sendMessage = url("/api/notification/message/send")

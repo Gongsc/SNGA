@@ -43,11 +43,29 @@
   window.fetch = async function (input, init) {
     const url = typeof input === 'string' ? input : input?.url ?? '';
     const method = (init?.method || (typeof input === 'object' && input?.method) || 'GET').toUpperCase();
+    // 提交请求的**请求体**才是现在最缺的那一块 —— 响应只有 {success}，
+    // 从它看不出这个接口要什么。这里只打字段名和类型，不打你投了哪个选项。
+    let requestShape = null;
+    const body = init?.body ?? (typeof input === 'object' ? input?.body : null);
+    if (body && typeof body === 'string' && /\/api\/vote\//.test(url)) {
+      try {
+        const parsed = JSON.parse(body);
+        requestShape = [...shape(parsed).entries()].map(([k, t]) => `${k}:${t}`).sort();
+        // 数组和标量差别很大（多选怎么传），所以把每个键的容器类型也说一句。
+        requestShape = requestShape.concat(
+          Object.keys(parsed).map(k => `  ${k} 是 ${Array.isArray(parsed[k]) ? '数组，长度 ' + parsed[k].length : typeof parsed[k]}`)
+        );
+      } catch (_) {
+        requestShape = ['（不是 JSON，原始长度 ' + body.length + '）'];
+      }
+    }
+
     const response = await original.apply(this, arguments);
     if (/\/api\/vote\//.test(url)) {
+      if (requestShape) console.log('【投票提交·请求体形状】', JSON.stringify(requestShape, null, 2));
       try {
         const json = await response.clone().json();
-        report(method === 'GET' ? '【投票信息】' : '【投票提交】', url, method, response.status, json);
+        report(method === 'GET' ? '【投票信息】' : '【投票提交·响应】', url, method, response.status, json);
       } catch (_) {
         console.log('【投票】', url, method, response.status, '（不是 JSON）');
       }

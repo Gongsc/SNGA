@@ -634,6 +634,61 @@ struct NodeSeekParser: Sendable {
         )
     }
 
+    /// `/api/vote/info/{id}` 的响应。
+    ///
+    /// 站点的投票是**一组扁平的选项**，没有 NGA 那种分组，所以这里只造一个组。
+    /// `multiple` 是布尔值，不是「最多选几个」—— 允许多选时上限就是选项总数。
+    ///
+    /// 结束方式也不一样：站点给的是 `locked` 这个布尔值，没有截止时间，所以
+    /// `endsAt` 只能空着（见 `TopicPoll.isLocked`）。
+    ///
+    /// `participantCount` 用票数之和顶替。单选时两者相等；允许多选时它会偏大 ——
+    /// 站点没给参与人数，而这个字段只用来决定「要不要藏结果」，偏大不会藏错。
+    func poll(json data: Data, topicID: TopicID) throws -> TopicPoll {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let vote = root["vote"] as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取投票")
+        }
+        guard let items = vote["items"] as? [[String: Any]], !items.isEmpty else {
+            throw ForumServiceError.unexpectedPage("投票没有选项")
+        }
+
+        let options = items.compactMap { item -> TopicPoll.Option? in
+            guard let id = (item["vote_item_id"] as? NSNumber)?.int64Value else { return nil }
+            return TopicPoll.Option(
+                id: String(id),
+                title: (item["text"] as? String) ?? "",
+                voteCount: (item["count"] as? NSNumber)?.intValue ?? 0,
+                isChosen: (item["voted"] as? NSNumber)?.boolValue == true
+            )
+        }
+        guard !options.isEmpty else {
+            throw ForumServiceError.unexpectedPage("投票选项都读不出来")
+        }
+
+        let allowsMultiple = (vote["multiple"] as? NSNumber)?.boolValue == true
+        return TopicPoll(
+            id: topicID,
+            groups: [TopicPoll.Group(id: 0, title: vote["title"] as? String, options: options)],
+            maximumSelectionsPerGroup: allowsMultiple ? options.count : 1,
+            endsAt: nil,
+            // 票数一直都在响应里，不用投完才给看。
+            hidesResultsUntilVoting: false,
+            hidesResultsUntilEnd: false,
+            participantCount: options.reduce(0) { $0 + $1.voteCount },
+            isLocked: (vote["locked"] as? NSNumber)?.boolValue == true
+        )
+    }
+
+    /// 正文里那个投票标记指向的编号。没有投票就返回 nil。
+    ///
+    /// 投票不在帖子数据里，只有正文的 Markdown 里一行 `nsapp://vote?id=3027`。
+    static func pollID(inPostHTML html: String) -> Int64? {
+        guard let range = html.range(of: #"nsapp://vote\?id=(\d+)"#, options: .regularExpression)
+        else { return nil }
+        return Int64(html[range].drop { !$0.isNumber })
+    }
+
     /// 认出站点挡下批量抓取时给的那个假答复。
     ///
     /// `list-discussions`、`list-comments`、`attendance/board` 这几个「带 page、批量吐公开

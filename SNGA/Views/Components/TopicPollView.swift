@@ -37,6 +37,12 @@ struct TopicPollView: View {
 
                                 VStack(alignment: .leading, spacing: 5) {
                                     HStack(alignment: .firstTextBaseline) {
+                                        if option.isChosen {
+                                            Image(systemName: "checkmark.seal.fill")
+                                                .foregroundStyle(theme.accentColor)
+                                                .help("你投的是这一项")
+                                                .accessibilityLabel("你投的是这一项")
+                                        }
                                         Text(option.title)
                                             .foregroundStyle(.primary)
                                             .multilineTextAlignment(.leading)
@@ -127,7 +133,7 @@ struct TopicPollView: View {
                     .disabled(!poll.containsValidSelection(selection) || isSubmitting)
                     .accessibilityIdentifier("topic-poll-submit")
                 } else {
-                    Label("投票已结束", systemImage: "clock.badge.xmark")
+                    Label(unavailableReason.0, systemImage: unavailableReason.1)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -159,8 +165,18 @@ struct TopicPollView: View {
         poll.showsResults(at: .now)
     }
 
+    /// 还能不能投。除了「投票本身还开着」，还得这个站点真能提交 ——
+    /// 结果看得到、票投不出去，是有的站点的真实状态（见 `ForumCapabilities.poll`）。
     private var isAcceptingResponses: Bool {
+        poll.isAcceptingResponses(at: .now) && model.session.supports(.poll)
+    }
+
+    /// 为什么投不了：投票关了，还是这个站点还不支持投。两句话得分开说 ——
+    /// 把「本站暂不支持」写成「投票已结束」是在骗人。
+    private var unavailableReason: (String, String) {
         poll.isAcceptingResponses(at: .now)
+            ? ("本站的投票暂时只能查看", "eye")
+            : ("投票已结束", "clock.badge.xmark")
     }
 
     private var isSubmitting: Bool {
