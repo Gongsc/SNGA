@@ -3,6 +3,7 @@ import SwiftUI
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     let uid: Int64?
 
@@ -259,17 +260,13 @@ struct UserCenterView: View {
                     alignment: .leading,
                     spacing: 14
                 ) {
+                    // 编号和用户名两站都有；其余由站点自己说显示什么、叫什么。
+                    // 各站报的东西和叫法都不一样，写死一套就会在别的站上
+                    // 显示对不上号的词，或者摆着几行永远是「—」。
                     ProfileField(title: "用户 ID", value: String(profile.uid))
                     ProfileField(title: "用户名", value: profile.displayName)
-                    ProfileField(title: "用户组", value: profile.userGroup ?? "—")
-                    ProfileField(title: "发帖数", value: profile.postCount.map(String.init) ?? "—")
-                    ProfileField(title: "注册时间", value: formatted(profile.registeredAt))
-                    ProfileField(title: "IP 属地", value: profile.location ?? "—")
-                    if let honor = profile.honor, !honor.isEmpty {
-                        ProfileField(title: "头衔", value: honor)
-                    }
-                    if let followers = profile.followerCount {
-                        ProfileField(title: "被关注", value: String(followers))
+                    ForEach(siteDescriptor.profileFields(for: profile)) { field in
+                        ProfileField(title: field.title, value: field.value)
                     }
                 }
                 .padding(16)
@@ -291,7 +288,7 @@ struct UserCenterView: View {
 
     @ViewBuilder
     private var reputationContent: some View {
-        if let profile {
+        if let profile, siteDescriptor.showsReputationSection {
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("声望")
                 LazyVGrid(

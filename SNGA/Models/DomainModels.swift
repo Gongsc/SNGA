@@ -388,7 +388,23 @@ struct Profile: Hashable, Codable, Sendable {
     var fame: Int? = nil
     var money: Int? = nil
     var followerCount: Int? = nil
+    /// 关注了多少人。NGA 的资料里没有这个数。
+    var followingCount: Int? = nil
+    /// 发过多少条回复。NGA 只报发帖数，不分主题和回复。
+    var commentCount: Int? = nil
     var isMasked: Bool = false
+}
+
+/// 用户资料里的一行。
+///
+/// 各站报的东西和叫法都不一样：NGA 有用户组、威望、N 币，NodeSeek 有等级、鸡腿、
+/// 星辰，连「发帖数」的含义都不同 —— NGA 是总数，NodeSeek 分主题帖和评论。
+/// 所以显示哪几行、叫什么，由站点自己说（见 `ForumSiteDescriptor.profileFields`）。
+struct ProfileStat: Identifiable, Hashable, Sendable {
+    let title: String
+    let value: String
+
+    var id: String { title }
 }
 
 enum UserActivityKind: String, CaseIterable, Codable, Sendable, Identifiable {

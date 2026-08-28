@@ -140,6 +140,66 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 资料页要不要「声望」那一段（威望、声望、N 币）。
+    ///
+    /// 这是 NGA 一家的东西。按「有没有数」来判断会出错：NodeSeek 的鸡腿也走
+    /// `Profile.money`，于是那一段照样冒出来，还把鸡腿标成「N 币」，
+    /// 另外两行是「—」—— 三件事全是错的。所以按站点问。
+    var showsReputationSection: Bool {
+        switch site {
+        case .nga: true
+        case .nodeseek: false
+        }
+    }
+
+    /// 用户资料的「基础信息」里显示哪几行。
+    ///
+    /// 用户编号和用户名两站都有，由界面固定显示；这里给的是站点自己那部分。
+    /// 叫法按站点的说法走 —— NodeSeek 管用户组叫「等级」，管货币叫「鸡腿」，
+    /// 照搬 NGA 的词会让人对不上号。
+    func profileFields(for profile: Profile) -> [ProfileStat] {
+        func number(_ title: String, _ value: Int?) -> ProfileStat? {
+            value.map { ProfileStat(title: title, value: String($0)) }
+        }
+        switch site {
+        case .nga:
+            return [
+                ProfileStat(title: "用户组", value: profile.userGroup ?? "—"),
+                ProfileStat(title: "发帖数", value: profile.postCount.map(String.init) ?? "—"),
+                ProfileStat(title: "注册时间", value: Self.formatted(profile.registeredAt)),
+                ProfileStat(title: "IP 属地", value: profile.location ?? "—"),
+                profile.honor.flatMap { $0.isEmpty ? nil : ProfileStat(title: "头衔", value: $0) },
+                number("被关注", profile.followerCount)
+            ].compactMap { $0 }
+        case .nodeseek:
+            return [
+                // 站点自己的资料页显示的就是「加入天数」，不是注册日期。
+                profile.registeredAt.map {
+                    ProfileStat(title: "加入天数", value: String(Self.daysSince($0)))
+                },
+                profile.userGroup.map { ProfileStat(title: "等级", value: $0) },
+                number("鸡腿数目", profile.money),
+                number("主题帖数", profile.postCount),
+                number("评论数目", profile.commentCount),
+                number("关注", profile.followingCount),
+                number("被关注", profile.followerCount)
+            ].compactMap { $0 }
+        }
+    }
+
+    /// 注册到今天有多少天。不足一天算一天 —— 站点显示的就是这个意思。
+    private static func daysSince(_ date: Date, now: Date = .now) -> Int {
+        max(0, Calendar.current.dateComponents([.day], from: date, to: now).day ?? 0)
+    }
+
+    static func formatted(_ date: Date?) -> String {
+        guard let date else { return "—" }
+        return date.formatted(
+            .dateTime.year().month(.twoDigits).day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
+        )
+    }
+
     /// 话题在网页版的地址，用于「复制链接」和「在浏览器中打开」。
     func topicWebURL(topicID: TopicID) -> URL {
         switch site {

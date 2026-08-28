@@ -232,19 +232,31 @@ extension NodeSeekParserTests {
         XCTAssertNotNil(profile.followerCount)
     }
 
-    /// 站点有两种货币，别混。鸡腿（coin）是花出去的，星辰（stardust）是收到的。
-    func testTheTwoCurrenciesLandInDifferentFields() throws {
+    /// 鸡腿走 `money`，在基础信息里显示成「鸡腿数目」。
+    ///
+    /// 星辰不占 `fame`。`fame` 是 NGA 的「声望」，这个站没有对应的东西 ——
+    /// 把星辰塞进去，界面上就会多出一个它本来没有的声望。站点自己的资料页也不显示星辰。
+    func testChickenLegsAreTheOnlyCurrencyCarried() throws {
         let profile = try profileFixture()
 
         XCTAssertNotNil(profile.money, "鸡腿")
-        XCTAssertNotNil(profile.fame, "星辰")
+        XCTAssertNil(profile.fame, "星辰不是声望")
+        XCTAssertNil(profile.reputation)
     }
 
-    /// 等级是个序号，显示成 Lv.N。
-    func testRankBecomesALevelLabel() throws {
+    /// 等级就是个数字。站点的资料页写的是「等级 1」，不是「Lv.1」。
+    func testTheLevelIsCarriedAsAPlainNumber() throws {
         let profile = try profileFixture()
 
-        XCTAssertEqual(profile.userGroup, "Lv.4")
+        XCTAssertEqual(profile.userGroup, "4")
+    }
+
+    /// 站点分开报主题帖和评论，两个都要带出来。
+    func testTopicsAndCommentsAreCountedSeparately() throws {
+        let profile = try profileFixture()
+
+        XCTAssertNotNil(profile.postCount, "主题帖数")
+        XCTAssertNotNil(profile.commentCount, "评论数目")
     }
 
     func testAResponseWithoutDetailIsAnError() {

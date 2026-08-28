@@ -404,15 +404,22 @@ struct NodeSeekParser: Sendable {
             uid: uid,
             displayName: name.isEmpty ? "用户 \(uid)" : name,
             avatarURL: Self.avatarURL(uid: uid),
-            // rank 是等级序号，站点在界面上按它显示等级。
-            userGroup: number("rank").map { "Lv.\($0)" },
+            // 站点管这个叫「等级」，界面上就是一个数字，不加 Lv. 前缀 ——
+            // 它的资料页显示的是「等级 1」。
+            userGroup: number("rank").map(String.init),
             registeredAt: (detail["created_at"] as? String).flatMap(Self.date(fromISO8601:)),
+            // 站点分开报主题帖和评论，nPost 只是主题帖。
             postCount: number("nPost"),
             signature: (detail["bio"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            // 站点有两种货币：鸡腿（coin，用来加鸡腿和反对）和星辰（stardust，投喂得来）。
-            fame: number("stardust"),
+            // 站点有两种货币：鸡腿（coin，加鸡腿和反对花的）和星辰（stardust，投喂得来）。
+            //
+            // `fame` 和 `reputation` 都留空：那两个是 NGA 的「声望」「威望」，
+            // 这个站没有对应的东西，硬塞一个数进去只会让界面显示一个假的声望。
+            // 鸡腿走 `money`，在基础信息里以「鸡腿数目」显示。
             money: number("coin"),
-            followerCount: number("fans")
+            followerCount: number("fans"),
+            followingCount: number("follows"),
+            commentCount: number("nComment")
         )
     }
 
