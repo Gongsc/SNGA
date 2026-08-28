@@ -1022,7 +1022,12 @@ struct PostRow: View {
                 Spacer()
                 if model.session.supports(.postVote) {
                     voteButton(direction: .up)
-                    voteButton(direction: .down)
+                    // 反方向单独问一次。有的站点只有一个方向（V2EX 只能感谢），
+                    // 有的站点的反对要花掉用户的钱（NodeSeek 的「反对」扣 2 个鸡腿
+                    // 且撤不回来）—— 那种按钮不该画出来等人点了再报错。
+                    if model.session.supports(.postDownvote) {
+                        voteButton(direction: .down)
+                    }
                 }
             }
         }
@@ -1178,6 +1183,7 @@ struct PostRow: View {
         .buttonStyle(.borderless)
         .disabled(model.thread.votingPostIDs.contains(post.id))
         .help(direction == .up ? "点赞" : "点踩")
+        .accessibilityIdentifier("post-vote-\(direction.rawValue)-\(post.id.rawValue)")
     }
 }
 

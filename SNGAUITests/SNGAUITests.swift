@@ -24,6 +24,51 @@ final class SNGAUITests: XCTestCase {
         XCTAssertEqual(userCenter.value as? String, "")
     }
 
+    /// 只有单向表态的站点不该画出反对按钮。
+    ///
+    /// 这一条是补一个真出过的问题：`.postDownvote` 关着，但楼层底部照样两个按钮都画 ——
+    /// 按钮只看了 `.postVote`。当时的单元测试断言的是能力集，而界面根本不读它，
+    /// 所以测得再绿也挡不住。要验的是屏幕上有没有那个按钮。
+    func testAOneWayVotingSiteHidesTheDownvoteButton() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-one-way-vote"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        let upvote = mainWindow.descendants(matching: .any)["post-vote-up-1"]
+        XCTAssertTrue(upvote.waitForExistence(timeout: 5), "正方向的按钮该在")
+        XCTAssertFalse(
+            mainWindow.descendants(matching: .any)["post-vote-down-1"].exists,
+            "站点没有反方向表态，这个按钮不该画出来"
+        )
+    }
+
+    /// 两个方向都支持时，两个按钮都得在 —— 否则上一条用例把按钮删光也照样绿。
+    func testASiteWithBothDirectionsShowsBothButtons() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["post-vote-down-1"].waitForExistence(timeout: 5)
+        )
+    }
+
     func testPostAuthorInformationAppearsInThread() {
         continueAfterFailure = false
         let app = XCUIApplication()

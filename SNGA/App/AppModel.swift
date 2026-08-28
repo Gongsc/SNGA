@@ -904,7 +904,16 @@ final class AppModel {
         try? session.context.save()
         session.accounts = [accountA.summary(), accountB.summary()]
         session.activeAccountID = accountA.accountID
-        session.setService(DebugForumService(accountID: accountA.accountID), for: accountA.accountID)
+        // 能力位挡住的控件要能在 UI 测试里验。`--uitesting-one-way-vote` 造一个
+        // 只有正方向表态的站点 —— 这是 NodeSeek 的真实形状。
+        let capabilities: ForumCapabilities =
+            ProcessInfo.processInfo.arguments.contains("--uitesting-one-way-vote")
+                ? ForumCapabilities.all.subtracting(.postDownvote)
+                : .all
+        session.setService(
+            DebugForumService(accountID: accountA.accountID, capabilities: capabilities),
+            for: accountA.accountID
+        )
         session.setService(DebugForumService(accountID: accountB.accountID), for: accountB.accountID)
         browsing.forums = [favoriteForum, Forum(id: ForumID(nga: 510381), name: "晴风村")]
         favorite.favorites = [FavoriteSnapshot(forum: favoriteForum, order: 0, state: .localOnly)]

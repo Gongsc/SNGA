@@ -680,13 +680,27 @@ struct NodeSeekParser: Sendable {
         )
     }
 
-    /// 正文里那个投票标记指向的编号。没有投票就返回 nil。
+    /// 主楼里那个投票标记指向的编号。没有投票就返回 nil。
     ///
     /// 投票不在帖子数据里，只有正文的 Markdown 里一行 `nsapp://vote?id=3027`。
-    static func pollID(inPostHTML html: String) -> Int64? {
-        guard let range = html.range(of: #"nsapp://vote\?id=(\d+)"#, options: .regularExpression)
-        else { return nil }
-        return Int64(html[range].drop { !$0.isNumber })
+    ///
+    /// **必须传服务端发来的原始页面，不能传 `Post.html`。** 清洗那一步会把标记换成
+    /// 给读者看的一句话（见 `replaceEmbedMarkers`），所以 `Post.html` 里根本没有它 ——
+    /// 先前这个函数收的就是 `Post.html`，于是永远返回 nil，投票一次都没显示出来。
+    ///
+    /// 只看主楼：回帖里也可能贴别的投票，那不是这个话题的投票。
+    static func pollID(inPageHTML html: String) -> Int64? {
+        guard let document = try? SwiftSoup.parse(html),
+              let opening = try? document.select(".content-item").first(),
+              let anchors = try? opening.select("a[data-href]") else {
+            return nil
+        }
+        for anchor in anchors {
+            guard let target = try? anchor.attr("data-href"),
+                  target.hasPrefix("nsapp://vote?id=") else { continue }
+            return Int64(target.drop { !$0.isNumber })
+        }
+        return nil
     }
 
     /// 认出站点挡下批量抓取时给的那个假答复。

@@ -145,7 +145,8 @@ actor NodeSeekForumService: ForumService {
             throw ForumServiceError.invalidResponse
         }
         var result = try parser.threadPage(html: html, topicID: topicID, page: page)
-        await attachPoll(to: &result, topicID: topicID)
+        // 投票编号要从**原始页面**里找。清洗过的 `Post.html` 里标记已经被换掉了。
+        await attachPoll(to: &result, topicID: topicID, pageHTML: html)
         return result
     }
 
@@ -157,9 +158,9 @@ actor NodeSeekForumService: ForumService {
     /// **取不到就当没有投票，不往外抛。** `/api/vote/info/{id}` 对手写的请求会回 403
     /// （页面自己那次是 200，差在哪还没查清）。为了一个附加内容让整页帖子打不开，
     /// 是把小毛病放大成大毛病。
-    private func attachPoll(to page: inout ThreadPage, topicID: TopicID) async {
+    private func attachPoll(to page: inout ThreadPage, topicID: TopicID, pageHTML: String) async {
         guard let index = page.posts.firstIndex(where: { $0.floor == 0 }),
-              let pollID = NodeSeekParser.pollID(inPostHTML: page.posts[index].html) else {
+              let pollID = NodeSeekParser.pollID(inPageHTML: pageHTML) else {
             return
         }
         do {

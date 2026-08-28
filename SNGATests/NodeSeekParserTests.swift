@@ -964,20 +964,58 @@ extension NodeSeekParserTests {
 
     /// 投票编号在正文里，而且和话题编号是两回事。
     func testThePollIDComesFromTheMarkerNotTheTopic() throws {
-        let html = try fixture("nodeseek-post-poll")
-
-        XCTAssertEqual(NodeSeekParser.pollID(inPostHTML: html), 3027)
+        XCTAssertEqual(
+            NodeSeekParser.pollID(inPageHTML: try fixture("nodeseek-post-poll")),
+            3027
+        )
     }
 
-    func testAPostWithoutAPollHasNoPollID() {
-        XCTAssertNil(NodeSeekParser.pollID(inPostHTML: "<p>一篇没有投票的帖子</p>"))
+    /// **投票编号只能从原始页面里找。**
+    ///
+    /// 清洗会把标记换成给读者看的一句话，所以 `Post.html` 里根本没有它。先前这个
+    /// 函数收的正是 `Post.html`，于是永远返回 nil，投票一次都没显示出来 ——
+    /// 而当时的用例喂的是原始页面，跑的输入是生产代码永远不会给的那种，所以一直绿着。
+    func testTheMarkerIsAlreadyGoneFromTheSanitizedPostBody() throws {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-poll"),
+            topicID: TopicID(rawValue: 895_695),
+            page: 1
+        )
+        let openingBody = try XCTUnwrap(page.posts.first { $0.floor == 0 }?.html)
+
+        XCTAssertFalse(
+            openingBody.contains("nsapp://"),
+            "清洗之后正文里还有标记，那说明替换没生效"
+        )
+        XCTAssertNil(
+            NodeSeekParser.pollID(inPageHTML: openingBody),
+            "从清洗过的正文里是找不到投票编号的 —— 这正是当初漏掉的那一步"
+        )
+    }
+
+    func testAPageWithoutAPollHasNoPollID() {
+        XCTAssertNil(NodeSeekParser.pollID(inPageHTML:
+            #"<div class="content-item"><article>一篇没有投票的帖子</article></div>"#))
         // 别的 nsapp:// 标记不是投票。
-        XCTAssertNil(NodeSeekParser.pollID(inPostHTML: "<p>nsapp://lottery?id=9</p>"))
+        XCTAssertNil(NodeSeekParser.pollID(inPageHTML:
+            #"<div class="content-item"><a data-href="nsapp://lottery?id=9">x</a></div>"#))
+    }
+
+    /// 回帖里贴的别人的投票不算这个话题的投票。
+    func testOnlyTheOpeningPostsPollCounts() {
+        let html = """
+        <div class="content-item" id="0"><article>主楼没有投票</article></div>
+        <div class="content-item" id="3">
+          <article><a data-href="nsapp://vote?id=999">x</a></article>
+        </div>
+        """
+
+        XCTAssertNil(NodeSeekParser.pollID(inPageHTML: html))
     }
 
     /// 另一个真帖子里的投票编号，确认认的不是写死的那一个。
     func testAnotherPostYieldsItsOwnPollID() throws {
-        XCTAssertEqual(NodeSeekParser.pollID(inPostHTML: try fixture("nodeseek-post")), 2871)
+        XCTAssertEqual(NodeSeekParser.pollID(inPageHTML: try fixture("nodeseek-post")), 2871)
     }
 }
 
