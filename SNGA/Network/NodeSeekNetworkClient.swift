@@ -146,6 +146,14 @@ actor NodeSeekNetworkClient {
         default:
             // 写接口在非 2xx 上也带有意义的正文，交给调用方读。
             if body != nil { return data }
+            // 看不了的帖子答 404，真正的原因写在正文里（等级不够、要先注册）。
+            // 报成「服务暂时不可用」既不对也没用 —— 站点没坏，是不让看，
+            // 而它那句话里写着该怎么办。
+            if !asJSON,
+               let html = String(data: data, encoding: .utf8),
+               let reason = NodeSeekParser.accessDeniedReason(inHTML: html) {
+                throw ForumServiceError.restricted(reason)
+            }
             throw ForumServiceError.server(response.statusCode)
         }
     }

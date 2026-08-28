@@ -163,6 +163,30 @@ struct NodeSeekParser: Sendable {
         return "tag"
     }
 
+    /// 站点把「你看不了这帖」的原因写在正文里，状态码只给一个 404。
+    ///
+    /// 匿名时是「本帖需要注册用户才能查看😭」，等级不够时是「查看本帖需要Lv2，
+    /// 您的权限不足😑，请赚取🍗升级您的用户等级」。这两句都告诉了人该做什么，
+    /// 而「论坛服务暂时不可用（HTTP 404）」既不对也没用 —— 站点没坏，是不让看。
+    ///
+    /// 那一段没有类名，只有内联样式，所以认它的父节点 `#nsk-body-left` ——
+    /// 正常帖子页里那里装的是楼层，打不开时装的就是这句话。
+    static func accessDeniedReason(inHTML html: String) -> String? {
+        guard let document = try? SwiftSoup.parse(html),
+              let container = try? document.select("#nsk-body-left").first() else {
+            return nil
+        }
+        // 楼层还在就说明这是一张正常的帖子页，不是拒绝页。
+        if let items = try? container.select(".content-item"), !items.isEmpty() { return nil }
+        guard let text = try? container.text().trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return nil
+        }
+        // 一句话才是解释。整页的文字都堆在这里，说明认错了地方。
+        guard text.count <= 120 else { return nil }
+        return text
+    }
+
     /// 从分页条读总页数。
     ///
     /// 取 `.pager-pos` 里最大的页码。末页那颗按钮长成 `..100` 的样子，页码在 href 里，

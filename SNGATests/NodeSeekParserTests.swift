@@ -1741,3 +1741,120 @@ extension NodeSeekParserTests {
         }
     }
 }
+
+/// 看不了的帖子：站点答 404，真正的原因写在正文里。
+extension NodeSeekParserTests {
+
+    func testTheSitesOwnReasonIsRecovered() throws {
+        let reason = NodeSeekParser.accessDeniedReason(
+            inHTML: try fixture("nodeseek-post-denied")
+        )
+
+        XCTAssertEqual(reason, "本帖需要注册用户才能查看😭")
+    }
+
+    /// 等级不够时站点说的是另一句，而且里面写着该怎么办。原样带出去，别换成自己编的。
+    func testALevelRequirementIsPassedThroughWordForWord() {
+        let html = """
+        <div id="nsk-body-left"><div style="font-size:2rem"><div>
+        查看本帖需要Lv2，您的权限不足😑，请赚取🍗升级您的用户等级
+        </div></div></div>
+        """
+
+        XCTAssertEqual(
+            NodeSeekParser.accessDeniedReason(inHTML: html),
+            "查看本帖需要Lv2，您的权限不足😑，请赚取🍗升级您的用户等级"
+        )
+    }
+
+    /// 正常的帖子页不能被当成拒绝页 —— 那样每一次成功都会变成一句报错。
+    ///
+    /// 用带 `#nsk-body-left` 的那份夹具：换成没有这个容器的，函数在上一道 guard
+    /// 就返回了，「楼层还在就不是拒绝页」这条根本没被走到（第一版就是这样，
+    /// 变异测试把它照出来了）。
+    func testANormalThreadPageIsNotMistakenForARefusal() throws {
+        let html = try fixture("nodeseek-post-poll")
+
+        XCTAssertTrue(html.contains("nsk-body-left"), "前提：这份夹具带那个容器")
+        XCTAssertNil(NodeSeekParser.accessDeniedReason(inHTML: html))
+    }
+
+    /// 楼层很短的正常帖子最危险：文字够短，能溜过「一句话才是解释」那道判断。
+    /// 拦住它的是「楼层还在就不是拒绝页」。
+    func testAVeryShortPostIsStillNotARefusal() {
+        let html = """
+        <div id="nsk-body-left">
+          <div class="content-item" data-comment-id="1"><article class="post-content">好</article></div>
+        </div>
+        """
+
+        XCTAssertNil(NodeSeekParser.accessDeniedReason(inHTML: html))
+    }
+
+    /// 认错地方就会把整页文字当成「原因」。一句话才是解释。
+    func testAWallOfTextIsNotAReason() {
+        let html = "<div id=\"nsk-body-left\">\(String(repeating: "很长的正文。", count: 60))</div>"
+
+        XCTAssertNil(NodeSeekParser.accessDeniedReason(inHTML: html))
+    }
+
+    func testAPageWithoutThatContainerHasNoReason() {
+        XCTAssertNil(NodeSeekParser.accessDeniedReason(inHTML: "<html><body>随便</body></html>"))
+    }
+}
+
+/// 打不开的帖子，从请求到错误信息这一整条。
+final class NodeSeekAccessDeniedTests: XCTestCase {
+
+    private func deniedHTML() throws -> String {
+        try String(
+            contentsOf: try XCTUnwrap(
+                Bundle(for: NodeSeekParserTests.self)
+                    .url(forResource: "nodeseek-post-denied", withExtension: "html")
+            ),
+            encoding: .utf8
+        )
+    }
+
+    /// 站点用 404 承载「不让看」。报成「服务暂时不可用（HTTP 404）」是两重错：
+    /// 站点没坏，而且它那句话里写着该怎么办。
+    func testOpeningARestrictedTopicRaisesTheSitesSentence() async throws {
+        let service = NodeSeekForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: RecordingHTTPTransport(responding: try deniedHTML(), status: 404),
+            userAgent: "probe"
+        )
+
+        do {
+            _ = try await service.threadPage(
+                topicID: TopicID(rawValue: 898_539), page: 1, authorUID: nil
+            )
+            XCTFail("这帖看不了，不该当成成功")
+        } catch {
+            XCTAssertEqual(
+                error as? ForumServiceError,
+                .restricted("本帖需要注册用户才能查看😭")
+            )
+        }
+    }
+
+    /// 正文里没有可用解释的 404 仍然报状态码 —— 那种是真的出错了。
+    func testAPlain404StillReportsItsStatus() async throws {
+        let service = NodeSeekForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: RecordingHTTPTransport(responding: "<html><body></body></html>", status: 404),
+            userAgent: "probe"
+        )
+
+        do {
+            _ = try await service.threadPage(
+                topicID: TopicID(rawValue: 1), page: 1, authorUID: nil
+            )
+            XCTFail("应该报错")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .server(404))
+        }
+    }
+}
