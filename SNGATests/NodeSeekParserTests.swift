@@ -2269,6 +2269,43 @@ final class NodeSeekWriteHeaderTests: XCTestCase {
         XCTAssertNotEqual(one, other)
     }
 
+    /// 站点只查这个头在不在，值是客户端现生成的 16 位随机串。
+    func testAWriteCarriesAFreshCSRFToken() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+
+        _ = try await service(transport).submitReply(
+            topicID: TopicID(rawValue: 1),
+            submission: ReplySubmission(content: "内容")
+        )
+
+        let token = try XCTUnwrap(
+            transport.requests.last?.value(forHTTPHeaderField: "csrf-token")
+        )
+        XCTAssertEqual(token.count, 16)
+        XCTAssertTrue(
+            token.allSatisfy { $0.isLetter || $0.isNumber },
+            "只该有字母和数字：\(token)"
+        )
+    }
+
+    /// 每次都换一个 —— 站点的编辑器每改一次正文就重新生成。写死一个也能过，
+    /// 但那是在赌服务端永远不看值。
+    func testEachWriteGetsItsOwnToken() async throws {
+        func token() async throws -> String? {
+            let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+            _ = try await service(transport).submitReply(
+                topicID: TopicID(rawValue: 1),
+                submission: ReplySubmission(content: "内容")
+            )
+            return transport.requests.last?.value(forHTTPHeaderField: "csrf-token")
+        }
+
+        let first = try await token()
+        let second = try await token()
+        XCTAssertNotNil(first)
+        XCTAssertNotEqual(first, second)
+    }
+
     /// 少了这个头，站点答「csrf check error」，回复根本发不出去。
     func testAWriteCarriesTheCSRFChallenge() async throws {
         let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
@@ -2307,6 +2344,10 @@ final class NodeSeekWriteHeaderTests: XCTestCase {
                 request.value(forHTTPHeaderField: "x-csrf-challenge"), "simple-token",
                 "\(request.url?.path ?? "?") 少了这个头"
             )
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "csrf-token")?.count, 16,
+                "\(request.url?.path ?? "?") 少了 csrf-token"
+            )
         }
     }
 
@@ -2320,5 +2361,6 @@ final class NodeSeekWriteHeaderTests: XCTestCase {
 
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertNil(request.value(forHTTPHeaderField: "x-csrf-challenge"))
+        XCTAssertNil(request.value(forHTTPHeaderField: "csrf-token"))
     }
 }

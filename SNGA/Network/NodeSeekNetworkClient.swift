@@ -89,6 +89,22 @@ actor NodeSeekNetworkClient {
     /// `x-csrf-challenge` 的值。抄自站点自己的 JS，是个写死的字符串。
     private static let csrfChallengeValue = "simple-token"
 
+    /// `csrf-token` 的值：16 位随机字母数字，每次写请求现生成。
+    ///
+    /// 抄自站点的 `utils-K0btnylg.js`：
+    ///
+    /// ```js
+    /// function r(i){ let t=""; const e="ABCDEFGHIJ…z0123456789";
+    ///   for(let o=0;o<i;o++) t += e.charAt(Math.floor(Math.random()*e.length)); return t; }
+    /// ```
+    ///
+    /// 它不是从服务端取来的，也不和会话绑定 —— 编辑器每次改动正文就换一个新的。
+    /// 服务端只校验这个头存在，所以「随机生成」就是正确实现，不是偷懒。
+    private static func freshCSRFToken() -> String {
+        let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return String((0..<16).map { _ in alphabet.randomElement()! })
+    }
+
     private func send(
         _ url: URL,
         method: String,
@@ -128,12 +144,14 @@ actor NodeSeekNetworkClient {
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            // 写请求要过 CSRF 检查。少了它站点答「csrf check error」，回复发不出去。
+            // 写请求要过 CSRF 检查。少了它站点答「csrf check error」。
             //
-            // 值是个字面常量，不是真的令牌 —— 站点自己的 JS 里就这么写死的：
-            // `headers:{"x-csrf-challenge":"simple-token","content-type":"application/json"}`。
-            // 所以没有「去哪儿取令牌」这一步。哪天站点改成验真令牌，
-            // 写操作会退回同一句 csrf 报错，那就是这里该改的信号。
+            // **服务端只查这个头在不在，不查值。** 站点的编辑器每次改动正文都重新生成
+            // 一个 16 位随机串（`utils-K0btnylg.js` 里那个 `r(i)`：从大小写字母加数字里
+            // 随机取 i 个字符），发帖时原样送出。所以这里也现生成一个就够了 ——
+            // 没有「去哪儿取令牌」这一步，也没有什么可缓存的。
+            request.setValue(Self.freshCSRFToken(), forHTTPHeaderField: "csrf-token")
+            // 站点在退出登录那条路上还带这个常量头。留着不花什么代价，也和它对得上。
             request.setValue(Self.csrfChallengeValue, forHTTPHeaderField: "x-csrf-challenge")
             // 浏览器只在写请求上带 Origin。
             request.setValue(
