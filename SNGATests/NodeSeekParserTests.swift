@@ -1858,3 +1858,81 @@ final class NodeSeekAccessDeniedTests: XCTestCase {
         }
     }
 }
+
+/// 正文里的表情和链接。站点用的全是相对地址。
+extension NodeSeekParserTests {
+
+    private func pollPostBodyHTML() throws -> String {
+        let page = try parser.threadPage(
+            html: try fixture("nodeseek-post-poll"),
+            topicID: TopicID(rawValue: 895_695),
+            page: 1
+        )
+        return page.posts.map(\.html).joined()
+    }
+
+    /// 表情是 `<img class="sticker" src="/static/…">`。清洗白名单按协议校验属性，
+    /// 相对地址没有协议 —— 不先转成绝对地址，`src` 会被整个丢掉，表情全变裂图。
+    func testStickersKeepTheirImageSource() throws {
+        let html = try pollPostBodyHTML()
+
+        XCTAssertTrue(
+            html.contains("https://www.nodeseek.com/static/image/sticker/"),
+            "表情的地址没了或者没转成绝对地址"
+        )
+        XCTAssertFalse(html.contains("src=\"/static/"), "还留着相对地址")
+    }
+
+    /// 类名要留住，否则没法限制表情尺寸 —— 一张大图会把整层楼撑开。
+    func testStickersKeepTheClassThatSizesThem() throws {
+        XCTAssertTrue(try pollPostBodyHTML().contains("class=\"sticker\""))
+        // 尺寸规则也得真的在文档里。
+        XCTAssertTrue(try pollPostBodyHTML().contains(".sticker{max-width"))
+    }
+
+    /// 楼层引用和用户链接同样是相对地址，一起被剥掉过。
+    func testInPostLinksBecomeAbsolute() throws {
+        let html = try pollPostBodyHTML()
+
+        XCTAssertTrue(
+            html.contains("https://www.nodeseek.com/post-895695-1#"),
+            "楼层引用的链接没了"
+        )
+        XCTAssertTrue(html.contains("https://www.nodeseek.com/member?t="), "用户链接没了")
+    }
+
+    /// 已经是绝对地址的图片不能被改坏。
+    func testAlreadyAbsoluteImagesAreLeftAlone() throws {
+        XCTAssertTrue(
+            try pollPostBodyHTML().contains("https://cdn.nodeimage.com/i/"),
+            "外站图片被弄丢了"
+        )
+    }
+
+    /// `javascript:` 这类链接仍然不能留 —— 正文是别人写的。
+    ///
+    /// 直接喂一个进去，而不是靠夹具：夹具里唯一那条 `javascript:` 是投票标记，
+    /// 在这一步之前就被换掉了，靠它测等于没测。
+    ///
+    /// 注意这条用例**证不了**是谁拦住的：清洗白名单本身就按协议校验 `href`，
+    /// `resolveRelativeURLs` 里那句显式判断是第二道。把那句删掉这条仍然绿 ——
+    /// 留着它是因为那正是在重写 href 的地方，意图要写在手边。
+    func testPseudoProtocolLinksLoseTheirHref() throws {
+        let html = """
+        <div class="content-item" data-comment-id="1"><article class="post-content">
+          <a href="javascript:alert(1)">点我</a>
+          <a href="/post-1-1#3">三楼</a>
+        </article></div>
+        """
+        let bodies = try parser.threadPage(
+            html: html, topicID: TopicID(rawValue: 1), page: 1
+        ).posts.map(\.html).joined()
+
+        XCTAssertFalse(bodies.contains("javascript:"), "伪协议漏过去了")
+        XCTAssertTrue(bodies.contains("点我"), "文字该留着，只是不再是链接")
+        XCTAssertTrue(
+            bodies.contains("https://www.nodeseek.com/post-1-1#3"),
+            "正常的相对链接该转成绝对地址"
+        )
+    }
+}

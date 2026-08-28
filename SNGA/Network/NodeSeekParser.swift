@@ -397,8 +397,9 @@ struct NodeSeekParser: Sendable {
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
         try replaceEmbedMarkers(in: element)
+        try resolveRelativeURLs(in: element)
         let inner = try element.html()
-        let cleaned = try SwiftSoup.clean(inner, Whitelist.relaxed()) ?? ""
+        let cleaned = try SwiftSoup.clean(inner, Self.postWhitelist()) ?? ""
         let document = try SwiftSoup.parseBodyFragment(cleaned)
         for tag in ["script", "style", "iframe", "form", "object", "embed"] {
             try document.select(tag).remove()
@@ -407,6 +408,41 @@ struct NodeSeekParser: Sendable {
         // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
         // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
         return PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet)
+    }
+
+    /// 把正文里的相对地址换成绝对地址 —— **必须在清洗之前做**。
+    ///
+    /// 站点的正文里到处是相对地址：表情是 `/static/image/sticker/xhj/001.png`，
+    /// 楼层引用是 `/post-895695-1#4`，用户是 `/member?t=xxx`。而清洗白名单是按
+    /// **协议**校验属性的，相对地址没有协议，于是 `src` 和 `href` 被整个丢掉 ——
+    /// 表情全变成裂图，正文里的跳转全成了死链。
+    ///
+    /// 解析这份 HTML 时带了 base URL，所以 `abs:` 前缀能直接拿到绝对地址。
+    private static func resolveRelativeURLs(in element: Element) throws {
+        for image in try element.select("img[src]") {
+            let absolute = try image.attr("abs:src")
+            // 解不出绝对地址的图只会渲染成一个裂图，不如去掉。
+            if absolute.isEmpty { try image.remove() } else { try image.attr("src", absolute) }
+        }
+        for link in try element.select("a[href]") {
+            let absolute = try link.attr("abs:href")
+            if absolute.hasPrefix("http://") || absolute.hasPrefix("https://") {
+                try link.attr("href", absolute)
+            } else {
+                // `javascript:` 之类的留着比丢掉危险。
+                try link.removeAttr("href")
+            }
+        }
+    }
+
+    /// 清洗用的白名单。
+    ///
+    /// 在 relaxed 的基础上放行 `img` 的 `class`：表情是 `<img class="sticker">`，
+    /// 类名没了就没法给它限制尺寸，一张 500px 的表情会把整层楼撑开。
+    /// 放行 class 不带来风险 —— 它只能选中我们自己写的那几条 CSS。
+    private static func postWhitelist() throws -> Whitelist {
+        let whitelist = try Whitelist.relaxed()
+        return try whitelist.addAttributes("img", "class")
     }
 
     /// 把正文里的 `nsapp://` 标记换成一句人话。

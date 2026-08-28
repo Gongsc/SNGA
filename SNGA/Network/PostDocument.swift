@@ -54,5 +54,6 @@ enum PostDocument {
     h1,h2,h3,h4,h5,h6{margin:14px 0 8px;line-height:1.3}h1{font-size:1.5em}h2{font-size:1.3em}h3{font-size:1.15em}h4,h5,h6{font-size:1em}
     th{background:color-mix(in srgb,CanvasText 7%,transparent);font-weight:650;text-align:left}
     del{opacity:.7}
+    .sticker{max-width:120px;max-height:120px;vertical-align:middle}
     """
 }
