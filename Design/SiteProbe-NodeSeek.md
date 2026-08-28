@@ -313,7 +313,15 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
   **`simple-token`**，不是真的令牌 —— 站点自己的 JS 里就这么写死的：
   `headers:{"x-csrf-challenge":"simple-token","content-type":"application/json"}`。
   所以没有「去哪儿取令牌」这一步。全部写请求都带上了。
-  另一个头 **`x-dynamic-sign` 是真要算的**，至少写接口会验：
+  **以上两条都不是回复失败的原因**（2026-08-28 抓到真实请求后更正）。网页版发回复时
+  只带两个头：`content-type` 和 **`csrf-token`**，值是 16 位字母数字，
+  **既不在 localStorage 也不在任何 cookie 里** —— 它是发帖前临时取的：
+  紧挨着 POST 之前有一次 `GET /edge-cgi/util`，返回 **256 字节
+  `application/octet-stream`**（匿名也能调，无 Set-Cookie，大半不可打印）。
+  看形状像「取挑战 → 客户端算出令牌」的防自动化设计。算法在编辑器的懒加载 chunk 里，
+  那个 chunk 只对登录用户下发，尚未拿到。**写操作因此仍然不通。**
+
+  另一个头 **`x-dynamic-sign`**（真要算的，至少 api client 那条路会验）：
 
   ```js
   const t = [n.method, n.url, navigator.userAgent || "", await n.clone().text()].join("\n\n");
