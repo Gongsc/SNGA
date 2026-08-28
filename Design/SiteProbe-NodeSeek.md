@@ -287,8 +287,13 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
     `input[type=radio][name=vote-item][value=<选项id>]`，`label .vote-item-text` 是选项文字。
     单选是 radio，多选想必是 checkbox（没见到样本）。页脚写着「(公开投票)」。
   - **匿名看不到票数**，按钮是禁用的「登陆后再投票」。
-  - `/api/vote/info/{id}` **对手写请求一律 403**（试过 4 个 id、加过 XHR 头，
-    都是 `{"success":false}`），只有页面自己那次是 200 —— 少了什么头还不知道。
+  - `/api/vote/info/{id}` 要一个 **`x-dynamic-sign` 头，只校验它在不在，不看值**
+    （2026-08-28 实测：不带一律 403 `{"success":false}`，填 `1` 立刻 200）。
+    这就是先前「只有页面自己那次是 200」的原因 —— 网页版的 axios 会加这个头。
+    它对本来就能用的接口没有影响（页面、帖子、用户资料带不带都一样），所以
+    `NodeSeekNetworkClient` 在所有 JSON 请求上都带。
+    **它救不了那三个批量接口** —— 带上之后 `list-discussions` 等仍然回假答复，
+    所以防抓取那一条结论不变。
     登录态下页面自己那次的响应字段（2026-08-27 实测）：
     `vote.{id, uid, title, isPublic, locked, multiple}` +
     `vote.items[].{vote_item_id, vote_id, text, count, voted}`。

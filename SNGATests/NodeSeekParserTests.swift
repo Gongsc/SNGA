@@ -1027,13 +1027,19 @@ private final class RecordingTransport: HTTPTransport, @unchecked Sendable {
 
     var requests: [URLRequest] { lock.withLock { _requests } }
 
-    init(responding body: String) {
+    /// 按路径给不同的响应。取不到就用 `body` 兜底。
+    private let byPath: [String: String]
+
+    init(responding body: String, byPath: [String: String] = [:]) {
         self.body = Data(body.utf8)
+        self.byPath = byPath
     }
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         lock.withLock { _requests.append(request) }
-        return (body, HTTPURLResponse(
+        let path = request.url?.path ?? ""
+        let payload = byPath.first { path.hasPrefix($0.key) }?.value
+        return (payload.map { Data($0.utf8) } ?? body, HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
             httpVersion: nil,
@@ -1147,5 +1153,114 @@ final class NodeSeekPollSubmissionTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? ForumServiceError, .restricted("你已经投过了"))
         }
+    }
+}
+
+/// 投票从帖子页一路挂到主楼上。
+///
+/// 前面那些用例各测一段，接不接得起来是另一回事 —— 上一版就是每段都对、
+/// 接起来不通：找编号那一步收的是清洗过的正文，标记早没了。
+final class NodeSeekPollEndToEndTests: XCTestCase {
+
+    private func pageHTML() throws -> String {
+        try String(
+            contentsOf: try XCTUnwrap(
+                Bundle(for: NodeSeekParserTests.self)
+                    .url(forResource: "nodeseek-post-poll", withExtension: "html")
+            ),
+            encoding: .utf8
+        )
+    }
+
+    private func voteInfoJSON() throws -> String {
+        try String(
+            contentsOf: try XCTUnwrap(
+                Bundle(for: NodeSeekParserTests.self)
+                    .url(forResource: "nodeseek-vote-info", withExtension: "json")
+            ),
+            encoding: .utf8
+        )
+    }
+
+    func testThePollReachesTheOpeningPost() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": try voteInfoJSON()]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(),
+            cookies: [],
+            transport: transport,
+            userAgent: "probe"
+        )
+
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+
+        let opening = try XCTUnwrap(page.posts.first { $0.floor == 0 })
+        let poll = try XCTUnwrap(opening.poll, "投票没挂到主楼上")
+        XCTAssertEqual(try XCTUnwrap(poll.groups.first).options.count, 5)
+        XCTAssertEqual(poll.totalVoteCount, 88)
+    }
+
+    /// 编号得来自正文里的标记，不是话题编号 —— 拿话题编号去请求会取到别人的投票。
+    func testThePollIsFetchedByTheMarkersIDNotTheTopicID() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": try voteInfoJSON()]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+
+        _ = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+
+        let votePath = transport.requests.compactMap(\.url?.path).first { $0.contains("/vote/info/") }
+        XCTAssertEqual(votePath, "/api/vote/info/3027")
+    }
+
+    /// 取不到投票时帖子照常显示。为一个附加内容让整页打不开，是把小毛病放大。
+    func testAFailedPollFetchStillLeavesTheThreadReadable() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": #"{"success":false}"#]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+
+        XCTAssertFalse(page.posts.isEmpty, "帖子被投票拖垮了")
+        XCTAssertNil(page.posts.first { $0.floor == 0 }?.poll)
+    }
+
+    /// 投票接口只认这个头在不在。不带它一律 403，而 403 时投票就不显示 ——
+    /// 正是它让投票一直出不来。
+    func testEveryJSONRequestCarriesTheDynamicSignHeader() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": try voteInfoJSON()]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+
+        _ = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+
+        let voteRequest = try XCTUnwrap(
+            transport.requests.first { $0.url?.path.contains("/vote/info/") == true }
+        )
+        XCTAssertNotNil(
+            voteRequest.value(forHTTPHeaderField: "x-dynamic-sign"),
+            "少了这个头，站点回 403，投票就再也显示不出来"
+        )
     }
 }
