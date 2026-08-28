@@ -64,6 +64,7 @@ struct NodeSeekParser: Sendable {
         let forumID = try categoryLink
             .flatMap { Self.forumID(fromPath: try $0.attr("href")) } ?? fallbackForumID
         let categoryName = try categoryLink?.text().trimmingCharacters(in: .whitespacesAndNewlines)
+        let badges = try Self.badges(inTitleBlock: titleLink.parent())
 
         return Topic(
             id: topicID,
@@ -73,10 +74,46 @@ struct NodeSeekParser: Sendable {
             authorUID: authorUID,
             replyCount: replyCount,
             lastReplyAt: lastReplyAt,
-            // 置顶只以那个图标的 title 出现，没有别的标记。
-            isPinned: !(try item.select("span[title=置顶]").isEmpty()),
-            sourceForumName: categoryName
+            isPinned: badges.contains { $0.title == Self.pinnedBadgeTitle },
+            sourceForumName: categoryName,
+            badges: badges
         )
+    }
+
+    static let pinnedBadgeTitle = "置顶"
+
+    /// 标题旁边那些标记。
+    ///
+    /// 站点把它们做成标题块里的小图标，说明文字放在 `title` 属性里 ——
+    /// 置顶是 `<span title="置顶">`，推荐阅读是 `<a href="/award" title="推荐阅读">`。
+    ///
+    /// **不按名字一个个认。** 站点会加新的标记（等级限制匿名就看不到，是后来才有的），
+    /// 只认识几个写死的名字，新标记就会悄悄消失。这里的规则是「标题块里带 title 的
+    /// 元素都是标记」，认得出的给个像样的图标，认不出的照样显示，用站点自己的说法。
+    private static func badges(inTitleBlock block: Element?) throws -> [TopicBadge] {
+        guard let block else { return [] }
+        var badges: [TopicBadge] = []
+        var seen = Set<String>()
+        for element in try block.select("[title]") {
+            let title = try element.attr("title").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty, seen.insert(title).inserted else { continue }
+            badges.append(TopicBadge(title: title, systemImage: badgeSystemImage(in: element)))
+        }
+        return badges
+    }
+
+    /// 图标名从站点自己的图标类名认，而不是从中文说法认 —— 类名比展示文字稳。
+    private static func badgeSystemImage(in element: Element) -> String {
+        let iconClasses = ((try? element.select("svg").first()?.className()) ?? "") ?? ""
+        for name in iconClasses.split(separator: " ") {
+            switch name {
+            case "pined": return "pin.fill"
+            case "award": return "rosette"
+            case "lock", "locked": return "lock.fill"
+            default: continue
+            }
+        }
+        return "tag"
     }
 
     /// 从分页条读总页数。

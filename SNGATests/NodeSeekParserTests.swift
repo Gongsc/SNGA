@@ -1525,3 +1525,75 @@ final class NodeSeekPaidReactionTests: XCTestCase {
         }
     }
 }
+
+/// 列表上标题旁边的标记。
+extension NodeSeekParserTests {
+
+    private func dailyTopics() throws -> [Topic] {
+        try parser.topicList(
+            html: try fixture("nodeseek-category-daily"), forumID: daily, page: 1
+        ).topics
+    }
+
+    func testPinnedAndAwardBadgesAreRead() throws {
+        let topics = try dailyTopics()
+
+        let pinned = try XCTUnwrap(topics.first { $0.badges.contains { $0.title == "置顶" } })
+        XCTAssertTrue(pinned.isPinned, "置顶标记在，isPinned 也该跟着")
+        XCTAssertEqual(
+            pinned.badges.first { $0.title == "置顶" }?.systemImage,
+            "pin.fill"
+        )
+        XCTAssertTrue(
+            topics.contains { $0.badges.contains { $0.title == "推荐阅读" } },
+            "推荐阅读没读出来"
+        )
+    }
+
+    /// 没有标记的话题就是没有，不该凭空多出一个。
+    func testAnOrdinaryTopicHasNoBadges() throws {
+        XCTAssertTrue(
+            try dailyTopics().contains { $0.badges.isEmpty },
+            "所有话题都带上标记了，说明选择器抓过头"
+        )
+    }
+
+    /// 标记不按名字一个个认。站点加新标记时（等级限制就是匿名看不到的那种），
+    /// 认不出来也要照样显示，用它自己的说法。
+    func testAnUnknownBadgeIsStillCarriedWithTheSitesWording() throws {
+        let html = """
+        <li class="post-list-item"><div class="post-list-content">
+          <div class="post-title">
+            <a href="/post-9-1">帖子</a>
+            <span title="等级限制"><svg class="iconpark-icon whatever"></svg></span>
+          </div>
+          <div class="post-info"><span class="info-item info-author"><a href="/space/1">谁</a></span></div>
+        </div></li>
+        """
+        let topic = try XCTUnwrap(
+            try parser.topicList(html: html, forumID: daily, page: 1).topics.first
+        )
+
+        XCTAssertEqual(topic.badges.map(\.title), ["等级限制"])
+        XCTAssertEqual(topic.badges.first?.systemImage, "tag", "认不出的用中性图标")
+        XCTAssertFalse(topic.isPinned, "它不是置顶")
+    }
+
+    /// 同一个标记出现两次（图标和外层都带 title）只算一个。
+    func testADuplicatedBadgeIsListedOnce() throws {
+        let html = """
+        <li class="post-list-item"><div class="post-list-content">
+          <div class="post-title">
+            <a href="/post-9-1">帖子</a>
+            <span title="置顶"><svg class="iconpark-icon pined" title="置顶"></svg></span>
+          </div>
+          <div class="post-info"><span class="info-item info-author"><a href="/space/1">谁</a></span></div>
+        </div></li>
+        """
+        let topic = try XCTUnwrap(
+            try parser.topicList(html: html, forumID: daily, page: 1).topics.first
+        )
+
+        XCTAssertEqual(topic.badges.count, 1)
+    }
+}

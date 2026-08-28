@@ -88,6 +88,11 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var mirroredForumID: ForumID? = nil
     var isFavorite: Bool = false
     var subjectColor: TopicSubjectColor? = nil
+    /// 列表上挂在标题旁边的标记：置顶、推荐阅读、等级限制这类。
+    ///
+    /// 站点会随时加新的标记，所以这里不是一组固定的布尔值 —— 认不出来的照样带过来，
+    /// 用站点自己的说法显示。少显示一个标记，读者就少一条判断这帖值不值得点的依据。
+    var badges: [TopicBadge] = []
     var rating: TopicRating? = nil
 }
 
@@ -406,6 +411,16 @@ struct Profile: Hashable, Codable, Sendable {
     var unreadMentions: Int? = nil
     var unreadMessages: Int? = nil
     var isMasked: Bool = false
+}
+
+/// 话题列表上标题旁边的一个标记。
+struct TopicBadge: Identifiable, Hashable, Codable, Sendable {
+    /// 站点自己的说法，直接显示给读者。
+    let title: String
+    /// 画哪个图标。认不出来的标记用一个中性的。
+    var systemImage: String = "tag"
+
+    var id: String { title }
 }
 
 /// 楼层上的一种表态。
