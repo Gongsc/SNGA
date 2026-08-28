@@ -407,6 +407,7 @@ struct NodeSeekParser: Sendable {
     private static func sanitized(_ element: Element) throws -> String {
         try replaceEmbedMarkers(in: element)
         try rewriteTabs(in: element)
+        try renderANSI(in: element)
         try resolveRelativeURLs(in: element)
         let inner = try element.html()
         let cleaned = try SwiftSoup.clean(inner, Self.postWhitelist()) ?? ""
@@ -417,7 +418,39 @@ struct NodeSeekParser: Sendable {
         let body = try document.body()?.html() ?? cleaned
         // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
         // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
-        return PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet)
+        return PostDocument.html(
+            body: body,
+            extraCSS: PostDocument.markdownStyleSheet + "\n" + PostDocument.ansiStyleSheet
+        )
+    }
+
+    /// 把终端输出里的 ANSI 颜色渲染出来。
+    ///
+    /// 测评帖里常贴检测脚本的输出，那些输出是带色的。站点把 ESC 这个控制字符渲染成
+    /// `<span data-ansicode="27"></span>`，其余部分（`[36m`）留成普通文字，
+    /// 等网页版的脚本去解释 —— 而我们不跑脚本。
+    ///
+    /// 不处理的话，清洗会把那些空 span 连同 `data-ansicode` 一起丢掉，只剩下满篇的
+    /// `[36m`、`[0m`：颜色没了，还多了一地噪声。
+    ///
+    /// 先把那些 span 还原成真正的控制字符，再交给 `ANSIText` 解释。
+    private static func renderANSI(in element: Element) throws {
+        for code in try element.select("code") {
+            let markers = try code.select("span[data-ansicode]")
+            guard !markers.isEmpty() else { continue }
+            for marker in markers {
+                let value = Int(try marker.attr("data-ansicode")) ?? 0
+                guard let scalar = UnicodeScalar(value) else {
+                    try marker.remove()
+                    continue
+                }
+                try marker.replaceWith(TextNode(String(Character(scalar)), nil))
+            }
+            // `<code>` 里装的是纯文本，取 text 顺带把实体解开了。
+            let text = try code.text(trimAndNormaliseWhitespace: false)
+            guard ANSIText.containsEscapes(text) else { continue }
+            try code.html(ANSIText.html(from: text))
+        }
     }
 
     /// 把站点的标签页容器改写成一套纯 CSS 就能切换的结构。
@@ -509,6 +542,8 @@ struct NodeSeekParser: Sendable {
         _ = try whitelist.addTags("input", "label")
         _ = try whitelist.addAttributes("input", "type", "name", "id", "checked")
         _ = try whitelist.addAttributes("label", "for", "class")
+        // ANSI 的颜色靠 span 上的类名。
+        _ = try whitelist.addAttributes("span", "class")
         return try whitelist.addAttributes("div", "class")
     }
 

@@ -2120,3 +2120,32 @@ extension NodeSeekParserTests {
         XCTAssertTrue(body.contains("空的一页"))
     }
 }
+
+/// 帖子里的终端输出。
+extension NodeSeekParserTests {
+
+    func testTerminalOutputIsColouredAndLeavesNoEscapeCodes() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(html.contains("ansi-fg-6"), "青色没渲染出来")
+        XCTAssertTrue(html.contains("ansi-fg-2"), "绿色没渲染出来")
+        XCTAssertTrue(html.contains("ansi-b"), "粗体没渲染出来")
+        // 站点把 ESC 渲染成空 span，清洗会把它连同属性一起丢掉，只剩 `[36m` 这种噪声。
+        XCTAssertFalse(html.contains("[36m"), "转义序列漏成了正文")
+        XCTAssertFalse(html.contains("[0m"), "转义序列漏成了正文")
+        XCTAssertFalse(html.contains("data-ansicode"), "还留着站点的标记")
+    }
+
+    /// 报告的正文本身要完整留着。
+    func testTheReportTextItselfSurvives() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(html.contains("硬件质量体检报告"))
+        XCTAssertTrue(html.contains("KVM 虚拟机"))
+    }
+
+    /// 调色板得真的在文档里，否则那些类名什么也不做。
+    func testThePaletteIsInTheDocument() throws {
+        XCTAssertTrue(try tabsPostBody().contains(".ansi-fg-6"))
+    }
+}

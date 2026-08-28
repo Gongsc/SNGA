@@ -64,4 +64,25 @@ enum PostDocument {
     .ns-tabs input:checked+.ns-tab+.ns-tab-panel{display:block}
     .ns-tabs .ns-tab-panel>:first-child{margin-top:0}.ns-tabs .ns-tab-panel>:last-child{margin-bottom:0}
     """
+
+    /// 终端输出的调色板。
+    ///
+    /// 黑和白不用字面的黑白：正文的明暗跟着系统走，写死的黑字在深色下、白字在浅色下
+    /// 都会看不见。这两个改用 `CanvasText` 的深浅，其余六色沿用终端惯例，
+    /// 并在深色下换一组更亮的 —— 终端的标准色在深底上偏暗。
+    static let ansiStyleSheet = """
+    .ansi-b{font-weight:700}.ansi-d{opacity:.65}.ansi-i{font-style:italic}
+    .ansi-u{text-decoration:underline}.ansi-s{text-decoration:line-through}
+    :root{--ansi-0:color-mix(in srgb,CanvasText 70%,transparent);--ansi-1:#c0392b;--ansi-2:#1e8449;--ansi-3:#b7791f;--ansi-4:#2471a3;--ansi-5:#8e44ad;--ansi-6:#128f8f;--ansi-7:color-mix(in srgb,CanvasText 45%,transparent)}
+    @media(prefers-color-scheme:dark){:root{--ansi-1:#ff6b6b;--ansi-2:#5cd48a;--ansi-3:#e8c06a;--ansi-4:#6cb6ff;--ansi-5:#d08bf5;--ansi-6:#4ad4d4}}
+    .ansi-fg-0,.ansi-fgb-0{color:var(--ansi-0)}.ansi-fg-1,.ansi-fgb-1{color:var(--ansi-1)}
+    .ansi-fg-2,.ansi-fgb-2{color:var(--ansi-2)}.ansi-fg-3,.ansi-fgb-3{color:var(--ansi-3)}
+    .ansi-fg-4,.ansi-fgb-4{color:var(--ansi-4)}.ansi-fg-5,.ansi-fgb-5{color:var(--ansi-5)}
+    .ansi-fg-6,.ansi-fgb-6{color:var(--ansi-6)}.ansi-fg-7,.ansi-fgb-7{color:var(--ansi-7)}
+    .ansi-bg-0,.ansi-bgb-0{background:var(--ansi-0)}.ansi-bg-1,.ansi-bgb-1{background:var(--ansi-1)}
+    .ansi-bg-2,.ansi-bgb-2{background:var(--ansi-2)}.ansi-bg-3,.ansi-bgb-3{background:var(--ansi-3)}
+    .ansi-bg-4,.ansi-bgb-4{background:var(--ansi-4)}.ansi-bg-5,.ansi-bgb-5{background:var(--ansi-5)}
+    .ansi-bg-6,.ansi-bgb-6{background:var(--ansi-6)}.ansi-bg-7,.ansi-bgb-7{background:var(--ansi-7)}
+    [class*="ansi-bg-"]{color:Canvas;padding:0 2px;border-radius:2px}
+    """
 }
