@@ -72,6 +72,28 @@
     }
     return original.apply(this, arguments);
   };
-  console.log('钩子已挂上。现在在网页上正常发一条回复 —— 发完页面会自动刷新，'
-            + '刷新后把这段再粘一次，就能看到抓到的东西。');
+  // 万一那条请求走的是 XMLHttpRequest 而不是 fetch，上面的钩子抓不到。
+  const openOriginal = XMLHttpRequest.prototype.open;
+  const setHeaderOriginal = XMLHttpRequest.prototype.setRequestHeader;
+  const sendOriginal = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__probe = { method: String(method).toUpperCase(), url: String(url), headers: new Map() };
+    return openOriginal.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (this.__probe) this.__probe.headers.set(String(name), String(value));
+    return setHeaderOriginal.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function (body) {
+    const probe = this.__probe;
+    if (probe && probe.method !== 'GET'
+        && /\/api\/(content|statistics|notification)\//.test(probe.url)) {
+      report('【写请求·XHR】', probe.method, probe.url, probe.headers,
+             typeof body === 'string' ? body : '');
+    }
+    return sendOriginal.apply(this, arguments);
+  };
+
+  console.log('钩子已挂上（fetch 和 XHR 都挂了）。现在在网页上正常发一条回复 —— '
+            + '发完页面会自动刷新，刷新后把这段再粘一次，就能看到抓到的东西。');
 })();
