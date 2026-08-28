@@ -175,6 +175,12 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     /// 后两种**要花掉读者自己的鸡腿，而且都不可撤销**，所以每一项都带着代价，
     /// 界面必须把它说出来。
     var reactions: [PostReaction] = []
+    /// 这个**话题**被收藏了多少次，以及我收藏了没有。
+    ///
+    /// 只有主楼有。收藏是话题级的，但网页版就是把它和楼层的表态并排画在主楼那一行，
+    /// 所以跟着楼层走 —— 楼层视图拿不到 `Topic`。
+    var topicCollectionCount: Int? = nil
+    var isTopicCollected: Bool = false
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
 }

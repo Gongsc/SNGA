@@ -281,6 +281,13 @@ struct NodeSeekParser: Sendable {
         guard !posts.isEmpty else {
             throw ForumServiceError.unexpectedPage("内嵌状态里的楼层都读不出来")
         }
+        // 收藏是话题级的，但网页版把它和楼层的表态并排画在主楼那一行。
+        if let opening = posts.firstIndex(where: { $0.floor == 0 }) {
+            posts[opening].topicCollectionCount =
+                (postData["collectionCount"] as? NSNumber)?.intValue
+            posts[opening].isTopicCollected =
+                (postData["collected"] as? NSNumber)?.boolValue == true
+        }
 
         let totalPages = max(1, (postData["postPageCount"] as? NSNumber)?.intValue ?? 1)
         let categoryKey = postData["category"] as? String
@@ -304,14 +311,16 @@ struct NodeSeekParser: Sendable {
         )
     }
 
-    /// 要花鸡腿的那两种表态。
+    /// 楼层上的三种表态：投喂（免费）、加鸡腿（1 个鸡腿）、反对（2 个）。
     ///
-    /// 投喂不在里面 —— 它免费，已经接在界面的赞上了。这两种都不可撤销，所以
-    /// 「我点过没有」必须带出来：不显示的话，点过的人会再花一次钱。
+    /// 三种都带出来，因为网页版把三个数并排显示在楼层右下角，少一个就对不上。
+    /// 三种也都不可撤销，所以「我点过没有」必须带出来：不显示的话，
+    /// 点过的人会再点一次 —— 免费的那个白点，要花钱的那两个是真花钱。
     private static func paidReactions(in comment: [String: Any]) -> [PostReaction] {
-        NodeSeekReaction.allCases.filter { !$0.isFree }.map { reaction in
+        NodeSeekReaction.allCases.map { reaction in
             let countKey = "\(reaction.rawValue)Count"
-            let chosenKey = reaction == .like ? "liked" : "disliked"
+            let chosenKey = reaction.rawValue == "upvote" ? "upvoted"
+                : (reaction == .like ? "liked" : "disliked")
             return PostReaction(
                 id: reaction.rawValue,
                 title: reaction.title,
@@ -319,7 +328,7 @@ struct NodeSeekParser: Sendable {
                 count: (comment[countKey] as? NSNumber)?.intValue,
                 isChosen: (comment[chosenKey] as? NSNumber)?.boolValue == true,
                 cost: reaction.costDescription,
-                // 三种表态站点都不给撤。
+                // 三种表态站点都不给撤，免费的投喂也一样。
                 isIrreversible: true
             )
         }

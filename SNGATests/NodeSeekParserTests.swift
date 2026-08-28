@@ -1403,15 +1403,16 @@ extension NodeSeekParserTests {
         return try XCTUnwrap(page.posts.first)
     }
 
-    func testPaidReactionsAreCarriedWithTheirPrice() throws {
+    /// 三种表态都要带出来：网页版把三个数并排摆在楼层右下角，少一个就对不上。
+    func testAllThreeReactionsAreCarriedWithTheirPrice() throws {
         let reactions = try firstPost().reactions
 
-        XCTAssertEqual(reactions.map(\.id), ["like", "dislike"])
-        XCTAssertEqual(reactions.map(\.title), ["加鸡腿", "反对"])
+        XCTAssertEqual(reactions.map(\.id), ["upvote", "like", "dislike"])
+        XCTAssertEqual(reactions.map(\.title), ["投喂", "加鸡腿", "反对"])
         XCTAssertEqual(
             reactions.map(\.cost),
-            ["花费 1 个鸡腿", "花费 2 个鸡腿"],
-            "价钱必须带出来 —— 界面要靠它决定问不问"
+            [nil, "花费 1 个鸡腿", "花费 2 个鸡腿"],
+            "投喂免费，另外两种的价钱必须带出来 —— 界面靠它决定问不问"
         )
     }
 
@@ -1420,9 +1421,11 @@ extension NodeSeekParserTests {
         XCTAssertTrue(try firstPost().reactions.allSatisfy(\.isIrreversible))
     }
 
-    /// 投喂是免费的，已经接在界面的赞上。再放进这个菜单，就会有两个入口做同一件事。
-    func testTheFreeReactionIsNotInTheMenu() throws {
-        XCTAssertFalse(try firstPost().reactions.contains { $0.id == "upvote" })
+    /// 投喂免费，另外两种要花钱。界面靠这个区分「直接发」和「先问一次」。
+    func testOnlyTheFreeReactionHasNoPrice() throws {
+        let free = try firstPost().reactions.filter { $0.cost == nil }
+
+        XCTAssertEqual(free.map(\.id), ["upvote"])
     }
 
     /// 「我点过没有」必须带出来。不可撤销的表态里，这一条是防止用户再花一次钱的唯一依据。
@@ -1933,6 +1936,66 @@ extension NodeSeekParserTests {
         XCTAssertTrue(
             bodies.contains("https://www.nodeseek.com/post-1-1#3"),
             "正常的相对链接该转成绝对地址"
+        )
+    }
+}
+
+/// 楼层右下角那四个数。夹具是 post-1033 的真实页面。
+extension NodeSeekParserTests {
+
+    private func countsPage() throws -> ThreadPage {
+        try parser.threadPage(
+            html: try fixture("nodeseek-post-counts"),
+            topicID: TopicID(rawValue: 1033),
+            page: 1
+        )
+    }
+
+    func testTheThreeReactionCountsComeFromTheState() throws {
+        let opening = try XCTUnwrap(try countsPage().posts.first { $0.floor == 0 })
+
+        XCTAssertEqual(opening.reactions.map(\.count), [176, 307, 0])
+        XCTAssertEqual(opening.upvoteCount, 176, "赞的计数仍然是投喂那一个")
+    }
+
+    /// 收藏是话题级的，但网页版把它画在主楼那一行 —— 楼层视图拿不到 Topic，
+    /// 所以跟着主楼走。
+    func testTheTopicCollectionCountRidesOnTheOpeningPost() throws {
+        let page = try countsPage()
+        let opening = try XCTUnwrap(page.posts.first { $0.floor == 0 })
+
+        XCTAssertEqual(opening.topicCollectionCount, 1480)
+        XCTAssertFalse(opening.isTopicCollected)
+    }
+
+    /// 回帖上不该冒出话题的收藏数 —— 那不是这一层的数。
+    func testRepliesDoNotCarryTheCollectionCount() throws {
+        let replies = try countsPage().posts.filter { $0.floor != 0 }
+
+        XCTAssertFalse(replies.isEmpty, "前提：这一页有回帖")
+        XCTAssertTrue(replies.allSatisfy { $0.topicCollectionCount == nil })
+    }
+
+    /// 「我点过没有」三种各读各的键，别串。
+    func testEachReactionReadsItsOwnChosenFlag() throws {
+        let html = """
+        <html><body><script>var s="\(
+            Data(#"""
+            {"postData":{"postId":1,"title":"t","postPageCount":1,"collectionCount":0,
+             "comments":[{"commentId":9,"floorIndex":0,"upvoteCount":1,"likeCount":2,
+             "dislikeCount":3,"upvoted":false,"liked":true,"disliked":false,
+             "poster":{"uid":1,"name":"谁"},"time":{"createdDate":"2026-08-01T00:00:00.000Z"}}]}}
+            """#.utf8).base64EncodedString()
+        )"</script></body></html>
+        """
+        let post = try XCTUnwrap(
+            try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1).posts.first
+        )
+
+        XCTAssertEqual(
+            post.reactions.map(\.isChosen),
+            [false, true, false],
+            "只加过鸡腿，投喂和反对都没点过"
         )
     }
 }
