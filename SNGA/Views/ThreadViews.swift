@@ -1045,6 +1045,9 @@ struct PostRow: View {
                         .accessibilityIdentifier("post-edited-\(post.id.rawValue)")
                 }
                 Spacer()
+                if !post.reactions.isEmpty {
+                    PostReactionMenu(post: post)
+                }
                 if model.session.supports(.postVote) {
                     voteButton(direction: .up)
                     // 反方向单独问一次。有的站点只有一个方向（V2EX 只能感谢），
@@ -1868,5 +1871,84 @@ private struct UBBResourcePopover: View {
     private func performInsert() {
         guard isValidURL else { return }
         insert(trimmedValue)
+    }
+}
+
+/// 赞踩之外的表态。
+///
+/// 单独做成一个菜单，是因为这些表态**可能花掉用户自己的东西而且撤不回来**
+/// （NodeSeek 的加鸡腿 1 个鸡腿、反对 2 个）。价钱直接写在菜单项上，点了还要再确认一次 ——
+/// 一个不作声就扣钱的按钮，比没有这个功能更糟。
+private struct PostReactionMenu: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    let post: Post
+
+    @State private var pending: PostReaction?
+
+    var body: some View {
+        Menu {
+            ForEach(post.reactions) { reaction in
+                Button {
+                    // 免费又可撤销的直接发；要花钱或撤不回来的先问。
+                    if reaction.cost == nil, !reaction.isIrreversible {
+                        submit(reaction)
+                    } else {
+                        pending = reaction
+                    }
+                } label: {
+                    Label(menuTitle(for: reaction), systemImage: reaction.systemImage)
+                }
+                // 撤不回来的表态点过就不给再点了 —— 再点一次只是再花一次钱。
+                .disabled(reaction.isChosen && reaction.isIrreversible)
+            }
+        } label: {
+            Label("更多表态", systemImage: "ellipsis.circle")
+        }
+        .labelStyle(.iconOnly)
+        .menuIndicator(.hidden)
+        .help("加鸡腿、反对等站点表态")
+        .disabled(model.thread.votingPostIDs.contains(post.id))
+        .accessibilityIdentifier("post-reactions-\(post.id.rawValue)")
+        .confirmationDialog(
+            pending.map(confirmationTitle) ?? "",
+            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+            titleVisibility: .visible,
+            presenting: pending
+        ) { reaction in
+            Button(reaction.title, role: reaction.id == "dislike" ? .destructive : nil) {
+                submit(reaction)
+                pending = nil
+            }
+            Button("取消", role: .cancel) { pending = nil }
+        } message: { reaction in
+            Text(confirmationMessage(for: reaction))
+        }
+    }
+
+    /// 菜单上就把计数和价钱写出来，不用点开才知道。
+    private func menuTitle(for reaction: PostReaction) -> String {
+        var parts = [reaction.title]
+        if let count = reaction.count { parts.append("\(count)") }
+        if reaction.isChosen {
+            parts.append("已提交")
+        } else if let cost = reaction.cost {
+            parts.append("· \(cost)")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func confirmationTitle(_ reaction: PostReaction) -> String {
+        reaction.cost.map { "\(reaction.title)将\($0)" } ?? "确认\(reaction.title)？"
+    }
+
+    private func confirmationMessage(for reaction: PostReaction) -> String {
+        reaction.isIrreversible
+            ? "这个操作无法撤销。"
+            : "确认要\(reaction.title)吗？"
+    }
+
+    private func submit(_ reaction: PostReaction) {
+        Task { await model.thread.submitReaction(on: post, reactionID: reaction.id) }
     }
 }

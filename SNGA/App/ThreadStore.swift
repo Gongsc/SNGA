@@ -638,6 +638,54 @@ final class ThreadStore {
         }
     }
 
+    /// 提交一次赞踩之外的表态。
+    ///
+    /// 这类表态可能花掉用户的东西且不可撤销（NodeSeek 的加鸡腿 1 个鸡腿、反对 2 个），
+    /// 所以这里**不做即时更新**：先发出去，成了再整页刷新，让服务器的数说了算。
+    /// 先把数字改上去再回滚，会在失败时让人以为自己已经花过钱了。
+    @discardableResult
+    func submitReaction(on post: Post, reactionID: String) async -> Bool {
+        guard let service = session.activeService,
+              !votingPostIDs.contains(post.id) else {
+            return false
+        }
+        votingPostIDs.insert(post.id)
+        defer { votingPostIDs.remove(post.id) }
+
+        let requestAccountID = service.accountID
+        let currentPage = page
+        do {
+            _ = try await service.submitPostReaction(
+                topicID: post.topicID,
+                postID: post.id,
+                reactionID: reactionID
+            )
+            guard session.activeAccountID == requestAccountID,
+                  selectedTopicID == post.topicID else {
+                return false
+            }
+            await loadPage(topicID: post.topicID, page: currentPage)
+            session.statusMessage = "已提交"
+            session.statusMessageIsError = false
+            return true
+        } catch {
+            guard session.activeAccountID == requestAccountID,
+                  selectedTopicID == post.topicID else {
+                return false
+            }
+            if voteSubmissionMayHaveSucceeded(error) {
+                // 响应不明确时不能当失败报 —— 这类表态收不回来，用户看到失败会再点一次，
+                // 那就真的花两份钱了。刷新，让页面上的数说了算。
+                await loadPage(topicID: post.topicID, page: currentPage)
+                session.statusMessage = "请求已提交，结果以刷新后的楼层为准"
+                session.statusMessageIsError = false
+                return true
+            }
+            session.present(error)
+            return false
+        }
+    }
+
     func submitTopicPollVote(topicID: TopicID, selection: Set<String>) async -> Bool {
         guard let service = session.activeService,
               let poll = posts.lazy.compactMap(\.poll).first(where: { $0.id == topicID }),

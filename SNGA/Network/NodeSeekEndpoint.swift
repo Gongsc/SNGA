@@ -175,6 +175,28 @@ enum NodeSeekReaction: String, Sendable, CaseIterable {
 
     var isFree: Bool { self == .upvote }
 
+    /// 界面上的名字。用站点自己的说法。
+    var title: String {
+        switch self {
+        case .upvote: "投喂"
+        case .like: "加鸡腿"
+        case .dislike: "反对"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .upvote: "hand.thumbsup"
+        case .like: "drumstick"
+        case .dislike: "hand.thumbsdown"
+        }
+    }
+
+    /// 一句话说清这一下要花什么。免费的没有代价，返回 nil。
+    var costDescription: String? {
+        chickenCost > 0 ? "花费 \(chickenCost) 个鸡腿" : nil
+    }
+
     /// 花掉读者多少个鸡腿。
     var chickenCost: Int {
         switch self {

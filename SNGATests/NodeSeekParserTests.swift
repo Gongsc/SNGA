@@ -1390,3 +1390,138 @@ final class NodeSeekCollectionTests: XCTestCase {
         }
     }
 }
+
+/// 要花鸡腿的两种表态：加鸡腿（1 个）和反对（2 个）。
+extension NodeSeekParserTests {
+
+    private func firstPost() throws -> Post {
+        let page = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 1),
+            page: 1
+        )
+        return try XCTUnwrap(page.posts.first)
+    }
+
+    func testPaidReactionsAreCarriedWithTheirPrice() throws {
+        let reactions = try firstPost().reactions
+
+        XCTAssertEqual(reactions.map(\.id), ["like", "dislike"])
+        XCTAssertEqual(reactions.map(\.title), ["加鸡腿", "反对"])
+        XCTAssertEqual(
+            reactions.map(\.cost),
+            ["花费 1 个鸡腿", "花费 2 个鸡腿"],
+            "价钱必须带出来 —— 界面要靠它决定问不问"
+        )
+    }
+
+    /// 三种表态站点都不给撤。界面据此禁掉已经点过的那一项。
+    func testEveryPaidReactionIsMarkedIrreversible() throws {
+        XCTAssertTrue(try firstPost().reactions.allSatisfy(\.isIrreversible))
+    }
+
+    /// 投喂是免费的，已经接在界面的赞上。再放进这个菜单，就会有两个入口做同一件事。
+    func testTheFreeReactionIsNotInTheMenu() throws {
+        XCTAssertFalse(try firstPost().reactions.contains { $0.id == "upvote" })
+    }
+
+    /// 「我点过没有」必须带出来。不可撤销的表态里，这一条是防止用户再花一次钱的唯一依据。
+    func testWhetherIAlreadyReactedIsCarried() throws {
+        let reactions = try NodeSeekParser().threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 1),
+            page: 1
+        ).posts.flatMap(\.reactions)
+
+        // 夹具里至少有一条能表达「点过」和「没点过」的区别。
+        XCTAssertNotNil(reactions.first?.isChosen)
+        XCTAssertEqual(reactions.filter { $0.count != nil }.isEmpty, false, "计数没带出来")
+    }
+}
+
+/// 提交加鸡腿 / 反对。
+final class NodeSeekPaidReactionTests: XCTestCase {
+
+    private func service(_ transport: RecordingHTTPTransport) -> NodeSeekForumService {
+        NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+    }
+
+    func testAddingAChickenLegHitsTheRightEndpoint() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true,"current":4}"#)
+
+        _ = try await service(transport).submitPostReaction(
+            topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 77), reactionID: "like"
+        )
+
+        let request = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(request.url?.path, "/api/statistics/like")
+        let body = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any]
+        )
+        XCTAssertEqual(body["commentId"] as? Int64, 77)
+        XCTAssertEqual(body["action"] as? String, "add")
+    }
+
+    func testDislikeHitsItsOwnEndpoint() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true,"current":1}"#)
+
+        _ = try await service(transport).submitPostReaction(
+            topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 77), reactionID: "dislike"
+        )
+
+        XCTAssertEqual(transport.requests.last?.url?.path, "/api/statistics/dislike")
+    }
+
+    /// 响应里的 current 是这一种表态的计数，不是赞的计数。当成赞数返回会把界面上的
+    /// 数字改错，所以这里什么都不返回，由调用方刷新页面拿准数。
+    func testTheResponseCountIsNotPassedOffAsTheUpvoteCount() async throws {
+        let state = try await service(
+            RecordingHTTPTransport(responding: #"{"success":true,"current":99}"#)
+        ).submitPostReaction(
+            topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 77), reactionID: "like"
+        )
+
+        XCTAssertNil(state)
+    }
+
+    /// 免费的投喂走点赞那条路。从这里进来说明调用点串了 —— 放行会让它绕过界面的确认。
+    func testTheFreeReactionIsRefusedHere() async {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+        do {
+            _ = try await service(transport).submitPostReaction(
+                topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 1), reactionID: "upvote"
+            )
+            XCTFail("投喂不该从这条路发出去")
+        } catch {
+            XCTAssertTrue(transport.requests.isEmpty)
+        }
+    }
+
+    func testAnUnknownReactionIsRefusedBeforeSending() async {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+        do {
+            _ = try await service(transport).submitPostReaction(
+                topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 1), reactionID: "喜欢"
+            )
+            XCTFail("认不出来的表态不该发出去")
+        } catch {
+            XCTAssertTrue(transport.requests.isEmpty)
+        }
+    }
+
+    /// 鸡腿不够之类的失败，把站点自己的话抛出去。
+    func testAServerRefusalCarriesItsOwnWords() async {
+        do {
+            _ = try await service(
+                RecordingHTTPTransport(responding: #"{"success":false,"message":"鸡腿不足"}"#)
+            ).submitPostReaction(
+                topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 1), reactionID: "dislike"
+            )
+            XCTFail("站点说失败了")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .restricted("鸡腿不足"))
+        }
+    }
+}

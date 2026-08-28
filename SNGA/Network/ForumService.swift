@@ -69,6 +69,19 @@ protocol ForumService: Sendable {
         direction: PostVoteDirection,
         isUndo: Bool
     ) async throws -> PostVoteState
+    /// 提交一次赞踩之外的表态（`Post.reactions` 里的那些）。
+    ///
+    /// 为什么不塞进 `vote`：`PostVoteDirection` 只有正反两个方向，而「加鸡腿」既不是
+    /// 赞也不是踩 —— 它是站点的第三种表态。硬挤进两方向的抽象，要么丢掉一种，
+    /// 要么让方向的含义按站点漂移。
+    ///
+    /// 返回新的赞踩计数；站点不报就返回 nil，由调用方刷新页面拿准数。
+    func submitPostReaction(
+        topicID: TopicID,
+        postID: PostID,
+        reactionID: String
+    ) async throws -> PostVoteState?
+
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage
     func message(id: MessageID) async throws -> ForumMessage
@@ -86,6 +99,16 @@ protocol ForumService: Sendable {
 }
 
 extension ForumService {
+    /// 没有额外表态的站点（`Post.reactions` 一直是空的）不必写这个方法。
+    /// 界面按 `Post.reactions` 决定画不画，正常路径走不到这里。
+    func submitPostReaction(
+        topicID: TopicID,
+        postID: PostID,
+        reactionID: String
+    ) async throws -> PostVoteState? {
+        throw ForumServiceError.unsupported("\(site.displayName) 没有这种表态")
+    }
+
     /// 不支持收藏版面的站点不必写这两个方法的空实现。
     ///
     /// 界面按 `capabilities` 决定画不画，正常路径不会走到这里；真走到了说明有个

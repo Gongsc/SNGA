@@ -164,6 +164,12 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0
     var userVote: PostVoteDirection? = nil
+    /// 除了赞和踩之外，站点还提供的表态。
+    ///
+    /// NGA 只有赞踩两种，这里就是空的。NodeSeek 有三种：投喂（免费）、加鸡腿、反对 ——
+    /// 后两种**要花掉读者自己的鸡腿，而且都不可撤销**，所以每一项都带着代价，
+    /// 界面必须把它说出来。
+    var reactions: [PostReaction] = []
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
 }
@@ -400,6 +406,27 @@ struct Profile: Hashable, Codable, Sendable {
     var unreadMentions: Int? = nil
     var unreadMessages: Int? = nil
     var isMasked: Bool = false
+}
+
+/// 楼层上的一种表态。
+///
+/// 赞和踩由 `PostVoteState` 表达，那是两站都有的形状。这里装的是超出那两个方向的
+/// 东西：站点自己的第三、第四种表态，各有各的代价。
+///
+/// `cost` 不是装饰。有的站点的表态会当场花掉用户的东西且收不回来 —— 那种按钮不能
+/// 一点就发，界面得先把价钱摆出来。
+struct PostReaction: Identifiable, Hashable, Codable, Sendable {
+    let id: String
+    var title: String
+    var systemImage: String
+    /// 已经有多少人这么表态过。站点不报就留空。
+    var count: Int? = nil
+    /// 我表态过了。不可撤销的表态尤其要显示这个 —— 否则用户会再花一次钱。
+    var isChosen: Bool = false
+    /// 这一下要花掉用户什么。免费的表态是 nil。
+    var cost: String? = nil
+    /// 做了就收不回来。
+    var isIrreversible: Bool = false
 }
 
 /// 用户资料里的一行。

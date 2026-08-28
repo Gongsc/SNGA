@@ -243,7 +243,8 @@ actor NodeSeekForumService: ForumService {
     ) async throws -> PostVoteState {
         guard direction == .up else {
             throw ForumServiceError.unsupported(
-                "NodeSeek 的「反对」要花掉你 2 个鸡腿且撤不回来，SNGA 没有接这个按钮"
+                "NodeSeek 的「反对」要花掉你 2 个鸡腿且撤不回来，"
+                    + "所以它在楼层的「更多表态」里，点了会先问一次，不做成一点就扣的按钮"
             )
         }
         guard !isUndo else {
@@ -369,6 +370,37 @@ actor NodeSeekForumService: ForumService {
             page: max(1, page)
         )
     }
+    /// 加鸡腿或反对。
+    ///
+    /// **这两种都花掉读者自己的鸡腿（1 个 / 2 个），而且站点不给撤。** 所以这里只管发，
+    /// 「要不要花这个钱」必须在界面上问清楚再调过来 —— 见 `PostReaction.cost`
+    /// 和 `PostReactionMenu` 的二次确认。
+    ///
+    /// 免费的投喂不走这里，它接在界面的赞上（见 `vote`）。
+    func submitPostReaction(
+        topicID: TopicID,
+        postID: PostID,
+        reactionID: String
+    ) async throws -> PostVoteState? {
+        guard let reaction = NodeSeekReaction(rawValue: reactionID) else {
+            throw ForumServiceError.unsupported("认不出这种表态：\(reactionID)")
+        }
+        // 免费的那个从这条路进来说明调用点串了。放行会让它绕过界面的确认，
+        // 而下一个从这里进来的可能就是要花钱的那两个。
+        guard !reaction.isFree else {
+            throw ForumServiceError.unsupported("投喂请走点赞")
+        }
+        let data = try await client.postJSON(
+            NodeSeekEndpoint.reaction(reaction),
+            body: ["commentId": postID.rawValue, "action": "add"],
+            referer: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+        )
+        // 响应里的 current 是这一种表态的新计数，不是赞的计数 —— 塞进
+        // PostVoteState 会把界面上的赞数改错。让调用方刷新页面拿准数。
+        try parser.confirmWrite(json: data, what: reaction.title)
+        return nil
+    }
+
     /// 收藏或取消收藏一个话题。
     ///
     /// 和三种反应不同，这个可逆，所以两个方向都接。站点没有收藏夹，`folderID` 无处可去。

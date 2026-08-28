@@ -165,7 +165,9 @@ struct NodeSeekParser: Sendable {
                 // 投喂是免费的那个，所以它对应界面上的赞；加鸡腿和反对都要花钱，
                 // 不在这里露出来。见 `NodeSeekReaction`。
                 upvoteCount: count("upvoteCount"),
-                userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil
+                userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil,
+                // 另外两种表态要花鸡腿，各自的计数和「我点过没有」都在这份状态里。
+                reactions: Self.paidReactions(in: comment)
             ))
         }
         guard !posts.isEmpty else {
@@ -192,6 +194,27 @@ struct NodeSeekParser: Sendable {
             hasMore: page < totalPages,
             totalPages: totalPages
         )
+    }
+
+    /// 要花鸡腿的那两种表态。
+    ///
+    /// 投喂不在里面 —— 它免费，已经接在界面的赞上了。这两种都不可撤销，所以
+    /// 「我点过没有」必须带出来：不显示的话，点过的人会再花一次钱。
+    private static func paidReactions(in comment: [String: Any]) -> [PostReaction] {
+        NodeSeekReaction.allCases.filter { !$0.isFree }.map { reaction in
+            let countKey = "\(reaction.rawValue)Count"
+            let chosenKey = reaction == .like ? "liked" : "disliked"
+            return PostReaction(
+                id: reaction.rawValue,
+                title: reaction.title,
+                systemImage: reaction.systemImage,
+                count: (comment[countKey] as? NSNumber)?.intValue,
+                isChosen: (comment[chosenKey] as? NSNumber)?.boolValue == true,
+                cost: reaction.costDescription,
+                // 三种表态站点都不给撤。
+                isIrreversible: true
+            )
+        }
     }
 
     /// 楼层编号 → 渲染好的正文 HTML。
