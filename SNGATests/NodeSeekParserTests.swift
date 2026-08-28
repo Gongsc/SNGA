@@ -2198,3 +2198,66 @@ extension NodeSeekParserTests {
         )
     }
 }
+
+/// 写请求要带的两个头。
+final class NodeSeekWriteHeaderTests: XCTestCase {
+
+    private func service(_ transport: RecordingHTTPTransport) -> NodeSeekForumService {
+        NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+    }
+
+    /// 少了这个头，站点答「csrf check error」，回复根本发不出去。
+    func testAWriteCarriesTheCSRFChallenge() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+
+        _ = try await service(transport).submitReply(
+            topicID: TopicID(rawValue: 1),
+            submission: ReplySubmission(content: "内容")
+        )
+
+        let request = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "x-csrf-challenge"),
+            "simple-token",
+            "站点的 JS 里写死的就是这个值"
+        )
+    }
+
+    /// 另外几种写操作走的是同一条发送路径，别漏掉。
+    func testEveryWritePathCarriesIt() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true,"current":1}"#)
+        let service = service(transport)
+
+        _ = try await service.submitPostReaction(
+            topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 2), reactionID: "like"
+        )
+        try await service.updateTopicFavorite(
+            topicID: TopicID(rawValue: 1),
+            folderID: NodeSeekEndpoint.implicitCollectionID,
+            isFavorite: true
+        )
+        try await service.submitTopicPollVote(topicID: TopicID(rawValue: 1), optionIDs: ["3"])
+
+        XCTAssertEqual(transport.requests.count, 3)
+        for request in transport.requests {
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "x-csrf-challenge"), "simple-token",
+                "\(request.url?.path ?? "?") 少了这个头"
+            )
+        }
+    }
+
+    /// 读请求不带 —— 站点自己也只在写的时候加。
+    func testReadsDoNotCarryIt() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: #"{"success":true,"detail":{"member_id":1,"member_name":"谁"}}"#
+        )
+
+        _ = try await service(transport).profile(uid: 1)
+
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertNil(request.value(forHTTPHeaderField: "x-csrf-challenge"))
+    }
+}

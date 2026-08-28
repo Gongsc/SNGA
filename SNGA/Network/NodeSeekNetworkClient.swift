@@ -60,6 +60,9 @@ actor NodeSeekNetworkClient {
     /// 而那时错误里带着 403 和 `{"success":false}`，就是这里该改的信号。
     private static let dynamicSignHeaderValue = "1"
 
+    /// `x-csrf-challenge` 的值。抄自站点自己的 JS，是个写死的字符串。
+    private static let csrfChallengeValue = "simple-token"
+
     private func send(
         _ url: URL,
         method: String,
@@ -97,6 +100,13 @@ actor NodeSeekNetworkClient {
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // 写请求要过 CSRF 检查。少了它站点答「csrf check error」，回复发不出去。
+            //
+            // 值是个字面常量，不是真的令牌 —— 站点自己的 JS 里就这么写死的：
+            // `headers:{"x-csrf-challenge":"simple-token","content-type":"application/json"}`。
+            // 所以没有「去哪儿取令牌」这一步。哪天站点改成验真令牌，
+            // 写操作会退回同一句 csrf 报错，那就是这里该改的信号。
+            request.setValue(Self.csrfChallengeValue, forHTTPHeaderField: "x-csrf-challenge")
             // 浏览器只在写请求上带 Origin。
             request.setValue(
                 ForumSiteDescriptor.nodeseek.baseURL.absoluteString,

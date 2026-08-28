@@ -308,5 +308,10 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
 - HTML 解析所需的选择器没有整理（对方项目有一份 `Selectors.kt` 可参考）
 - 帖子页里楼层的具体结构、@提及、表情、图片的形态
 - 私信列表与会话的响应字段
-- `/api/content/new-comment` 是否需要 CSRF token（对方项目提到过 `Csrf-Token`，与 `x-dynamic-sign`
-  一样只校验存在性，但我没确认这条是否适用于回复）
+- ~~`/api/content/new-comment` 是否需要 CSRF token~~ —— 需要（2026-08-28 实测：
+  不带就答 `csrf check error`）。头名是 **`x-csrf-challenge`**，值是字面常量
+  **`simple-token`**，不是真的令牌 —— 站点自己的 JS 里就这么写死的：
+  `headers:{"x-csrf-challenge":"simple-token","content-type":"application/json"}`。
+  所以没有「去哪儿取令牌」这一步。全部写请求都带上了。
+  另一个头 `x-dynamic-sign` 是客户端算的签名（算不出时兜底成 40 个 `a`），
+  服务端似乎不校验内容 —— 我们发 `1` 就通得过
