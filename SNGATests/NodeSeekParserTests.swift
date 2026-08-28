@@ -1558,8 +1558,7 @@ extension NodeSeekParserTests {
         )
     }
 
-    /// 标记不按名字一个个认。站点加新标记时（等级限制就是匿名看不到的那种），
-    /// 认不出来也要照样显示，用它自己的说法。
+    /// 标记不按名字一个个认。站点加新标记时认不出来也要照样显示，用它自己的说法。
     func testAnUnknownBadgeIsStillCarriedWithTheSitesWording() throws {
         let html = """
         <li class="post-list-item"><div class="post-list-content">
@@ -1595,5 +1594,106 @@ extension NodeSeekParserTests {
         )
 
         XCTAssertEqual(topic.badges.count, 1)
+    }
+}
+
+/// 沙盒区的标记：等级限制和只读。这两个都**没有 title 属性** ——
+/// 先前只找带 title 的元素，于是一个都读不到。
+extension NodeSeekParserTests {
+
+    private func sandboxTopics() throws -> [Topic] {
+        try parser.topicList(
+            html: try fixture("nodeseek-category-sandbox"),
+            forumID: NodeSeekEndpoint.forumID(key: "sandbox"),
+            page: 1
+        ).topics
+    }
+
+    /// 锁图标后面跟的数字是要求的等级。原样显示成「1」谁也看不懂。
+    func testTheLevelRestrictionSaysWhichLevel() throws {
+        let restricted = try XCTUnwrap(
+            try sandboxTopics().first { topic in
+                topic.badges.contains { $0.title.contains("等级") }
+            }
+        )
+        let badge = try XCTUnwrap(restricted.badges.first { $0.title.contains("等级") })
+
+        XCTAssertEqual(badge.title, "等级 1 可见")
+        XCTAssertEqual(badge.systemImage, "lock.fill")
+    }
+
+    /// 只读是文字标记，说明就在元素的文字里。
+    func testTheReadOnlyBadgeIsReadFromItsText() throws {
+        let readOnly = try XCTUnwrap(
+            try sandboxTopics().first { topic in
+                topic.badges.contains { $0.title == "只读" }
+            }
+        )
+
+        XCTAssertTrue(readOnly.isLocked, "只读就是锁帖，能看不能回")
+        XCTAssertTrue(readOnly.isPinned, "夹具里这条同时是置顶")
+    }
+
+    /// 一条列表项上可以同时挂好几个标记，别只读到第一个。
+    func testSeveralBadgesOnOneTopicAllSurvive() throws {
+        let topic = try XCTUnwrap(
+            try sandboxTopics().first { $0.badges.count > 1 }
+        )
+
+        XCTAssertTrue(topic.badges.map(\.title).contains("置顶"))
+        XCTAssertTrue(topic.badges.map(\.title).contains("只读"))
+    }
+
+    /// 没有标记的话题仍然是没有 —— 规则放宽之后最容易踩的就是把空节点当成标记。
+    func testWideningTheRuleDidNotInventBadges() throws {
+        XCTAssertTrue(
+            try sandboxTopics().contains { $0.badges.isEmpty },
+            "所有话题都带上标记了，说明把空元素也算进去了"
+        )
+    }
+
+    /// 锁图标后面不是数字时照原话显示，不硬套「等级 N」。
+    func testALockedBadgeThatIsNotALevelIsShownAsWritten() throws {
+        let html = """
+        <li class="post-list-item"><div class="post-list-content">
+          <div class="post-title">
+            <a href="/post-9-1">帖子</a>
+            <span><svg><use href="#lock"></use></svg>仅作者可见</span>
+          </div>
+          <div class="post-info"><span class="info-item info-author"><a href="/space/1">谁</a></span></div>
+        </div></li>
+        """
+        let topic = try XCTUnwrap(
+            try parser.topicList(html: html, forumID: daily, page: 1).topics.first
+        )
+
+        XCTAssertEqual(topic.badges.map(\.title), ["仅作者可见"])
+    }
+}
+
+extension NodeSeekParserTests {
+
+    /// 标题块里空的元素不是标记。
+    ///
+    /// 规则从「带 title 的元素」放宽到「除标题链接外的每个元素」之后，这是最容易
+    /// 踩的一步：站点的模板里会留下没有内容的占位元素，把它们当成标记，
+    /// 每条话题后面就会挂上一串没有意义的图标。
+    func testEmptyElementsInTheTitleBlockAreNotBadges() throws {
+        let html = """
+        <li class="post-list-item"><div class="post-list-content">
+          <div class="post-title">
+            <a href="/post-9-1">帖子</a>
+            <span></span>
+            <span>   </span>
+            <span title="置顶"><svg><use href="#pin"></use></svg></span>
+          </div>
+          <div class="post-info"><span class="info-item info-author"><a href="/space/1">谁</a></span></div>
+        </div></li>
+        """
+        let topic = try XCTUnwrap(
+            try parser.topicList(html: html, forumID: daily, page: 1).topics.first
+        )
+
+        XCTAssertEqual(topic.badges.map(\.title), ["置顶"], "空元素被当成标记了")
     }
 }

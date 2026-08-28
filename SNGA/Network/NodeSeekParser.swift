@@ -64,7 +64,7 @@ struct NodeSeekParser: Sendable {
         let forumID = try categoryLink
             .flatMap { Self.forumID(fromPath: try $0.attr("href")) } ?? fallbackForumID
         let categoryName = try categoryLink?.text().trimmingCharacters(in: .whitespacesAndNewlines)
-        let badges = try Self.badges(inTitleBlock: titleLink.parent())
+        let badges = try Self.badges(inTitleBlock: titleLink.parent(), titleLink: titleLink)
 
         return Topic(
             id: topicID,
@@ -75,44 +75,78 @@ struct NodeSeekParser: Sendable {
             replyCount: replyCount,
             lastReplyAt: lastReplyAt,
             isPinned: badges.contains { $0.title == Self.pinnedBadgeTitle },
+            // 「只读」就是锁帖：能看不能回。
+            isLocked: badges.contains { $0.title == Self.readOnlyBadgeTitle },
             sourceForumName: categoryName,
             badges: badges
         )
     }
 
     static let pinnedBadgeTitle = "置顶"
+    static let readOnlyBadgeTitle = "只读"
 
     /// 标题旁边那些标记。
     ///
-    /// 站点把它们做成标题块里的小图标，说明文字放在 `title` 属性里 ——
-    /// 置顶是 `<span title="置顶">`，推荐阅读是 `<a href="/award" title="推荐阅读">`。
+    /// 站点给每个标记一个小元素放在标题后面，但**写法各不相同**：
     ///
-    /// **不按名字一个个认。** 站点会加新的标记（等级限制匿名就看不到，是后来才有的），
-    /// 只认识几个写死的名字，新标记就会悄悄消失。这里的规则是「标题块里带 title 的
-    /// 元素都是标记」，认得出的给个像样的图标，认不出的照样显示，用站点自己的说法。
-    private static func badges(inTitleBlock block: Element?) throws -> [TopicBadge] {
+    /// - 置顶：`<span title="置顶"><svg><use href="#pin"></svg></span>`，说明在 title 里
+    /// - 推荐阅读：`<a href="/award" title="推荐阅读">`，同上
+    /// - 等级限制：`<span style="color:…"><svg><use href="#lock"></svg>1</span>`
+    ///   —— **没有 title**，说明是图标加一个数字，那个数字才是要求的等级
+    /// - 只读：`<span class="nsk-badge read-only">只读</span>` —— 也没有 title，文字就是说明
+    ///
+    /// 先前只找带 `title` 的元素，于是后两种一个都读不到。规则改成「标题块里除标题
+    /// 链接外的每个元素都是标记」，再按 title → 文字 → 图标的顺序找它的说法。
+    /// 这样站点加新标记时，哪怕写法又不一样，至少不会整个消失。
+    private static func badges(inTitleBlock block: Element?, titleLink: Element) throws -> [TopicBadge] {
         guard let block else { return [] }
         var badges: [TopicBadge] = []
         var seen = Set<String>()
-        for element in try block.select("[title]") {
-            let title = try element.attr("title").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, seen.insert(title).inserted else { continue }
-            badges.append(TopicBadge(title: title, systemImage: badgeSystemImage(in: element)))
+        for element in block.children() where element !== titleLink {
+            guard let badge = try badge(from: element) else { continue }
+            guard seen.insert(badge.title).inserted else { continue }
+            badges.append(badge)
         }
         return badges
     }
 
-    /// 图标名从站点自己的图标类名认，而不是从中文说法认 —— 类名比展示文字稳。
-    private static func badgeSystemImage(in element: Element) -> String {
-        let iconClasses = ((try? element.select("svg").first()?.className()) ?? "") ?? ""
-        for name in iconClasses.split(separator: " ") {
-            switch name {
-            case "pined": return "pin.fill"
-            case "award": return "rosette"
-            case "lock", "locked": return "lock.fill"
-            default: continue
-            }
+    private static func badge(from element: Element) throws -> TopicBadge? {
+        let icon = try iconReference(in: element)
+        let attribute = try element.attr("title").trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = try element.text().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let title: String
+        if !attribute.isEmpty {
+            title = attribute
+        } else if icon == "lock", !text.isEmpty {
+            // 锁图标后面跟的那个数字是要求的等级，光显示「1」谁也看不懂。
+            title = text.allSatisfy(\.isNumber) ? "等级 \(text) 可见" : text
+        } else if !text.isEmpty {
+            title = text
+        } else {
+            return nil
         }
+        return TopicBadge(title: title, systemImage: systemImage(icon: icon, in: element))
+    }
+
+    /// `<use href="#lock">` → `lock`。图标名比展示文字稳，也比 class 稳 ——
+    /// 等级限制那个 span 的样式是内联的，没有可认的 class。
+    private static func iconReference(in element: Element) throws -> String? {
+        guard let use = try element.select("svg use[href]").first() else { return nil }
+        let reference = try use.attr("href")
+        return reference.hasPrefix("#") ? String(reference.dropFirst()) : reference
+    }
+
+    private static func systemImage(icon: String?, in element: Element) -> String {
+        switch icon {
+        case "pin": return "pin.fill"
+        case "diamonds": return "rosette"
+        case "lock": return "lock.fill"
+        default: break
+        }
+        let classes = ((try? element.className()) ?? "")
+        if classes.contains("read-only") { return "eye" }
+        if classes.contains("award") { return "rosette" }
         return "tag"
     }
 
