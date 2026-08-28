@@ -1204,6 +1204,68 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
         XCTAssertEqual(poll.totalVoteCount, 88)
     }
 
+    /// 投票画出来之后，正文里那句退路就该撤掉 —— 留着既多余，说法也不对了
+    /// （不用去浏览器，就在这儿投）。
+    func testThePlaceholderGoesAwayOnceThePollRenders() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": try voteInfoJSON()]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+        let opening = try XCTUnwrap(page.posts.first { $0.floor == 0 })
+
+        XCTAssertNotNil(opening.poll, "前提：投票挂上了")
+        XCTAssertFalse(
+            opening.html.contains("在浏览器中打开本帖参与"),
+            "投票都画出来了，正文里还留着那句退路"
+        )
+        // 正文其余部分不能跟着被删掉。
+        XCTAssertTrue(opening.html.contains("打开“隐私和安全”"))
+    }
+
+    /// 取不到投票时那句退路要留着 —— 否则读者根本不知道这儿有个投票。
+    func testThePlaceholderStaysWhenThePollCannotBeFetched() async throws {
+        let transport = RecordingTransport(
+            responding: try pageHTML(),
+            byPath: ["/api/vote/info/": #"{"success":false}"#]
+        )
+        let service = NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+
+        let page = try await service.threadPage(
+            topicID: TopicID(rawValue: 895_695), page: 1, authorUID: nil
+        )
+        let opening = try XCTUnwrap(page.posts.first { $0.floor == 0 })
+
+        XCTAssertNil(opening.poll)
+        XCTAssertTrue(
+            opening.html.contains("在浏览器中打开本帖参与"),
+            "投票没画出来，得留下点东西告诉读者这儿有一个"
+        )
+    }
+
+    /// 按整句匹配，不是见 blockquote 就删 —— 正文里本来就可能有引用。
+    func testRemovingThePlaceholderLeavesOtherQuotesAlone() {
+        let html = """
+        <blockquote>别人说的话</blockquote>        <blockquote>投票 · 在浏览器中打开本帖参与</blockquote>        <blockquote>另一段引用</blockquote>
+        """
+
+        let output = NodeSeekParser.removingEmbedPlaceholder(
+            html, forNSAppURL: "nsapp://vote?id=3027"
+        )
+
+        XCTAssertFalse(output.contains("在浏览器中打开本帖参与"))
+        XCTAssertTrue(output.contains("别人说的话"))
+        XCTAssertTrue(output.contains("另一段引用"))
+    }
+
     /// 编号得来自正文里的标记，不是话题编号 —— 拿话题编号去请求会取到别人的投票。
     func testThePollIsFetchedByTheMarkersIDNotTheTopicID() async throws {
         let transport = RecordingTransport(

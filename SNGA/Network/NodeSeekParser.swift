@@ -303,12 +303,39 @@ struct NodeSeekParser: Sendable {
         for anchor in try element.select("a[data-href]") {
             let target = try anchor.attr("data-href")
             guard target.hasPrefix("nsapp://") else { continue }
-            let what = embedName(forNSAppURL: target)
             let quote = try element.ownerDocument()?.createElement("blockquote")
                 ?? Element(Tag.valueOf("blockquote"), "")
-            try quote.text("\(what) · 在浏览器中打开本帖参与")
+            try quote.text(embedPlaceholder(forNSAppURL: target))
             try anchor.replaceWith(quote)
         }
+    }
+
+    /// 标记换成的那一句。
+    ///
+    /// 这是**取不到内容时**的退路：告诉读者这儿有个东西，以及去哪儿参与。内容真的
+    /// 取到了（投票画出来了），这句就该撤掉 —— 见 `removingEmbedPlaceholder`。
+    static func embedPlaceholder(forNSAppURL value: String) -> String {
+        "\(embedName(forNSAppURL: value)) · 在浏览器中打开本帖参与"
+    }
+
+    /// 把那句退路从正文里撤掉。
+    ///
+    /// 内容已经原生画出来了，正文里再留一句「去浏览器参与」既多余又不对 ——
+    /// 就在这儿就能参与。
+    ///
+    /// 按整句匹配，而不是按 `blockquote` 标签删：正文里本来就可能有引用块，
+    /// 按标签删会顺手删掉别人的话。
+    static func removingEmbedPlaceholder(_ html: String, forNSAppURL value: String) -> String {
+        let sentence = embedPlaceholder(forNSAppURL: value)
+        guard let document = try? SwiftSoup.parse(html) else { return html }
+        guard let quotes = try? document.select("blockquote") else { return html }
+        var removedAny = false
+        for quote in quotes where (try? quote.text()) == sentence {
+            try? quote.remove()
+            removedAny = true
+        }
+        guard removedAny, let output = try? document.html() else { return html }
+        return output
     }
 
     /// `nsapp://vote?id=3027` → 「投票」。认不出来的说「内容」，不瞎猜。

@@ -168,6 +168,12 @@ actor NodeSeekForumService: ForumService {
                 json: await client.get(NodeSeekEndpoint.voteInfo(id: pollID)),
                 topicID: topicID
             )
+            // 投票已经原生画出来了，正文里那句「去浏览器参与」就是多余的一行，
+            // 而且不对 —— 就在这儿投就行。它只在取不到投票时才该留着。
+            page.posts[index].html = NodeSeekParser.removingEmbedPlaceholder(
+                page.posts[index].html,
+                forNSAppURL: "nsapp://vote?id=\(pollID)"
+            )
         } catch {
             await RuntimeLogger.shared.log(
                 category: "nodeseek",
