@@ -337,6 +337,10 @@ struct NodeSeekParser: Sendable {
     /// 楼层编号 → 渲染好的正文 HTML。
     private func renderedBodies(inHTML html: String) throws -> [Int64: String] {
         let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
+        // 这份文档的输出设置一路管到取正文的每一次 `html()`。默认的 pretty-print 会在
+        // 标签之间加换行和缩进 —— 正文里有 `<pre>`，那些空白会原样显示，
+        // 检测报告靠空格对齐的表格就全歪了。
+        document.outputSettings(Self.verbatimOutput)
         var bodies: [Int64: String] = [:]
         for item in try document.select(".content-item") {
             guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw),
@@ -410,8 +414,14 @@ struct NodeSeekParser: Sendable {
         try renderANSI(in: element)
         try resolveRelativeURLs(in: element)
         let inner = try element.html()
-        let cleaned = try SwiftSoup.clean(inner, Self.postWhitelist()) ?? ""
+        let cleaned = try SwiftSoup.clean(
+            inner,
+            ForumSiteDescriptor.nodeseek.baseURL.absoluteString,
+            Self.postWhitelist(),
+            Self.verbatimOutput
+        ) ?? ""
         let document = try SwiftSoup.parseBodyFragment(cleaned)
+        document.outputSettings(Self.verbatimOutput)
         for tag in ["script", "style", "iframe", "form", "object", "embed"] {
             try document.select(tag).remove()
         }
@@ -526,6 +536,14 @@ struct NodeSeekParser: Sendable {
                 try link.removeAttr("href")
             }
         }
+    }
+
+    /// 原样输出的设置：不要 pretty-print。
+    ///
+    /// 每一处把 DOM 变回字符串的地方都得用它 —— 解析源页面、清洗、再序列化，
+    /// 任何一处漏掉，`<pre>` 里就会多出换行和缩进。
+    private static var verbatimOutput: OutputSettings {
+        OutputSettings().prettyPrint(pretty: false)
     }
 
     /// 清洗用的白名单。

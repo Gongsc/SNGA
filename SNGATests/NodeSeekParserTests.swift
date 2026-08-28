@@ -2149,3 +2149,52 @@ extension NodeSeekParserTests {
         XCTAssertTrue(try tabsPostBody().contains(".ansi-fg-6"))
     }
 }
+
+/// 终端报告靠空格对齐。序列化时的任何「排版」都会把它排坏。
+extension NodeSeekParserTests {
+
+    /// SwiftSoup 默认会 pretty-print：在标签之间加换行和缩进。正文里有 `<pre>`，
+    /// 那些空白会原样显示 —— 报告的列就全歪了。
+    func testRunsOfSpacesInTerminalOutputSurvive() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(
+            html.contains("组织：") ,
+            "前提：这份报告在夹具里"
+        )
+        // 报告用连续空格把值推到同一列上。塌成一个空格就说明被重排过。
+        XCTAssertTrue(
+            html.range(of: #"自治系统号：\s{4,}"#, options: .regularExpression) != nil,
+            "对齐用的连续空格没了"
+        )
+    }
+
+    /// 换行也不能多冒出来。pretty-print 会在每个标签前后加换行，
+    /// 在 `<pre>` 里就是凭空多出来的空行。
+    func testNoNewlinesAreInsertedAroundColouredRuns() throws {
+        let html = """
+        <div class="content-item" data-comment-id="1"><article class="post-content">
+        <pre><code class="language-ansi">甲<span data-ansicode="27"></span>[36m乙<span data-ansicode="27"></span>[0m丙</code></pre>
+        </article></div>
+        """
+        let body = try XCTUnwrap(
+            try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1)
+                .posts.first?.html
+        )
+
+        XCTAssertTrue(
+            body.contains(#"甲<span class="ansi-fg-6">乙</span>丙"#),
+            "彩色片段之间被插了空白：\(body)"
+        )
+    }
+
+    /// 标签页的开关之间同样不能被插空白 —— 那会让 `input:checked+.ns-tab` 选不中。
+    func testTheTabSelectorChainIsNotBrokenByWhitespace() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(
+            html.range(of: #"<input[^>]*><label class="ns-tab""#, options: .regularExpression) != nil,
+            "开关和标签之间被插了空白，CSS 的相邻选择器就断了"
+        )
+    }
+}
