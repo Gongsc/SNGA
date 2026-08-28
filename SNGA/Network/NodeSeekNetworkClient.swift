@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// NodeSeek 的请求客户端。
@@ -53,12 +54,37 @@ actor NodeSeekNetworkClient {
         return try await send(url, method: "POST", body: data, asJSON: true, referer: referer)
     }
 
-    /// `x-dynamic-sign` 的值。
+    /// `x-dynamic-sign` 的值：请求四要素拼起来的 SHA-1。
     ///
-    /// 站点只校验这个头存在，不校验内容 —— 试过填 `1` 就能通。真正的网页版会算一个
-    /// 签名放进来，我们算不出，也不需要算。哪天站点开始验内容，投票会退回 403，
-    /// 而那时错误里带着 403 和 `{"success":false}`，就是这里该改的信号。
-    private static let dynamicSignHeaderValue = "1"
+    /// 抄自站点自己的 JS：
+    ///
+    /// ```js
+    /// const t = [n.method, n.url, navigator.userAgent || "", await n.clone().text()].join("\n\n");
+    /// return await sha1hex(t);
+    /// ```
+    ///
+    /// 四样都得和真正发出去的一模一样，尤其是 **UA** —— 站点用的是
+    /// `navigator.userAgent`，也就是它自己那次请求带的那个串。我们送进来的
+    /// `userAgent` 就是请求头里的那个，两边必须是同一个值。
+    ///
+    /// 先前这里发的是常量 `1`。读接口只看这个头在不在，所以一直没露馅；
+    /// 写接口是真验的，回复因此一直答「csrf check error」。
+    private static func dynamicSign(
+        method: String,
+        url: URL,
+        userAgent: String,
+        body: Data?
+    ) -> String {
+        let payload = [
+            method,
+            url.absoluteString,
+            userAgent,
+            body.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        ].joined(separator: "\n\n")
+        return Insecure.SHA1.hash(data: Data(payload.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 
     /// `x-csrf-challenge` 的值。抄自站点自己的 JS，是个写死的字符串。
     private static let csrfChallengeValue = "simple-token"
@@ -89,10 +115,12 @@ actor NodeSeekNetworkClient {
         if asJSON {
             // 站点自身的 XHR 带这几个；少了其中的 X-Requested-With，有些接口会回 HTML。
             request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-            // 有的接口只认这个头**在不在**，不看值。投票就是一个：不带它一律 403
-            // `{"success":false}`，带上（值随便）立刻 200。实测过它对本来就能用的
-            // 接口没有影响 —— 页面、帖子、用户资料带不带都一样。
-            request.setValue(Self.dynamicSignHeaderValue, forHTTPHeaderField: "x-dynamic-sign")
+            // 这个头站点是**真验内容**的，至少写接口是：值不对就答「csrf check error」。
+            // 读接口宽松些（投票信息只看它在不在），但没有理由分开处理。
+            request.setValue(
+                Self.dynamicSign(method: method, url: url, userAgent: userAgent, body: body),
+                forHTTPHeaderField: "x-dynamic-sign"
+            )
             request.setValue("empty", forHTTPHeaderField: "Sec-Fetch-Dest")
             request.setValue("cors", forHTTPHeaderField: "Sec-Fetch-Mode")
             request.setValue("same-origin", forHTTPHeaderField: "Sec-Fetch-Site")

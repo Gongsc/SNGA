@@ -313,5 +313,14 @@ NGA 是「上/下两个方向、可切换」，NodeSeek 是「三个动作、都
   **`simple-token`**，不是真的令牌 —— 站点自己的 JS 里就这么写死的：
   `headers:{"x-csrf-challenge":"simple-token","content-type":"application/json"}`。
   所以没有「去哪儿取令牌」这一步。全部写请求都带上了。
-  另一个头 `x-dynamic-sign` 是客户端算的签名（算不出时兜底成 40 个 `a`），
-  服务端似乎不校验内容 —— 我们发 `1` 就通得过
+  另一个头 **`x-dynamic-sign` 是真要算的**，至少写接口会验：
+
+  ```js
+  const t = [n.method, n.url, navigator.userAgent || "", await n.clone().text()].join("\n\n");
+  return await sha1hex(t);   // 算不出时兜底成 40 个 a
+  ```
+
+  即 `SHA1_hex(方法 ⏎⏎ 完整URL ⏎⏎ UA ⏎⏎ 请求体)`。四样都得和真正发出去的一致，
+  **UA 尤其要紧** —— 站点用的是 `navigator.userAgent`，也就是它那次请求带的串。
+  读接口宽松（投票信息只看这个头在不在，所以发 `1` 也能通），写接口不宽松：
+  值不对就答 `csrf check error`，和缺 `x-csrf-challenge` 是同一句话

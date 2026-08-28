@@ -2208,6 +2208,67 @@ final class NodeSeekWriteHeaderTests: XCTestCase {
         )
     }
 
+    /// 签名是请求四要素的 SHA-1。期望值用 shasum 独立算出来，不是从实现里抄的 ——
+    /// 从实现里抄，实现错了用例也跟着错。
+    ///
+    /// ```
+    /// printf 'POST\n\nhttps://www.nodeseek.com/api/content/new-comment\n\nprobe\n\n{"a":1}' | shasum -a 1
+    /// ```
+    func testTheDynamicSignIsTheSHA1OfTheRequest() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+        let client = NodeSeekNetworkClient(
+            cookies: [], transport: transport, userAgent: "probe", cookieDidChange: { _ in }
+        )
+
+        _ = try await client.postJSON(
+            URL(string: "https://www.nodeseek.com/api/content/new-comment")!,
+            body: ["a": 1]
+        )
+
+        let request = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(
+            String(data: try XCTUnwrap(request.httpBody), encoding: .utf8), #"{"a":1}"#,
+            "前提：请求体就是这一串，签名是按它算的"
+        )
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "x-dynamic-sign"),
+            "bdc0bdcf604e07aeabd1fd17f14d2f714658af3b"
+        )
+    }
+
+    /// UA 是签名的一部分。用错一个串，签名就对不上 —— 站点比对时用的是它收到的那个 UA。
+    func testChangingTheUserAgentChangesTheSignature() async throws {
+        func sign(userAgent: String) async throws -> String? {
+            let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+            _ = try await NodeSeekNetworkClient(
+                cookies: [], transport: transport, userAgent: userAgent,
+                cookieDidChange: { _ in }
+            ).postJSON(URL(string: "https://www.nodeseek.com/api/x")!, body: ["a": 1])
+            return transport.requests.last?.value(forHTTPHeaderField: "x-dynamic-sign")
+        }
+
+        let one = try await sign(userAgent: "甲")
+        let other = try await sign(userAgent: "乙")
+        XCTAssertNotNil(one)
+        XCTAssertNotEqual(one, other, "UA 变了签名却没变，说明根本没把它算进去")
+    }
+
+    /// 请求体也在签名里。
+    func testChangingTheBodyChangesTheSignature() async throws {
+        func sign(value: Int) async throws -> String? {
+            let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
+            _ = try await NodeSeekNetworkClient(
+                cookies: [], transport: transport, userAgent: "probe",
+                cookieDidChange: { _ in }
+            ).postJSON(URL(string: "https://www.nodeseek.com/api/x")!, body: ["a": value])
+            return transport.requests.last?.value(forHTTPHeaderField: "x-dynamic-sign")
+        }
+
+        let one = try await sign(value: 1)
+        let other = try await sign(value: 2)
+        XCTAssertNotEqual(one, other)
+    }
+
     /// 少了这个头，站点答「csrf check error」，回复根本发不出去。
     func testAWriteCarriesTheCSRFChallenge() async throws {
         let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
