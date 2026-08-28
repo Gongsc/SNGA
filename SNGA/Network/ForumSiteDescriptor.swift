@@ -172,17 +172,25 @@ struct ForumSiteDescriptor: Sendable {
                 number("被关注", profile.followerCount)
             ].compactMap { $0 }
         case .nodeseek:
+            // 顺序和用词照着站点自己的用户卡：等级、主题帖、鸡腿、评论数、星辰、
+            // 粉丝……最后三个只有看自己时才有。
             return [
-                // 站点自己的资料页显示的就是「加入天数」，不是注册日期。
                 profile.registeredAt.map {
+                    // 站点显示的是「加入天数」，不是注册日期。
                     ProfileStat(title: "加入天数", value: String(Self.daysSince($0)))
                 },
-                profile.userGroup.map { ProfileStat(title: "等级", value: $0) },
-                number("鸡腿数目", profile.money),
-                number("主题帖数", profile.postCount),
-                number("评论数目", profile.commentCount),
+                profile.userGroup.map { ProfileStat(title: "等级", value: "Lv \($0)") },
+                number("主题帖", profile.postCount),
+                number("鸡腿", profile.money),
+                number("评论数", profile.commentCount),
+                // 星辰是别人投喂给你的，和鸡腿是两种东西。
+                number("星辰", profile.fame),
+                // 站点管这个叫粉丝，不叫「被关注」。
+                number("粉丝", profile.followerCount),
                 number("关注", profile.followingCount),
-                number("被关注", profile.followerCount)
+                number("未读回复", profile.unreadReplies),
+                number("未读 @ 我", profile.unreadMentions),
+                number("未读私信", profile.unreadMessages)
             ].compactMap { $0 }
         }
     }

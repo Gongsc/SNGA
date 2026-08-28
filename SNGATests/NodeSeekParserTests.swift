@@ -232,15 +232,17 @@ extension NodeSeekParserTests {
         XCTAssertNotNil(profile.followerCount)
     }
 
-    /// 鸡腿走 `money`，在基础信息里显示成「鸡腿数目」。
+    /// 站点有两种货币，模型里正好两个位置：鸡腿走 `money`，星辰走 `fame`。
     ///
-    /// 星辰不占 `fame`。`fame` 是 NGA 的「声望」，这个站没有对应的东西 ——
-    /// 把星辰塞进去，界面上就会多出一个它本来没有的声望。站点自己的资料页也不显示星辰。
-    func testChickenLegsAreTheOnlyCurrencyCarried() throws {
+    /// 先前星辰是留空的 —— 那时「声望」那一段按有没有数据显示，星辰一填就会冒出
+    /// 一个这个站没有的声望。那一段现在按站点开关，所以两个数都能带上，
+    /// 各自的名字由站点资料给（见 `ProfileFieldsTests`）。
+    func testBothCurrenciesAreCarried() throws {
         let profile = try profileFixture()
 
         XCTAssertNotNil(profile.money, "鸡腿")
-        XCTAssertNil(profile.fame, "星辰不是声望")
+        XCTAssertNotNil(profile.fame, "星辰")
+        // 威望是 NGA 独有的，这个站没有。
         XCTAssertNil(profile.reputation)
     }
 
@@ -1031,41 +1033,13 @@ extension NodeSeekParserTests {
     }
 }
 
-/// 记下发出去的请求，好断言请求体到底长什么样。
-private final class RecordingTransport: HTTPTransport, @unchecked Sendable {
-    private let lock = NSLock()
-    private var _requests: [URLRequest] = []
-    private let body: Data
-
-    var requests: [URLRequest] { lock.withLock { _requests } }
-
-    /// 按路径给不同的响应。取不到就用 `body` 兜底。
-    private let byPath: [String: String]
-
-    init(responding body: String, byPath: [String: String] = [:]) {
-        self.body = Data(body.utf8)
-        self.byPath = byPath
-    }
-
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        lock.withLock { _requests.append(request) }
-        let path = request.url?.path ?? ""
-        let payload = byPath.first { path.hasPrefix($0.key) }?.value
-        return (payload.map { Data($0.utf8) } ?? body, HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!)
-    }
-}
 
 /// 投票提交。请求体的形状是这一整件事里唯一靠猜会出错的地方，所以直接断言
 /// 发出去的字节。
 final class NodeSeekPollSubmissionTests: XCTestCase {
 
-    private func service(responding body: String) -> (NodeSeekForumService, RecordingTransport) {
-        let transport = RecordingTransport(responding: body)
+    private func service(responding body: String) -> (NodeSeekForumService, RecordingHTTPTransport) {
+        let transport = RecordingHTTPTransport(responding: body)
         return (
             NodeSeekForumService(
                 accountID: AccountID(),
@@ -1077,7 +1051,7 @@ final class NodeSeekPollSubmissionTests: XCTestCase {
         )
     }
 
-    private func sentBody(_ transport: RecordingTransport) throws -> [String: Any] {
+    private func sentBody(_ transport: RecordingHTTPTransport) throws -> [String: Any] {
         let request = try XCTUnwrap(transport.requests.last)
         let data = try XCTUnwrap(request.httpBody)
         return try XCTUnwrap(
@@ -1195,7 +1169,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
     }
 
     func testThePollReachesTheOpeningPost() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": try voteInfoJSON()]
         )
@@ -1219,7 +1193,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
     /// 投票画出来之后，正文里那句退路就该撤掉 —— 留着既多余，说法也不对了
     /// （不用去浏览器，就在这儿投）。
     func testThePlaceholderGoesAwayOnceThePollRenders() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": try voteInfoJSON()]
         )
@@ -1243,7 +1217,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
 
     /// 取不到投票时那句退路要留着 —— 否则读者根本不知道这儿有个投票。
     func testThePlaceholderStaysWhenThePollCannotBeFetched() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": #"{"success":false}"#]
         )
@@ -1280,7 +1254,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
 
     /// 编号得来自正文里的标记，不是话题编号 —— 拿话题编号去请求会取到别人的投票。
     func testThePollIsFetchedByTheMarkersIDNotTheTopicID() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": try voteInfoJSON()]
         )
@@ -1298,7 +1272,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
 
     /// 取不到投票时帖子照常显示。为一个附加内容让整页打不开，是把小毛病放大。
     func testAFailedPollFetchStillLeavesTheThreadReadable() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": #"{"success":false}"#]
         )
@@ -1317,7 +1291,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
     /// 投票接口只认这个头在不在。不带它一律 403，而 403 时投票就不显示 ——
     /// 正是它让投票一直出不来。
     func testEveryJSONRequestCarriesTheDynamicSignHeader() async throws {
-        let transport = RecordingTransport(
+        let transport = RecordingHTTPTransport(
             responding: try pageHTML(),
             byPath: ["/api/vote/info/": try voteInfoJSON()]
         )
@@ -1342,7 +1316,7 @@ final class NodeSeekPollEndToEndTests: XCTestCase {
 /// 收藏话题。站点没有收藏夹，只有一个列表。
 final class NodeSeekCollectionTests: XCTestCase {
 
-    private func service(_ transport: RecordingTransport) -> NodeSeekForumService {
+    private func service(_ transport: RecordingHTTPTransport) -> NodeSeekForumService {
         NodeSeekForumService(
             accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
         )
@@ -1351,7 +1325,7 @@ final class NodeSeekCollectionTests: XCTestCase {
     /// 返回空数组会让整个收藏功能停摆：收藏页永远是空的，星标也一声不吭地不干活 ——
     /// 应用里选中、收藏、计数全挂在「有一个收藏夹」上。所以给出一个隐含的。
     func testAFolderlessSiteStillOffersOneImplicitFolder() async throws {
-        let folders = try await service(RecordingTransport(responding: "{}"))
+        let folders = try await service(RecordingHTTPTransport(responding: "{}"))
             .favoriteTopicFolders()
 
         XCTAssertEqual(folders.count, 1)
@@ -1361,14 +1335,14 @@ final class NodeSeekCollectionTests: XCTestCase {
     /// 界面不该冒出一个收藏夹条目让人选 —— 能力位关着。
     func testTheSiteStillDeclaresItHasNoFolders() {
         XCTAssertFalse(
-            service(RecordingTransport(responding: "{}"))
+            service(RecordingHTTPTransport(responding: "{}"))
                 .capabilities.contains(.topicFavoriteFolders)
         )
     }
 
     /// 收藏是发给站点的，隐含的收藏夹编号只在应用内部用，不该出现在请求里。
     func testTheImplicitFolderIDNeverReachesTheSite() async throws {
-        let transport = RecordingTransport(responding: #"{"success":true}"#)
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
 
         try await service(transport).updateTopicFavorite(
             topicID: TopicID(rawValue: 884_844),
@@ -1386,7 +1360,7 @@ final class NodeSeekCollectionTests: XCTestCase {
     }
 
     func testUnfavouritingSendsRemove() async throws {
-        let transport = RecordingTransport(responding: #"{"success":true}"#)
+        let transport = RecordingHTTPTransport(responding: #"{"success":true}"#)
 
         try await service(transport).updateTopicFavorite(
             topicID: TopicID(rawValue: 1),
@@ -1404,7 +1378,7 @@ final class NodeSeekCollectionTests: XCTestCase {
 
     /// 收藏夹的增删改仍然该拒绝 —— 站点没有这个东西。
     func testFolderManagementIsStillRefused() async {
-        let s = service(RecordingTransport(responding: "{}"))
+        let s = service(RecordingHTTPTransport(responding: "{}"))
 
         do {
             _ = try await s.createTopicFavoriteFolder(name: "新", isPublic: false, isDefault: false)

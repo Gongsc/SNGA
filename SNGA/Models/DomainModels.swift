@@ -392,6 +392,13 @@ struct Profile: Hashable, Codable, Sendable {
     var followingCount: Int? = nil
     /// 发过多少条回复。NGA 只报发帖数，不分主题和回复。
     var commentCount: Int? = nil
+    /// 未读的回复、@ 和私信。
+    ///
+    /// **只有看自己的资料时才有。** 站点只对本人报这几个数 —— 看别人的资料时留空，
+    /// 那几行就不显示。
+    var unreadReplies: Int? = nil
+    var unreadMentions: Int? = nil
+    var unreadMessages: Int? = nil
     var isMasked: Bool = false
 }
 

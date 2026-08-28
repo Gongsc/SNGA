@@ -411,16 +411,31 @@ struct NodeSeekParser: Sendable {
             // 站点分开报主题帖和评论，nPost 只是主题帖。
             postCount: number("nPost"),
             signature: (detail["bio"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            // 站点有两种货币：鸡腿（coin，加鸡腿和反对花的）和星辰（stardust，投喂得来）。
+            // 站点有两种货币：鸡腿（coin，加鸡腿和反对花的）和星辰（stardust，别人
+            // 投喂给你的）。模型里正好有两个位置，鸡腿走 `money`，星辰走 `fame`。
             //
-            // `fame` 和 `reputation` 都留空：那两个是 NGA 的「声望」「威望」，
-            // 这个站没有对应的东西，硬塞一个数进去只会让界面显示一个假的声望。
-            // 鸡腿走 `money`，在基础信息里以「鸡腿数目」显示。
+            // 先前星辰是留空的，因为那时「声望」那一段是按有没有数据显示的，星辰
+            // 一填，界面上就会冒出一个这个站没有的「声望」。现在那一段改成按站点
+            // 开关（`ForumSiteDescriptor.showsReputationSection`），这个顾虑没有了 ——
+            // 两个数各自以「鸡腿」「星辰」显示，名字由站点资料给。
+            fame: number("stardust"),
             money: number("coin"),
             followerCount: number("fans"),
             followingCount: number("follows"),
             commentCount: number("nComment")
         )
+    }
+
+    /// `/api/notification/unread-count` 的响应。
+    ///
+    /// 站点只对本人报这几个数，所以只在看自己的资料时才去要。
+    func unreadCounts(json data: Data) throws -> (replies: Int, mentions: Int, messages: Int) {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let counts = root["unreadCount"] as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取未读数")
+        }
+        func number(_ key: String) -> Int { (counts[key] as? NSNumber)?.intValue ?? 0 }
+        return (number("reply"), number("atMe"), number("message"))
     }
 
     /// 确认一次写操作成功了。

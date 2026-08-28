@@ -144,6 +144,7 @@
 		F4BF05B32F8DC316B683E7DE /* OpenAICompatibleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6940D09E128DDB989FAB262E /* OpenAICompatibleClient.swift */; };
 		F669E75CDDFD3219228B1B42 /* AIProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4BEC812B67CFBF0FC40F6F /* AIProfileTests.swift */; };
 		F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2FE63519863D051826534B /* RootView.swift */; };
+		FD83DCCF39303735DA01B595 /* RecordingHTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8770817601667A5AD32AE2 /* RecordingHTTPTransport.swift */; };
 		FE5A560BE5266C1762B1D936 /* ThreadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD861A9EA008D4337E70013 /* ThreadStore.swift */; };
 		FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */; };
 /* End PBXBuildFile section */
@@ -277,6 +278,7 @@
 		B2AA5E0624D43795D13C6C9F /* ThemePalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePalette.swift; sourceTree = "<group>"; };
 		B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostWebView.swift; sourceTree = "<group>"; };
 		BADE955006EA7B1FA327BBB5 /* AboutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutCommands.swift; sourceTree = "<group>"; };
+		BC8770817601667A5AD32AE2 /* RecordingHTTPTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingHTTPTransport.swift; sourceTree = "<group>"; };
 		BDC622DEE81AFA265BBE529A /* NGAEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAEndpoint.swift; sourceTree = "<group>"; };
 		BE78B47EBCD9C893087DA621 /* NGAForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAForumService.swift; sourceTree = "<group>"; };
 		BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxAPIService.swift; sourceTree = "<group>"; };
@@ -549,6 +551,7 @@
 				AA68ED4CDA3D00903F923345 /* PostQuoteExpanderTests.swift */,
 				814AD4327FEB2788AD6CE279 /* ProfileFieldsTests.swift */,
 				938E291B2EBC6011699EACDD /* RecentForumDuplicationTests.swift */,
+				BC8770817601667A5AD32AE2 /* RecordingHTTPTransport.swift */,
 				239CFB8B7E4CE369AAF0C698 /* RequestSlotTests.swift */,
 				6817FFD7353256F7177C155E /* SessionIsolationTests.swift */,
 				E0D1CDCE14043E463E93019F /* ThemeContrastTests.swift */,
@@ -828,6 +831,7 @@
 				417B84607EC81D1AF477CA30 /* PostQuoteExpanderTests.swift in Sources */,
 				7D6B789DFE50CC0951424DCB /* ProfileFieldsTests.swift in Sources */,
 				1E9F9A7E15482E5A80471D53 /* RecentForumDuplicationTests.swift in Sources */,
+				FD83DCCF39303735DA01B595 /* RecordingHTTPTransport.swift in Sources */,
 				D015B988E067D1367C998F7E /* RequestSlotTests.swift in Sources */,
 				4A001FD0F1762C51AB89C9DD /* SessionIsolationTests.swift in Sources */,
 				EB16F85267F3AE616A565C22 /* ThemeContrastTests.swift in Sources */,

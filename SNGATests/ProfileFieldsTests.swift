@@ -29,34 +29,38 @@ final class ProfileFieldsTests: XCTestCase {
         )
     }
 
+    /// 用词和顺序照着站点自己的用户卡。
     func testNodeSeekUsesItsOwnVocabulary() throws {
         let titles = titles(.nodeseek, try nodeSeekProfile())
 
-        XCTAssertTrue(titles.contains("等级"), "站点管这个叫等级，不叫用户组：\(titles)")
-        XCTAssertTrue(titles.contains("鸡腿数目"), titles.description)
-        XCTAssertTrue(titles.contains("主题帖数"), titles.description)
-        XCTAssertTrue(titles.contains("评论数目"), titles.description)
-        XCTAssertTrue(titles.contains("加入天数"), titles.description)
-
-        XCTAssertFalse(titles.contains("用户组"), "这是 NGA 的说法")
-        XCTAssertFalse(titles.contains("发帖数"), "站点分开报主题帖和评论，不报总数")
-        XCTAssertFalse(titles.contains("IP 属地"), "站点不报这个，摆一行「—」不如不摆")
+        for expected in ["加入天数", "等级", "主题帖", "鸡腿", "评论数", "星辰", "粉丝"] {
+            XCTAssertTrue(titles.contains(expected), "少了「\(expected)」：\(titles)")
+        }
+        for foreign in ["用户组", "发帖数", "IP 属地", "被关注"] {
+            XCTAssertFalse(titles.contains(foreign), "「\(foreign)」是别处的说法：\(titles)")
+        }
     }
 
-    /// 站点没有声望这个概念。塞一个数进去，界面上就会多出一个假的声望。
-    func testNodeSeekHasNoReputationOrFame() throws {
+    /// 星辰带在 `fame` 里，但显示成「星辰」，不是「声望」—— 那是 NGA 的词，
+    /// 而且它那一整段在这个站点上根本不画。
+    func testStardustIsShownAsItselfNotAsReputation() throws {
         let profile = try nodeSeekProfile()
 
+        XCTAssertNotNil(profile.fame)
+        XCTAssertEqual(value(.nodeseek, profile, "星辰"), profile.fame.map(String.init))
+        XCTAssertFalse(titles(.nodeseek, profile).contains("声望"))
+        XCTAssertFalse(ForumSiteDescriptor.nodeseek.showsReputationSection)
+        // 威望是 NGA 独有的。
         XCTAssertNil(profile.reputation)
-        XCTAssertNil(profile.fame, "星辰不是声望，不该冒充它")
     }
 
-    /// 等级就是个数字，站点的资料页写的是「等级 1」。
-    func testTheLevelIsPlainNotPrefixed() throws {
-        let level = try XCTUnwrap(value(.nodeseek, try nodeSeekProfile(), "等级"))
+    /// 站点的用户卡写的是「等级 Lv 1」。前缀是显示时加的 —— 解析出来的仍是个纯数字，
+    /// 不然以后想拿它比大小就得先剥前缀。
+    func testTheLevelIsFormattedForDisplayNotAtParseTime() throws {
+        let profile = try nodeSeekProfile()
 
-        XCTAssertFalse(level.hasPrefix("Lv."), "站点不这么写：\(level)")
-        XCTAssertNotNil(Int(level), "等级该是个数字：\(level)")
+        XCTAssertNotNil(Int(try XCTUnwrap(profile.userGroup)), "解析出来的该是纯数字")
+        XCTAssertEqual(value(.nodeseek, profile, "等级"), "Lv 4")
     }
 
     /// 站点显示的是加入了多少天，不是注册日期。
@@ -74,7 +78,7 @@ final class ProfileFieldsTests: XCTestCase {
         let bare = Profile(uid: 1, displayName: "谁")
 
         let titles = titles(.nodeseek, bare)
-        XCTAssertFalse(titles.contains("鸡腿数目"))
+        XCTAssertFalse(titles.contains("鸡腿"))
         XCTAssertFalse(titles.contains("加入天数"))
     }
 
@@ -90,7 +94,7 @@ final class ProfileFieldsTests: XCTestCase {
             titles(.nga, profile),
             ["用户组", "发帖数", "注册时间", "IP 属地", "头衔", "被关注"]
         )
-        XCTAssertFalse(titles(.nga, profile).contains("鸡腿数目"), "别把别人的词带过来")
+        XCTAssertFalse(titles(.nga, profile).contains("鸡腿"), "别把别人的词带过来")
     }
 
     /// NGA 报的东西缺了也照样占位 —— 那几行是它资料页的固定内容。
@@ -126,5 +130,88 @@ extension ProfileFieldsTests {
 
         XCTAssertNotNil(profile.money, "前提：鸡腿是有值的")
         XCTAssertFalse(ForumSiteDescriptor.nodeseek.showsReputationSection)
+    }
+}
+
+/// 用户卡上的未读三项：回复、@我、私信。站点只对本人报这几个数。
+final class NodeSeekOwnProfileTests: XCTestCase {
+
+    private let accountInfo = """
+    {"success":true,"detail":{"member_id":66675,"member_name":"我","rank":1,
+     "coin":159,"stardust":0,"nPost":3,"nComment":21,"fans":0,"follows":0,
+     "created_at":"2026-08-11T00:00:00.000Z","bio":""}}
+    """
+    private let unread = #"{"success":true,"unreadCount":{"all":5,"atMe":1,"message":2,"reply":3}}"#
+
+    /// 首页用来认出「我是谁」，之后才谈得上「这是不是我自己」。
+    private func homePage(uid: Int64) -> String {
+        let state = Data(#"{"user":{"member_id":\#(uid)}}"#.utf8).base64EncodedString()
+        return "<html><body><script>var s=\"\(state)\"</script></body></html>"
+    }
+
+    private func service(_ transport: RecordingHTTPTransport) -> NodeSeekForumService {
+        NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+    }
+
+    func testLookingAtYourOwnProfileBringsTheUnreadCounts() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: homePage(uid: 66675),
+            byPath: [
+                "/api/account/getInfo/": accountInfo,
+                "/api/notification/unread-count": unread
+            ]
+        )
+
+        let profile = try await service(transport).profile(uid: 66675)
+
+        XCTAssertEqual(profile.unreadReplies, 3)
+        XCTAssertEqual(profile.unreadMentions, 1)
+        XCTAssertEqual(profile.unreadMessages, 2)
+        XCTAssertEqual(
+            ForumSiteDescriptor.nodeseek.profileFields(for: profile)
+                .first { $0.title == "未读私信" }?.value,
+            "2"
+        )
+    }
+
+    /// 看别人的资料时不该去要未读数 —— 那是我的数，不是他的。
+    func testLookingAtSomeoneElseDoesNotAskForUnreadCounts() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: homePage(uid: 66675),
+            byPath: [
+                "/api/account/getInfo/": accountInfo,
+                "/api/notification/unread-count": unread
+            ]
+        )
+
+        let profile = try await service(transport).profile(uid: 3515)
+
+        XCTAssertNil(profile.unreadReplies)
+        XCTAssertFalse(
+            transport.requests.contains { $0.url?.path.contains("unread-count") == true },
+            "看别人的资料却去要了我的未读数"
+        )
+        XCTAssertFalse(
+            ForumSiteDescriptor.nodeseek.profileFields(for: profile)
+                .map(\.title).contains("未读私信")
+        )
+    }
+
+    /// 未读数取不到时资料页照常显示 —— 它是附带的。
+    func testAFailedUnreadFetchDoesNotBreakTheProfile() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: homePage(uid: 66675),
+            byPath: [
+                "/api/account/getInfo/": accountInfo,
+                "/api/notification/unread-count": #"{"success":false}"#
+            ]
+        )
+
+        let profile = try await service(transport).profile(uid: 66675)
+
+        XCTAssertEqual(profile.displayName, "我")
+        XCTAssertNil(profile.unreadMessages)
     }
 }

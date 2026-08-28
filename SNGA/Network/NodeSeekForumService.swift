@@ -74,8 +74,30 @@ actor NodeSeekForumService: ForumService {
         cachedUserID = uid
         return uid
     }
+    /// 用户资料。
+    ///
+    /// 看自己的时候顺手把未读数也带回来 —— 站点的用户卡上有「回复 / 我 / 私信」
+    /// 三个数，而它只对本人报。看别人的资料时不发这个请求，那三行也就不显示。
     func profile(uid: Int64) async throws -> Profile {
-        try parser.profile(json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid)))
+        var profile = try parser.profile(
+            json: await client.get(NodeSeekEndpoint.accountInfo(uid: uid))
+        )
+        guard let me = try? await currentUserID(), me == uid else { return profile }
+        do {
+            let counts = try parser.unreadCounts(
+                json: await client.get(NodeSeekEndpoint.unreadCount)
+            )
+            profile.unreadReplies = counts.replies
+            profile.unreadMentions = counts.mentions
+            profile.unreadMessages = counts.messages
+        } catch {
+            // 未读数是附带的。取不到就不显示那三行，别把整张资料页拖垮。
+            await RuntimeLogger.shared.log(
+                category: "nodeseek",
+                "未读数取不到，资料页照常显示：\(error.localizedDescription)"
+            )
+        }
+        return profile
     }
     /// 某个用户的主题或评论。
     ///
