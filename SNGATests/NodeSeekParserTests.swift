@@ -2001,3 +2001,122 @@ extension NodeSeekParserTests {
         )
     }
 }
+
+/// 正文里的标签页（`:::: tabs`）。
+extension NodeSeekParserTests {
+
+    private func tabsPostBody() throws -> String {
+        let page = try parser.threadPage(
+            html: try fixture("nodeseek-post-tabs"),
+            topicID: TopicID(rawValue: 898_667),
+            page: 1
+        )
+        return try XCTUnwrap(page.posts.first { $0.floor == 0 }?.html)
+    }
+
+    /// 站点的结构全靠 class 区分，而清洗会把 div 的 class 剥掉 ——
+    /// 不改写的话几页内容就首尾相接堆在一起了。
+    func testTabsBecomeSwitchableSections() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(html.contains("class=\"ns-tabs\""), "容器没改写")
+        XCTAssertTrue(html.contains("class=\"ns-tab\""), "标题没变成可点的标签")
+        XCTAssertTrue(html.contains("class=\"ns-tab-panel\""), "内容没装进面板")
+        XCTAssertTrue(html.contains("type=\"radio\""), "没有切换用的开关")
+    }
+
+    func testEveryTabTitleSurvives() throws {
+        let html = try tabsPostBody()
+
+        for title in ["基本信息", "IP质量", "网络质量", "回程路由"] {
+            XCTAssertTrue(html.contains(title), "少了「\(title)」这一页")
+        }
+    }
+
+    /// 每一组标签页都要有且只有一页默认展开，否则打开帖子看到的是一排标题和一片空白。
+    ///
+    /// 一篇正文里可以有好几组（这份夹具就有两组，4 页和 6 页），所以要按组数，
+    /// 不能全文数一遍。
+    func testExactlyOneTabStartsOpenInEachGroup() throws {
+        let html = try tabsPostBody()
+
+        var checkedByGroup: [String: Int] = [:]
+        var groups = Set<String>()
+        for input in html.components(separatedBy: "<input").dropFirst() {
+            let tag = String(input.prefix { $0 != ">" })
+            guard let range = tag.range(of: #"name="([^"]+)""#, options: .regularExpression) else {
+                continue
+            }
+            let group = String(tag[range].dropFirst(6).dropLast())
+            groups.insert(group)
+            if tag.contains("checked") { checkedByGroup[group, default: 0] += 1 }
+        }
+
+        XCTAssertEqual(groups.count, 2, "这份夹具里有两组标签页")
+        for group in groups {
+            XCTAssertEqual(checkedByGroup[group], 1, "「\(group)」这一组默认展开的页数不对")
+        }
+    }
+
+    /// 两组标签页的开关不能串成一组 —— 那样点第二组会把第一组切走。
+    func testSeparateTabGroupsDoNotShareASwitch() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(html.contains(#"name="ns-tabs-0""#))
+        XCTAssertTrue(html.contains(#"name="ns-tabs-1""#))
+    }
+
+    /// 切换只能靠 CSS：正文文档的 CSP 是 `default-src 'none'`，脚本不会执行。
+    func testSwitchingNeedsNoScript() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertFalse(html.contains("<script"), "正文里不该出现脚本")
+        XCTAssertTrue(html.contains("default-src 'none'"), "CSP 还在")
+        XCTAssertTrue(
+            html.contains(".ns-tabs input:checked+.ns-tab+.ns-tab-panel{display:block}"),
+            "切换用的那条 CSS 不在文档里"
+        )
+    }
+
+    /// 一页的内容不能跑到另一页里去。
+    func testEachPanelKeepsItsOwnContent() throws {
+        let html = """
+        <div class="content-item" data-comment-id="1"><article class="post-content">
+          <div class="nsk-magic-tabs">
+            <div class="nsk-magic-tab-title">甲</div>
+            <div class="nsk-magic-tab-body"><p>甲的内容</p></div>
+            <div class="nsk-magic-tab-title">乙</div>
+            <div class="nsk-magic-tab-body"><p>乙的内容</p></div>
+          </div>
+        </article></div>
+        """
+        let body = try XCTUnwrap(
+            try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1)
+                .posts.first?.html
+        )
+
+        let first = try XCTUnwrap(body.range(of: "甲的内容"))
+        let secondTitle = try XCTUnwrap(body.range(of: ">乙</label>"))
+        XCTAssertLessThan(
+            first.lowerBound, secondTitle.lowerBound,
+            "甲的内容跑到乙的标签后面去了"
+        )
+    }
+
+    /// 没有内容的那一页也要有它的标签 —— 站点允许空的 tab-item。
+    func testATabWithNoBodyStillGetsItsTitle() throws {
+        let html = """
+        <div class="content-item" data-comment-id="1"><article class="post-content">
+          <div class="nsk-magic-tabs">
+            <div class="nsk-magic-tab-title">空的一页</div>
+          </div>
+        </article></div>
+        """
+        let body = try XCTUnwrap(
+            try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1)
+                .posts.first?.html
+        )
+
+        XCTAssertTrue(body.contains("空的一页"))
+    }
+}

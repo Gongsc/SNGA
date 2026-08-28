@@ -406,6 +406,7 @@ struct NodeSeekParser: Sendable {
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
         try replaceEmbedMarkers(in: element)
+        try rewriteTabs(in: element)
         try resolveRelativeURLs(in: element)
         let inner = try element.html()
         let cleaned = try SwiftSoup.clean(inner, Self.postWhitelist()) ?? ""
@@ -417,6 +418,56 @@ struct NodeSeekParser: Sendable {
         // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
         // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
         return PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet)
+    }
+
+    /// 把站点的标签页容器改写成一套纯 CSS 就能切换的结构。
+    ///
+    /// 正文里写 `:::: tabs` / `::: tab-item 标题`，服务端渲染成一个平铺的容器：
+    /// 标题和内容交替排列，全靠 class 区分。
+    ///
+    /// ```html
+    /// <div class="nsk-magic-tabs">
+    ///   <div class="nsk-magic-tab-title">💻基本信息</div>
+    ///   <div class="nsk-magic-tab-body">…</div>
+    ///   <div class="nsk-magic-tab-title">🎬IP质量</div>
+    ///   …
+    /// </div>
+    /// ```
+    ///
+    /// 直接交给清洗会掉两次：`class` 被剥掉，结构就散了 —— 几页内容首尾相接堆在一起，
+    /// 标题变成夹在中间的孤行，读者根本看不出哪段属于哪一页。
+    ///
+    /// 改写成「单选框 + 标签 + 面板」的三件套，切换全靠 CSS 的 `:checked`。
+    /// **不能用脚本**：正文文档的 CSP 是 `default-src 'none'`，脚本一律不执行，
+    /// 这是刻意的 —— 正文是别人写的。
+    ///
+    /// 编号只要在这一份文档里唯一就行：每个楼层各自是一份文档。
+    private static func rewriteTabs(in element: Element) throws {
+        for (index, container) in (try element.select(".nsk-magic-tabs")).enumerated() {
+            let group = "ns-tabs-\(index)"
+            var pairs: [(title: String, body: String)] = []
+            for child in container.children() {
+                let classes = (try? child.className()) ?? ""
+                if classes.contains("nsk-magic-tab-title") {
+                    pairs.append((try child.text(), ""))
+                } else if classes.contains("nsk-magic-tab-body"), !pairs.isEmpty {
+                    pairs[pairs.count - 1].body = (try? child.html()) ?? ""
+                }
+            }
+            guard !pairs.isEmpty else { continue }
+
+            var html = ""
+            for (position, pair) in pairs.enumerated() {
+                let id = "\(group)-\(position)"
+                let checked = position == 0 ? " checked" : ""
+                html += #"<input type="radio" name="\#(group)" id="\#(id)"\#(checked)>"#
+                html += #"<label class="ns-tab" for="\#(id)">\#(Entities.escape(pair.title))</label>"#
+                html += #"<div class="ns-tab-panel">\#(pair.body)</div>"#
+            }
+            try container.html(html)
+            // 换掉站点的类名而不是追加：留着它只会让人以为那套 CSS 还在起作用。
+            try container.attr("class", "ns-tabs")
+        }
     }
 
     /// 把正文里的相对地址换成绝对地址 —— **必须在清洗之前做**。
@@ -451,7 +502,14 @@ struct NodeSeekParser: Sendable {
     /// 放行 class 不带来风险 —— 它只能选中我们自己写的那几条 CSS。
     private static func postWhitelist() throws -> Whitelist {
         let whitelist = try Whitelist.relaxed()
-        return try whitelist.addAttributes("img", "class")
+        _ = try whitelist.addAttributes("img", "class")
+        // 标签页要靠 class 和 `:checked` 才切得动，所以放行改写后用到的那几样。
+        // 单选框在这里点不出事：文档的 CSP 是 `default-src 'none'`，没有脚本，
+        // 也没有表单可提交 —— 它只是个 CSS 选择器的开关。
+        _ = try whitelist.addTags("input", "label")
+        _ = try whitelist.addAttributes("input", "type", "name", "id", "checked")
+        _ = try whitelist.addAttributes("label", "for", "class")
+        return try whitelist.addAttributes("div", "class")
     }
 
     /// 把正文里的 `nsapp://` 标记换成一句人话。

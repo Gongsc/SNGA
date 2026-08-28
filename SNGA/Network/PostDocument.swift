@@ -55,5 +55,13 @@ enum PostDocument {
     th{background:color-mix(in srgb,CanvasText 7%,transparent);font-weight:650;text-align:left}
     del{opacity:.7}
     .sticker{max-width:120px;max-height:120px;vertical-align:middle}
+    .ns-tabs{display:flex;flex-wrap:wrap;gap:0;margin:10px 0;border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:8px;overflow:hidden}
+    .ns-tabs input{position:absolute;opacity:0;pointer-events:none}
+    .ns-tabs .ns-tab{order:-1;padding:7px 12px;border-bottom:1px solid color-mix(in srgb,CanvasText 16%,transparent);background:color-mix(in srgb,CanvasText 5%,transparent);cursor:pointer;font-weight:600;white-space:nowrap;user-select:none}
+    .ns-tabs input:checked+.ns-tab{background:transparent;border-bottom-color:transparent;color:var(--snga-accent)}
+    .ns-tabs input:focus-visible+.ns-tab{outline:2px solid var(--snga-accent);outline-offset:-2px}
+    .ns-tabs .ns-tab-panel{order:0;display:none;width:100%;box-sizing:border-box;padding:10px 12px}
+    .ns-tabs input:checked+.ns-tab+.ns-tab-panel{display:block}
+    .ns-tabs .ns-tab-panel>:first-child{margin-top:0}.ns-tabs .ns-tab-panel>:last-child{margin-bottom:0}
     """
 }
