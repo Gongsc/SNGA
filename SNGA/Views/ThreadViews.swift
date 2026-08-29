@@ -1007,22 +1007,11 @@ struct PostRow: View {
                             .accessibilityLabel("置顶回复")
                             .accessibilityIdentifier("post-pinned-\(post.id.rawValue)")
                     }
-                    if post.isHot {
-                        // 站点在楼层右上角打的角标。它和「画在热点那一栏里」是两回事：
-                        // 这一层就排在正常楼层中间，只是被标了出来。
-                        Text("HOT")
-                            .font(.caption2.weight(.heavy))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(theme.hotReplyColor, in: RoundedRectangle(cornerRadius: 4))
-                            .foregroundStyle(.white)
-                            .help("站点标记的热门回复")
-                            .accessibilityLabel("热门回复")
-                            .accessibilityIdentifier("post-hot-\(post.id.rawValue)")
-                    }
                     Text(floorLabel)
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(isHotReply ? theme.hotReplyColor : theme.secondaryForegroundColor)
+                        .foregroundStyle(
+                            showsHotStyling ? theme.hotReplyColor : theme.secondaryForegroundColor
+                        )
                     Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
@@ -1087,7 +1076,7 @@ struct PostRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
-                    isHotReply
+                    showsHotStyling
                         ? theme.hotReplyColor.opacity(0.55)
                         : theme.separatorColor
                 )
@@ -1134,6 +1123,10 @@ struct PostRow: View {
 
     /// 热点回复区有自己的内边距，同一楼层在两处的排版宽度并不相同，
     /// 因而测得的高度也不同 —— 两者不能共用一份缓存。
+    ///
+    /// 这里用的是 `isHotReply` 而不是 `showsHotStyling`，是有意的：分的是**排在哪一栏**，
+    /// 不是**画成什么样**。站点标了热点但仍排在正常楼层里的（NodeSeek 那种），
+    /// 宽度和普通楼层一样，该共用同一份缓存。
     private var contentCacheKey: String {
         let section = isHotReply ? "hot" : "post"
         return "thread-\(post.topicID.rawValue)-\(section)-\(post.id.rawValue)"
@@ -1190,13 +1183,22 @@ struct PostRow: View {
         }
     }
 
+    /// 这一层要不要按热点来画。
+    ///
+    /// 两种来路，样式一样：`isHotReply` 是「这一行画在热点回复那一栏里」（NGA 的形状，
+    /// 热点是单独一份列表），`post.isHot` 是站点在楼层本身上打的标记（NodeSeek 的形状，
+    /// 热点混在正常楼层里）。读者看到的应该是同一件事，所以画法只有一套。
+    private var showsHotStyling: Bool {
+        isHotReply || post.isHot
+    }
+
     private var floorLabel: String {
         if post.floor == 0 { return "楼主" }
-        return isHotReply ? "热点 · #\(post.floor)" : "#\(post.floor)"
+        return showsHotStyling ? "热点 · #\(post.floor)" : "#\(post.floor)"
     }
 
     private var rowBackground: Color {
-        isHotReply
+        showsHotStyling
             ? theme.hotReplyColor.opacity(0.11)
             : theme.surfaceColor
     }
