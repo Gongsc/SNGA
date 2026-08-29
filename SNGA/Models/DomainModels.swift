@@ -181,6 +181,10 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     /// （NGA 的形状，热点是单独一份列表）；这个是站点在楼层本身上打的标记，
     /// NodeSeek 的热点就混在正常楼层里，只多一个角标。
     var isHot: Bool = false
+    /// 楼主把这一层置顶了。
+    ///
+    /// 和 `Topic.isPinned`（版面里置顶的话题）无关，这个说的是帖子内部的某一层。
+    var isPinnedPost: Bool = false
     /// 这个**话题**被收藏了多少次，以及我收藏了没有。
     ///
     /// 只有主楼有。收藏是话题级的，但网页版就是把它和楼层的表态并排画在主楼那一行，

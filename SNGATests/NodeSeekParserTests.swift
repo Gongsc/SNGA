@@ -2406,3 +2406,52 @@ extension NodeSeekParserTests {
         XCTAssertTrue(posts.allSatisfy { !$0.isHot })
     }
 }
+
+/// 楼主置顶的回复。
+extension NodeSeekParserTests {
+
+    /// 构造状态来测真分支：手上的两份夹具里 `pined` 全是 false，
+    /// 没有见过线上的置顶回复实例。
+    private func page(hot: Bool, pinned: Bool) throws -> Post {
+        let state = Data(#"""
+        {"postData":{"postId":1,"title":"t","postPageCount":1,
+         "comments":[{"commentId":9,"floorIndex":1,"hot":\#(hot),"pined":\#(pinned),
+         "poster":{"uid":1,"name":"谁"},"time":{"createdDate":"2026-08-01T00:00:00.000Z"}}]}}
+        """#.utf8).base64EncodedString()
+        let html = "<html><body><script>var s=\"\(state)\"</script></body></html>"
+        return try XCTUnwrap(
+            try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1).posts.first
+        )
+    }
+
+    /// 站点把这个字段拼成了 `pined`（少一个 n）。按 `pinned` 去读永远读不到。
+    func testAPinnedFloorIsMarked() throws {
+        XCTAssertTrue(try page(hot: false, pinned: true).isPinnedPost)
+        XCTAssertFalse(try page(hot: false, pinned: false).isPinnedPost)
+    }
+
+    /// 置顶和热点是两个字段，别串。
+    func testPinnedAndHotAreIndependent() throws {
+        let hotOnly = try page(hot: true, pinned: false)
+        XCTAssertTrue(hotOnly.isHot)
+        XCTAssertFalse(hotOnly.isPinnedPost)
+
+        let pinnedOnly = try page(hot: false, pinned: true)
+        XCTAssertFalse(pinnedOnly.isHot)
+        XCTAssertTrue(pinnedOnly.isPinnedPost)
+
+        let both = try page(hot: true, pinned: true)
+        XCTAssertTrue(both.isHot)
+        XCTAssertTrue(both.isPinnedPost)
+    }
+
+    /// 真实的两份夹具里没有置顶回复 —— 记下来，免得以后有人以为这条路测过了线上数据。
+    func testTheRealFixturesHaveNoPinnedFloors() throws {
+        for name in ["nodeseek-post-counts", "nodeseek-post-state"] {
+            let posts = try parser.threadPage(
+                html: try fixture(name), topicID: TopicID(rawValue: 1), page: 1
+            ).posts
+            XCTAssertTrue(posts.allSatisfy { !$0.isPinnedPost }, "\(name) 里冒出了置顶回复")
+        }
+    }
+}

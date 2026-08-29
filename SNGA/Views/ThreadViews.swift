@@ -999,6 +999,14 @@ struct PostRow: View {
                     Spacer()
                 }
                 HStack(spacing: 8) {
+                    if post.isPinnedPost {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(theme.accentColor)
+                            .help("楼主置顶的回复")
+                            .accessibilityLabel("置顶回复")
+                            .accessibilityIdentifier("post-pinned-\(post.id.rawValue)")
+                    }
                     if post.isHot {
                         // 站点在楼层右上角打的角标。它和「画在热点那一栏里」是两回事：
                         // 这一层就排在正常楼层中间，只是被标了出来。

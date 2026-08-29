@@ -276,7 +276,10 @@ struct NodeSeekParser: Sendable {
                 userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil,
                 // 另外两种表态要花鸡腿，各自的计数和「我点过没有」都在这份状态里。
                 reactions: Self.paidReactions(in: comment),
-                isHot: (comment["hot"] as? NSNumber)?.boolValue == true
+                isHot: (comment["hot"] as? NSNumber)?.boolValue == true,
+                // 站点把这个字段拼成了 `pined`（少一个 n）。照抄它的拼法，
+                // 写成 `pinned` 会永远读不到。
+                isPinnedPost: (comment["pined"] as? NSNumber)?.boolValue == true
             ))
         }
         guard !posts.isEmpty else {
