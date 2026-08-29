@@ -2364,3 +2364,45 @@ final class NodeSeekWriteHeaderTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "csrf-token"))
     }
 }
+
+/// 站点标记的热门回复。
+extension NodeSeekParserTests {
+
+    func testHotFloorsAreMarked() throws {
+        let posts = try parser.threadPage(
+            html: try fixture("nodeseek-post-counts"),
+            topicID: TopicID(rawValue: 1033),
+            page: 1
+        ).posts
+
+        XCTAssertEqual(posts.filter(\.isHot).count, 5, "这一页有五层是热点")
+        XCTAssertFalse(posts.allSatisfy(\.isHot), "不是全部都热")
+    }
+
+    /// 热点是楼层自己的标记，不是「排在热点那一栏里」——
+    /// NodeSeek 的热点就混在正常楼层中间。
+    func testHotFloorsStayInTheNormalRun() throws {
+        let page = try parser.threadPage(
+            html: try fixture("nodeseek-post-counts"),
+            topicID: TopicID(rawValue: 1033),
+            page: 1
+        )
+
+        XCTAssertTrue(page.hotReplies.isEmpty, "站点没有单独的热点列表")
+        XCTAssertTrue(
+            page.posts.contains { $0.isHot } && page.posts.contains { !$0.isHot },
+            "热点和普通楼层排在同一串里"
+        )
+    }
+
+    /// 没有这个标记的帖子，一层都不该被标热。
+    func testAThreadWithoutHotFloorsMarksNone() throws {
+        let posts = try parser.threadPage(
+            html: try fixture("nodeseek-post-state"),
+            topicID: TopicID(rawValue: 1),
+            page: 1
+        ).posts
+
+        XCTAssertTrue(posts.allSatisfy { !$0.isHot })
+    }
+}

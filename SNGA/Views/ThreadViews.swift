@@ -999,6 +999,19 @@ struct PostRow: View {
                     Spacer()
                 }
                 HStack(spacing: 8) {
+                    if post.isHot {
+                        // 站点在楼层右上角打的角标。它和「画在热点那一栏里」是两回事：
+                        // 这一层就排在正常楼层中间，只是被标了出来。
+                        Text("HOT")
+                            .font(.caption2.weight(.heavy))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(theme.hotReplyColor, in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(.white)
+                            .help("站点标记的热门回复")
+                            .accessibilityLabel("热门回复")
+                            .accessibilityIdentifier("post-hot-\(post.id.rawValue)")
+                    }
                     Text(floorLabel)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(isHotReply ? theme.hotReplyColor : theme.secondaryForegroundColor)

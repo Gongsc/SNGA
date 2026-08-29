@@ -275,7 +275,8 @@ struct NodeSeekParser: Sendable {
                 upvoteCount: count("upvoteCount"),
                 userVote: (comment["upvoted"] as? NSNumber)?.boolValue == true ? .up : nil,
                 // 另外两种表态要花鸡腿，各自的计数和「我点过没有」都在这份状态里。
-                reactions: Self.paidReactions(in: comment)
+                reactions: Self.paidReactions(in: comment),
+                isHot: (comment["hot"] as? NSNumber)?.boolValue == true
             ))
         }
         guard !posts.isEmpty else {
