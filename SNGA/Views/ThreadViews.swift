@@ -1183,13 +1183,13 @@ struct PostRow: View {
         }
     }
 
-    /// 这一层要不要按热点来画。
+    /// 这一层要不要按热点来画：只看它画在不画在热点那一栏里。
     ///
-    /// 两种来路，样式一样：`isHotReply` 是「这一行画在热点回复那一栏里」（NGA 的形状，
-    /// 热点是单独一份列表），`post.isHot` 是站点在楼层本身上打的标记（NodeSeek 的形状，
-    /// 热点混在正常楼层里）。读者看到的应该是同一件事，所以画法只有一套。
+    /// 不看 `post.isHot`。站点标了热点的楼层已经被挑进那一栏了（见
+    /// `NodeSeekParser`），正文里那一份该和普通楼层一样 —— NGA 就是这样：
+    /// 热点在上面单独列一遍，往下读的时候它只是第 4 楼。
     private var showsHotStyling: Bool {
-        isHotReply || post.isHot
+        isHotReply
     }
 
     private var floorLabel: String {

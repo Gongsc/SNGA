@@ -2379,20 +2379,34 @@ extension NodeSeekParserTests {
         XCTAssertFalse(posts.allSatisfy(\.isHot), "不是全部都热")
     }
 
-    /// 热点是楼层自己的标记，不是「排在热点那一栏里」——
-    /// NodeSeek 的热点就混在正常楼层中间。
-    func testHotFloorsStayInTheNormalRun() throws {
+    /// 站点就地标记热点，应用这边的形状是单独一栏。挑出来放进那一栏，
+    /// 两个站看起来才是一回事。
+    func testHotFloorsAlsoFillTheHotRepliesSection() throws {
         let page = try parser.threadPage(
             html: try fixture("nodeseek-post-counts"),
             topicID: TopicID(rawValue: 1033),
             page: 1
         )
 
-        XCTAssertTrue(page.hotReplies.isEmpty, "站点没有单独的热点列表")
-        XCTAssertTrue(
-            page.posts.contains { $0.isHot } && page.posts.contains { !$0.isHot },
-            "热点和普通楼层排在同一串里"
+        XCTAssertEqual(page.hotReplies.count, 5)
+        XCTAssertTrue(page.hotReplies.allSatisfy(\.isHot))
+    }
+
+    /// 挑进那一栏不等于从正文里搬走 —— 搬走的话按楼层号往下读会凭空缺几层。
+    func testHotFloorsStayInTheNormalRunToo() throws {
+        let page = try parser.threadPage(
+            html: try fixture("nodeseek-post-counts"),
+            topicID: TopicID(rawValue: 1033),
+            page: 1
         )
+
+        for hot in page.hotReplies {
+            XCTAssertTrue(
+                page.posts.contains { $0.id == hot.id },
+                "第 \(hot.floor) 楼被搬走了"
+            )
+        }
+        XCTAssertTrue(page.posts.contains { !$0.isHot }, "普通楼层也还在")
     }
 
     /// 没有这个标记的帖子，一层都不该被标热。

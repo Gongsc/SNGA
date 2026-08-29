@@ -309,6 +309,12 @@ struct NodeSeekParser: Sendable {
                 isFavorite: (postData["collected"] as? NSNumber)?.boolValue ?? false
             ),
             posts: posts,
+            // 站点是就地标记热点的，应用这边的形状是「热点回复」单独一栏（首楼之后那个
+            // 带标题的框）。挑出来放进去，两个站看起来就是一回事。
+            //
+            // 楼层照旧留在 `posts` 里，和 NGA 一样：那一栏是把值得先看的挑出来放在前面，
+            // 不是把它从正文里搬走 —— 搬走的话按楼层号往下读会凭空缺几层。
+            hotReplies: posts.filter(\.isHot),
             page: page,
             hasMore: page < totalPages,
             totalPages: totalPages
