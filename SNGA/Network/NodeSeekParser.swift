@@ -440,7 +440,11 @@ struct NodeSeekParser: Sendable {
         // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
         return PostDocument.html(
             body: body,
-            extraCSS: PostDocument.markdownStyleSheet + "\n" + PostDocument.ansiStyleSheet
+            extraCSS: [
+                PostDocument.markdownStyleSheet,
+                PostDocument.ansiStyleSheet,
+                PostDocument.terminalStyleSheet
+            ].joined(separator: "\n")
         )
     }
 

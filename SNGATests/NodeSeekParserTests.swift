@@ -2137,16 +2137,47 @@ extension NodeSeekParserTests {
     }
 
     /// 报告的正文本身要完整留着。
+    ///
+    /// 按纯文本比，不按 HTML 比：汉字要补宽，每段汉字外面都套了一层
+    /// `ns-w`（见 `ANSITextTests`），照字面找连续的中文是找不到的。
     func testTheReportTextItselfSurvives() throws {
-        let html = try tabsPostBody()
+        let text = Self.plainText(try tabsPostBody())
 
-        XCTAssertTrue(html.contains("硬件质量体检报告"))
-        XCTAssertTrue(html.contains("KVM 虚拟机"))
+        XCTAssertTrue(text.contains("硬件质量体检报告"))
+        XCTAssertTrue(text.contains("KVM 虚拟机"))
+    }
+
+    /// 去掉标签，只留正文文字。
+    ///
+    /// 样式表要整块去掉，不能只去标签 —— 那样 CSS 的内容会当成正文留下来。
+    static func plainText(_ html: String) -> String {
+        html
+            .replacingOccurrences(
+                of: "<style[^>]*>[\\s\\S]*?</style>", with: "", options: .regularExpression
+            )
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
     }
 
     /// 调色板得真的在文档里，否则那些类名什么也不做。
     func testThePaletteIsInTheDocument() throws {
         XCTAssertTrue(try tabsPostBody().contains(".ansi-fg-6"))
+    }
+
+    /// 补宽那条规则同理：标记打了、规则没跟上，等于没补。
+    func testTheWidthRuleIsInTheDocument() throws {
+        let html = try tabsPostBody()
+
+        XCTAssertTrue(html.contains("ns-w"), "前提：正文里有宽度标记")
+        XCTAssertTrue(html.contains(".ns-w{letter-spacing:0.2042em}"), "补宽的规则不在文档里")
+    }
+
+    /// 字体必须钉死 Menlo。那个 0.2042 是按 Menlo 的字宽（0.6021em）算出来的，
+    /// 换一个字宽不同的字体，补出来的就是另一个数。
+    func testTheMonospaceFontIsPinned() throws {
+        XCTAssertTrue(
+            try tabsPostBody().contains(#"pre code{font-family:Menlo,"PingFang SC",monospace}"#),
+            "字体没钉死，补宽的常数就失去依据了"
+        )
     }
 }
 
@@ -2158,13 +2189,11 @@ extension NodeSeekParserTests {
     func testRunsOfSpacesInTerminalOutputSurvive() throws {
         let html = try tabsPostBody()
 
-        XCTAssertTrue(
-            html.contains("组织：") ,
-            "前提：这份报告在夹具里"
-        )
+        let text = Self.plainText(html)
+        XCTAssertTrue(text.contains("组织："), "前提：这份报告在夹具里")
         // 报告用连续空格把值推到同一列上。塌成一个空格就说明被重排过。
         XCTAssertTrue(
-            html.range(of: #"自治系统号：\s{4,}"#, options: .regularExpression) != nil,
+            text.range(of: #"自治系统号：\s{4,}"#, options: .regularExpression) != nil,
             "对齐用的连续空格没了"
         )
     }
@@ -2182,9 +2211,20 @@ extension NodeSeekParserTests {
                 .posts.first?.html
         )
 
-        XCTAssertTrue(
-            body.contains(#"甲<span class="ansi-fg-6">乙</span>丙"#),
-            "彩色片段之间被插了空白：\(body)"
+        // 只要标签之间没有被插进空白就行 —— 汉字外面还套着补宽用的 `ns-w`，
+        // 所以不按整串字面比。
+        let colouredRun = try XCTUnwrap(
+            body.range(of: #"甲</span>.*?丙"#, options: .regularExpression)
+                .map { String(body[$0]) }
+        )
+        XCTAssertFalse(
+            colouredRun.contains("> <") || colouredRun.contains(">\n<"),
+            "彩色片段之间被插了空白：\(colouredRun)"
+        )
+        XCTAssertEqual(
+            Self.plainText(body).trimmingCharacters(in: .whitespacesAndNewlines),
+            "甲乙丙",
+            "正文本身要一字不差"
         )
     }
 

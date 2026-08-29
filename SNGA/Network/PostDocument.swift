@@ -65,6 +65,22 @@ enum PostDocument {
     .ns-tabs .ns-tab-panel>:first-child{margin-top:0}.ns-tabs .ns-tab-panel>:last-child{margin-bottom:0}
     """
 
+    /// 终端报告的排版。
+    ///
+    /// 报告按终端排版：一个汉字算两列。而网页的等宽字体里，**Menlo 的拉丁字宽是
+    /// 0.6021em，汉字是 1em** —— 比值 1.66 而不是 2。每出现一个汉字，后面的列就左移
+    /// 0.2 个字位，标签字数一多整张表就斜了。
+    ///
+    /// 每个汉字补 `2 × 0.6021 − 1 = 0.2042em`，正好凑成两个拉丁字位。
+    /// 哪些字要补由 `ANSIText.markingWideCharacters` 圈出来，两者必须一起改。
+    ///
+    /// 字体写死 Menlo，不用 `ui-monospace`：上面那个常数是按 Menlo 的字宽算的，
+    /// 换一个字宽不同的字体，补出来的就是另一个数。Menlo 每台 Mac 都有。
+    static let terminalStyleSheet = """
+    pre code{font-family:Menlo,"PingFang SC",monospace}
+    .ns-w{letter-spacing:0.2042em}
+    """
+
     /// 终端输出的调色板。
     ///
     /// 黑和白不用字面的黑白：正文的明暗跟着系统走，写死的黑字在深色下、白字在浅色下

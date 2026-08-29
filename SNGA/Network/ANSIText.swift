@@ -143,9 +143,74 @@ enum ANSIText {
         }
 
         func wrap(_ escapedText: String) -> String {
+            let body = ANSIText.markingWideCharacters(escapedText)
             let names = classNames
-            guard !names.isEmpty else { return escapedText }
-            return #"<span class="\#(names.joined(separator: " "))">\#(escapedText)</span>"#
+            guard !names.isEmpty else { return body }
+            return #"<span class="\#(names.joined(separator: " "))">\#(body)</span>"#
+        }
+    }
+
+    /// 把连续的中日韩字符包起来，好让 CSS 把它们补足成两个拉丁字位宽。
+    ///
+    /// 报告是按终端排版的：一个汉字算两列。而网页里等宽字体的拉丁字宽是 0.6021em，
+    /// 汉字是 1em —— 比值 1.66 而不是 2，所以每出现一个汉字，后面的列就左移 0.2 个字位，
+    /// 一行汉字标签多几个字，整张表就斜了。
+    ///
+    /// 正规的办法是 `size-adjust`，但**这个 WebKit 不支持**（`CSS.supports` 实测为 false）。
+    /// 退而求其次：给这些字加 `letter-spacing`，差多少补多少。数值见
+    /// `PostDocument.terminalStyleSheet`，两者必须一起改。
+    ///
+    /// 只包宽字符：拉丁部分本来就是对的，包进去反而会被补出多余的间距。
+    static func markingWideCharacters(_ escapedText: String) -> String {
+        var output = ""
+        var run = ""
+        var runIsWide = false
+
+        func flush() {
+            guard !run.isEmpty else { return }
+            output += runIsWide ? #"<span class="ns-w">\#(run)</span>"# : run
+            run = ""
+        }
+
+        for character in escapedText {
+            let wide = isWide(character)
+            if wide != runIsWide {
+                flush()
+                runIsWide = wide
+            }
+            run.append(character)
+        }
+        flush()
+        return output
+    }
+
+    /// 终端里占两列的字符。
+    ///
+    /// 只收「东亚宽」和「全角」这两类 —— 它们在等宽字体里稳定是 1em。表情符号没有收：
+    /// 它的渲染宽度各家不一，补一个固定值只会补歪。
+    private static func isWide(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first,
+              character.unicodeScalars.count == 1 else {
+            return false
+        }
+        switch scalar.value {
+        case 0x1100...0x115F,            // 谚文字母
+             0x2E80...0x303E,            // 部首、康熙部首、中日韩符号与标点
+             0x3041...0x33FF,            // 假名、注音、兼容字符
+             0x3400...0x4DBF,            // 扩展 A
+             0x4E00...0x9FFF,            // 基本汉字
+             0xA000...0xA4CF,            // 彝文
+             0xAC00...0xD7A3,            // 谚文音节
+             0xF900...0xFAFF,            // 兼容汉字
+             0xFE10...0xFE19,            // 竖排标点
+             0xFE30...0xFE6F,            // 兼容形式
+             0xFF00...0xFF60,            // 全角形式
+             0xFFE0...0xFFE6,            // 全角符号
+             0x20000...0x2FFFD,          // 扩展 B 及以后
+             0x30000...0x3FFFD:
+            return true
+        default:
+            return false
         }
     }
 
