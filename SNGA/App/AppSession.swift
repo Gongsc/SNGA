@@ -223,6 +223,16 @@ final class AppSession {
     ///
     /// `isCurrent` 用来判断结果是否仍然有效（配合 `RequestSlot`）；账号在请求期间
     /// 被切换时同样不再写回，避免把上一个账号的错误弹给当前账号。
+    /// 这个错误是不是「被取消了」。
+    ///
+    /// 两种形态都要认：Swift 并发抛的 `CancellationError`，和 `URLSession`
+    /// 在任务取消时抛的 `URLError.cancelled`。只认其中一种，另一种照样会弹出来。
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
+    }
+
     func withLoading(
         showsIndicator: Bool = true,
         isCurrent: () -> Bool = { true },
@@ -247,6 +257,13 @@ final class AppSession {
     }
 
     func present(_ error: Error) {
+        // 取消不是错误，是我们自己停的。切账号、切版面、翻页都会把在飞的请求取消掉，
+        // 报给用户就成了「The operation couldn't be completed. (Swift.CancellationError
+        // error 1.)」这种既看不懂又无从下手的弹窗。
+        //
+        // 拦在这里而不是各个调用点：这是错误通向用户的唯一一道门，漏一处就漏了。
+        guard !Self.isCancellation(error) else { return }
+
         Task {
             await RuntimeLogger.shared.log(
                 .error,
