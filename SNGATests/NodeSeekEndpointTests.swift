@@ -36,8 +36,11 @@ final class NodeSeekEndpointTests: XCTestCase {
         ).capabilities
 
         for present in [
-            ForumCapabilities.checkIn, .postVote,
-            .quotePost, .poll, .privateMessages, .userActivities
+            ForumCapabilities.checkIn, .postVote, .quotePost, .poll,
+            .privateMessages, .userActivities,
+            // 站点是有站内搜索的。先前这一位是关着的，因为我拿匿名请求去试 ——
+            // 匿名访问 /search?q= 一律 302 到谷歌，登录后才给自己的结果页。
+            .globalSearch
         ] {
             XCTAssertTrue(capabilities.contains(present))
         }
@@ -52,13 +55,6 @@ final class NodeSeekEndpointTests: XCTestCase {
         XCTAssertFalse(
             capabilities.contains(.postDownvote),
             "NodeSeek 的反对要花 2 个鸡腿，没有二次确认之前不该摆出按钮"
-        )
-        // 搜索单列一条：它不是「站点没有这个功能」，而是站点把搜索转交给了 Google。
-        // /search?q=X 会 302 到 google.com/search?q=site:www.nodeseek.com&q=X，
-        // 没有任何接口能把结果取回来，所以这个位不能点亮。
-        XCTAssertFalse(
-            capabilities.contains(.globalSearch),
-            "NodeSeek 没有自己的站内搜索，点亮这个位等于摆一个必定失败的入口"
         )
     }
 

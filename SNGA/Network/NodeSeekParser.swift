@@ -163,6 +163,16 @@ struct NodeSeekParser: Sendable {
         return "tag"
     }
 
+    /// 这份 HTML 是不是被转去谷歌了。
+    ///
+    /// 未登录访问 `/search?q=` 时站点会 302 到 `google.com/search`，`URLSession`
+    /// 默认跟着跳，于是拿回来的是谷歌的页面。当成「结构变了」报出去毫无用处 ——
+    /// 该说的是「先登录」。
+    static func isSearchRedirectedAway(html: String) -> Bool {
+        // 谷歌页面里必有它自己的这些东西，而 NodeSeek 的页面里不会有。
+        html.contains("google.com") && !html.contains("nsk-body-left")
+    }
+
     /// 站点把「你看不了这帖」的原因写在正文里，状态码只给一个 404。
     ///
     /// 匿名时是「本帖需要注册用户才能查看😭」，等级不够时是「查看本帖需要Lv2，

@@ -26,7 +26,7 @@ actor NodeSeekForumService: ForumService {
     /// （比如二次确认），那是界面那边的事。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost, .poll,
-        .privateMessages, .userActivities
+        .privateMessages, .userActivities, .globalSearch
     ]
 
     private let client: NodeSeekNetworkClient
@@ -125,9 +125,44 @@ actor NodeSeekForumService: ForumService {
             )
         }
     }
-    /// 站点没有站内搜索，`.globalSearch` 也没点亮，界面不会走到这里。
+    /// 搜索帖子。
+    ///
+    /// 站点的搜索是整页跳转（`/search?q=…`），结果页和版面列表同一套标记，
+    /// 所以解析直接复用 `topicList`。
+    ///
+    /// **未登录时站点会把这个地址 302 到谷歌** —— 那时拿回来的是谷歌的页面，
+    /// 解析不出话题列表。所以先确认登录，报一句能照着做的话，
+    /// 而不是「论坛页面结构已变化」。
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
-        throw ForumServiceError.unsupported("NodeSeek 没有站内搜索，它的搜索是转交给 Google 的")
+        guard request.kind == .topicSubject || request.kind == .topicContent else {
+            throw ForumServiceError.unsupported(
+                "NodeSeek 的搜索只能搜帖子"
+            )
+        }
+        let url = NodeSeekEndpoint.search(
+            query: request.query,
+            category: request.forumID?.key,
+            page: page
+        )
+        let data = try await client.get(url, asJSON: false)
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw ForumServiceError.invalidResponse
+        }
+        guard !NodeSeekParser.isSearchRedirectedAway(html: html) else {
+            throw ForumServiceError.requiresLogin
+        }
+        let result = try parser.topicList(
+            html: html,
+            forumID: request.forumID ?? NodeSeekEndpoint.forumID(key: NodeSeekEndpoint.homeKey),
+            page: page
+        )
+        return ForumSearchPage(
+            request: request,
+            topics: result.topics,
+            page: result.page,
+            hasMore: result.hasMore,
+            totalPages: result.totalPages
+        )
     }
     /// 一页话题列表。
     ///

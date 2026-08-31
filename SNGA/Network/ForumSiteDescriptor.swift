@@ -140,6 +140,33 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 这个站点的搜索能搜什么。
+    ///
+    /// 各站给的档位不一样，写死一份会在别的站上摆出搜不了的选项。NodeSeek 的搜索面板
+    /// 只有「帖子」「用户」「谷歌」三档 —— 谷歌那档是把关键词丢给
+    /// `site:` 搜索，应用里没有对应物。
+    var searchKinds: [ForumSearchKind] {
+        switch site {
+        case .nga: ForumSearchKind.allCases
+        // 用户搜索的响应字段还没验过（`/api/account/find/{name}` 要登录才看得到成功的
+        // 那份），验到之前不摆出来 —— 摆一个必定失败的选项比少一个选项更糟。
+        case .nodeseek: [.topicSubject]
+        }
+    }
+
+    /// 搜索档位在这个站点上叫什么。
+    ///
+    /// `ForumSearchKind.topicSubject` 自称「话题标题」，那是 NGA 的说法。NodeSeek 的
+    /// 面板上写的就是「帖子」，而它到底搜不搜正文我没有验过 —— 用站点自己的词，
+    /// 就不必替它声称一件我不知道的事。
+    func searchKindTitle(_ kind: ForumSearchKind) -> String {
+        switch (site, kind) {
+        case (.nodeseek, .topicSubject): "帖子"
+        case (.nodeseek, .user): "用户"
+        default: kind.title
+        }
+    }
+
     /// 资料页要不要「声望」那一段（威望、声望、N 币）。
     ///
     /// 这是 NGA 一家的东西。按「有没有数」来判断会出错：NodeSeek 的鸡腿也走

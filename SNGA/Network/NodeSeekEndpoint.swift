@@ -110,6 +110,22 @@ enum NodeSeekEndpoint {
         url("/api/notification/\(kind)/list", query: [.init(name: "page", value: String(max(1, page)))])
     }
 
+    /// 帖子搜索。
+    ///
+    /// 是整页跳转，不是接口：站点的搜索面板就是 `location = "/search?q=…"`。
+    /// **匿名访问会 302 到谷歌**，登录之后才给自己的结果页；结果页用的是版面列表
+    /// 那一套 `.post-list-item`，所以解析可以直接复用。
+    ///
+    /// `category` 传 nil 表示全部分类 —— 站点在「全部」时就是不带这个参数。
+    static func search(query: String, category: String?, page: Int) -> URL {
+        var items = [URLQueryItem(name: "q", value: query)]
+        if let category, !category.isEmpty, category != homeKey {
+            items.append(URLQueryItem(name: "category", value: category))
+        }
+        if page > 1 { items.append(URLQueryItem(name: "page", value: String(page))) }
+        return url("/search", query: items)
+    }
+
     /// 一个投票的全部内容。投票编号来自正文里的 `nsapp://vote?id=N`，不是话题编号。
     static func voteInfo(id: Int64) -> URL { url("/api/vote/info/\(id)") }
 

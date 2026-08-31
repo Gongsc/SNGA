@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GlobalForumSearchView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @State private var query = ""
     @State private var kind = ForumSearchKind.topicSubject
 
@@ -69,14 +70,17 @@ struct GlobalForumSearchView: View {
     /// 站点不支持全站搜索时，只留下能在当前版面里做的那几种。
     private var availableKinds: [ForumSearchKind] {
         model.session.supports(.globalSearch)
-            ? ForumSearchKind.allCases
+            ? siteDescriptor.searchKinds
             : ForumSearchKind.currentForumKinds
     }
 
     private var kindPicker: some View {
         Picker("搜索类型", selection: $kind) {
             ForEach(availableKinds) { searchKind in
-                Label(searchKind.title, systemImage: searchKind.systemImage)
+                Label(
+                    siteDescriptor.searchKindTitle(searchKind),
+                    systemImage: searchKind.systemImage
+                )
                     .tag(searchKind)
             }
         }

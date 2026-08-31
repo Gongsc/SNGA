@@ -13,13 +13,30 @@
 
 下面这一节是**我自己跑出来的**，不是从 nodyssey 读来的。其余各节仍是转述。
 
-### 站内搜索：没有（2026-08-27 实测）
+### 站内搜索：有，但要登录（2026-08-29 更正）
 
-`/search?q=X` 回 302，去向 `https://www.google.com/search?q=site:www.nodeseek.com&q=X`。
-站点自己就是把搜索转交出去的，没有任何接口能把结果取回来。
+**先前这一节写的是「没有站内搜索」，那是错的。** 那个结论来自匿名请求：
+未登录访问 `/search?q=X` 确实一律 302 到
+`https://www.google.com/search?q=site:www.nodeseek.com&q=X`。但登录之后站点给的是
+自己的结果页 —— 顶部搜索框弹出的面板有「帖子 / 用户 / 谷歌」三档，谷歌只是其中之一。
 
-所以 `.globalSearch` 这一位**不能点亮** —— 最初的能力表按「用户看得见搜索框」记成了「有」，
-那是从浏览器角度看的事实，表达不了「我们取不回结果」。
+从站点自己的 JS 读出来的（`index.js` 的搜索面板组件）：
+
+```js
+case "post":   location = "/search?q=" + 关键词 + (分类 !== "all" ? "&category=" + 分类 : "")
+case "user":   location = "/member?q=" + 关键词
+case "google": location = "https://www.google.com/search?q=site:" + host + " " + 关键词
+```
+
+- **帖子搜索**：整页跳转，不是接口。登录态下结果页用的是版面列表那一套
+  `.post-list-item`（实测 9 条结果 + 分页），所以解析直接复用 `topicList`。
+- **用户搜索**：`/member?q=` 是客户端渲染的，背后是 `/api/account/find/{name}`。
+  这个接口存在（匿名答 `USER NOT FOUND`），但**成功时的响应字段还没验过** ——
+  拿一个不存在的名字去问只会得到 `{success:false, message}`。验到之前不做，
+  搜索面板上也不摆这一档。
+
+教训记在这里：**匿名请求测不出登录才有的功能**。这一条错了两次
+（先是「没有搜索」，后是回复的 csrf），都是拿匿名结果当全部事实。
 
 ### 有几个接口挡批量抓取，而且它撒谎（2026-08-27 实测）
 

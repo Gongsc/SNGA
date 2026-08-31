@@ -2509,3 +2509,131 @@ extension NodeSeekParserTests {
         }
     }
 }
+
+/// 帖子搜索。结果页和版面列表同一套标记，所以复用同一个解析器。
+final class NodeSeekSearchTests: XCTestCase {
+
+    private func service(_ transport: RecordingHTTPTransport) -> NodeSeekForumService {
+        NodeSeekForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
+    }
+
+    private func request(_ query: String, forumID: ForumID? = nil) throws -> ForumSearchRequest {
+        try XCTUnwrap(
+            ForumSearchRequest(query: query, kind: .topicSubject, forumID: forumID)
+        )
+    }
+
+    private func listHTML() throws -> String {
+        try String(
+            contentsOf: try XCTUnwrap(
+                Bundle(for: NodeSeekParserTests.self)
+                    .url(forResource: "nodeseek-category-daily", withExtension: "html")
+            ),
+            encoding: .utf8
+        )
+    }
+
+    func testSearchingHitsTheSitesSearchPage() async throws {
+        let transport = RecordingHTTPTransport(responding: try listHTML())
+
+        _ = try await service(transport).search(try request("akile"), page: 1)
+
+        let url = try XCTUnwrap(transport.requests.last?.url)
+        XCTAssertEqual(url.path, "/search")
+        XCTAssertEqual(
+            url.query(percentEncoded: false), "q=akile",
+            "全部分类时站点就是不带 category 这个参数"
+        )
+    }
+
+    /// 限定版面就是站点的分类筛选。
+    func testSearchingInOneCategoryPassesItAlong() async throws {
+        let transport = RecordingHTTPTransport(responding: try listHTML())
+
+        _ = try await service(transport).search(
+            try request("akile", forumID: NodeSeekEndpoint.forumID(key: "review")),
+            page: 1
+        )
+
+        XCTAssertEqual(
+            try XCTUnwrap(transport.requests.last?.url).query(percentEncoded: false),
+            "q=akile&category=review"
+        )
+    }
+
+    func testResultsAreParsedLikeAListing() async throws {
+        let transport = RecordingHTTPTransport(responding: try listHTML())
+
+        let page = try await service(transport).search(try request("akile"), page: 1)
+
+        XCTAssertFalse(page.topics.isEmpty, "结果页和版面列表同一套标记，该解析得出来")
+        XCTAssertEqual(page.request.query, "akile")
+    }
+
+    /// 未登录时站点把这个地址 302 到谷歌，`URLSession` 跟着跳，
+    /// 拿回来的是谷歌的页面。报「结构变了」没用，该说的是「先登录」。
+    func testBeingRedirectedToGoogleIsReportedAsNeedingLogin() async throws {
+        let google = """
+        <html><head><title>akile - Google 搜索</title></head>
+        <body><div>www.google.com/search</div></body></html>
+        """
+        let transport = RecordingHTTPTransport(responding: google)
+
+        do {
+            _ = try await service(transport).search(try request("akile"), page: 1)
+            XCTFail("这不是搜索结果")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .requiresLogin)
+        }
+    }
+
+    /// 站点的搜索只搜帖子。别的档位不该走到这里 —— 界面上也没有摆出来。
+    func testOtherSearchKindsAreRefused() async {
+        let transport = RecordingHTTPTransport(responding: "<html></html>")
+        guard let userSearch = ForumSearchRequest(query: "谁", kind: .user) else {
+            return XCTFail("构造不出用户搜索")
+        }
+
+        do {
+            _ = try await service(transport).search(userSearch, page: 1)
+            XCTFail("用户搜索还没做")
+        } catch {
+            guard case .unsupported = error as? ForumServiceError else {
+                return XCTFail("应当是 unsupported，实际是 \(error)")
+            }
+        }
+    }
+}
+
+/// 各站能搜什么、叫什么。
+final class SearchKindTests: XCTestCase {
+
+    func testNodeSeekOffersOnlyWhatItCanActuallyDo() {
+        let kinds = ForumSiteDescriptor.nodeseek.searchKinds
+
+        XCTAssertEqual(kinds, [.topicSubject])
+        XCTAssertFalse(kinds.contains(.forum), "站点没有版面搜索")
+        XCTAssertFalse(
+            kinds.contains(.user),
+            "用户搜索的响应字段还没验过，验到之前不摆出来"
+        )
+    }
+
+    func testNGAKeepsAllOfThem() {
+        XCTAssertEqual(ForumSiteDescriptor.nga.searchKinds, ForumSearchKind.allCases)
+    }
+
+    /// 「话题标题」是 NGA 的说法。NodeSeek 的面板上写的是「帖子」，而它到底搜不搜正文
+    /// 我没验过 —— 用站点自己的词，就不必替它声称一件我不知道的事。
+    func testNodeSeekUsesItsOwnWordForPostSearch() {
+        XCTAssertEqual(
+            ForumSiteDescriptor.nodeseek.searchKindTitle(.topicSubject), "帖子"
+        )
+        XCTAssertEqual(
+            ForumSiteDescriptor.nga.searchKindTitle(.topicSubject),
+            ForumSearchKind.topicSubject.title
+        )
+    }
+}
