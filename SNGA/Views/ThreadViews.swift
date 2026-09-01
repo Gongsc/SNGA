@@ -536,7 +536,7 @@ struct ThreadView: View {
             Task {
                 await model.openUserCenter(
                     uid: uid,
-                    preservingForumContext: true
+                    remembersOrigin: true
                 )
             }
         }
@@ -1178,7 +1178,7 @@ struct PostRow: View {
                 uid: uid,
                 fallbackName: post.author,
                 fallbackAvatarURL: post.avatarURL,
-                preservingForumContext: true
+                remembersOrigin: true
             )
         }
     }

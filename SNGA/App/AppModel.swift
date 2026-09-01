@@ -39,7 +39,12 @@ final class AppModel {
     @ObservationIgnored private var aiProfileActivityPages: [
         AIProfileActivityPageKey: [UserActivity]
     ] = [:]
-    private var forumUserReturnSelection: SidebarSelection?
+    /// 从哪儿进的用户中心。有值就画「返回」。
+    ///
+    /// 原先只在版面里记，别处进来一律没有返回 —— 从通知、私信、收藏夹、搜索结果点进
+    /// 一个人的资料就出不去了。NGA 的用户大多是在帖子里点作者（那时正好在版面下），
+    /// 所以看着像「NGA 有、NodeSeek 没有」，其实是「版面有、别处没有」。
+    private var userCenterReturnSelection: SidebarSelection?
 
     let session: AppSession
     let thread: ThreadStore
@@ -153,9 +158,21 @@ final class AppModel {
     }
 
 
-    var canReturnFromUserCenterToTopicList: Bool {
-        guard case .forum = forumUserReturnSelection else { return false }
-        return true
+    var canReturnFromUserCenter: Bool { userCenterReturnSelection != nil }
+
+    /// 返回按钮上写什么。按来路说，别一律写「返回话题列表」——
+    /// 从私信点进来的人看到那句会以为自己走错了地方。
+    var userCenterReturnTitle: String {
+        switch userCenterReturnSelection {
+        case .forum: "返回话题列表"
+        case .favorites: "返回收藏夹"
+        case .search: "返回搜索结果"
+        case .messages: "返回消息"
+        case .directory: "返回全部版面"
+        case .aiProfiles: "返回 AI 画像"
+        case .toolbox: "返回小工具"
+        default: "返回"
+        }
     }
 
     var selectedForumID: ForumID? {
@@ -365,20 +382,27 @@ final class AppModel {
         }
     }
 
+    /// 打开某个人的用户中心。
+    ///
+    /// `remembersOrigin` 决定还能不能退回来。已经在用户中心里时（刷新、⌘R、
+    /// 视图重新加载）传 true 不会把来路覆盖掉 —— 那些动作不是一次导航，
+    /// 把来路清掉等于让返回按钮凭空消失。
     func openUserCenter(
         uid: Int64,
         fallbackName: String? = nil,
         fallbackAvatarURL: URL? = nil,
-        preservingForumContext: Bool = false
+        remembersOrigin: Bool = false
     ) async {
         aiProfiles.select(uid: nil)
-        if preservingForumContext {
-            if case .forum = sidebarSelection {
-                forumUserReturnSelection = sidebarSelection
+        if remembersOrigin {
+            if case .userCenter = sidebarSelection {
+                // 原地刷新，来路不变。
+            } else {
+                userCenterReturnSelection = sidebarSelection
             }
         } else {
-            forumUserReturnSelection = nil
-                    }
+            userCenterReturnSelection = nil
+        }
         sidebarSelection = .userCenter(uid)
         userActivities = []
         userActivityUID = uid
@@ -425,15 +449,15 @@ final class AppModel {
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
     }
 
-    func returnFromUserCenterToTopicList() {
-        guard case let .forum(forumID) = forumUserReturnSelection else { return }
-        sidebarSelection = .forum(forumID)
-        forumUserReturnSelection = nil
+    func returnFromUserCenter() {
+        guard let origin = userCenterReturnSelection else { return }
+        sidebarSelection = origin
+        userCenterReturnSelection = nil
     }
 
     func ensureUserCenterLoaded(uid: Int64) async {
         guard currentProfile?.uid != uid || userActivityUID != uid else { return }
-        await openUserCenter(uid: uid)
+        await openUserCenter(uid: uid, remembersOrigin: true)
     }
 
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
@@ -734,7 +758,7 @@ final class AppModel {
         case .settings, .addAccount: break
         case let .userCenter(uid):
             if let targetUID = uid ?? session.activeAccount?.siteUserID {
-                await openUserCenter(uid: targetUID)
+                await openUserCenter(uid: targetUID, remembersOrigin: true)
             }
             await browsing.loadForums()
             await favorite.refreshFavorites()

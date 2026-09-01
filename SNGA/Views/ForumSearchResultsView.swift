@@ -64,7 +64,8 @@ struct ForumSearchResultsView: View {
                             await model.openUserCenter(
                                 uid: profile.uid,
                                 fallbackName: profile.displayName,
-                                fallbackAvatarURL: profile.avatarURL
+                                fallbackAvatarURL: profile.avatarURL,
+                                remembersOrigin: true
                             )
                         }
                     } label: {

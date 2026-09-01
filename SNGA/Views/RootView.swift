@@ -33,14 +33,14 @@ struct RootView: View {
         .background(theme.backgroundColor)
         .tint(theme.accentColor)
         .toolbar {
-            if model.canReturnFromUserCenterToTopicList {
+            if model.canReturnFromUserCenter {
                 ToolbarItem(placement: .navigation) {
                     Button {
-                        model.returnFromUserCenterToTopicList()
+                        model.returnFromUserCenter()
                     } label: {
-                        Label("返回话题列表", systemImage: "chevron.left")
+                        Label(model.userCenterReturnTitle, systemImage: "chevron.left")
                     }
-                    .help("返回话题列表")
+                    .help(model.userCenterReturnTitle)
                     .accessibilityIdentifier("user-center-back-to-topics")
                 }
             }
@@ -158,7 +158,7 @@ struct RootView: View {
     }
 
     private var browserModuleTitleLeadingInset: CGFloat {
-        model.canReturnFromUserCenterToTopicList ? 0 : 10
+        model.canReturnFromUserCenter ? 0 : 10
     }
 }
 

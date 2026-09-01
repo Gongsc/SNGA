@@ -50,7 +50,13 @@ struct UserCenterView: View {
                     Spacer()
                     Button {
                         guard let targetUID else { return }
-                        Task { await model.openUserCenter(uid: targetUID) }
+                        // 刷新不是一次导航，返回按钮不该因此消失。
+                        Task {
+                            await model.openUserCenter(
+                                uid: targetUID,
+                                remembersOrigin: true
+                            )
+                        }
                     } label: {
                         Label("刷新用户中心", systemImage: "arrow.clockwise")
                     }
