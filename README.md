@@ -26,6 +26,7 @@ SNGA 是一个使用 SwiftUI 构建的原生 macOS 论坛客户端，开发中�
 - 运行日志的脱敏名单改为按站点推导，新增站点的会话 Cookie 不会漏进日志
 - 小工具不再需要论坛账号，一个账号都没添加时也能打开资讯热榜
 - 小工具自己的网络故障不再显示成论坛的错误，两边各说各的
+- AI API Key 改存在应用沙盒内权限 0600 的私有文件里，不再使用 macOS 钥匙串。**从 1.8.3 升级上来需要重新填一次 API Key**：旧密钥仍留在钥匙串中，应用不会再去读它，可自行在「钥匙串访问」里删除 `cn.snga.client.ai` 这一项
 
 ## [1.8.3 更新](https://github.com/Gongsc/SNGA/releases/tag/1.8.3)
 
@@ -109,7 +110,7 @@ xcodebuild -project SNGA.xcodeproj \
 - 会话 Cookie 按账号隔离保存，普通请求不使用共享 Cookie 容器
 - 帖子 HTML 会移除脚本、表单、iframe、事件属性和不安全链接
 - 运行日志默认关闭，启用后不会记录 Cookie、登录令牌或请求正文
-- AI API Key 仅保存在 macOS 钥匙串；生成前会明确提示公开资料将发送到用户配置的 AI 服务
+- AI API Key 保存在应用沙盒内权限 0600 的私有文件中，与会话 Cookie 同级；生成前会明确提示公开资料将发送到用户配置的 AI 服务
 - 应用启用了 App Sandbox 和 Hardened Runtime
 
 ## 当前限制

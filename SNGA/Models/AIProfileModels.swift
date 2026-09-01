@@ -565,7 +565,7 @@ enum AIServiceError: LocalizedError, Sendable {
     case emptyResponse
     case reasoningOnly(finishReason: String?)
     case server(status: Int, message: String)
-    case keychain(status: Int32)
+    case keyStorage(String)
     case unavailable(String)
 
     var errorDescription: String? {
@@ -588,8 +588,8 @@ enum AIServiceError: LocalizedError, Sendable {
             }
         case let .server(status, message):
             message.isEmpty ? "AI 服务请求失败（HTTP \(status)）" : "AI 服务请求失败：\(message)"
-        case let .keychain(status):
-            "无法访问系统钥匙串（错误 \(status)）"
+        case let .keyStorage(detail):
+            "无法读写本地保存的 API Key：\(detail)"
         case let .unavailable(message):
             message
         }

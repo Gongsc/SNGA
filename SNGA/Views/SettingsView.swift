@@ -451,7 +451,7 @@ private struct SettingsAIPane: View {
                     text: $newAPIKey,
                     prompt: Text(
                         hasSavedAPIKey
-                            ? "已保存在系统钥匙串；输入新值可替换"
+                            ? "已保存；输入新值可替换"
                             : "无需鉴权的本机服务可留空"
                     )
                 )
@@ -529,7 +529,7 @@ private struct SettingsAIPane: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("API Key 只保存在 macOS 系统钥匙串，不会写入偏好设置、画像历史或运行日志。")
+                Text("API Key 只保存在应用沙盒内一个仅本人可读写的文件里，不会写入偏好设置、画像历史或运行日志。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
