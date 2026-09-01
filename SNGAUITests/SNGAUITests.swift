@@ -650,6 +650,66 @@ final class SNGAUITests: XCTestCase {
         assertRefreshIsInBottomBar("mark-all-messages-read", in: app)
     }
 
+    /// 两条搜索栏、两个结果列表，缩进都得在同一条竖线上，两边都不许贴边。
+    ///
+    /// 补的是屏幕上看得见、可访问性树里看不出来的一类毛病：全站面板是裸 `VStack`、
+    /// 搜索结果和版面列表是两个各自配置的 `List`。留白写成同一个数时**画面并不齐**，
+    /// 而且贴边的一侧会被盖住 —— 左边是侧栏浮层，右边是分栏拖拽条和详情栏：
+    /// 搜索按钮点上去变成拖动栏宽，话题行的日期被裁掉半截。
+    ///
+    /// 关键词用 ASCII，绕开中文 `typeText` 那个偶发问题。
+    func testSearchBarsAndResultRowsLineUpWithTheTopicList() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        app.buttons["搜索"].click()
+        let globalField = app.textFields["global-search-field"]
+        XCTAssertTrue(globalField.waitForExistence(timeout: 5))
+        let globalFieldLeading = globalField.frame.minX
+        let globalSubmitTrailing = app.buttons["global-search-submit"].frame.maxX
+
+        globalField.click()
+        globalField.typeText("test")
+        app.buttons["global-search-submit"].click()
+        let searchRow = app.buttons["search-topic-9101"]
+        XCTAssertTrue(searchRow.waitForExistence(timeout: 5))
+        let searchRowFrame = searchRow.frame
+
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        let currentField = app.textFields["current-forum-search-field"]
+        XCTAssertTrue(currentField.waitForExistence(timeout: 5))
+        let topicRow = app.buttons["topic-9001"]
+        XCTAssertTrue(topicRow.waitForExistence(timeout: 5))
+
+        XCTAssertEqual(
+            globalFieldLeading,
+            currentField.frame.minX,
+            accuracy: 1,
+            "两条搜索栏的左缩进对不齐"
+        )
+        XCTAssertEqual(
+            globalSubmitTrailing,
+            app.buttons["current-forum-search-submit"].frame.maxX,
+            accuracy: 1,
+            "两条搜索栏的右边对不齐 —— 全站那个按钮多半又压到拖拽条上了"
+        )
+        XCTAssertEqual(
+            searchRowFrame.minX,
+            topicRow.frame.minX,
+            accuracy: 1,
+            "搜索结果的行和版面列表的行左边不齐"
+        )
+        XCTAssertEqual(
+            searchRowFrame.maxX,
+            topicRow.frame.maxX,
+            accuracy: 1,
+            "搜索结果的行右边不齐 —— 多半又伸到详情栏底下了，日期会被裁掉"
+        )
+    }
+
     func testGlobalAndCurrentForumSearchEntrypoints() {
         continueAfterFailure = false
         let app = XCUIApplication()

@@ -1488,14 +1488,7 @@ struct TopicListView: View {
                 )
             }
             .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
-            .listRowBackground(Color.clear)
-            .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-                dimensions[.leading] + 8
-            }
-            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-                dimensions[.trailing] - 8
-            }
+            .forumTopicListRow()
             .accessibilityIdentifier("topic-\(topic.id.rawValue)")
         }
     }
@@ -1815,24 +1808,33 @@ private struct TopicRow: View {
             HStack {
                 if topic.mirroredForumID != nil {
                     Label("进入 \(topic.subject) 版面", systemImage: "arrow.right.circle")
+                        .lineLimit(1)
                 } else {
+                    // 作者名是这一行里唯一该让位的东西。不写 `lineLimit`，长名字会把
+                    // 右边的回复数和日期一起顶出行外 —— 顶出去的部分直接被裁掉，
+                    // 看到的就是半截日期。搜索结果里更容易碰上：标题前面还多一个版面标签。
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 if topic.mirroredForumID == nil {
-                    Label("\(topic.replyCount)", systemImage: "bubble.left")
-                }
-                if topic.mirroredForumID == nil,
-                   let date = topic.lastReplyAt ?? topic.publishedAt {
-                    Text(
-                        date,
-                        format: .dateTime
-                            .year()
-                            .month(.twoDigits)
-                            .day(.twoDigits)
-                            .hour(.twoDigits(amPM: .omitted))
-                            .minute(.twoDigits)
-                    )
+                    // 这两项按内容占宽、不参与压缩：数字和日期截一半没有任何意义。
+                    HStack(spacing: 8) {
+                        Label("\(topic.replyCount)", systemImage: "bubble.left")
+                        if let date = topic.lastReplyAt ?? topic.publishedAt {
+                            Text(
+                                date,
+                                format: .dateTime
+                                    .year()
+                                    .month(.twoDigits)
+                                    .day(.twoDigits)
+                                    .hour(.twoDigits(amPM: .omitted))
+                                    .minute(.twoDigits)
+                            )
+                        }
+                    }
+                    .fixedSize()
                 }
             }
             .font(.caption)

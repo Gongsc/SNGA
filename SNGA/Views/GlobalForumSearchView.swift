@@ -37,15 +37,19 @@ struct GlobalForumSearchView: View {
     }
 
     private var searchHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: ForumSearchBarMetrics.rowSpacing) {
+            HStack(spacing: ForumSearchBarMetrics.controlSpacing) {
                 queryField
-                kindPicker
+                // 只有一档时不画选择器：一个点开只有一个选项的菜单占着 140pt，
+                // 却什么也选不了。搜的是什么改由下面那行「范围」说。
+                if availableKinds.count > 1 {
+                    kindPicker
+                }
                 searchButton
             }
 
             HStack(spacing: 6) {
-                Label("范围：全部版面", systemImage: "square.grid.2x2")
+                Label(scopeTitle, systemImage: "square.grid.2x2")
                     .foregroundStyle(.secondary)
                 if isUserSearch {
                     Text("输入用户 ID 或用户名；数字用户名请在前面加“\\”。")
@@ -54,7 +58,17 @@ struct GlobalForumSearchView: View {
             }
             .font(.caption)
         }
-        .padding(16)
+        // 左右不对称，而且和版面那条不是同一个数 —— 两条栏所处的容器不同，
+        // 要的是**画面上对齐**，不是常量相等。见 `ForumSearchBarMetrics`。
+        .padding(.leading, ForumSearchBarMetrics.panelLeadingPadding)
+        .padding(.trailing, ForumSearchBarMetrics.panelTrailingPadding)
+        .padding(.vertical, ForumSearchBarMetrics.verticalPadding)
+    }
+
+    /// 选择器画出来时就不必在这里重复档位名了。
+    private var scopeTitle: String {
+        guard availableKinds.count <= 1 else { return "范围：全部版面" }
+        return "范围：全部版面 · \(siteDescriptor.searchKindTitle(kind))"
     }
 
     private var queryField: some View {
@@ -71,7 +85,7 @@ struct GlobalForumSearchView: View {
     private var availableKinds: [ForumSearchKind] {
         model.session.supports(.globalSearch)
             ? siteDescriptor.searchKinds
-            : ForumSearchKind.currentForumKinds
+            : siteDescriptor.currentForumSearchKinds
     }
 
     private var kindPicker: some View {
@@ -86,9 +100,15 @@ struct GlobalForumSearchView: View {
         }
         .pickerStyle(.menu)
         .labelsHidden()
-        .frame(minWidth: 180)
+        .frame(minWidth: ForumSearchBarMetrics.kindPickerMinWidth)
         .accessibilityLabel("搜索类型")
         .accessibilityIdentifier("global-search-kind")
+        // 换站之后选中的档位可能已经不在列表里了。Picker 遇到不在列表里的选中值会显示
+        // 空白，且照样把它发出去 —— 于是搜索以 unsupported 报错收场。
+        .onChange(of: availableKinds, initial: true) { _, kinds in
+            guard !kinds.contains(kind), let fallback = kinds.first else { return }
+            kind = fallback
+        }
     }
 
     private var searchButton: some View {
@@ -125,9 +145,9 @@ struct GlobalForumSearchView: View {
             }
         } else {
             ContentUnavailableView {
-                Label("搜索 NGA 论坛", systemImage: "magnifyingglass")
+                Label("搜索 \(siteDescriptor.displayName) 论坛", systemImage: "magnifyingglass")
             } description: {
-                Text("可搜索话题、版面、版主和用户发布的内容。")
+                Text(siteDescriptor.searchSummary)
             }
         }
     }
