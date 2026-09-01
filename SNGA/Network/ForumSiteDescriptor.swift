@@ -148,20 +148,40 @@ struct ForumSiteDescriptor: Sendable {
     var searchKinds: [ForumSearchKind] {
         switch site {
         case .nga: ForumSearchKind.allCases
+        // 「帖子」那档只匹配标题、不进正文，所以没有 `.topicContent`。
         // 用户搜索的响应字段还没验过（`/api/account/find/{name}` 要登录才看得到成功的
         // 那份），验到之前不摆出来 —— 摆一个必定失败的选项比少一个选项更糟。
         case .nodeseek: [.topicSubject]
         }
     }
 
+    /// 版面内搜索能选哪几档。
+    ///
+    /// 是「站点支持的」和「能缩进一个版面的」两者的交集。直接用
+    /// `ForumSearchKind.currentForumKinds` 会在 NodeSeek 的版面里摆出「话题标题和内容」——
+    /// 那是 NGA 才有的档位。
+    var currentForumSearchKinds: [ForumSearchKind] {
+        searchKinds.filter(\.supportsCurrentForum)
+    }
+
+    /// 搜索面板还没搜过东西时，那句说明写什么。
+    ///
+    /// 各站能搜的范围不一样，写死 NGA 那句会在 NodeSeek 上承诺搜得到版面和用户。
+    var searchSummary: String {
+        switch site {
+        case .nga: "可搜索话题、版面、版主和用户发布的内容。"
+        case .nodeseek: "按帖子标题搜索全站，正文不在搜索范围内。"
+        }
+    }
+
     /// 搜索档位在这个站点上叫什么。
     ///
-    /// `ForumSearchKind.topicSubject` 自称「话题标题」，那是 NGA 的说法。NodeSeek 的
-    /// 面板上写的就是「帖子」，而它到底搜不搜正文我没有验过 —— 用站点自己的词，
-    /// 就不必替它声称一件我不知道的事。
+    /// `ForumSearchKind.topicSubject` 自称「话题标题」，那是 NGA 的说法 —— NodeSeek 管
+    /// 话题叫帖子。它的搜索只匹配标题、不进正文，所以「帖子标题」既是站点自己的词，
+    /// 也把范围说准了：不会让人以为搜得到正文。
     func searchKindTitle(_ kind: ForumSearchKind) -> String {
         switch (site, kind) {
-        case (.nodeseek, .topicSubject): "帖子"
+        case (.nodeseek, .topicSubject): "帖子标题"
         case (.nodeseek, .user): "用户"
         default: kind.title
         }

@@ -2605,6 +2605,26 @@ final class NodeSeekSearchTests: XCTestCase {
             }
         }
     }
+
+    /// 搜索只匹配标题。收下「话题标题和内容」就等于拿一份标题结果冒充全文结果 ——
+    /// 搜不到的人会以为站上没有这个帖子，而不是知道正文搜不了。
+    func testSearchingContentIsRefusedInsteadOfSilentlySearchingTitles() async throws {
+        let transport = RecordingHTTPTransport(responding: try listHTML())
+        let wholePost = try XCTUnwrap(
+            ForumSearchRequest(query: "akile", kind: .topicContent)
+        )
+
+        do {
+            _ = try await service(transport).search(wholePost, page: 1)
+            XCTFail("站点搜不了正文")
+        } catch {
+            guard case let .unsupported(message) = error as? ForumServiceError else {
+                return XCTFail("应当是 unsupported，实际是 \(error)")
+            }
+            XCTAssertTrue(message.contains("正文"), "错误里得说清是哪一半做不到：\(message)")
+        }
+        XCTAssertTrue(transport.requests.isEmpty, "做不到的事不该先发一次请求")
+    }
 }
 
 /// 各站能搜什么、叫什么。
@@ -2614,6 +2634,7 @@ final class SearchKindTests: XCTestCase {
         let kinds = ForumSiteDescriptor.nodeseek.searchKinds
 
         XCTAssertEqual(kinds, [.topicSubject])
+        XCTAssertFalse(kinds.contains(.topicContent), "搜索只匹配标题，不进正文")
         XCTAssertFalse(kinds.contains(.forum), "站点没有版面搜索")
         XCTAssertFalse(
             kinds.contains(.user),
@@ -2625,15 +2646,35 @@ final class SearchKindTests: XCTestCase {
         XCTAssertEqual(ForumSiteDescriptor.nga.searchKinds, ForumSearchKind.allCases)
     }
 
-    /// 「话题标题」是 NGA 的说法。NodeSeek 的面板上写的是「帖子」，而它到底搜不搜正文
-    /// 我没验过 —— 用站点自己的词，就不必替它声称一件我不知道的事。
+    /// 版面内那个选择器也得按站点给档位，否则 NodeSeek 的版面里照样摆着「话题标题和内容」。
+    func testCurrentForumKindsAreTheSitesOwnKinds() {
+        XCTAssertEqual(
+            ForumSiteDescriptor.nodeseek.currentForumSearchKinds, [.topicSubject]
+        )
+        XCTAssertEqual(
+            ForumSiteDescriptor.nga.currentForumSearchKinds,
+            ForumSearchKind.currentForumKinds
+        )
+    }
+
+    /// 「话题标题」是 NGA 的说法：NodeSeek 管话题叫帖子。而它的搜索只匹配标题、
+    /// 不进正文，所以「帖子标题」既是站点自己的词，也把范围说准了。
     func testNodeSeekUsesItsOwnWordForPostSearch() {
         XCTAssertEqual(
-            ForumSiteDescriptor.nodeseek.searchKindTitle(.topicSubject), "帖子"
+            ForumSiteDescriptor.nodeseek.searchKindTitle(.topicSubject), "帖子标题"
         )
         XCTAssertEqual(
             ForumSiteDescriptor.nga.searchKindTitle(.topicSubject),
             ForumSearchKind.topicSubject.title
         )
+    }
+
+    /// 空面板上那句说明也不能写死 NGA 那份 —— 它承诺了版面和用户搜索。
+    func testTheEmptyPanelDoesNotPromiseWhatTheSiteCannotDo() {
+        let nodeseek = ForumSiteDescriptor.nodeseek.searchSummary
+
+        XCTAssertTrue(nodeseek.contains("正文"), "该点明正文搜不了：\(nodeseek)")
+        XCTAssertFalse(nodeseek.contains("版面"), "站点没有版面搜索：\(nodeseek)")
+        XCTAssertNotEqual(nodeseek, ForumSiteDescriptor.nga.searchSummary)
     }
 }

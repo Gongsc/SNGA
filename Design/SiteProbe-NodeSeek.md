@@ -30,6 +30,9 @@ case "google": location = "https://www.google.com/search?q=site:" + host + " " +
 
 - **帖子搜索**：整页跳转，不是接口。登录态下结果页用的是版面列表那一套
   `.post-list-item`（实测 9 条结果 + 分页），所以解析直接复用 `topicList`。
+  **只匹配标题，不进正文**（2026-08-31，用户实测确认）。所以应用里这一档叫
+  「帖子标题」，而 NGA 的「话题标题和内容」（`.topicContent`）在这个站上直接拒掉 ——
+  收下它就等于拿一份标题结果冒充全文结果，搜不到的人会以为站上没有。
 - **用户搜索**：`/member?q=` 是客户端渲染的，背后是 `/api/account/find/{name}`。
   这个接口存在（匿名答 `USER NOT FOUND`），但**成功时的响应字段还没验过** ——
   拿一个不存在的名字去问只会得到 `{success:false, message}`。验到之前不做，

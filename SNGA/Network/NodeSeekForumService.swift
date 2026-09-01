@@ -14,14 +14,14 @@ actor NodeSeekForumService: ForumService {
     nonisolated let accountID: AccountID
     nonisolated let site: ForumSite = .nodeseek
 
-    /// 站点实际有的功能。缺的五样：版面收藏、子版面、话题评分、匿名楼层、**站内搜索**。
+    /// 站点实际有的功能。缺的四样：版面收藏、子版面、话题评分、匿名楼层。
     /// 话题收藏有，但没有文件夹。
     ///
-    /// 搜索这一条和最初的能力表不一样，是实测改的：NodeSeek 没有自己的搜索。
-    /// `/search?q=X` 会 302 到 `google.com/search?q=site:www.nodeseek.com&q=X`，
-    /// 站点自己也只是把搜索转交出去。既然没有能取回结果的接口，这个位就不能点亮 ——
-    /// 点亮了等于在界面上摆一个必定失败的入口。
-    /// `.postDownvote` 也没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
+    /// 搜索这一位曾经关过，理由是「`/search?q=X` 会 302 到谷歌，站点没有自己的搜索」——
+    /// 那个结论来自匿名请求，是错的。登录之后站点给的是自己的结果页。
+    /// 能搜什么由 `ForumSiteDescriptor.searchKinds` 说了算：这里只有帖子标题一档，
+    /// 正文和用户都搜不了。
+    /// `.postDownvote` 没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
     /// 一个不作声就扣钱的按钮不该摆在界面上 —— 真要接，得先让界面能把代价讲明白
     /// （比如二次确认），那是界面那边的事。
     nonisolated let capabilities: ForumCapabilities = [
@@ -134,9 +134,11 @@ actor NodeSeekForumService: ForumService {
     /// 解析不出话题列表。所以先确认登录，报一句能照着做的话，
     /// 而不是「论坛页面结构已变化」。
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
-        guard request.kind == .topicSubject || request.kind == .topicContent else {
+        // 只匹配标题。`.topicContent`（话题标题和内容）在这里做不到，收下它就等于拿
+        // 一份标题结果冒充全文结果 —— 搜不到的人会以为站上没有。
+        guard request.kind == .topicSubject else {
             throw ForumServiceError.unsupported(
-                "NodeSeek 的搜索只能搜帖子"
+                "NodeSeek 的搜索只匹配帖子标题，搜不了正文"
             )
         }
         let url = NodeSeekEndpoint.search(
