@@ -64,7 +64,7 @@ final class AppModel {
         aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
         aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
-        aiKeyStore: any AIKeyStore = KeychainAIKeyStore.shared
+        aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared
     ) {
         let session = AppSession(
             container: container,
