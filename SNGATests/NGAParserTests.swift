@@ -101,7 +101,7 @@ final class NGAParserTests: XCTestCase {
             page: 1
         )
         XCTAssertEqual(topics.activities.first?.subject, "用户发布的主题")
-        XCTAssertEqual(topics.activities.first?.forumID, ForumID(rawValue: 414))
+        XCTAssertEqual(topics.activities.first?.forumID, ForumID(nga: 414))
         XCTAssertEqual(topics.totalPages, 2)
         XCTAssertTrue(topics.hasMore)
 
@@ -119,10 +119,20 @@ final class NGAParserTests: XCTestCase {
     func testParsesStructuredForumsTopicsAndPosts() throws {
         let forumResponse = response(#"{"__F":[{"fid":-7,"name":"艾泽拉斯国家地理","info":"综合讨论"}]}"#)
         let forums = try parser.forums(from: forumResponse)
-        XCTAssertEqual(forums, [Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "综合讨论")])
+        XCTAssertEqual(
+            forums,
+            [
+                Forum(
+                    id: ForumID(nga: -7),
+                    name: "艾泽拉斯国家地理",
+                    subtitle: "综合讨论",
+                    searchAliases: ["fid"]
+                )
+            ]
+        )
 
         let topicResponse = response(#"{"__T":[{"tid":101,"fid":-7,"subject":"测试主题","author":"Alice","replies":12,"postdate":1700000000}]}"#)
-        let page = try parser.forumPage(from: topicResponse, forumID: ForumID(rawValue: -7), page: 1)
+        let page = try parser.forumPage(from: topicResponse, forumID: ForumID(nga: -7), page: 1)
         XCTAssertEqual(page.topics.first?.id, TopicID(rawValue: 101))
         XCTAssertEqual(page.topics.first?.replyCount, 12)
 
@@ -516,7 +526,7 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 650),
+            forumID: ForumID(nga: 650),
             page: 1
         )
 
@@ -555,7 +565,7 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 853),
+            forumID: ForumID(nga: 853),
             page: 1
         )
 
@@ -585,7 +595,7 @@ final class NGAParserTests: XCTestCase {
             topicID: TopicID(rawValue: 47_305_779),
             page: 1
         )) { error in
-            XCTAssertEqual(error as? NGAServiceError, .topicLocked)
+            XCTAssertEqual(error as? ForumServiceError, .topicLocked)
         }
     }
 
@@ -605,7 +615,7 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 414),
+            forumID: ForumID(nga: 414),
             page: 2
         )
 
@@ -1254,7 +1264,7 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 1_459_709),
+            forumID: ForumID(nga: 1_459_709),
             page: 1
         )
 
@@ -1351,31 +1361,31 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 414),
+            forumID: ForumID(nga: 414),
             page: 1
         )
 
-        XCTAssertEqual(page.forum?.id, ForumID(rawValue: 414))
+        XCTAssertEqual(page.forum?.id, ForumID(nga: 414))
         XCTAssertEqual(page.forum?.name, "游戏综合讨论")
         XCTAssertEqual(page.forum?.pinnedTopicID, TopicID(rawValue: 8984969))
         XCTAssertEqual(
             Set(page.subforums.map(\.id)),
             Set([
-                ForumID(rawValue: 614),
-                ForumID(rawValue: 489),
-                ForumID(stid: 35925536)
+                ForumID(nga: 614),
+                ForumID(nga: 489),
+                ForumID(ngaSubforum: 35925536)
             ])
         )
         XCTAssertEqual(
-            page.subforums.first(where: { $0.id == ForumID(rawValue: 489) })?.subtitle,
+            page.subforums.first(where: { $0.id == ForumID(nga: 489) })?.subtitle,
             "Monster Hunter"
         )
         XCTAssertEqual(
-            page.subforums.first(where: { $0.id == ForumID(rawValue: 614) })?.pinnedTopicID,
+            page.subforums.first(where: { $0.id == ForumID(nga: 614) })?.pinnedTopicID,
             TopicID(rawValue: 15743992)
         )
         XCTAssertEqual(
-            page.subforums.first(where: { $0.id == ForumID(stid: 35925536) })?.pinnedTopicID,
+            page.subforums.first(where: { $0.id == ForumID(ngaSubforum: 35925536) })?.pinnedTopicID,
             TopicID(rawValue: 35925536)
         )
         XCTAssertEqual(
@@ -1384,25 +1394,25 @@ final class NGAParserTests: XCTestCase {
                     .filter { $0.isSelectedInParent == true }
                     .map(\.id)
             ),
-            Set([ForumID(rawValue: 614), ForumID(stid: 35925536)])
+            Set([ForumID(nga: 614), ForumID(ngaSubforum: 35925536)])
         )
         XCTAssertEqual(
-            page.subforums.first(where: { $0.id == ForumID(rawValue: 489) })?
+            page.subforums.first(where: { $0.id == ForumID(nga: 489) })?
                 .isSelectedInParent,
             false
         )
         XCTAssertNil(page.topics.first(where: { $0.id == TopicID(rawValue: 1001) })?.sourceForumID)
         XCTAssertEqual(
             page.topics.first(where: { $0.id == TopicID(rawValue: 1002) })?.sourceForumID,
-            ForumID(rawValue: 614)
+            ForumID(nga: 614)
         )
         XCTAssertEqual(
             page.topics.first(where: { $0.id == TopicID(rawValue: 1003) })?.sourceForumID,
-            ForumID(stid: 35925536)
+            ForumID(ngaSubforum: 35925536)
         )
         XCTAssertEqual(
             page.topics.first(where: { $0.id == TopicID(rawValue: 1004) })?.sourceParentForumID,
-            ForumID(rawValue: 489)
+            ForumID(nga: 489)
         )
     }
 
@@ -1430,7 +1440,7 @@ final class NGAParserTests: XCTestCase {
           }
         }
         """
-        let selectedID = ForumID(stid: 35925536)
+        let selectedID = ForumID(ngaSubforum: 35925536)
 
         let page = try parser.forumPage(
             from: response(payload),
@@ -1440,7 +1450,13 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(
             page.forum,
-            Forum(id: selectedID, name: "独立游戏", isSelectedInParent: false)
+            Forum(
+                id: selectedID,
+                name: "独立游戏",
+                isSelectedInParent: false,
+                isSubforum: true,
+                searchAliases: ["stid"]
+            )
         )
         XCTAssertTrue(page.subforums.isEmpty)
         XCTAssertNil(page.topics.first?.sourceForumID)
@@ -1474,11 +1490,11 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.forumPage(
             from: response(payload),
-            forumID: ForumID(rawValue: 414),
+            forumID: ForumID(nga: 414),
             page: 1
         )
 
-        XCTAssertEqual(page.topics.first?.mirroredForumID, ForumID(rawValue: 510434))
+        XCTAssertEqual(page.topics.first?.mirroredForumID, ForumID(nga: 510434))
         XCTAssertEqual(page.subforums.first?.name, "幻兽帕鲁")
         XCTAssertFalse(page.topics.first?.isPinned ?? true)
     }
@@ -1505,16 +1521,18 @@ final class NGAParserTests: XCTestCase {
         let forums = try parser.forums(from: response(payload))
 
         XCTAssertEqual(forums.count, 2)
-        XCTAssertEqual(forums[0].id, ForumID(rawValue: 510381))
+        XCTAssertEqual(forums[0].id, ForumID(nga: 510381))
         XCTAssertEqual(forums[0].category, "综合游戏讨论区")
         XCTAssertEqual(forums[0].iconURL?.scheme, "https")
         XCTAssertEqual(
             forums[0].iconURL?.absoluteString,
             "https://img4.nga.cn/ngabbs/nga_classic/f/app/510381.png"
         )
-        XCTAssertEqual(forums[1].id.queryName, "stid")
-        XCTAssertEqual(forums[1].id.description, "18855745")
-        XCTAssertNotEqual(forums[1].id, ForumID(rawValue: 414))
+        XCTAssertEqual(forums[1].id.ngaQueryName, "stid")
+        // 键带 s 前缀，请求里用的仍是那个数字。
+        XCTAssertEqual(forums[1].id.description, "s18855745")
+        XCTAssertEqual(forums[1].id.ngaValue, 18_855_745)
+        XCTAssertNotEqual(forums[1].id, ForumID(nga: 414))
     }
 
     func testForumDirectoryEndpointUsesCurrentAppRoute() {
@@ -1567,7 +1585,7 @@ final class NGAParserTests: XCTestCase {
 
         XCTAssertEqual(
             NGAInternalLink.destination(for: subforumURL),
-            .forum(ForumID(stid: 18_855_745))
+            .forum(ForumID(ngaSubforum: 18_855_745))
         )
         XCTAssertEqual(
             NGAInternalLink.destination(for: userURL),
@@ -1612,7 +1630,7 @@ final class NGAParserTests: XCTestCase {
         """
 
         let favorites = try parser.favoriteForums(from: response(payload))
-        XCTAssertEqual(favorites.map(\.id), [ForumID(rawValue: -7), ForumID(rawValue: 510381)])
+        XCTAssertEqual(favorites.map(\.id), [ForumID(nga: -7), ForumID(nga: 510381)])
         XCTAssertEqual(NGAEndpoint.favorites.path, "/app_api.php")
         XCTAssertEqual(
             NGAEndpoint.favorites.queryItems.first(where: { $0.name == "__lib" })?.value,
@@ -1645,7 +1663,7 @@ final class NGAParserTests: XCTestCase {
 
         let page = try parser.favoriteTopicPage(from: response(payload), page: 1)
         XCTAssertEqual(page.topics.map(\.id), [TopicID(rawValue: 47239680)])
-        XCTAssertEqual(page.topics.first?.forumID, ForumID(rawValue: -7))
+        XCTAssertEqual(page.topics.first?.forumID, ForumID(nga: -7))
         XCTAssertTrue(page.topics.first?.isFavorite == true)
         XCTAssertTrue(page.hasMore)
         XCTAssertEqual(page.totalPages, 2)
@@ -1781,7 +1799,7 @@ final class NGAParserTests: XCTestCase {
         </body></html>
         """
         let forums = try parser.forums(from: response(html, contentType: "text/html; charset=utf-8"))
-        XCTAssertEqual(forums.map(\.id), [ForumID(rawValue: -7), ForumID(rawValue: 510381)])
+        XCTAssertEqual(forums.map(\.id), [ForumID(nga: -7), ForumID(nga: 510381)])
     }
 
     func testDecodesGB18030Response() throws {
@@ -1803,7 +1821,7 @@ final class NGAParserTests: XCTestCase {
         )
         let page = try parser.forumPage(
             from: topicResponse,
-            forumID: ForumID(rawValue: -7),
+            forumID: ForumID(nga: -7),
             page: 1
         )
         XCTAssertEqual(page.topics.first?.subject, #"Tom's "Game" & More"#)
@@ -1889,7 +1907,11 @@ final class NGAParserTests: XCTestCase {
         let html = parser.sanitizedPostHTML(
             "[img]./mon_202607/23/example.jpg[/img]\n[s:ac:blink]"
         )
-        let deferred = PostImagePolicy.applying(to: html, hidesRemoteImages: true)
+        let deferred = PostImagePolicy.applying(
+            to: html,
+            hidesRemoteImages: true,
+            baseURL: ForumSiteDescriptor.nga.baseURL
+        )
         let document = try SwiftSoup.parse(deferred)
 
         XCTAssertEqual(try document.select(".snga-image-placeholder").count, 1)
@@ -1899,7 +1921,11 @@ final class NGAParserTests: XCTestCase {
         )
         XCTAssertEqual(try document.select("img.nga-smile[src]").count, 1)
         XCTAssertEqual(
-            PostImagePolicy.applying(to: html, hidesRemoteImages: false),
+            PostImagePolicy.applying(
+            to: html,
+            hidesRemoteImages: false,
+            baseURL: ForumSiteDescriptor.nga.baseURL
+        ),
             html
         )
     }
@@ -2623,7 +2649,7 @@ final class NGAParserTests: XCTestCase {
                 page: 1
             )
         ) { error in
-            guard case let NGAServiceError.restricted(message) = error else {
+            guard case let ForumServiceError.restricted(message) = error else {
                 return XCTFail("访客权限错误不应被识别为登录失效：\(error)")
             }
             XCTAssertTrue(message.contains("访客"))
@@ -2729,7 +2755,7 @@ final class NGAParserTests: XCTestCase {
         XCTAssertThrowsError(try parser.checkIn(from: response(
             #"{"error":{"0":"CLIENT ERROR"},"data":null}"#
         ))) { error in
-            XCTAssertEqual(error.localizedDescription, "签到请求被 NGA 拒绝，请稍后重试")
+            XCTAssertEqual(error.localizedDescription, "签到请求被拒绝，请稍后重试")
         }
 
         XCTAssertEqual(

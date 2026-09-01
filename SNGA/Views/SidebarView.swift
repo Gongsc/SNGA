@@ -20,16 +20,16 @@ struct SidebarView: View {
                 ForEach(model.session.accounts) { account in
                     SidebarAccountButton(account: account)
                 }
-                Button {
-                    model.session.showsLogin = true
-                } label: {
-                    SidebarInteractiveRow(isSelected: false) {
-                        Label("添加账号", systemImage: "person.badge.plus")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .buttonStyle(.plain)
-                .sidebarListRow()
+                sidebarButton(
+                    "添加账号",
+                    systemImage: "person.badge.plus",
+                    selection: .addAccount
+                )
+            }
+
+            // 小工具读的是 60s 开放接口，不需要账号 —— 所以它在账号门槛外面。
+            Section("工具") {
+                sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
             }
 
             if model.session.activeAccountID != nil {
@@ -37,7 +37,7 @@ struct SidebarView: View {
                     sidebarButton(
                         "用户中心",
                         systemImage: "person.crop.circle",
-                        selection: .userCenter(model.session.activeAccount?.ngaUID),
+                        selection: .userCenter(model.session.activeAccount?.siteUserID),
                         attentionLabel: model.session.activeAccountCheckInStatus.needsCheckInPrompt
                             ? "待签到"
                             : nil
@@ -47,14 +47,21 @@ struct SidebarView: View {
                     }
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
-                    sidebarButton("收藏夹", systemImage: "star", selection: .favorites)
-                    sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
+                    // 没有收藏夹这个概念的站点只有一个列表，叫「收藏夹」是在说站点
+                    // 没有的东西。
                     sidebarButton(
-                        "论坛消息",
-                        systemImage: "bell",
-                        selection: .messages(.notifications),
-                        badge: model.messaging.unreadCount
+                        model.session.supports(.topicFavoriteFolders) ? "收藏夹" : "收藏",
+                        systemImage: "star",
+                        selection: .favorites
                     )
+                    if model.session.supports(.privateMessages) {
+                        sidebarButton(
+                            "论坛消息",
+                            systemImage: "bell",
+                            selection: .messages(.notifications),
+                            badge: model.messaging.unreadCount
+                        )
+                    }
                 }
 
                 Section("最近访问") {
@@ -92,6 +99,7 @@ struct SidebarView: View {
                     }
                 }
 
+                if model.session.supports(.forumFavorites) {
                 Section("收藏版面") {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
@@ -132,6 +140,7 @@ struct SidebarView: View {
                             "favorite-forum-\(favorite.forum.id.description)"
                         )
                     }
+                }
                 }
             }
         }
@@ -185,10 +194,10 @@ struct SidebarView: View {
                 model.clearForumSearch()
             case .aiProfiles:
                 model.aiProfiles.selectMostRecentIfNeeded()
-            case .favorites, .toolbox, .settings:
+            case .favorites, .toolbox, .settings, .addAccount:
                 break
             case let .userCenter(uid):
-                if let uid = uid ?? model.session.activeAccount?.ngaUID {
+                if let uid = uid ?? model.session.activeAccount?.siteUserID {
                     Task { await model.openUserCenter(uid: uid) }
                 }
             case .forum, .messages:
@@ -229,7 +238,7 @@ struct SidebarView: View {
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {
         if case .userCenter = selection {
-            guard let activeUID = model.session.activeAccount?.ngaUID,
+            guard let activeUID = model.session.activeAccount?.siteUserID,
                   case let .userCenter(displayedUID)? = model.sidebarSelection else {
                 return false
             }
@@ -248,7 +257,7 @@ private struct SidebarForumIcon: View {
                 .resizable()
                 .scaledToFit()
         } placeholder: {
-            Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+            Image(systemName: forum.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
                 .resizable()
                 .scaledToFit()
                 .foregroundStyle(.secondary)
@@ -281,14 +290,19 @@ private struct SidebarAccountButton: View {
                     .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(account.displayName).lineLimit(1)
+                        HStack(spacing: 5) {
+                            Text(account.displayName).lineLimit(1)
+                            // 站点标记：栏宽够就带名字，不够只留图标。
+                            SiteBadge(site: account.site)
+                                .layoutPriority(-1)
+                        }
                         if account.sessionState != .valid {
                             Text(account.sessionState.title)
                                 .font(.caption2)
                                 .foregroundStyle(.red)
                         }
                     }
-                    Spacer()
+                    Spacer(minLength: 4)
                     if account.id == model.session.activeAccountID {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.tint)

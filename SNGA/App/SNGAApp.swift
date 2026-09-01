@@ -541,6 +541,9 @@ struct SNGAApp: App {
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             self.container = container
+            // 必须赶在任何人按主键查记录之前：主键的算法已经换成按版面键拼，
+            // 没补过的老行查不到，会被当成新行插进去。
+            LegacyStoreBackfill.runIfNeeded(in: ModelContext(container))
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--uitesting") {
                 _model = State(initialValue: AppModel(
@@ -569,6 +572,7 @@ struct SNGAApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                .environment(model.toolbox)
                 .environment(\.sngaTheme, selectedTheme)
                 .modelContainer(container)
                 .preferredColorScheme(selectedTheme.preferredColorScheme)

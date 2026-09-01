@@ -15,6 +15,9 @@ final class AppSession {
 
     var isLoading = false
     var showsLogin = false
+    /// 正在给哪个站点加账号，以及用哪种方式登录。
+    var loginSite: ForumSite = .nga
+    var loginMethod: SiteLoginMethod = ForumSiteDescriptor.nga.loginMethods[0]
     var errorMessage: String?
     var statusMessage: String?
     var statusMessageIsError = false
@@ -28,7 +31,7 @@ final class AppSession {
     @ObservationIgnored let context: ModelContext
     @ObservationIgnored let sessionStore: any SessionStore
     @ObservationIgnored let notificationService: NotificationService
-    @ObservationIgnored private var services: [AccountID: any NGAForumService] = [:]
+    @ObservationIgnored private var services: [AccountID: any ForumService] = [:]
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
 
@@ -51,12 +54,36 @@ final class AppSession {
         accounts.first { $0.id == activeAccountID }
     }
 
-    var activeService: (any NGAForumService)? {
+    var activeService: (any ForumService)? {
         guard let activeAccountID else { return nil }
         return services[activeAccountID]
     }
 
-    func service(for accountID: AccountID) -> (any NGAForumService)? {
+    /// 当前账号所在站点支持的功能。没有账号时是空集，对应的控件一律不画。
+    var activeCapabilities: ForumCapabilities {
+        activeService?.capabilities ?? []
+    }
+
+    func supports(_ capability: ForumCapabilities) -> Bool {
+        activeCapabilities.contains(capability)
+    }
+
+    /// 取当前账号的服务；没有就说明原因，而不是当作什么都没发生。
+    ///
+    /// 会话不完整的账号建不出服务（见 `reloadAccountsAndServices`）。原先各处一律
+    /// `guard let ... else { return }` 静默退出：点版面没反应、点话题没反应、
+    /// 也没有任何提示 —— 从用户那边看就是应用卡住了。边栏上虽然给那个账号标了
+    /// 「需要重新登录」，但正在看列表的人不会盯着边栏找解释。
+    func requireService(_ what: String) -> (any ForumService)? {
+        if let activeService { return activeService }
+        statusMessage = activeAccount == nil
+            ? "还没有账号，先添加一个再\(what)"
+            : "当前账号需要重新登录，暂时无法\(what)"
+        statusMessageIsError = true
+        return nil
+    }
+
+    func service(for accountID: AccountID) -> (any ForumService)? {
         services[accountID]
     }
 
@@ -66,16 +93,49 @@ final class AppSession {
 
     // MARK: - 账号与服务
 
+    /// 按站点造服务。现在只有一个分支 —— 加站点时编译器会要求补上。
+    ///
+    /// `userAgent` 由调用方解析后传入：要求用 WebView 真实 UA 的站点得先去问一次 WebView，
+    /// 而那是 `@MainActor` 上的异步动作，不能塞进这里。
     func makeService(
+        site: ForumSite,
         accountID: AccountID,
-        cookies: [SessionCookie]
-    ) -> any NGAForumService {
-        LiveNGAForumService(accountID: accountID, cookies: cookies) { [sessionStore] cookies in
+        cookies: [SessionCookie],
+        userAgent: String? = nil
+    ) -> any ForumService {
+        let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
+        }
+        switch site {
+        case .nodeseek:
+            return NodeSeekForumService(
+                accountID: accountID,
+                cookies: cookies,
+                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                cookieDidChange: persist
+            )
+        case .nga:
+            return NGAForumService(
+                accountID: accountID,
+                cookies: cookies,
+                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                cookieDidChange: persist
+            )
         }
     }
 
-    func setService(_ service: (any NGAForumService)?, for accountID: AccountID) {
+    /// 解析出该站点要用的 UA。要求用 WebView 真实 UA 的站点在这里去问一次。
+    func resolvedUserAgent(for site: ForumSite) async -> String {
+        switch site.descriptor.userAgent {
+        case let .fixed(value):
+            return value
+        case .webView:
+            return await WebViewUserAgent.resolve()
+                ?? site.descriptor.resolvedUserAgent(fallback: nil)
+        }
+    }
+
+    func setService(_ service: (any ForumService)?, for accountID: AccountID) {
         services[accountID] = service
     }
 
@@ -90,23 +150,32 @@ final class AppSession {
             services.removeAll()
             for record in records {
                 let cookies = try await sessionStore.cookies(for: record.accountID)
-                let hasUID = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportUid") == .orderedSame &&
-                        Int64($0.value) == record.ngaUID
+                let descriptor = record.site.descriptor
+                // 会话 Cookie 必须一个不缺，且都不能是空值。
+                let hasSession = descriptor.sessionCookieNames.allSatisfy { name in
+                    cookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.value.isEmpty
+                    }
                 }
-                let hasCredential = cookies.contains {
-                    $0.name.caseInsensitiveCompare("ngaPassportCid") == .orderedSame &&
-                        !$0.value.isEmpty
-                }
-                if !hasUID || !hasCredential {
+                // 有 uid Cookie 的站点顺便核对这份 Cookie 是不是这个账号的；没有的站点跳过 ——
+                // 那种站的用户编号不在 Cookie 里，本地无从校验。
+                let matchesAccount = descriptor.uidCookieName.map { name in
+                    cookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame &&
+                            Int64($0.value) == record.siteUserID
+                    }
+                } ?? true
+                if !hasSession || !matchesAccount {
                     record.sessionState = .requiresLogin
                 } else {
-                    // 本地凭据仍完整时先恢复为有效。单个 NGA 接口的偶发鉴权失败
+                    // 本地凭据仍完整时先恢复为有效。单个接口的偶发鉴权失败
                     // 不应在下次启动后继续污染整个账号状态。
                     record.sessionState = .valid
                     services[record.accountID] = makeService(
+                        site: record.site,
                         accountID: record.accountID,
-                        cookies: cookies
+                        cookies: cookies,
+                        userAgent: await resolvedUserAgent(for: record.site)
                     )
                 }
             }
@@ -154,6 +223,16 @@ final class AppSession {
     ///
     /// `isCurrent` 用来判断结果是否仍然有效（配合 `RequestSlot`）；账号在请求期间
     /// 被切换时同样不再写回，避免把上一个账号的错误弹给当前账号。
+    /// 这个错误是不是「被取消了」。
+    ///
+    /// 两种形态都要认：Swift 并发抛的 `CancellationError`，和 `URLSession`
+    /// 在任务取消时抛的 `URLError.cancelled`。只认其中一种，另一种照样会弹出来。
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
+    }
+
     func withLoading(
         showsIndicator: Bool = true,
         isCurrent: () -> Bool = { true },
@@ -178,6 +257,13 @@ final class AppSession {
     }
 
     func present(_ error: Error) {
+        // 取消不是错误，是我们自己停的。切账号、切版面、翻页都会把在飞的请求取消掉，
+        // 报给用户就成了「The operation couldn't be completed. (Swift.CancellationError
+        // error 1.)」这种既看不懂又无从下手的弹窗。
+        //
+        // 拦在这里而不是各个调用点：这是错误通向用户的唯一一道门，漏一处就漏了。
+        guard !Self.isCancellation(error) else { return }
+
         Task {
             await RuntimeLogger.shared.log(
                 .error,
@@ -187,10 +273,10 @@ final class AppSession {
         }
         for observe in errorObservers { observe(error) }
 
-        guard let serviceError = error as? NGAServiceError,
+        guard let serviceError = error as? ForumServiceError,
               serviceError == .requiresLogin,
               let activeAccountID else {
-            errorMessage = error.localizedDescription
+            errorMessage = siteQualified(error.localizedDescription)
             return
         }
 
@@ -203,13 +289,23 @@ final class AppSession {
 
         if !isConsecutiveFailure,
            accounts.first(where: { $0.id == activeAccountID })?.sessionState != .requiresLogin {
-            statusMessage = "NGA 暂时未验证本次请求，已保留当前登录状态，请重试"
+            statusMessage = siteQualified("暂时未验证本次请求，已保留当前登录状态，请重试")
             statusMessageIsError = true
             return
         }
 
-        errorMessage = error.localizedDescription
+        errorMessage = siteQualified(error.localizedDescription)
         markSessionRequiresLogin(accountID: activeAccountID)
+    }
+
+    /// 给一条要展示的消息冠上站名。
+    ///
+    /// 站名不放进 `ForumServiceError`：错误值会跨账号传递和比较，为了文案给每一处
+    /// 构造都加一个参数不划算。展示的时候本来就知道当前是哪个账号，从这里补最省。
+    /// 一个账号都没有时不冠 —— 那种情况下也没有「哪个站」可言。
+    private func siteQualified(_ message: String) -> String {
+        guard let site = activeService?.site else { return message }
+        return "\(site.displayName)：\(message)"
     }
 
     func clearError() { errorMessage = nil }
@@ -299,7 +395,7 @@ final class AppSession {
                 statusMessageIsError = false
             }
         } catch {
-            let message = checkInFailureMessage(error)
+            let message = checkInFailureMessage(error, site: service.site)
             checkInStatuses[activeAccountID] = .failed(message: message)
             statusMessage = message
             statusMessageIsError = true
@@ -307,11 +403,13 @@ final class AppSession {
         updateActiveAccountCheckInStatus()
     }
 
-    private func checkInFailureMessage(_ error: Error) -> String {
-        if error.localizedDescription.localizedCaseInsensitiveContains("client error") {
-            return "签到请求被 NGA 拒绝，请稍后重试"
-        }
-        return error.localizedDescription
+    /// 签到的失败提示走的是 `statusMessage`，不经过 `present(_:)`，所以站名在这里冠。
+    private func checkInFailureMessage(_ error: Error, site: ForumSite) -> String {
+        let detail = error.localizedDescription
+            .localizedCaseInsensitiveContains("client error")
+            ? "签到请求被拒绝，请稍后重试"
+            : error.localizedDescription
+        return "\(site.displayName)：\(detail)"
     }
 
     func updateActiveAccountCheckInStatus() {

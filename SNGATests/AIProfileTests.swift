@@ -166,7 +166,7 @@ final class AIProfileTests: XCTestCase {
     func testTopicSummaryInputUsesPlainTextAndKeepsOpeningAndNewestPosts() throws {
         let topic = Topic(
             id: TopicID(rawValue: 88),
-            forumID: ForumID(rawValue: 7),
+            forumID: ForumID(nga: 7),
             subject: "测试话题",
             author: "楼主",
             replyCount: 12,
@@ -241,7 +241,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 9),
-            forumID: ForumID(rawValue: 1),
+            forumID: ForumID(nga: 1),
             subject: "需要总结的话题",
             author: "楼主",
             replyCount: 0
@@ -647,6 +647,7 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(store.records.first?.replyCount, 1)
 
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 43,
             displayName: "用户 43",
             avatarURL: nil,
@@ -658,6 +659,7 @@ final class AIProfileTests: XCTestCase {
             wasTruncated: false
         ))
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 44,
             displayName: "用户 44",
             avatarURL: nil,
@@ -706,7 +708,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 321),
-            forumID: ForumID(rawValue: 1),
+            forumID: ForumID(nga: 1),
             subject: "等待总结",
             author: "楼主",
             replyCount: 0
@@ -756,7 +758,7 @@ final class AIProfileTests: XCTestCase {
         )
         let topic = Topic(
             id: TopicID(rawValue: 9001),
-            forumID: ForumID(rawValue: -7),
+            forumID: ForumID(nga: -7),
             subject: "三页话题",
             author: "楼主",
             replyCount: 5
@@ -865,6 +867,7 @@ final class AIProfileTests: XCTestCase {
         let (session, container) = try makeSession()
         _ = container
         session.context.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 42,
             displayName: "测试用户",
             avatarURL: nil,
@@ -917,7 +920,8 @@ final class AIProfileTests: XCTestCase {
                 )]
             )
             legacyContainer.mainContext.insert(AccountRecord(
-                ngaUID: 10001,
+                site: .nga,
+                siteUserID: 10001,
                 displayName: "迁移前账号",
                 isCurrent: true
             ))
@@ -938,6 +942,7 @@ final class AIProfileTests: XCTestCase {
         XCTAssertEqual(accounts.map(\.displayName), ["迁移前账号"])
 
         currentContainer.mainContext.insert(AIProfileSummaryRecord(
+            site: .nga,
             uid: 10001,
             displayName: "迁移前账号",
             avatarURL: nil,

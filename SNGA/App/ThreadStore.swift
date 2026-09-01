@@ -96,7 +96,7 @@ final class ThreadStore {
         // 话题被锁只有话题域知道该怎么反应；AppSession 只负责统一呈现错误。
         session.onError { [weak self] error in
             guard let self,
-                  let serviceError = error as? NGAServiceError,
+                  let serviceError = error as? ForumServiceError,
                   serviceError == .topicLocked,
                   currentTopic?.id == selectedTopicID else {
                 return
@@ -324,7 +324,7 @@ final class ThreadStore {
         reset: Bool,
         showsLoadingIndicator: Bool = true
     ) async {
-        guard let service = session.activeService else { return }
+        guard let service = session.requireService("查看话题") else { return }
         clearAISummary()
         let requestAccountID = service.accountID
         let ticket = threadRequests.begin()
@@ -616,7 +616,9 @@ final class ThreadStore {
             let state = try await service.vote(
                 topicID: post.topicID,
                 postID: postID,
-                direction: direction
+                direction: direction,
+                // 点在已经投过的同一个方向上，就是要撤掉它。
+                isUndo: post.userVote == direction
             )
             updateVoteState(state, postID: postID, in: &posts)
             updateVoteState(state, postID: postID, in: &hotReplies)
@@ -636,6 +638,54 @@ final class ThreadStore {
         }
     }
 
+    /// 提交一次赞踩之外的表态。
+    ///
+    /// 这类表态可能花掉用户的东西且不可撤销（NodeSeek 的加鸡腿 1 个鸡腿、反对 2 个），
+    /// 所以这里**不做即时更新**：先发出去，成了再整页刷新，让服务器的数说了算。
+    /// 先把数字改上去再回滚，会在失败时让人以为自己已经花过钱了。
+    @discardableResult
+    func submitReaction(on post: Post, reactionID: String) async -> Bool {
+        guard let service = session.activeService,
+              !votingPostIDs.contains(post.id) else {
+            return false
+        }
+        votingPostIDs.insert(post.id)
+        defer { votingPostIDs.remove(post.id) }
+
+        let requestAccountID = service.accountID
+        let currentPage = page
+        do {
+            _ = try await service.submitPostReaction(
+                topicID: post.topicID,
+                postID: post.id,
+                reactionID: reactionID
+            )
+            guard session.activeAccountID == requestAccountID,
+                  selectedTopicID == post.topicID else {
+                return false
+            }
+            await loadPage(topicID: post.topicID, page: currentPage)
+            session.statusMessage = "已提交"
+            session.statusMessageIsError = false
+            return true
+        } catch {
+            guard session.activeAccountID == requestAccountID,
+                  selectedTopicID == post.topicID else {
+                return false
+            }
+            if voteSubmissionMayHaveSucceeded(error) {
+                // 响应不明确时不能当失败报 —— 这类表态收不回来，用户看到失败会再点一次，
+                // 那就真的花两份钱了。刷新，让页面上的数说了算。
+                await loadPage(topicID: post.topicID, page: currentPage)
+                session.statusMessage = "请求已提交，结果以刷新后的楼层为准"
+                session.statusMessageIsError = false
+                return true
+            }
+            session.present(error)
+            return false
+        }
+    }
+
     func submitTopicPollVote(topicID: TopicID, selection: Set<String>) async -> Bool {
         guard let service = session.activeService,
               let poll = posts.lazy.compactMap(\.poll).first(where: { $0.id == topicID }),
@@ -643,11 +693,11 @@ final class ThreadStore {
             return false
         }
         guard poll.isAcceptingResponses(at: .now) else {
-            session.present(NGAServiceError.unsupported("该投票已经结束"))
+            session.present(ForumServiceError.unsupported("该投票已经结束"))
             return false
         }
         guard poll.containsValidSelection(selection) else {
-            session.present(NGAServiceError.unsupported("请选择有效的投票选项"))
+            session.present(ForumServiceError.unsupported("请选择有效的投票选项"))
             return false
         }
 
@@ -698,21 +748,21 @@ final class ThreadStore {
             return false
         }
         if currentTopic?.id == topicID, currentTopic?.isLocked == true {
-            session.present(NGAServiceError.topicLocked)
+            session.present(ForumServiceError.topicLocked)
             return false
         }
         if !ratingScores.isEmpty {
             guard let rating = currentTopic?.rating,
                   currentTopic?.id == topicID else {
-                session.present(NGAServiceError.unsupported("当前话题没有可用的评分"))
+                session.present(ForumServiceError.unsupported("当前话题没有可用的评分"))
                 return false
             }
             guard rating.isAcceptingResponses(at: .now) else {
-                session.present(NGAServiceError.unsupported("该评分已经结束"))
+                session.present(ForumServiceError.unsupported("该评分已经结束"))
                 return false
             }
             guard rating.containsValidScores(ratingScores) else {
-                session.present(NGAServiceError.unsupported("请选择有效的评分"))
+                session.present(ForumServiceError.unsupported("请选择有效的评分"))
                 return false
             }
         }
@@ -798,7 +848,7 @@ final class ThreadStore {
     }
 
     private func voteSubmissionMayHaveSucceeded(_ error: Error) -> Bool {
-        guard let serviceError = error as? NGAServiceError else { return false }
+        guard let serviceError = error as? ForumServiceError else { return false }
         switch serviceError {
         case .ambiguousWrite:
             return true

@@ -202,7 +202,7 @@ private struct MessagePostRow: View {
                 uid: uid,
                 fallbackName: post.author,
                 fallbackAvatarURL: post.avatarURL,
-                preservingForumContext: true
+                remembersOrigin: true
             )
         }
     }

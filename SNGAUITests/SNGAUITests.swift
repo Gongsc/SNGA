@@ -24,6 +24,98 @@ final class SNGAUITests: XCTestCase {
         XCTAssertEqual(userCenter.value as? String, "")
     }
 
+    /// 没有收藏夹的站点，收藏页得能用。
+    ///
+    /// 这一条补的是一个真出过的死路：站点只有一个收藏列表，适配器返回空的收藏夹
+    /// 数组，于是收藏页永远显示「还没有收藏夹」，并给出一个点了必然报错的
+    /// 「新建收藏夹」按钮 —— 而取收藏列表和写收藏两个接口其实都是通的。
+    func testASiteWithoutFoldersStillListsItsFavourites() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-no-folders"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        // 没有收藏夹的站点，这个入口叫「收藏」。
+        XCTAssertTrue(mainWindow.buttons["收藏"].waitForExistence(timeout: 5))
+        mainWindow.buttons["收藏"].click()
+
+        // 列表里有没有话题由 `FavoriteStoreFolderlessTests` 验 —— 那是数据的事，
+        // 在这里验要跟加载时序纠缠。这条用例只管界面该不该画那几个按钮。
+        XCTAssertFalse(
+            mainWindow.buttons["favorite-folder-create"].exists,
+            "站点没有收藏夹，不该给新建按钮"
+        )
+        XCTAssertFalse(
+            mainWindow.buttons["favorite-folder-edit"].exists,
+            "站点没有收藏夹，不该给修改按钮"
+        )
+    }
+
+    /// 有收藏夹的站点，那些按钮还得在 —— 否则上一条把按钮全删了也照样绿。
+    ///
+    func testASiteWithFoldersKeepsItsFolderControls() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["收藏夹"].waitForExistence(timeout: 5))
+        mainWindow.buttons["收藏夹"].click()
+
+        XCTAssertTrue(
+            mainWindow.buttons["favorite-folder-create"].waitForExistence(timeout: 5)
+        )
+    }
+
+    /// 只有单向表态的站点不该画出反对按钮。
+    ///
+    /// 这一条是补一个真出过的问题：`.postDownvote` 关着，但楼层底部照样两个按钮都画 ——
+    /// 按钮只看了 `.postVote`。当时的单元测试断言的是能力集，而界面根本不读它，
+    /// 所以测得再绿也挡不住。要验的是屏幕上有没有那个按钮。
+    func testAOneWayVotingSiteHidesTheDownvoteButton() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-one-way-vote"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        let upvote = mainWindow.descendants(matching: .any)["post-vote-up-1"]
+        XCTAssertTrue(upvote.waitForExistence(timeout: 5), "正方向的按钮该在")
+        XCTAssertFalse(
+            mainWindow.descendants(matching: .any)["post-vote-down-1"].exists,
+            "站点没有反方向表态，这个按钮不该画出来"
+        )
+    }
+
+    /// 两个方向都支持时，两个按钮都得在 —— 否则上一条用例把按钮删光也照样绿。
+    func testASiteWithBothDirectionsShowsBothButtons() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["post-vote-down-1"].waitForExistence(timeout: 5)
+        )
+    }
+
     func testPostAuthorInformationAppearsInThread() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -104,13 +196,31 @@ final class SNGAUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertEqual(app.windows.count, 1)
-        XCTAssertTrue(mainWindow.staticTexts["版本 1.8.2（1）"].exists)
+        XCTAssertTrue(mainWindow.staticTexts["版本 1.9.0（1）"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
     }
 
-    func testOfficialLoginFormDisplaysJavaScriptValidation() {
+    /// 手动用例：对着 NGA 的线上登录页跑，确认官方页面还是那个结构，
+    /// 并且页面用 `alert()` 报的校验错误会弹成原生对话框。
+    ///
+    /// 不进自动化。两个原因：
+    ///
+    /// 1. 校验对话框是 `NSAlert.beginSheetModal` 挂在 SwiftUI sheet 弹出的窗口上，
+    ///    XCUITest 查不进它内部 —— 弹窗元素本身能找到，里面的文字和按钮都是
+    ///    No matches found，而每次尝试要 76–96 秒才超时。整个套件跑起来就像卡死在
+    ///    这张弹窗上，而且用例结束时也没人点掉它。
+    /// 2. 它依赖 nga.cn 的线上页面，慢且会随对方改版而红。
+    ///
+    /// 单独跑的时候是能过的（约五分钟），跑完记得手动点掉最后那张弹窗。
+    ///
+    /// 方法名不以 `test` 开头，XCTest 就发现不了它 —— 这是唯一不依赖环境变量能否传进
+    /// UI 测试运行器的办法（`SNGA_MANUAL_UI_TESTS=1` 和 `TEST_RUNNER_` 前缀都试过，
+    /// 都到不了测试包里）。要跑就把方法名临时改回 `test` 开头，再：
+    ///
+    ///     -only-testing:SNGAUITests/SNGAUITests/testOfficialLoginFormDisplaysJavaScriptValidation
+    func manualOfficialLoginFormDisplaysJavaScriptValidation() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting"]
@@ -540,6 +650,66 @@ final class SNGAUITests: XCTestCase {
         assertRefreshIsInBottomBar("mark-all-messages-read", in: app)
     }
 
+    /// 两条搜索栏、两个结果列表，缩进都得在同一条竖线上，两边都不许贴边。
+    ///
+    /// 补的是屏幕上看得见、可访问性树里看不出来的一类毛病：全站面板是裸 `VStack`、
+    /// 搜索结果和版面列表是两个各自配置的 `List`。留白写成同一个数时**画面并不齐**，
+    /// 而且贴边的一侧会被盖住 —— 左边是侧栏浮层，右边是分栏拖拽条和详情栏：
+    /// 搜索按钮点上去变成拖动栏宽，话题行的日期被裁掉半截。
+    ///
+    /// 关键词用 ASCII，绕开中文 `typeText` 那个偶发问题。
+    func testSearchBarsAndResultRowsLineUpWithTheTopicList() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        app.buttons["搜索"].click()
+        let globalField = app.textFields["global-search-field"]
+        XCTAssertTrue(globalField.waitForExistence(timeout: 5))
+        let globalFieldLeading = globalField.frame.minX
+        let globalSubmitTrailing = app.buttons["global-search-submit"].frame.maxX
+
+        globalField.click()
+        globalField.typeText("test")
+        app.buttons["global-search-submit"].click()
+        let searchRow = app.buttons["search-topic-9101"]
+        XCTAssertTrue(searchRow.waitForExistence(timeout: 5))
+        let searchRowFrame = searchRow.frame
+
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        let currentField = app.textFields["current-forum-search-field"]
+        XCTAssertTrue(currentField.waitForExistence(timeout: 5))
+        let topicRow = app.buttons["topic-9001"]
+        XCTAssertTrue(topicRow.waitForExistence(timeout: 5))
+
+        XCTAssertEqual(
+            globalFieldLeading,
+            currentField.frame.minX,
+            accuracy: 1,
+            "两条搜索栏的左缩进对不齐"
+        )
+        XCTAssertEqual(
+            globalSubmitTrailing,
+            app.buttons["current-forum-search-submit"].frame.maxX,
+            accuracy: 1,
+            "两条搜索栏的右边对不齐 —— 全站那个按钮多半又压到拖拽条上了"
+        )
+        XCTAssertEqual(
+            searchRowFrame.minX,
+            topicRow.frame.minX,
+            accuracy: 1,
+            "搜索结果的行和版面列表的行左边不齐"
+        )
+        XCTAssertEqual(
+            searchRowFrame.maxX,
+            topicRow.frame.maxX,
+            accuracy: 1,
+            "搜索结果的行右边不齐 —— 多半又伸到详情栏底下了，日期会被裁掉"
+        )
+    }
+
     func testGlobalAndCurrentForumSearchEntrypoints() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -651,6 +821,36 @@ final class SNGAUITests: XCTestCase {
         zhihu.click()
         XCTAssertTrue(
             app.descendants(matching: .any)["toolbox-feed-detail-zhihuHot"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    /// 小工具读的是 60s 开放接口，不需要账号 —— 一个账号都没添加时它也得能用。
+    ///
+    /// 这里不带 `--uitesting-seed` 启动，因此边栏上除了「账号」就只剩「工具」。
+    /// 只断言导航，不碰网络：资讯拉没拉到手在这条用例的关心范围之外。
+    func testToolboxIsReachableWithoutAnyAccount() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["添加账号"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["全部版面"].exists)
+
+        XCTAssertTrue(app.buttons["小工具"].waitForExistence(timeout: 5))
+        app.buttons["小工具"].click()
+        assertModule(
+            "小工具",
+            refreshIdentifier: "toolbox-refresh",
+            in: app
+        )
+
+        XCTAssertTrue(app.buttons["toolbox-feed-worldBriefing"].waitForExistence(timeout: 5))
+        app.buttons["toolbox-feed-aiNews"].click()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["toolbox-feed-detail-aiNews"]
                 .waitForExistence(timeout: 5)
         )
     }

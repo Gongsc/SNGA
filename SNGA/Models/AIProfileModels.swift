@@ -19,7 +19,7 @@ enum AISettings {
     static let maximumInputBytes = 64 * 1024
 
     static let defaultInstruction = """
-    你是 NGA 用户画像分析助手。请仅依据提供的公开资料和近期发布记录，用简体中文输出：
+    你是论坛用户画像分析助手。请仅依据提供的公开资料和近期发布记录，用简体中文输出：
     1. 一句话概览
     2. 关注领域与兴趣，并给出对应内容依据
     3. 发言与互动风格
@@ -30,7 +30,7 @@ enum AISettings {
     """
 
     static let defaultTopicSummaryInstruction = """
-    你是 NGA 话题内容总结助手。请仅依据提供的公开话题内容，用简体中文输出：
+    你是论坛话题内容总结助手。请仅依据提供的公开话题内容，用简体中文输出：
     1. 一句话概览
     2. 主要观点与讨论脉络
     3. 已形成的共识、分歧或尚待确认的信息
@@ -255,7 +255,7 @@ struct AIProfileInput: Codable, Equatable, Sendable {
         let formatter = ISO8601DateFormatter()
         let profileSnapshot = ProfileSnapshot(
             uid: profile.uid,
-            displayName: shortened(profile.displayName, limit: 200) ?? "NGA \(profile.uid)",
+            displayName: shortened(profile.displayName, limit: 200) ?? "用户 \(profile.uid)",
             userGroup: shortened(profile.userGroup, limit: 200),
             title: shortened(profile.title, limit: 300),
             honor: shortened(profile.honor, limit: 500),
@@ -486,6 +486,8 @@ struct AITopicSummaryInput: Codable, Equatable, Sendable {
 @Model
 final class AIProfileSummaryRecord {
     @Attribute(.unique) var id: String
+    /// 画像属于哪个站的用户。带默认值，老库走轻量迁移。
+    var siteRaw: String = ForumSite.nga.rawValue
     var uid: Int64
     var displayName: String
     var avatarURLString: String?
@@ -497,6 +499,7 @@ final class AIProfileSummaryRecord {
     var wasTruncated: Bool
 
     init(
+        site: ForumSite,
         uid: Int64,
         displayName: String,
         avatarURL: URL?,
@@ -507,7 +510,8 @@ final class AIProfileSummaryRecord {
         replyCount: Int,
         wasTruncated: Bool
     ) {
-        self.id = String(uid)
+        self.id = Self.recordID(site: site, uid: uid)
+        self.siteRaw = site.rawValue
         self.uid = uid
         self.displayName = displayName
         self.avatarURLString = avatarURL?.absoluteString
@@ -517,6 +521,16 @@ final class AIProfileSummaryRecord {
         self.topicCount = topicCount
         self.replyCount = replyCount
         self.wasTruncated = wasTruncated
+    }
+
+    var site: ForumSite {
+        get { ForumSite(rawValue: siteRaw) ?? .nga }
+        set { siteRaw = newValue.rawValue }
+    }
+
+    /// 两个站的同号用户是两个人，主键必须把站点算进去。
+    static func recordID(site: ForumSite, uid: Int64) -> String {
+        "\(site.rawValue):\(uid)"
     }
 
     var avatarURL: URL? {

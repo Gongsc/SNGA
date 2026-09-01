@@ -25,17 +25,22 @@ struct RootView: View {
                 .background(theme.backgroundColor)
         }
         .navigationSplitViewStyle(.balanced)
+        // 正文渲染要按当前账号所属的站点解析相对地址和站内链接。
+        .environment(
+            \.forumSiteDescriptor,
+            (model.session.activeService?.site ?? .nga).descriptor
+        )
         .background(theme.backgroundColor)
         .tint(theme.accentColor)
         .toolbar {
-            if model.canReturnFromUserCenterToTopicList {
+            if model.canReturnFromUserCenter {
                 ToolbarItem(placement: .navigation) {
                     Button {
-                        model.returnFromUserCenterToTopicList()
+                        model.returnFromUserCenter()
                     } label: {
-                        Label("返回话题列表", systemImage: "chevron.left")
+                        Label(model.userCenterReturnTitle, systemImage: "chevron.left")
                     }
-                    .help("返回话题列表")
+                    .help(model.userCenterReturnTitle)
                     .accessibilityIdentifier("user-center-back-to-topics")
                 }
             }
@@ -57,7 +62,7 @@ struct RootView: View {
             for: .windowToolbar
         )
         .sheet(isPresented: $session.showsLogin) {
-            LoginSheet()
+            LoginSheet(site: model.session.loginSite, method: model.session.loginMethod)
                 .environment(model)
         }
         .alert("SNGA", isPresented: Binding(
@@ -139,6 +144,8 @@ struct RootView: View {
             "搜索"
         case .favorites:
             "收藏夹"
+        case .addAccount:
+            "添加账号"
         case .toolbox:
             "小工具"
         case .settings:
@@ -151,7 +158,7 @@ struct RootView: View {
     }
 
     private var browserModuleTitleLeadingInset: CGFloat {
-        model.canReturnFromUserCenterToTopicList ? 0 : 10
+        model.canReturnFromUserCenter ? 0 : 10
     }
 }
 
@@ -316,6 +323,8 @@ private struct ContentColumnView: View {
                 GlobalForumSearchView()
             case .favorites:
                 FavoritesView()
+            case .addAccount:
+                AddAccountView()
             case .toolbox:
                 ToolboxMenuView()
             case .settings:
@@ -334,12 +343,13 @@ private struct ContentColumnView: View {
 
 private struct DetailColumnView: View {
     @Environment(AppModel.self) private var model
+    @Environment(ToolboxStore.self) private var toolbox
 
     var body: some View {
         if model.sidebarSelection == .settings {
             SettingsDetailView(section: model.selectedSettingsSection)
         } else if model.sidebarSelection == .toolbox {
-            ToolboxFeedView(feed: model.selectedToolboxFeed)
+            ToolboxFeedView(feed: toolbox.selectedFeed)
         } else if showsAIProfileDetail {
             AIProfileDetailView()
         } else if model.thread.selectedTopicID != nil {

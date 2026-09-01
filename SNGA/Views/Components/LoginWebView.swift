@@ -9,11 +9,19 @@ enum LoginPageState: Equatable {
 }
 
 struct LoginWebView: NSViewRepresentable {
+    /// 去哪个站登录、认哪些 Cookie，全从这里读。
+    var descriptor: ForumSiteDescriptor
+    /// 具体落在哪一页。同一个站可能有好几种登录方式。
+    var loginURL: URL
     var onStateChange: @MainActor (LoginPageState) -> Void
     var onAuthenticated: @MainActor (LoginCapture) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onStateChange: onStateChange, onAuthenticated: onAuthenticated)
+        Coordinator(
+            descriptor: descriptor,
+            onStateChange: onStateChange,
+            onAuthenticated: onAuthenticated
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -21,13 +29,16 @@ struct LoginWebView: NSViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-        configuration.applicationNameForUserAgent = "SNGA/1.0"
+        // 只有明说自报家门的站点才动 UA。要求用 WebView 真实 UA 的站点一行都不能设 ——
+        // 设置本身会把 UA 标记为已覆盖并改变客户端提示的上报方式，即使设成原值也一样。
+        if case .fixed = descriptor.userAgent {
+            configuration.applicationNameForUserAgent = "SNGA/1.0"
+        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         context.coordinator.startMonitoringCookies(in: webView)
-        let url = URL(string: "https://bbs.nga.cn/nuke.php?__lib=login&__act=account&login")!
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: loginURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 30
         webView.load(request)
@@ -44,15 +55,18 @@ struct LoginWebView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        private let descriptor: ForumSiteDescriptor
         private let onStateChange: @MainActor (LoginPageState) -> Void
         private let onAuthenticated: @MainActor (LoginCapture) -> Void
         private var completed = false
         private var cookieMonitor: Task<Void, Never>?
 
         init(
+            descriptor: ForumSiteDescriptor,
             onStateChange: @escaping @MainActor (LoginPageState) -> Void,
             onAuthenticated: @escaping @MainActor (LoginCapture) -> Void
         ) {
+            self.descriptor = descriptor
             self.onStateChange = onStateChange
             self.onAuthenticated = onAuthenticated
         }
@@ -101,7 +115,7 @@ struct LoginWebView: NSViewRepresentable {
             completionHandler: @escaping @MainActor @Sendable () -> Void
         ) {
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = message
             alert.addButton(withTitle: "好")
             present(alert, in: webView) { _ in completionHandler() }
@@ -114,7 +128,7 @@ struct LoginWebView: NSViewRepresentable {
             completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
         ) {
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = message
             alert.addButton(withTitle: "确定")
             alert.addButton(withTitle: "取消")
@@ -134,7 +148,7 @@ struct LoginWebView: NSViewRepresentable {
             field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
 
             let alert = NSAlert()
-            alert.messageText = "NGA"
+            alert.messageText = descriptor.displayName
             alert.informativeText = prompt
             alert.accessoryView = field
             alert.addButton(withTitle: "确定")
@@ -168,9 +182,13 @@ struct LoginWebView: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            if host == "nga.cn" || host.hasSuffix(".nga.cn") || url.scheme == "about" {
+            // 站内的放行 —— 登录页之间的来回切换（比如密码登录和邮箱验证登录）走的就是这条。
+            // 之前这里写死了 NGA 的域名，NodeSeek 的站内链接会被当成外链踢到浏览器。
+            if descriptor.owns(host: host) || url.scheme == "about" {
                 decisionHandler(.allow)
             } else if navigationAction.navigationType == .linkActivated {
+                // 用户主动点开的外链交给系统浏览器；登录页嵌的第三方资源（人机验证挂件之类）
+                // 不是 linkActivated，照常加载。
                 decisionHandler(.cancel)
                 NSWorkspace.shared.open(url)
             } else {
@@ -181,7 +199,7 @@ struct LoginWebView: NSViewRepresentable {
         private func report(_ error: Error) {
             let nsError = error as NSError
             guard nsError.code != NSURLErrorCancelled else { return }
-            onStateChange(.failed("无法载入 NGA 登录页面：\(error.localizedDescription)"))
+            onStateChange(.failed("无法载入\(descriptor.displayName)登录页面：\(error.localizedDescription)"))
         }
 
         private func present(
@@ -200,19 +218,43 @@ struct LoginWebView: NSViewRepresentable {
             guard !completed else { return }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
                 guard let self, !self.completed else { return }
-                let ngaCookies = cookies.filter { cookie in
-                    let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                    return domain == "nga.cn" || domain.hasSuffix(".nga.cn")
-                }.map(SessionCookie.init)
-                let uidCookie = ngaCookies.first { $0.name.caseInsensitiveCompare("ngaPassportUid") == .orderedSame }
-                let credentialCookie = ngaCookies.first { $0.name.caseInsensitiveCompare("ngaPassportCid") == .orderedSame }
-                guard let uid = uidCookie.flatMap({ Int64($0.value) }), credentialCookie != nil else { return }
-                self.completed = true
-                self.stopMonitoringCookies()
-                Task { @MainActor in
-                    self.onAuthenticated(LoginCapture(uid: uid, cookies: ngaCookies))
+                let descriptor = self.descriptor
+                let siteCookies = cookies
+                    .filter { descriptor.owns(cookieDomain: $0.domain) }
+                    .map(SessionCookie.init)
+                let hasSession = descriptor.sessionCookieNames.allSatisfy { name in
+                    siteCookies.contains {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.value.isEmpty
+                    }
+                }
+                guard hasSession else { return }
+
+                switch descriptor.userIDSource {
+                case let .cookie(name):
+                    guard let uid = siteCookies.first(where: {
+                        $0.name.caseInsensitiveCompare(name) == .orderedSame
+                    }).flatMap({ Int64($0.value) }) else { return }
+                    self.finish(uid: uid, cookies: siteCookies)
+
+                case let .renderedDOM(javaScript):
+                    // 编号只在渲染完的 DOM 里。Cookie 到手不代表卡片已经画出来了，
+                    // 所以读不到就先不结束 —— 轮询下一轮再试。
+                    Task { @MainActor [weak self, weak webView] in
+                        guard let self, let webView else { return }
+                        let value = try? await webView.evaluateJavaScript(javaScript)
+                        guard let text = value as? String, let uid = Int64(text) else { return }
+                        self.finish(uid: uid, cookies: siteCookies)
+                    }
                 }
             }
+        }
+
+        /// 抓取完成：停掉轮询，把结果交出去。只走一次。
+        private func finish(uid: Int64, cookies: [SessionCookie]) {
+            guard !completed else { return }
+            completed = true
+            stopMonitoringCookies()
+            onAuthenticated(LoginCapture(site: descriptor.site, uid: uid, cookies: cookies))
         }
     }
 }
@@ -220,7 +262,10 @@ struct LoginWebView: NSViewRepresentable {
 struct LoginSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    var title = "登录 NGA"
+    var site: ForumSite = .nga
+    /// 用哪种方式登录。站点可能给不止一条路。
+    var method: SiteLoginMethod = ForumSiteDescriptor.nga.loginMethods[0]
+    var title: String { "\(site.displayName) · \(method.title)" }
     @State private var pageState: LoginPageState = .loading
     @State private var loadAttempt = UUID()
 
@@ -230,7 +275,7 @@ struct LoginSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.headline)
-                    Text("登录过程由 NGA 官方页面完成，SNGA 不读取或保存密码。")
+                    Text(method.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -244,6 +289,8 @@ struct LoginSheet: View {
 
             ZStack {
                 LoginWebView(
+                    descriptor: site.descriptor,
+                    loginURL: method.url,
                     onStateChange: { pageState = $0 },
                     onAuthenticated: { capture in
                         Task {
@@ -258,7 +305,7 @@ struct LoginSheet: View {
                 case .loading:
                     VStack(spacing: 10) {
                         ProgressView()
-                        Text("正在载入 NGA 登录页面…")
+                        Text("正在载入 \(site.displayName) 登录页面…")
                             .foregroundStyle(.secondary)
                     }
                     .padding(20)

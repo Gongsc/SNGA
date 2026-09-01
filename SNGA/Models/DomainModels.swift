@@ -26,7 +26,8 @@ enum FavoriteSyncState: String, Codable, CaseIterable, Sendable {
 
 struct AccountSummary: Identifiable, Hashable, Sendable {
     let id: AccountID
-    var ngaUID: Int64
+    var site: ForumSite
+    var siteUserID: Int64
     var displayName: String
     var avatarURL: URL?
     var sessionState: SessionState
@@ -42,6 +43,16 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var pinnedTopicID: TopicID? = nil
     /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
     var isSelectedInParent: Bool? = nil
+    /// 这是不是一个子版面。由适配器在构造时盖章。
+    ///
+    /// 展示层要的是「画哪个图标」，不该为此去问 `ForumID` 是怎么编码的 —— 那是
+    /// NGA 一家的事，别的站点根本没有子版面这个概念。
+    var isSubforum: Bool = false
+    /// 适配器额外给的搜索词，用来在版面目录里按站点自己的说法过滤。
+    ///
+    /// NGA 放的是 `fid` / `stid`，于是「fid 510381」能搜到东西。这类词是各站自己的
+    /// 术语，目录搜索只管把它们并进待匹配的文本，不必知道它们是什么意思。
+    var searchAliases: [String] = []
 }
 
 struct ForumCategory: Identifiable, Hashable, Sendable {
@@ -77,6 +88,11 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     var mirroredForumID: ForumID? = nil
     var isFavorite: Bool = false
     var subjectColor: TopicSubjectColor? = nil
+    /// 列表上挂在标题旁边的标记：置顶、推荐阅读、等级限制这类。
+    ///
+    /// 站点会随时加新的标记，所以这里不是一组固定的布尔值 —— 认不出来的照样带过来，
+    /// 用站点自己的说法显示。少显示一个标记，读者就少一条判断这帖值不值得点的依据。
+    var badges: [TopicBadge] = []
     var rating: TopicRating? = nil
 }
 
@@ -153,6 +169,28 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var upvoteCount: Int = 0
     var downvoteCount: Int = 0
     var userVote: PostVoteDirection? = nil
+    /// 除了赞和踩之外，站点还提供的表态。
+    ///
+    /// NGA 只有赞踩两种，这里就是空的。NodeSeek 有三种：点赞（免费）、加鸡腿、反对 ——
+    /// 后两种**要花掉读者自己的鸡腿，而且都不可撤销**，所以每一项都带着代价，
+    /// 界面必须把它说出来。
+    var reactions: [PostReaction] = []
+    /// 站点把这一层标成了热点。
+    ///
+    /// 和 `PostRow` 的 `isHotReply` 不是一回事：那个说的是「这一行画在热点回复那一栏里」
+    /// （NGA 的形状，热点是单独一份列表）；这个是站点在楼层本身上打的标记，
+    /// NodeSeek 的热点就混在正常楼层里，只多一个角标。
+    var isHot: Bool = false
+    /// 楼主把这一层置顶了。
+    ///
+    /// 和 `Topic.isPinned`（版面里置顶的话题）无关，这个说的是帖子内部的某一层。
+    var isPinnedPost: Bool = false
+    /// 这个**话题**被收藏了多少次，以及我收藏了没有。
+    ///
+    /// 只有主楼有。收藏是话题级的，但网页版就是把它和楼层的表态并排画在主楼那一行，
+    /// 所以跟着楼层走 —— 楼层视图拿不到 `Topic`。
+    var topicCollectionCount: Int? = nil
+    var isTopicCollected: Bool = false
     var poll: TopicPoll? = nil
     var ratingScores: [String: Int] = [:]
 }
@@ -327,8 +365,12 @@ enum CheckInResult: Hashable, Codable, Sendable {
 
 struct CheckInStatistics: Hashable, Codable, Sendable {
     var isCheckedInToday: Bool
-    var consecutiveDays: Int
-    var totalDays: Int
+    /// 站点不报这两个数时是 nil，界面就不显示那一行。
+    ///
+    /// 原先是 `Int`，取不到就填 0 —— 于是 NodeSeek 上永远显示「连续签到 0 天」，
+    /// 那不是「不知道」，那是在说一件错事。
+    var consecutiveDays: Int?
+    var totalDays: Int?
 }
 
 enum DailyCheckInStatus: Hashable, Sendable {
@@ -373,7 +415,67 @@ struct Profile: Hashable, Codable, Sendable {
     var fame: Int? = nil
     var money: Int? = nil
     var followerCount: Int? = nil
+    /// 关注了多少人。NGA 的资料里没有这个数。
+    var followingCount: Int? = nil
+    /// 发过多少条回复。NGA 只报发帖数，不分主题和回复。
+    var commentCount: Int? = nil
+    /// 未读的回复、@ 和私信。
+    ///
+    /// **只有看自己的资料时才有。** 站点只对本人报这几个数 —— 看别人的资料时留空，
+    /// 那几行就不显示。
+    var unreadReplies: Int? = nil
+    var unreadMentions: Int? = nil
+    var unreadMessages: Int? = nil
     var isMasked: Bool = false
+}
+
+/// 话题列表上标题旁边的一个标记。
+struct TopicBadge: Identifiable, Hashable, Codable, Sendable {
+    /// 站点自己的完整说法。用作悬停提示和读屏文字。
+    let title: String
+    /// 图标旁边要画出来的那几个字。
+    ///
+    /// 有的标记光靠图标就说清楚了（置顶、推荐阅读），有的不行 ——「等级 1 可见」
+    /// 里真正的信息是那个 1，只画一把锁等于告诉读者「这帖有限制」却不说是什么限制。
+    /// 站点自己也是画一把锁再跟一个数字。
+    var value: String? = nil
+    /// 画哪个图标。认不出来的标记用一个中性的。
+    var systemImage: String = "tag"
+
+    var id: String { title }
+}
+
+/// 楼层上的一种表态。
+///
+/// 赞和踩由 `PostVoteState` 表达，那是两站都有的形状。这里装的是超出那两个方向的
+/// 东西：站点自己的第三、第四种表态，各有各的代价。
+///
+/// `cost` 不是装饰。有的站点的表态会当场花掉用户的东西且收不回来 —— 那种按钮不能
+/// 一点就发，界面得先把价钱摆出来。
+struct PostReaction: Identifiable, Hashable, Codable, Sendable {
+    let id: String
+    var title: String
+    var systemImage: String
+    /// 已经有多少人这么表态过。站点不报就留空。
+    var count: Int? = nil
+    /// 我表态过了。不可撤销的表态尤其要显示这个 —— 否则用户会再花一次钱。
+    var isChosen: Bool = false
+    /// 这一下要花掉用户什么。免费的表态是 nil。
+    var cost: String? = nil
+    /// 做了就收不回来。
+    var isIrreversible: Bool = false
+}
+
+/// 用户资料里的一行。
+///
+/// 各站报的东西和叫法都不一样：NGA 有用户组、威望、N 币，NodeSeek 有等级、鸡腿、
+/// 星辰，连「发帖数」的含义都不同 —— NGA 是总数，NodeSeek 分主题帖和评论。
+/// 所以显示哪几行、叫什么，由站点自己说（见 `ForumSiteDescriptor.profileFields`）。
+struct ProfileStat: Identifiable, Hashable, Sendable {
+    let title: String
+    let value: String
+
+    var id: String { title }
 }
 
 enum UserActivityKind: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -437,116 +539,12 @@ struct SessionCookie: Codable, Hashable, Sendable {
 }
 
 struct LoginCapture: Sendable {
-    var uid: Int64
+    /// 这次登录发生在哪个站。账号按「站点 + uid」认，两者缺一不可。
+    var site: ForumSite
+    /// 用户编号。只有把它写在 Cookie 里的站点能当场读到；其余为 nil，
+    /// 登录后由 `ForumService.currentUserID()` 问出来。
+    var uid: Int64?
     var cookies: [SessionCookie]
-}
-
-enum ToolboxFeed: String, CaseIterable, Identifiable, Hashable, Sendable {
-    case worldBriefing
-    case aiNews
-    case itNews
-    case douyinHot
-    case rednoteHot
-    case bilibiliHot
-    case weiboHot
-    case zhihuHot
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .worldBriefing: "每天 60s 读懂世界"
-        case .aiNews: "AI 资讯快报"
-        case .itNews: "实时 IT 资讯"
-        case .douyinHot: "抖音热搜"
-        case .rednoteHot: "小红书热点"
-        case .bilibiliHot: "哔哩哔哩热搜"
-        case .weiboHot: "微博热搜"
-        case .zhihuHot: "知乎话题榜"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .worldBriefing: "每天一分钟，快速了解全球要闻"
-        case .aiNews: "聚合 AI 与大模型领域的重要动态"
-        case .itNews: "来自 IT 之家的实时科技资讯"
-        case .douyinHot: "查看抖音当前热门搜索"
-        case .rednoteHot: "发现小红书实时热门话题"
-        case .bilibiliHot: "浏览哔哩哔哩实时热搜"
-        case .weiboHot: "追踪微博实时热搜话题"
-        case .zhihuHot: "了解知乎当前热门讨论"
-        }
-    }
-
-    var updateFrequency: String {
-        switch self {
-        case .worldBriefing, .aiNews: "日更"
-        case .itNews, .douyinHot, .rednoteHot, .bilibiliHot, .weiboHot, .zhihuHot:
-            "实时"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .worldBriefing: "globe.asia.australia"
-        case .aiNews: "sparkles"
-        case .itNews: "desktopcomputer"
-        case .douyinHot: "music.note"
-        case .rednoteHot: "book.closed.fill"
-        case .bilibiliHot: "play.rectangle.fill"
-        case .weiboHot: "bubble.left.and.bubble.right.fill"
-        case .zhihuHot: "questionmark.bubble.fill"
-        }
-    }
-}
-
-struct WorldBriefing: Hashable, Sendable {
-    var date: String
-    var dayOfWeek: String?
-    var lunarDate: String?
-    var news: [String]
-    var tip: String?
-    var imageURL: URL?
-    var coverURL: URL?
-    var sourceURL: URL?
-    var updatedAt: Date?
-}
-
-struct ToolboxArticle: Identifiable, Hashable, Sendable {
-    let id: String
-    var rank: Int?
-    var title: String
-    var summary: String
-    var source: String?
-    var publishedText: String?
-    var publishedAt: Date?
-    var link: URL?
-
-    init(
-        rank: Int? = nil,
-        title: String,
-        summary: String,
-        source: String? = nil,
-        publishedText: String? = nil,
-        publishedAt: Date? = nil,
-        link: URL? = nil
-    ) {
-        self.id = link?.absoluteString
-            ?? [title, source, publishedText].compactMap { $0 }.joined(separator: "|")
-        self.rank = rank
-        self.title = title
-        self.summary = summary
-        self.source = source
-        self.publishedText = publishedText
-        self.publishedAt = publishedAt
-        self.link = link
-    }
-}
-
-enum ToolboxContent: Hashable, Sendable {
-    case worldBriefing(WorldBriefing)
-    case articles([ToolboxArticle])
 }
 
 /// 设置的分类。每一类在中栏占一行，在右栏是一张面板。
@@ -590,6 +588,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
 }
 
 enum SidebarSelection: Hashable, Sendable {
+    /// 选站点、选登录方式。加账号本身是个流程，不是一个弹窗。
+    case addAccount
     case userCenter(Int64?)
     case aiProfiles
     case forum(ForumID)

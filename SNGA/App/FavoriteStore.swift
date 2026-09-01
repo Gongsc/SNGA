@@ -99,7 +99,17 @@ final class FavoriteStore {
         }
     }
 
+    /// 版面收藏是主动去拉的，所以门控放在这里而不是六个调用点上 ——
+    /// 漏一个就会在启动时弹一个「不支持」。
     func refreshFavorites() async {
+        guard session.supports(.forumFavorites) else {
+            favorites = []
+            return
+        }
+        await performRefreshFavorites()
+    }
+
+    private func performRefreshFavorites() async {
         guard let accountID = session.activeAccountID else {
             favorites = []
             return
@@ -131,9 +141,12 @@ final class FavoriteStore {
     }
 
     func toggleFavorite(_ forum: Forum) async {
-        guard let accountID = session.activeAccountID else { return }
+        guard session.supports(.forumFavorites),
+              let accountID = session.activeAccountID else { return }
         let records = favoriteRecords(accountID: accountID)
-        if let record = records.first(where: { $0.forumID == forum.id.rawValue }) {
+        if let record = records.first(where: {
+            $0.forumIdentifier == forum.id
+        }) {
             if record.syncState == .localOnly || !record.serverPresent {
                 session.context.delete(record)
             } else {
@@ -478,9 +491,14 @@ final class FavoriteStore {
 
     private func reconcileFavorites(_ snapshots: [FavoriteSnapshot], accountID: AccountID) {
         let records = favoriteRecords(accountID: accountID)
-        let snapshotIDs = Set(snapshots.map { $0.forum.id.rawValue })
+        let snapshotIDs = Set(snapshots.map(\.forum.id))
         for snapshot in snapshots {
-            if let record = records.first(where: { $0.forumID == snapshot.forum.id.rawValue }) {
+            if let record = records.first(where: {
+                $0.forumIdentifier == snapshot.forum.id
+            }) {
+                // 老行的键还是空的，顺手补上；C13 会把剩下的一次补完。
+                record.forumSiteRaw = snapshot.forum.id.site.rawValue
+                record.forumKey = snapshot.forum.id.key
                 record.forumName = snapshot.forum.name
                 record.forumSubtitle = snapshot.forum.subtitle
                 record.order = snapshot.order
@@ -496,25 +514,30 @@ final class FavoriteStore {
                 ))
             }
         }
-        for record in records where !snapshotIDs.contains(record.forumID) && record.syncState != .pendingRemove {
+        for record in records
+        where !snapshotIDs.contains(record.forumIdentifier)
+            && record.syncState != .pendingRemove {
             session.context.delete(record)
         }
         try? session.context.save()
     }
 
-    private func replayFavoriteChanges(accountID: AccountID, service: any NGAForumService) async {
+    private func replayFavoriteChanges(accountID: AccountID, service: any ForumService) async {
         let records = favoriteRecords(accountID: accountID)
         for record in records where record.syncState == .pendingAdd || record.syncState == .pendingRemove {
             let adding = record.syncState == .pendingAdd
             do {
-                try await service.updateFavorite(forumID: ForumID(rawValue: record.forumID), isFavorite: adding)
+                try await service.updateFavorite(
+                    forumID: record.forumIdentifier,
+                    isFavorite: adding
+                )
                 if adding {
                     record.syncState = .synced
                     record.serverPresent = true
                 } else {
                     session.context.delete(record)
                 }
-            } catch let error as NGAServiceError {
+            } catch let error as ForumServiceError {
                 if case .unsupported = error {
                     if adding {
                         record.syncState = .localOnly

@@ -16,6 +16,7 @@ private struct ThreadPresentation {
 }
 
 struct ThreadView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
@@ -194,6 +195,30 @@ struct ThreadView: View {
                             }
                         }
 
+                        if !model.session.supports(.topicFavoriteFolders) {
+                            // 站点只有一个收藏列表，没有可选的目录。那就是一个开关，
+                            // 不是一份菜单 —— 菜单里只有一项，等于让人多点一下去选
+                            // 一个没有第二种可能的选项。
+                            Button {
+                                if let topic = model.thread.currentTopic {
+                                    Task { await model.favorite.toggleTopicFavorite(topic) }
+                                }
+                            } label: {
+                                Label(
+                                    model.isCurrentTopicFavorite ? "取消收藏" : "收藏话题",
+                                    systemImage: model.isCurrentTopicFavorite ? "star.fill" : "star"
+                                )
+                            }
+                            .labelStyle(.iconOnly)
+                            .help(model.isCurrentTopicFavorite ? "取消收藏这个话题" : "收藏这个话题")
+                            .disabled(
+                                model.thread.currentTopic == nil
+                                    || model.thread.currentTopic.map {
+                                        model.favorite.updatingFavoriteTopicIDs.contains($0.id)
+                                    } == true
+                            )
+                            .accessibilityIdentifier("thread-topic-favorite")
+                        } else {
                         Menu {
                             if let topic = model.thread.currentTopic {
                                 if model.favorite.favoriteTopicFolders.isEmpty {
@@ -253,6 +278,7 @@ struct ThreadView: View {
                         .help("选择话题收藏夹")
                         .disabled(model.thread.currentTopic == nil)
                         .accessibilityIdentifier("thread-topic-favorite")
+                        }
 
                         Button {
                             Task {
@@ -510,7 +536,7 @@ struct ThreadView: View {
             Task {
                 await model.openUserCenter(
                     uid: uid,
-                    preservingForumContext: true
+                    remembersOrigin: true
                 )
             }
         }
@@ -536,7 +562,7 @@ struct ThreadView: View {
     }
 
     private var topicURL: URL? {
-        model.thread.selectedTopicID.map(NGAEndpoint.topicWebURL(topicID:))
+        model.thread.selectedTopicID.map(siteDescriptor.topicWebURL(topicID:))
     }
 
     private func copyTopicLink() {
@@ -973,9 +999,19 @@ struct PostRow: View {
                     Spacer()
                 }
                 HStack(spacing: 8) {
+                    if post.isPinnedPost {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(theme.accentColor)
+                            .help("楼主置顶的回复")
+                            .accessibilityLabel("置顶回复")
+                            .accessibilityIdentifier("post-pinned-\(post.id.rawValue)")
+                    }
                     Text(floorLabel)
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(isHotReply ? theme.hotReplyColor : theme.secondaryForegroundColor)
+                        .foregroundStyle(
+                            showsHotStyling ? theme.hotReplyColor : theme.secondaryForegroundColor
+                        )
                     Button("回复", systemImage: "arrowshape.turn.up.left", action: reply)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
@@ -1019,8 +1055,19 @@ struct PostRow: View {
                         .accessibilityIdentifier("post-edited-\(post.id.rawValue)")
                 }
                 Spacer()
-                voteButton(direction: .up)
-                voteButton(direction: .down)
+                if !post.reactions.isEmpty {
+                    // 站点自己有几种表态就画几个，各带各的数。这一排已经把这层楼的
+                    // 全部表态说完了，下面那两个赞踩按钮再画就是重复。
+                    PostReactionBar(post: post)
+                } else if model.session.supports(.postVote) {
+                    voteButton(direction: .up)
+                    // 反方向单独问一次。有的站点只有一个方向（V2EX 只能感谢），
+                    // 有的站点的反对要花掉用户的钱（NodeSeek 的「反对」扣 2 个鸡腿
+                    // 且撤不回来）—— 那种按钮不该画出来等人点了再报错。
+                    if model.session.supports(.postDownvote) {
+                        voteButton(direction: .down)
+                    }
+                }
             }
         }
         .padding(12)
@@ -1029,7 +1076,7 @@ struct PostRow: View {
         .overlay {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(
-                    isHotReply
+                    showsHotStyling
                         ? theme.hotReplyColor.opacity(0.55)
                         : theme.separatorColor
                 )
@@ -1076,6 +1123,10 @@ struct PostRow: View {
 
     /// 热点回复区有自己的内边距，同一楼层在两处的排版宽度并不相同，
     /// 因而测得的高度也不同 —— 两者不能共用一份缓存。
+    ///
+    /// 这里用的是 `isHotReply` 而不是 `showsHotStyling`，是有意的：分的是**排在哪一栏**，
+    /// 不是**画成什么样**。站点标了热点但仍排在正常楼层里的（NodeSeek 那种），
+    /// 宽度和普通楼层一样，该共用同一份缓存。
     private var contentCacheKey: String {
         let section = isHotReply ? "hot" : "post"
         return "thread-\(post.topicID.rawValue)-\(section)-\(post.id.rawValue)"
@@ -1127,18 +1178,27 @@ struct PostRow: View {
                 uid: uid,
                 fallbackName: post.author,
                 fallbackAvatarURL: post.avatarURL,
-                preservingForumContext: true
+                remembersOrigin: true
             )
         }
     }
 
+    /// 这一层要不要按热点来画：只看它画在不画在热点那一栏里。
+    ///
+    /// 不看 `post.isHot`。站点标了热点的楼层已经被挑进那一栏了（见
+    /// `NodeSeekParser`），正文里那一份该和普通楼层一样 —— NGA 就是这样：
+    /// 热点在上面单独列一遍，往下读的时候它只是第 4 楼。
+    private var showsHotStyling: Bool {
+        isHotReply
+    }
+
     private var floorLabel: String {
         if post.floor == 0 { return "楼主" }
-        return isHotReply ? "热点 · #\(post.floor)" : "#\(post.floor)"
+        return showsHotStyling ? "热点 · #\(post.floor)" : "#\(post.floor)"
     }
 
     private var rowBackground: Color {
-        isHotReply
+        showsHotStyling
             ? theme.hotReplyColor.opacity(0.11)
             : theme.surfaceColor
     }
@@ -1175,6 +1235,7 @@ struct PostRow: View {
         .buttonStyle(.borderless)
         .disabled(model.thread.votingPostIDs.contains(post.id))
         .help(direction == .up ? "点赞" : "点踩")
+        .accessibilityIdentifier("post-vote-\(direction.rawValue)-\(post.id.rawValue)")
     }
 }
 
@@ -1336,6 +1397,7 @@ struct HotRepliesSection: View {
 }
 
 struct ReplyComposerView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.sngaTheme) private var theme
@@ -1349,6 +1411,29 @@ struct ReplyComposerView: View {
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
     @State private var loadedDraft = false
+
+    /// 引用某一层时预填的开头。
+    ///
+    /// 两种标记语言的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
+    /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
+    /// 得把被引的话真的抄进去。
+    private func quotedPrefix(_ replyTo: Post) -> String {
+        switch siteDescriptor.replyMarkup {
+        case .ubb:
+            return "[quote]\(replyTo.author) 于 #\(replyTo.floor) 的内容[/quote]\n"
+        case .markdown:
+            let quoted = replyTo.html
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: "\n")
+                .prefix(6)
+                .map { "> \($0.trimmingCharacters(in: .whitespaces))" }
+                .joined(separator: "\n")
+            let head = "> **\(replyTo.author)** 在 #\(replyTo.floor) 楼说："
+            return ([head] + (quoted.isEmpty ? [] : [quoted]) + ["", ""])
+                .joined(separator: "\n")
+        }
+    }
     @State private var submitted = false
 
     init(topic: Topic, replyTo: Post?) {
@@ -1410,8 +1495,8 @@ struct ReplyComposerView: View {
                 .scrollIndicators(.hidden)
 
                 Picker("编辑模式", selection: $editorMode) {
-                    ForEach(ReplyEditorMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                    ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
+                        Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
                     }
                 }
                 .labelsHidden()
@@ -1441,7 +1526,7 @@ struct ReplyComposerView: View {
                     .padding(8)
             case .preview:
                 ScrollView {
-                    PostBodyView(html: NGAParser().sanitizedPostHTML(content))
+                    PostBodyView(html: siteDescriptor.sanitizedPreviewHTML(content))
                         .padding()
                 }
             }
@@ -1471,10 +1556,15 @@ struct ReplyComposerView: View {
         .task {
             guard !loadedDraft else { return }
             loadedDraft = true
+            // 初值只能写死成可视化 —— 属性初始化时读不到环境里的站点资料。
+            // 站点没有这一档的话在这里落到源码，别让选择器停在一个不存在的选项上。
+            if !ReplyEditorMode.modes(for: siteDescriptor.replyMarkup).contains(editorMode) {
+                editorMode = .source
+            }
             if let draft = model.thread.draft(topicID: topic.id) {
                 content = draft.content
             } else if let replyTo {
-                content = "[quote]\(replyTo.author) 于 #\(replyTo.floor) 的内容[/quote]\n"
+                content = quotedPrefix(replyTo)
             }
         }
         .onChange(of: content) { _, newValue in
@@ -1502,11 +1592,15 @@ struct ReplyComposerView: View {
             .fontWeight(.bold)
         editorButton("斜体", title: "I", action: .italic)
             .italic()
-        editorButton("下划线", title: "U", action: .underline)
-            .underline()
+        if isUBB {
+            // Markdown 没有下划线。
+            editorButton("下划线", title: "U", action: .underline)
+                .underline()
+        }
         editorButton("删除线", title: "S", action: .strike)
             .strikethrough()
 
+        if isUBB {
         Menu {
             Button("100%") { apply(.fontSize("100%")) }
             Button("110%") { apply(.fontSize("110%")) }
@@ -1533,11 +1627,14 @@ struct ReplyComposerView: View {
         }
         .labelStyle(.iconOnly)
         .help("文字颜色")
+        }   // 字号和颜色都只有 UBB 有
 
         toolbarDivider
         editorButton("引用", systemImage: "text.quote", action: .quote)
         editorButton("代码", systemImage: "chevron.left.forwardslash.chevron.right", action: .code)
-        editorButton("折叠内容", systemImage: "rectangle.compress.vertical", action: .collapse(title: ""))
+        if isUBB {
+            editorButton("折叠内容", systemImage: "rectangle.compress.vertical", action: .collapse(title: ""))
+        }
 
         Button {
             showsLinkEditor = true
@@ -1575,32 +1672,41 @@ struct ReplyComposerView: View {
             }
         }
 
-        Button {
-            showsEmoticons = true
-        } label: {
-            Label("选择表情", systemImage: "face.smiling")
-        }
-        .labelStyle(.iconOnly)
-        .help("选择 NGA 表情")
-        .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
-            NGAEmoticonPicker { emoticon in
-                apply(.insertUBB(emoticon.code))
-                showsEmoticons = false
+        if siteDescriptor.replyMarkup == .ubb {
+            Button {
+                showsEmoticons = true
+            } label: {
+                Label("选择表情", systemImage: "face.smiling")
+            }
+            .labelStyle(.iconOnly)
+            .help("选择表情")
+            .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
+                NGAEmoticonPicker { emoticon in
+                    apply(.insertUBB(emoticon.code))
+                    showsEmoticons = false
+                }
             }
         }
 
-        Menu {
-            Button("左对齐", systemImage: "text.alignleft") { apply(.align("left")) }
-            Button("居中", systemImage: "text.aligncenter") { apply(.align("center")) }
-            Button("右对齐", systemImage: "text.alignright") { apply(.align("right")) }
-        } label: {
-            Label("对齐", systemImage: "text.alignleft")
-        }
-        .labelStyle(.iconOnly)
-        .help("段落对齐")
+        if isUBB {
+            Menu {
+                Button("左对齐", systemImage: "text.alignleft") { apply(.align("left")) }
+                Button("居中", systemImage: "text.aligncenter") { apply(.align("center")) }
+                Button("右对齐", systemImage: "text.alignright") { apply(.align("right")) }
+            } label: {
+                Label("对齐", systemImage: "text.alignleft")
+            }
+            .labelStyle(.iconOnly)
+            .help("段落对齐")
 
-        editorButton("清除格式", systemImage: "eraser", action: .removeFormat)
+            // 清除格式靠可视化编辑器实现，源码模式下没有对应操作。
+            editorButton("清除格式", systemImage: "eraser", action: .removeFormat)
+        }
     }
+
+    /// 工具条上有几样是 UBB 独有的：字号、颜色、对齐、下划线、折叠。
+    /// Markdown 写不出来，摆着只会插进去一段发出去不生效的东西。
+    private var isUBB: Bool { siteDescriptor.replyMarkup == .ubb }
 
     private var toolbarDivider: some View {
         Divider()
@@ -1647,6 +1753,39 @@ struct ReplyComposerView: View {
     }
 
     private func sourceInsertion(for action: UBBEditorAction) -> String {
+        switch siteDescriptor.replyMarkup {
+        case .ubb: ubbInsertion(for: action)
+        case .markdown: markdownInsertion(for: action)
+        }
+    }
+
+    /// Markdown 里没有对应写法的几样（颜色、字号、对齐、下划线）返回空串。
+    ///
+    /// 它们的按钮已经按标记语言藏起来了，这里再兜一道：真按到了也只是什么都不插，
+    /// 而不是把 `[color=red]` 塞进一篇 Markdown。
+    private func markdownInsertion(for action: UBBEditorAction) -> String {
+        switch action {
+        case .undo, .redo, .removeFormat, .underline,
+             .color, .fontSize, .align, .collapse, .insertUBB:
+            return ""
+        case .bold:
+            return "****"
+        case .italic:
+            return "**"
+        case .strike:
+            return "~~~~"
+        case .quote:
+            return "\n> "
+        case .code:
+            return "\n```\n\n```\n"
+        case let .link(url):
+            return "[\(url)](\(url))"
+        case let .image(url):
+            return "![](\(url))"
+        }
+    }
+
+    private func ubbInsertion(for action: UBBEditorAction) -> String {
         switch action {
         case .undo, .redo, .removeFormat:
             return ""
@@ -1680,12 +1819,32 @@ struct ReplyComposerView: View {
     }
 }
 
-private enum ReplyEditorMode: String, CaseIterable, Identifiable {
-    case visual = "可视化"
-    case source = "UBB"
-    case preview = "预览"
+private enum ReplyEditorMode: Hashable, Identifiable {
+    case visual
+    case source
+    case preview
 
     var id: Self { self }
+
+    /// 源码那一档叫什么，取决于写的是哪种标记 —— 在 Markdown 站点上标着「UBB」
+    /// 是在教人写错。
+    func title(for markup: ReplyMarkup) -> String {
+        switch self {
+        case .visual: "可视化"
+        case .source: markup == .ubb ? "UBB" : "Markdown"
+        case .preview: "预览"
+        }
+    }
+
+    /// 可视化编辑器是围着 UBB 建的：它在 `WKWebView` 里把 UBB 和 HTML 来回转。
+    /// Markdown 交给它，源码会被当成 UBB 啃一遍。所以 Markdown 站点只有源码和预览
+    /// 两档 —— 少一个档，好过多一个会把正文改坏的档。
+    static func modes(for markup: ReplyMarkup) -> [ReplyEditorMode] {
+        switch markup {
+        case .ubb: [.visual, .source, .preview]
+        case .markdown: [.source, .preview]
+        }
+    }
 }
 
 private struct UBBResourcePopover: View {
@@ -1736,5 +1895,95 @@ private struct UBBResourcePopover: View {
     private func performInsert() {
         guard isValidURL else { return }
         insert(trimmedValue)
+    }
+}
+
+/// 楼层右下角那一排表态。
+///
+/// 不折叠成菜单：网页版把每一种的数目并排摆着，读者扫一眼就知道这层楼被怎么看待。
+/// 收进菜单就得点开才知道，而那几个数本身就是信息。
+///
+/// 但**要花钱的那几种仍然先问一次**。价钱写在按钮的提示里，点下去还要再确认 ——
+/// NodeSeek 的加鸡腿花 1 个鸡腿、反对花 2 个，而且都撤不回来。
+private struct PostReactionBar: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    let post: Post
+
+    @State private var pending: PostReaction?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(post.reactions) { reaction in
+                Button {
+                    if reaction.cost == nil {
+                        submit(reaction)
+                    } else {
+                        pending = reaction
+                    }
+                } label: {
+                    countLabel(
+                        systemImage: reaction.systemImage,
+                        count: reaction.count,
+                        isChosen: reaction.isChosen
+                    )
+                }
+                .buttonStyle(.borderless)
+                .help(helpText(for: reaction))
+                // 撤不回来的表态点过就不给再点 —— 再点一次只是再花一次。
+                .disabled(
+                    model.thread.votingPostIDs.contains(post.id)
+                        || (reaction.isChosen && reaction.isIrreversible)
+                )
+                .accessibilityLabel("\(reaction.title) \(reaction.count ?? 0)")
+                .accessibilityIdentifier("post-reaction-\(reaction.id)-\(post.id.rawValue)")
+            }
+
+            // 收藏是话题级的，只在主楼显示 —— 网页版也是这么摆的。
+            if let collections = post.topicCollectionCount {
+                Label("\(collections)", systemImage: post.isTopicCollected ? "star.fill" : "star")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(post.isTopicCollected ? theme.accentColor : Color.secondary)
+                    .help("收藏 \(collections)")
+                    .accessibilityLabel("收藏 \(collections)")
+                    .accessibilityIdentifier("post-collections-\(post.id.rawValue)")
+            }
+        }
+        .confirmationDialog(
+            pending.map { $0.cost.map { cost in "将\(cost)" } ?? "确认？" } ?? "",
+            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+            titleVisibility: .visible,
+            presenting: pending
+        ) { reaction in
+            Button(reaction.title, role: reaction.id == "dislike" ? .destructive : nil) {
+                submit(reaction)
+                pending = nil
+            }
+            Button("取消", role: .cancel) { pending = nil }
+        } message: { reaction in
+            Text(reaction.isIrreversible ? "这个操作无法撤销。" : "确认要\(reaction.title)吗？")
+        }
+    }
+
+    private func countLabel(systemImage: String, count: Int?, isChosen: Bool) -> some View {
+        Label("\(count ?? 0)", systemImage: systemImage)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+    }
+
+    private func helpText(for reaction: PostReaction) -> String {
+        if reaction.isChosen { return "已\(reaction.title)" }
+        return [reaction.title, reaction.cost].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// 免费的点赞走 vote 那条路 —— 适配器只让它从那儿过。
+    private func submit(_ reaction: PostReaction) {
+        Task {
+            if reaction.cost == nil {
+                await model.thread.vote(on: post.id, direction: .up)
+            } else {
+                await model.thread.submitReaction(on: post, reactionID: reaction.id)
+            }
+        }
     }
 }

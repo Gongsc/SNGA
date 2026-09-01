@@ -3,6 +3,7 @@ import SwiftUI
 struct UserCenterView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     let uid: Int64?
 
@@ -26,7 +27,8 @@ struct UserCenterView: View {
                             AIProfileUserCard(profile: profile)
                         }
 
-                        if model.isDisplayingActiveAccount {
+                        if model.isDisplayingActiveAccount,
+                           model.session.supports(.checkIn) {
                             checkInContent
                         }
 
@@ -48,7 +50,13 @@ struct UserCenterView: View {
                     Spacer()
                     Button {
                         guard let targetUID else { return }
-                        Task { await model.openUserCenter(uid: targetUID) }
+                        // 刷新不是一次导航，返回按钮不该因此消失。
+                        Task {
+                            await model.openUserCenter(
+                                uid: targetUID,
+                                remembersOrigin: true
+                            )
+                        }
                     } label: {
                         Label("刷新用户中心", systemImage: "arrow.clockwise")
                     }
@@ -144,17 +152,21 @@ struct UserCenterView: View {
                     .font(.headline)
                 if case let .checkedIn(statistics, _) = status {
                     HStack(spacing: 16) {
-                        Label {
-                            Text("连续签到 \(statistics.consecutiveDays) 天")
-                                .monospacedDigit()
-                        } icon: {
-                            Image(systemName: "flame.fill")
+                        if let consecutive = statistics.consecutiveDays {
+                            Label {
+                                Text("连续签到 \(consecutive) 天")
+                                    .monospacedDigit()
+                            } icon: {
+                                Image(systemName: "flame.fill")
+                            }
                         }
-                        Label {
-                            Text("历史累计 \(statistics.totalDays) 天")
-                                .monospacedDigit()
-                        } icon: {
-                            Image(systemName: "calendar")
+                        if let total = statistics.totalDays {
+                            Label {
+                                Text("历史累计 \(total) 天")
+                                    .monospacedDigit()
+                            } icon: {
+                                Image(systemName: "calendar")
+                            }
                         }
                     }
                     .font(.callout)
@@ -192,7 +204,13 @@ struct UserCenterView: View {
     private func checkInAccessibilityValue(for status: DailyCheckInStatus) -> String {
         switch status {
         case let .checkedIn(statistics, _):
-            "连续签到 \(statistics.consecutiveDays) 天，历史累计 \(statistics.totalDays) 天"
+            // 站点不报天数时这两句都不说 —— 屏幕上没有的东西，读屏也不该念出来。
+            [
+                statistics.consecutiveDays.map { "连续签到 \($0) 天" },
+                statistics.totalDays.map { "历史累计 \($0) 天" }
+            ]
+            .compactMap { $0 }
+            .joined(separator: "，")
         default:
             checkInDetail(for: status)
         }
@@ -248,17 +266,13 @@ struct UserCenterView: View {
                     alignment: .leading,
                     spacing: 14
                 ) {
+                    // 编号和用户名两站都有；其余由站点自己说显示什么、叫什么。
+                    // 各站报的东西和叫法都不一样，写死一套就会在别的站上
+                    // 显示对不上号的词，或者摆着几行永远是「—」。
                     ProfileField(title: "用户 ID", value: String(profile.uid))
                     ProfileField(title: "用户名", value: profile.displayName)
-                    ProfileField(title: "用户组", value: profile.userGroup ?? "—")
-                    ProfileField(title: "发帖数", value: profile.postCount.map(String.init) ?? "—")
-                    ProfileField(title: "注册时间", value: formatted(profile.registeredAt))
-                    ProfileField(title: "IP 属地", value: profile.location ?? "—")
-                    if let honor = profile.honor, !honor.isEmpty {
-                        ProfileField(title: "头衔", value: honor)
-                    }
-                    if let followers = profile.followerCount {
-                        ProfileField(title: "被关注", value: String(followers))
+                    ForEach(siteDescriptor.profileFields(for: profile)) { field in
+                        ProfileField(title: field.title, value: field.value)
                     }
                 }
                 .padding(16)
@@ -280,7 +294,7 @@ struct UserCenterView: View {
 
     @ViewBuilder
     private var reputationContent: some View {
-        if let profile {
+        if let profile, siteDescriptor.showsReputationSection {
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("声望")
                 LazyVGrid(
@@ -397,7 +411,7 @@ struct UserCenterView: View {
     }
 
     private var targetUID: Int64? {
-        uid ?? model.session.activeAccount?.ngaUID
+        uid ?? model.session.activeAccount?.siteUserID
     }
 
     private var profile: Profile? {
@@ -406,11 +420,11 @@ struct UserCenterView: View {
             return currentProfile
         }
         guard let account = model.session.activeAccount,
-              account.ngaUID == targetUID else {
+              account.siteUserID == targetUID else {
             return nil
         }
         return Profile(
-            uid: account.ngaUID,
+            uid: account.siteUserID,
             displayName: account.displayName,
             avatarURL: account.avatarURL
         )
@@ -713,15 +727,13 @@ enum ForumDirectorySearch {
 
         return categories.compactMap { category in
             let matchingForums = category.forums.filter { forum in
-                let searchableText = [
+                let searchableText = ([
                     category.name,
                     forum.name,
                     forum.subtitle,
                     forum.category,
-                    forum.id.queryName,
                     forum.id.description
-                ]
-                .compactMap { $0 }
+                ].compactMap { $0 } + forum.searchAliases)
                 .joined(separator: " ")
 
                 return terms.allSatisfy { term in
@@ -798,13 +810,18 @@ struct FavoritesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.favorite.favoriteTopicFolders.isEmpty {
+            // 站点没有收藏夹时整条不画。NodeSeek 这种站点只有一个列表，应用内部
+            // 拿一个隐含的收藏夹代表它（见 `NodeSeekForumService.favoriteTopicFolders`），
+            // 那个条目没必要给用户看 —— 它不代表任何选择。
+            if supportsFolders, !model.favorite.favoriteTopicFolders.isEmpty {
                 folderBar
                 Divider()
             }
 
             Group {
-                if model.favorite.favoriteTopicFolders.isEmpty && !model.session.isLoading {
+                if supportsFolders,
+                   model.favorite.favoriteTopicFolders.isEmpty,
+                   !model.session.isLoading {
                     ContentUnavailableView {
                         Label("还没有收藏夹", systemImage: "folder")
                     } description: {
@@ -817,9 +834,11 @@ struct FavoritesView: View {
                     }
                 } else if model.favorite.favoriteTopics.isEmpty && !model.session.isLoading {
                 ContentUnavailableView {
-                    Label("收藏夹为空", systemImage: "star")
+                    Label(supportsFolders ? "收藏夹为空" : "还没有收藏话题", systemImage: "star")
                 } description: {
-                        if let folder = model.favorite.selectedFavoriteTopicFolder {
+                        if !supportsFolders {
+                            Text("打开话题后点底部的星标即可收藏。")
+                        } else if let folder = model.favorite.selectedFavoriteTopicFolder {
                             Text("“\(folder.name)”中还没有话题。打开话题后可从底部星标菜单选择收藏目录。")
                         } else {
                             Text("打开话题后可从底部星标菜单选择收藏目录。")
@@ -940,6 +959,12 @@ struct FavoritesView: View {
                 }
             )
         }
+    }
+
+    /// 这个站点有没有收藏夹这个概念。没有的话，新建/改名/删除、文件夹栏，
+    /// 以及所有说「收藏目录」的话都不该出现。
+    private var supportsFolders: Bool {
+        model.session.supports(.topicFavoriteFolders)
     }
 
     private var folderBar: some View {
@@ -1325,6 +1350,7 @@ struct TopicListView: View {
                     .help("回到话题列表顶部")
                     .accessibilityIdentifier("topic-list-scroll-to-top")
 
+                    if model.session.supports(.forumFavorites) {
                     Button {
                         guard let forum = model.browsing.currentForum else { return }
                         Task { await model.favorite.toggleFavorite(forum) }
@@ -1338,6 +1364,7 @@ struct TopicListView: View {
                     .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
                     .disabled(model.browsing.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
+                    }
 
                     Button {
                         Task {
@@ -1461,14 +1488,7 @@ struct TopicListView: View {
                 )
             }
             .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
-            .listRowBackground(Color.clear)
-            .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-                dimensions[.leading] + 8
-            }
-            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-                dimensions[.trailing] - 8
-            }
+            .forumTopicListRow()
             .accessibilityIdentifier("topic-\(topic.id.rawValue)")
         }
     }
@@ -1648,7 +1668,7 @@ private struct SubforumTile: View {
                     AsyncImage(url: forum.iconURL) { image in
                         image.resizable().scaledToFit()
                     } placeholder: {
-                        Image(systemName: forum.id.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
+                        Image(systemName: forum.isSubforum ? "text.document" : "bubble.left.and.bubble.right")
                             .foregroundStyle(.secondary)
                     }
                     .frame(width: 28, height: 28)
@@ -1760,6 +1780,26 @@ private struct TopicRow: View {
                     AnonymousBadge()
                         .accessibilityIdentifier("topic-anonymous-\(topic.id.rawValue)")
                 }
+                // 站点自己的标记：置顶、推荐阅读、等级限制之类。
+                // 名字用站点的原话，认不出的标记也照样显示。
+                ForEach(topic.badges) { badge in
+                    HStack(spacing: 2) {
+                        Image(systemName: badge.systemImage)
+                        // 站点写了字的标记就把字画出来。等级限制光有一把锁，
+                        // 等于说「这帖有限制」却不说是什么限制。
+                        if let value = badge.value {
+                            Text(value)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(theme.accentColor)
+                    .help(badge.title)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(badge.title)
+                    .accessibilityIdentifier(
+                        "topic-badge-\(topic.id.rawValue)-\(badge.title)"
+                    )
+                }
                 Text(topic.subject)
                     .font(.body.weight(topic.isPinned ? .semibold : .regular))
                     .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
@@ -1768,24 +1808,33 @@ private struct TopicRow: View {
             HStack {
                 if topic.mirroredForumID != nil {
                     Label("进入 \(topic.subject) 版面", systemImage: "arrow.right.circle")
+                        .lineLimit(1)
                 } else {
+                    // 作者名是这一行里唯一该让位的东西。不写 `lineLimit`，长名字会把
+                    // 右边的回复数和日期一起顶出行外 —— 顶出去的部分直接被裁掉，
+                    // 看到的就是半截日期。搜索结果里更容易碰上：标题前面还多一个版面标签。
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 if topic.mirroredForumID == nil {
-                    Label("\(topic.replyCount)", systemImage: "bubble.left")
-                }
-                if topic.mirroredForumID == nil,
-                   let date = topic.lastReplyAt ?? topic.publishedAt {
-                    Text(
-                        date,
-                        format: .dateTime
-                            .year()
-                            .month(.twoDigits)
-                            .day(.twoDigits)
-                            .hour(.twoDigits(amPM: .omitted))
-                            .minute(.twoDigits)
-                    )
+                    // 这两项按内容占宽、不参与压缩：数字和日期截一半没有任何意义。
+                    HStack(spacing: 8) {
+                        Label("\(topic.replyCount)", systemImage: "bubble.left")
+                        if let date = topic.lastReplyAt ?? topic.publishedAt {
+                            Text(
+                                date,
+                                format: .dateTime
+                                    .year()
+                                    .month(.twoDigits)
+                                    .day(.twoDigits)
+                                    .hour(.twoDigits(amPM: .omitted))
+                                    .minute(.twoDigits)
+                            )
+                        }
+                    }
+                    .fixedSize()
                 }
             }
             .font(.caption)

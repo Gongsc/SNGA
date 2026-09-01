@@ -131,7 +131,12 @@ struct ToolboxAPIService: Sendable {
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
                 request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
 
-                let (data, response) = try await transport.data(for: request)
+                let (data, response): (Data, HTTPURLResponse)
+                do {
+                    (data, response) = try await transport.data(for: request)
+                } catch HTTPTransportError.invalidResponse {
+                    throw ToolboxAPIError.invalidResponse
+                }
                 guard (200..<300).contains(response.statusCode) else {
                     throw ToolboxAPIError.server(response.statusCode)
                 }

@@ -23,8 +23,6 @@ final class AppModel {
     var forumSearchPage: ForumSearchPage?
     var forumSearchErrorMessage: String?
     var isSearchingForum = false
-    var selectedToolboxFeed: ToolboxFeed = .worldBriefing
-    var toolboxRefreshRevision = 0
     var selectedSettingsSection: SettingsSection = .appearance
 
 
@@ -41,7 +39,12 @@ final class AppModel {
     @ObservationIgnored private var aiProfileActivityPages: [
         AIProfileActivityPageKey: [UserActivity]
     ] = [:]
-    private var forumUserReturnSelection: SidebarSelection?
+    /// 从哪儿进的用户中心。有值就画「返回」。
+    ///
+    /// 原先只在版面里记，别处进来一律没有返回 —— 从通知、私信、收藏夹、搜索结果点进
+    /// 一个人的资料就出不去了。NGA 的用户大多是在帖子里点作者（那时正好在版面下），
+    /// 所以看着像「NGA 有、NodeSeek 没有」，其实是「版面有、别处没有」。
+    private var userCenterReturnSelection: SidebarSelection?
 
     let session: AppSession
     let thread: ThreadStore
@@ -49,8 +52,10 @@ final class AppModel {
     let favorite: FavoriteStore
     let browsing: ForumStore
     let aiProfiles: AIProfileStore
+    /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
+    let toolbox = ToolboxStore()
 
-    private var activeService: (any NGAForumService)? { session.activeService }
+    private var activeService: (any ForumService)? { session.activeService }
 
     init(
         container: ModelContainer,
@@ -125,7 +130,7 @@ final class AppModel {
         case let .requestsTopic(id, subject, author):
             await openTopic(Topic(
                 id: id,
-                forumID: ForumID(rawValue: 0),
+                forumID: .placeholder(site: session.activeService?.site ?? .nga),
                 subject: subject,
                 author: author,
                 replyCount: 0
@@ -144,18 +149,30 @@ final class AppModel {
 
     var displayedUserUID: Int64? {
         guard case let .userCenter(uid) = sidebarSelection else { return nil }
-        return uid ?? session.activeAccount?.ngaUID
+        return uid ?? session.activeAccount?.siteUserID
     }
 
     var isDisplayingActiveAccount: Bool {
         guard let displayedUserUID, let activeAccount = session.activeAccount else { return false }
-        return displayedUserUID == activeAccount.ngaUID
+        return displayedUserUID == activeAccount.siteUserID
     }
 
 
-    var canReturnFromUserCenterToTopicList: Bool {
-        guard case .forum = forumUserReturnSelection else { return false }
-        return true
+    var canReturnFromUserCenter: Bool { userCenterReturnSelection != nil }
+
+    /// 返回按钮上写什么。按来路说，别一律写「返回话题列表」——
+    /// 从私信点进来的人看到那句会以为自己走错了地方。
+    var userCenterReturnTitle: String {
+        switch userCenterReturnSelection {
+        case .forum: "返回话题列表"
+        case .favorites: "返回收藏夹"
+        case .search: "返回搜索结果"
+        case .messages: "返回消息"
+        case .directory: "返回全部版面"
+        case .aiProfiles: "返回 AI 画像"
+        case .toolbox: "返回小工具"
+        default: "返回"
+        }
     }
 
     var selectedForumID: ForumID? {
@@ -205,9 +222,9 @@ final class AppModel {
         await session.reloadAccountsAndServices()
         if let activeAccount = session.activeAccount {
             browsing.loadRecentForums()
-            sidebarSelection = .userCenter(activeAccount.ngaUID)
+            sidebarSelection = .userCenter(activeAccount.siteUserID)
             currentProfile = Profile(
-                uid: activeAccount.ngaUID,
+                uid: activeAccount.siteUserID,
                 displayName: activeAccount.displayName,
                 avatarURL: activeAccount.avatarURL
             )
@@ -220,20 +237,44 @@ final class AppModel {
     func addAccount(capture: LoginCapture) async {
         do {
             let records = try session.context.fetch(FetchDescriptor<AccountRecord>())
+            let site = capture.site
+            // 用户编号不在 Cookie 里的站点，得先拿这份会话问一次「我是谁」，
+            // 才知道该认哪个账号 —— 这一步必须在建记录之前。
+            let uid: Int64
+            if let captured = capture.uid {
+                uid = captured
+            } else {
+                uid = try await session.makeService(
+                    site: site,
+                    accountID: AccountID(),
+                    cookies: capture.cookies
+                ).currentUserID()
+            }
             let record: AccountRecord
-            if let existing = records.first(where: { $0.ngaUID == capture.uid }) {
+            // 认账号要连站点一起看：两个站的同号用户是两个账号。
+            if let existing = records.first(where: {
+                $0.site == site && $0.siteUserID == uid
+            }) {
                 record = existing
                 record.sessionState = .valid
             } else {
-                record = AccountRecord(ngaUID: capture.uid, displayName: "NGA \(capture.uid)")
+                record = AccountRecord(
+                    site: site,
+                    siteUserID: uid,
+                    displayName: "\(site.displayName) \(uid)"
+                )
                 session.context.insert(record)
             }
             records.forEach { $0.isCurrent = false }
             record.isCurrent = true
             try await session.sessionStore.save(cookies: capture.cookies, for: record.accountID)
-            let service = session.makeService(accountID: record.accountID, cookies: capture.cookies)
+            let service = session.makeService(
+                site: site,
+                accountID: record.accountID,
+                cookies: capture.cookies
+            )
             session.setService(service, for: record.accountID)
-            if let profile = try? await service.profile(uid: capture.uid) {
+            if let profile = try? await service.profile(uid: uid) {
                 record.displayName = profile.displayName
                 record.avatarURLString = profile.avatarURL?.absoluteString
             }
@@ -242,9 +283,9 @@ final class AppModel {
             await session.reloadAccountsAndServices()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -260,7 +301,7 @@ final class AppModel {
     func selectAccount(_ accountID: AccountID) async {
         if session.activeAccountID == accountID, let account = session.activeAccount {
             await openUserCenter(
-                uid: account.ngaUID,
+                uid: account.siteUserID,
                 fallbackName: account.displayName,
                 fallbackAvatarURL: account.avatarURL
             )
@@ -276,9 +317,9 @@ final class AppModel {
             clearVisibleContent()
             browsing.loadRecentForums()
             if let activeAccount = session.activeAccount {
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -288,7 +329,7 @@ final class AppModel {
             await session.queryActiveAccountCheckInStatus()
             if let activeAccount = session.activeAccount {
                 await openUserCenter(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     fallbackName: activeAccount.displayName,
                     fallbackAvatarURL: activeAccount.avatarURL
                 )
@@ -325,9 +366,9 @@ final class AppModel {
             clearVisibleContent()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
-                sidebarSelection = .userCenter(activeAccount.ngaUID)
+                sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
-                    uid: activeAccount.ngaUID,
+                    uid: activeAccount.siteUserID,
                     displayName: activeAccount.displayName,
                     avatarURL: activeAccount.avatarURL
                 )
@@ -341,20 +382,27 @@ final class AppModel {
         }
     }
 
+    /// 打开某个人的用户中心。
+    ///
+    /// `remembersOrigin` 决定还能不能退回来。已经在用户中心里时（刷新、⌘R、
+    /// 视图重新加载）传 true 不会把来路覆盖掉 —— 那些动作不是一次导航，
+    /// 把来路清掉等于让返回按钮凭空消失。
     func openUserCenter(
         uid: Int64,
         fallbackName: String? = nil,
         fallbackAvatarURL: URL? = nil,
-        preservingForumContext: Bool = false
+        remembersOrigin: Bool = false
     ) async {
         aiProfiles.select(uid: nil)
-        if preservingForumContext {
-            if case .forum = sidebarSelection {
-                forumUserReturnSelection = sidebarSelection
+        if remembersOrigin {
+            if case .userCenter = sidebarSelection {
+                // 原地刷新，来路不变。
+            } else {
+                userCenterReturnSelection = sidebarSelection
             }
         } else {
-            forumUserReturnSelection = nil
-                    }
+            userCenterReturnSelection = nil
+        }
         sidebarSelection = .userCenter(uid)
         userActivities = []
         userActivityUID = uid
@@ -363,7 +411,7 @@ final class AppModel {
         userActivityHasMore = false
         userActivityTotalPages = 1
 
-        let account = session.accounts.first { $0.ngaUID == uid }
+        let account = session.accounts.first { $0.siteUserID == uid }
         let resolvedName = fallbackName ?? account?.displayName ?? "NGA \(uid)"
         let resolvedAvatarURL = fallbackAvatarURL ?? account?.avatarURL
         currentProfile = Profile(
@@ -401,15 +449,15 @@ final class AppModel {
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
     }
 
-    func returnFromUserCenterToTopicList() {
-        guard case let .forum(forumID) = forumUserReturnSelection else { return }
-        sidebarSelection = .forum(forumID)
-        forumUserReturnSelection = nil
+    func returnFromUserCenter() {
+        guard let origin = userCenterReturnSelection else { return }
+        sidebarSelection = origin
+        userCenterReturnSelection = nil
     }
 
     func ensureUserCenterLoaded(uid: Int64) async {
         guard currentProfile?.uid != uid || userActivityUID != uid else { return }
-        await openUserCenter(uid: uid)
+        await openUserCenter(uid: uid, remembersOrigin: true)
     }
 
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
@@ -501,7 +549,8 @@ final class AppModel {
     func openUserActivity(_ activity: UserActivity) async {
         let topic = Topic(
             id: activity.topicID,
-            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            forumID: activity.forumID
+                    ?? .placeholder(site: session.activeService?.site ?? .nga),
             subject: activity.subject,
             author: currentProfile?.displayName ?? "",
             replyCount: 0,
@@ -549,7 +598,7 @@ final class AppModel {
             }
             forumSearchPage = nil
             forumSearchErrorMessage = error.localizedDescription
-            if let serviceError = error as? NGAServiceError,
+            if let serviceError = error as? ForumServiceError,
                serviceError == .requiresLogin {
                 session.present(error)
             } else {
@@ -580,7 +629,8 @@ final class AppModel {
     func openForumSearchActivity(_ activity: UserActivity) async {
         let topic = Topic(
             id: activity.topicID,
-            forumID: activity.forumID ?? ForumID(rawValue: 0),
+            forumID: activity.forumID
+                    ?? .placeholder(site: session.activeService?.site ?? .nga),
             subject: activity.subject,
             author: forumSearchPage?.users.first?.displayName ?? "",
             replyCount: 0,
@@ -703,12 +753,12 @@ final class AppModel {
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
         case .aiProfiles: break
-        case .toolbox: refreshToolbox()
-        // 设置里没有要重新拉的东西，⌘R 在这里什么都不做。
-        case .settings: break
+        case .toolbox: toolbox.refresh()
+        // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
+        case .settings, .addAccount: break
         case let .userCenter(uid):
-            if let targetUID = uid ?? session.activeAccount?.ngaUID {
-                await openUserCenter(uid: targetUID)
+            if let targetUID = uid ?? session.activeAccount?.siteUserID {
+                await openUserCenter(uid: targetUID, remembersOrigin: true)
             }
             await browsing.loadForums()
             await favorite.refreshFavorites()
@@ -718,10 +768,6 @@ final class AppModel {
             await favorite.refreshFavorites()
             await performMaintenance()
         }
-    }
-
-    func refreshToolbox() {
-        toolboxRefreshRevision &+= 1
     }
 
     /// 切到设置。清掉话题和消息的选中，右栏才轮得到设置面板 ——
@@ -777,7 +823,7 @@ final class AppModel {
                 if topic.sourceForumName?.isEmpty != false {
                     topic.sourceForumID = topic.forumID
                     topic.sourceForumName = knownForums[topic.forumID]?.name
-                        ?? "\(topic.forumID.queryName) \(topic.forumID.description)"
+                        ?? "版面 \(topic.forumID.description)"
                 }
                 return topic
             }
@@ -835,7 +881,20 @@ final class AppModel {
 
 
 #if DEBUG
+    /// 只往内存库里种。
+    ///
+    /// 种子会插两个假账号（编号 10001/10002）和一个假收藏，还会覆写一批 UserDefaults。
+    /// 落到真实的库里就是一场事故：假账号没有会话，建不出服务，于是点版面点话题
+    /// 全都没反应 —— 看起来跟应用卡死一模一样，而真正的账号还得自己找回来。
+    ///
+    /// 现在两个开关是分开的（`--uitesting` 决定内存库，`--uitesting-seed` 决定种数据），
+    /// 只给后者就会写进真实的库。这里自己确认一遍，不指望调用方两个都记得给。
     private func seedUITestData() {
+        guard session.context.container.configurations
+            .allSatisfy(\.isStoredInMemoryOnly) else {
+            assertionFailure("种子数据只能进内存库")
+            return
+        }
         UserDefaults.standard.set(true, forKey: AISettings.enabledKey)
         UserDefaults.standard.set(
             RecentForumSettings.defaultMaximumCount,
@@ -854,11 +913,11 @@ final class AppModel {
         )
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
-        let accountA = AccountRecord(ngaUID: 10001, displayName: "测试账号 A", isCurrent: true)
-        let accountB = AccountRecord(ngaUID: 10002, displayName: "测试账号 B")
+        let accountA = AccountRecord(site: .nga, siteUserID: 10001, displayName: "测试账号 A", isCurrent: true)
+        let accountB = AccountRecord(site: .nga, siteUserID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)
         session.context.insert(accountB)
-        let favoriteForum = Forum(id: ForumID(rawValue: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
+        let favoriteForum = Forum(id: ForumID(nga: -7), name: "艾泽拉斯国家地理", subtitle: "UI 测试版面")
         session.context.insert(FavoriteRecord(
             accountID: accountA.accountID,
             forum: favoriteForum,
@@ -869,13 +928,26 @@ final class AppModel {
         try? session.context.save()
         session.accounts = [accountA.summary(), accountB.summary()]
         session.activeAccountID = accountA.accountID
-        session.setService(DebugForumService(accountID: accountA.accountID), for: accountA.accountID)
+        // 能力位挡住的控件要能在 UI 测试里验。`--uitesting-one-way-vote` 造一个
+        // 只有正方向表态的站点 —— 这是 NodeSeek 的真实形状。
+        var capabilities = ForumCapabilities.all
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-one-way-vote") {
+            capabilities.subtract(.postDownvote)
+        }
+        // 只有一个收藏列表、没有收藏夹的站点 —— NodeSeek 的真实形状。
+        if ProcessInfo.processInfo.arguments.contains("--uitesting-no-folders") {
+            capabilities.subtract(.topicFavoriteFolders)
+        }
+        session.setService(
+            DebugForumService(accountID: accountA.accountID, capabilities: capabilities),
+            for: accountA.accountID
+        )
         session.setService(DebugForumService(accountID: accountB.accountID), for: accountB.accountID)
-        browsing.forums = [favoriteForum, Forum(id: ForumID(rawValue: 510381), name: "晴风村")]
+        browsing.forums = [favoriteForum, Forum(id: ForumID(nga: 510381), name: "晴风村")]
         favorite.favorites = [FavoriteSnapshot(forum: favoriteForum, order: 0, state: .localOnly)]
-        sidebarSelection = .userCenter(accountA.ngaUID)
+        sidebarSelection = .userCenter(accountA.siteUserID)
         currentProfile = Profile(
-            uid: accountA.ngaUID,
+            uid: accountA.siteUserID,
             displayName: accountA.displayName,
             avatarURL: nil
         )

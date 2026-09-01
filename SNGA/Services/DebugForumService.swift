@@ -1,21 +1,27 @@
 #if DEBUG
 import Foundation
 
-actor DebugForumService: NGAForumService {
+actor DebugForumService: ForumService {
     nonisolated let accountID: AccountID
+    nonisolated let site: ForumSite = .nga
+    /// 可注入：用来验「站点缺某个能力时会怎样」，而不必等真适配器写出来。
+    nonisolated let capabilities: ForumCapabilities
     private var isCheckedInToday = false
     private var checkInRequestCount = 0
     private var checkInStatusRequestCount = 0
     private let forum = Forum(
-        id: ForumID(rawValue: -7),
+        id: ForumID(nga: -7),
         name: "艾泽拉斯国家地理",
         subtitle: "UI 测试版面",
         pinnedTopicID: TopicID(rawValue: 9003)
     )
 
-    init(accountID: AccountID) {
+    init(accountID: AccountID, capabilities: ForumCapabilities = .all) {
         self.accountID = accountID
+        self.capabilities = capabilities
     }
+
+    func currentUserID() async throws -> Int64 { 10001 }
 
     func profile(uid: Int64) async throws -> Profile {
         Profile(
@@ -65,7 +71,7 @@ actor DebugForumService: NGAForumService {
                 category: "网事杂谈",
                 pinnedTopicID: forum.pinnedTopicID
             ),
-            Forum(id: ForumID(rawValue: 510381), name: "晴风村", category: "手机游戏")
+            Forum(id: ForumID(nga: 510381), name: "晴风村", category: "手机游戏")
         ]
     }
 
@@ -428,11 +434,16 @@ actor DebugForumService: NGAForumService {
         PostID(rawValue: 3)
     }
 
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection) async throws -> PostVoteState {
+    func vote(
+        topicID: TopicID,
+        postID: PostID,
+        direction: PostVoteDirection,
+        isUndo: Bool
+    ) async throws -> PostVoteState {
         PostVoteState(
             upvoteCount: direction == .up ? 13 : 12,
             downvoteCount: direction == .down ? 2 : 1,
-            userVote: direction
+            userVote: isUndo ? nil : direction
         )
     }
 

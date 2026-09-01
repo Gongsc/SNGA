@@ -8,17 +8,11 @@ enum NGAInternalDestination: Hashable, Sendable {
 }
 
 enum NGAInternalLink {
-    private static let forumDomains = [
-        "nga.cn",
-        "ngacn.cc",
-        "ngabbs.com"
-    ]
-
     static func destination(for url: URL) -> NGAInternalDestination? {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = url.host?.lowercased(),
-              isForumHost(host),
+              ForumSiteDescriptor.nga.owns(host: host),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else {
             return nil
         }
@@ -53,10 +47,10 @@ enum NGAInternalLink {
 
         if path.hasSuffix("/thread.php") || path == "thread.php" {
             if let stid = int64(named: "stid"), stid >= 0 {
-                return .forum(ForumID(stid: stid))
+                return .forum(ForumID(ngaSubforum: stid))
             }
             if let fid = int64(named: "fid") {
-                return .forum(ForumID(rawValue: fid))
+                return .forum(ForumID(nga: fid))
             }
         }
 
@@ -72,15 +66,6 @@ enum NGAInternalLink {
 
         return nil
     }
-
-    private static func isForumHost(_ host: String) -> Bool {
-        if host == "nga.178.com" || host.hasSuffix(".nga.178.com") {
-            return true
-        }
-        return forumDomains.contains { domain in
-            host == domain || host.hasSuffix(".\(domain)")
-        }
-    }
 }
 
 enum HTTPMethod: String, Sendable {
@@ -89,7 +74,7 @@ enum HTTPMethod: String, Sendable {
 }
 
 struct NGAEndpoint: Sendable {
-    static let baseURL = URL(string: "https://bbs.nga.cn")!
+    static let baseURL = ForumSiteDescriptor.nga.baseURL
 
     var path: String
     var queryItems: [URLQueryItem] = []
@@ -159,7 +144,7 @@ struct NGAEndpoint: Sendable {
         featuredOnly: Bool
     ) -> NGAEndpoint {
         var queryItems: [URLQueryItem] = [
-            .init(name: forumID.queryName, value: forumID.description),
+            .init(name: forumID.ngaQueryName, value: String(forumID.ngaValue)),
             .init(name: "order_by", value: sortOrder.queryValue),
             .init(name: "page", value: String(max(1, page))),
             .init(name: "__output", value: "11")
@@ -186,8 +171,8 @@ struct NGAEndpoint: Sendable {
         if let forumID = request.forumID {
             items.insert(
                 URLQueryItem(
-                    name: forumID.queryName,
-                    value: forumID.description
+                    name: forumID.ngaQueryName,
+                    value: String(forumID.ngaValue)
                 ),
                 at: 0
             )

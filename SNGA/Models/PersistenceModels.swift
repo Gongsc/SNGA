@@ -4,7 +4,10 @@ import SwiftData
 @Model
 final class AccountRecord {
     @Attribute(.unique) var id: UUID
-    var ngaUID: Int64
+    /// 账号属于哪个站。带默认值，老库走轻量迁移 —— 1.8.2 的账号全是 NGA 的。
+    var siteRaw: String = ForumSite.nga.rawValue
+    /// 用户在该站的编号。老库里这一列叫 `ngaUID`。
+    @Attribute(originalName: "ngaUID") var siteUserID: Int64
     var displayName: String
     var avatarURLString: String?
     var sessionStateRaw: String
@@ -18,14 +21,16 @@ final class AccountRecord {
 
     init(
         id: UUID = UUID(),
-        ngaUID: Int64,
+        site: ForumSite,
+        siteUserID: Int64,
         displayName: String,
         avatarURLString: String? = nil,
         sessionState: SessionState = .valid,
         isCurrent: Bool = false
     ) {
         self.id = id
-        self.ngaUID = ngaUID
+        self.siteRaw = site.rawValue
+        self.siteUserID = siteUserID
         self.displayName = displayName
         self.avatarURLString = avatarURLString
         self.sessionStateRaw = sessionState.rawValue
@@ -34,6 +39,11 @@ final class AccountRecord {
     }
 
     var accountID: AccountID { AccountID(rawValue: id) }
+
+    var site: ForumSite {
+        get { ForumSite(rawValue: siteRaw) ?? .nga }
+        set { siteRaw = newValue.rawValue }
+    }
     var seenUnreadMessageKeys: [String]? {
         get {
             seenUnreadMessageKeysRaw?.split(separator: "\n").map(String.init)
@@ -60,7 +70,8 @@ final class AccountRecord {
     func summary() -> AccountSummary {
         AccountSummary(
             id: accountID,
-            ngaUID: ngaUID,
+            site: site,
+            siteUserID: siteUserID,
             displayName: displayName,
             avatarURL: avatarURLString.flatMap(URL.init(string:)),
             sessionState: sessionState,
@@ -73,7 +84,12 @@ final class AccountRecord {
 final class FavoriteRecord {
     @Attribute(.unique) var id: UUID
     var accountIDString: String
+    /// 1.8.2 起就存在的 NGA 编码。C13 回填完之后只剩兼容读取，下个版本删掉。
     var forumID: Int64
+    /// 版面所属站点。带默认值，老库走轻量迁移。
+    var forumSiteRaw: String = ForumSite.nga.rawValue
+    /// 站点自己的版面键。老行是空的，由 C13 一次性回填。
+    var forumKey: String = ""
     var forumName: String
     var forumSubtitle: String?
     var order: Int
@@ -91,7 +107,9 @@ final class FavoriteRecord {
     ) {
         self.id = id
         self.accountIDString = accountID.description
-        self.forumID = forum.id.rawValue
+        self.forumID = forum.id.ngaRawValue ?? 0
+        self.forumSiteRaw = forum.id.site.rawValue
+        self.forumKey = forum.id.key
         self.forumName = forum.name
         self.forumSubtitle = forum.subtitle
         self.order = order
@@ -105,8 +123,18 @@ final class FavoriteRecord {
         set { syncStateRaw = newValue.rawValue }
     }
 
+    var forumIdentifier: ForumID {
+        ForumID(storedSite: forumSiteRaw, key: forumKey, legacyNGAValue: forumID)
+    }
+
     var forum: Forum {
-        Forum(id: ForumID(rawValue: forumID), name: forumName, subtitle: forumSubtitle)
+        let id = forumIdentifier
+        return Forum(
+            id: id,
+            name: forumName,
+            subtitle: forumSubtitle,
+            isSubforum: id.ngaIsSubforum
+        )
     }
 }
 
@@ -134,7 +162,11 @@ final class SubforumPreferenceRecord {
     @Attribute(.unique) var id: String
     var accountIDString: String
     var parentForumID: Int64
+    var parentForumSiteRaw: String = ForumSite.nga.rawValue
+    var parentForumKey: String = ""
     var selectedForumIDsRaw: String
+    /// 逗号分隔的版面键。键里不含逗号，所以分隔符沿用逗号。
+    var selectedForumKeysRaw: String = ""
     var updatedAt: Date
 
     init(
@@ -144,35 +176,59 @@ final class SubforumPreferenceRecord {
     ) {
         self.id = Self.recordID(accountID: accountID, parentForumID: parentForumID)
         self.accountIDString = accountID.description
-        self.parentForumID = parentForumID.rawValue
+        self.parentForumID = parentForumID.ngaRawValue ?? 0
+        self.parentForumSiteRaw = parentForumID.site.rawValue
+        self.parentForumKey = parentForumID.key
         self.selectedForumIDsRaw = Self.encode(selectedForumIDs)
+        self.selectedForumKeysRaw = Self.encodeKeys(selectedForumIDs)
         self.updatedAt = Date()
+    }
+
+    var parentForumIdentifier: ForumID {
+        ForumID(storedSite: parentForumSiteRaw, key: parentForumKey, legacyNGAValue: parentForumID)
     }
 
     var selectedForumIDs: Set<ForumID> {
         get {
-            Set(
+            guard selectedForumKeysRaw.isEmpty else {
+                let site = ForumSite(rawValue: parentForumSiteRaw) ?? .nga
+                return Set(
+                    selectedForumKeysRaw
+                        .split(separator: ",")
+                        .map { ForumID(site: site, key: String($0)) }
+                )
+            }
+            // C13 回填之前的老行只有 Int64。
+            return Set(
                 selectedForumIDsRaw
                     .split(separator: ",")
                     .compactMap { Int64($0) }
-                    .map { ForumID(rawValue: $0) }
+                    .map { ForumID(ngaStoredValue: $0) }
             )
         }
         set {
             selectedForumIDsRaw = Self.encode(newValue)
+            selectedForumKeysRaw = Self.encodeKeys(newValue)
             updatedAt = Date()
         }
     }
 
     static func recordID(accountID: AccountID, parentForumID: ForumID) -> String {
-        "\(accountID.description):\(parentForumID.rawValue)"
+        "\(accountID.description):\(parentForumID.site.rawValue):\(parentForumID.key)"
     }
 
     private static func encode(_ forumIDs: Set<ForumID>) -> String {
         forumIDs
-            .map(\.rawValue)
+            .compactMap(\.ngaRawValue)
             .sorted()
             .map(String.init)
+            .joined(separator: ",")
+    }
+
+    static func encodeKeys(_ forumIDs: Set<ForumID>) -> String {
+        forumIDs
+            .map(\.key)
+            .sorted()
             .joined(separator: ",")
     }
 }
@@ -182,6 +238,8 @@ final class RecentForumRecord {
     @Attribute(.unique) var id: String
     var accountIDString: String
     var forumID: Int64
+    var forumSiteRaw: String = ForumSite.nga.rawValue
+    var forumKey: String = ""
     var forumName: String
     var forumSubtitle: String?
     var forumIconURLString: String?
@@ -196,7 +254,9 @@ final class RecentForumRecord {
     ) {
         self.id = Self.recordID(accountID: accountID, forumID: forum.id)
         self.accountIDString = accountID.description
-        self.forumID = forum.id.rawValue
+        self.forumID = forum.id.ngaRawValue ?? 0
+        self.forumSiteRaw = forum.id.site.rawValue
+        self.forumKey = forum.id.key
         self.forumName = forum.name
         self.forumSubtitle = forum.subtitle
         self.forumIconURLString = forum.iconURL?.absoluteString
@@ -205,18 +265,26 @@ final class RecentForumRecord {
         self.lastVisitedAt = lastVisitedAt
     }
 
+    var forumIdentifier: ForumID {
+        ForumID(storedSite: forumSiteRaw, key: forumKey, legacyNGAValue: forumID)
+    }
+
     var forum: Forum {
-        Forum(
-            id: ForumID(rawValue: forumID),
+        let id = forumIdentifier
+        return Forum(
+            id: id,
             name: forumName,
             subtitle: forumSubtitle,
             iconURL: forumIconURLString.flatMap(URL.init(string:)),
             category: forumCategory,
-            pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:))
+            pinnedTopicID: pinnedTopicID.map(TopicID.init(rawValue:)),
+            isSubforum: id.ngaIsSubforum
         )
     }
 
     func update(forum: Forum, visitedAt: Date?) {
+        forumSiteRaw = forum.id.site.rawValue
+        forumKey = forum.id.key
         forumName = forum.name
         forumSubtitle = forum.subtitle
         if let iconURL = forum.iconURL {
@@ -230,6 +298,6 @@ final class RecentForumRecord {
     }
 
     static func recordID(accountID: AccountID, forumID: ForumID) -> String {
-        "\(accountID.description):\(forumID.rawValue)"
+        "\(accountID.description):\(forumID.site.rawValue):\(forumID.key)"
     }
 }

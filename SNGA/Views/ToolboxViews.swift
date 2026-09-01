@@ -3,7 +3,7 @@ import ImageIO
 import SwiftUI
 
 struct ToolboxMenuView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(ToolboxStore.self) private var toolbox
     @Environment(\.sngaTheme) private var theme
 
     var body: some View {
@@ -17,11 +17,11 @@ struct ToolboxMenuView: View {
 
                 ForEach(ToolboxFeed.allCases) { feed in
                     Button {
-                        model.selectedToolboxFeed = feed
+                        toolbox.selectedFeed = feed
                     } label: {
                         ToolboxMenuRow(
                             feed: feed,
-                            isSelected: model.selectedToolboxFeed == feed
+                            isSelected: toolbox.selectedFeed == feed
                         )
                     }
                     .buttonStyle(.plain)
@@ -102,7 +102,7 @@ private struct ToolboxMenuRow: View {
 }
 
 struct ToolboxFeedView: View {
-    @Environment(AppModel.self) private var model
+    @Environment(ToolboxStore.self) private var toolbox
     @Environment(\.sngaTheme) private var theme
     @Environment(\.openURL) private var openURL
 
@@ -134,7 +134,7 @@ struct ToolboxFeedView: View {
                     Text(errorMessage)
                 } actions: {
                     Button("重试") {
-                        model.refreshToolbox()
+                        toolbox.refresh()
                     }
                 }
             } else {
@@ -163,7 +163,7 @@ struct ToolboxFeedView: View {
             }
         }
         .navigationTitle(feed.title)
-        .task(id: "\(feed.rawValue)-\(model.toolboxRefreshRevision)") {
+        .task(id: "\(feed.rawValue)-\(toolbox.refreshRevision)") {
             await load()
         }
         .accessibilityIdentifier("toolbox-feed-detail-\(feed.rawValue)")
@@ -173,7 +173,7 @@ struct ToolboxFeedView: View {
                 HStack {
                     Spacer()
                     Button {
-                        model.refreshToolbox()
+                        toolbox.refresh()
                     } label: {
                         Label("刷新\(feed.title)", systemImage: "arrow.clockwise")
                     }
@@ -201,7 +201,7 @@ struct ToolboxFeedView: View {
                     Text(emptyDescription)
                 } actions: {
                     Button("重新获取") {
-                        model.refreshToolbox()
+                        toolbox.refresh()
                     }
                 }
             } else {

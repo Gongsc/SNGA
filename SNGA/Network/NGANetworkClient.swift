@@ -22,30 +22,32 @@ struct NGAHTTPResponse: Sendable {
         if let value = String(data: data, encoding: .utf8) { return value }
         let raw = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))
         if let value = String(data: data, encoding: String.Encoding(rawValue: raw)) { return value }
-        throw NGAServiceError.invalidResponse
+        throw ForumServiceError.invalidResponse
     }
 }
 
 actor NGANetworkClient {
     private let transport: any HTTPTransport
-    private var cookies: [SessionCookie]
+    private var jar: SessionCookieJar
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
+    /// 站点要求的 UA。见 `SiteUserAgent` —— 有的站点不接受应用自报家门。
+    private let defaultUserAgent: String
     private var lastRequestAt: ContinuousClock.Instant?
     private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
         transport: any HTTPTransport = URLSessionTransport(),
+        defaultUserAgent: String = "SNGA/1.0 (macOS; native client)",
         cookieDidChange: @escaping @Sendable ([SessionCookie]) async -> Void = { _ in }
     ) {
-        self.cookies = cookies
+        self.defaultUserAgent = defaultUserAgent
+        self.jar = SessionCookieJar(cookies)
         self.transport = transport
         self.cookieDidChange = cookieDidChange
     }
 
-    func currentCookies() -> [SessionCookie] {
-        cookies.filter { !$0.isExpired }
-    }
+    func currentCookies() -> [SessionCookie] { jar.unexpired }
 
     func request(_ endpoint: NGAEndpoint) async throws -> NGAHTTPResponse {
         let maximumAttempts = endpoint.isWrite ? 1 : 2
@@ -58,7 +60,7 @@ actor NGANetworkClient {
                 var request = URLRequest(url: endpoint.url)
                 request.httpMethod = endpoint.method.rawValue
                 request.timeoutInterval = endpoint.isWrite ? 40 : 25
-                let userAgent = endpoint.userAgentOverride ?? "SNGA/1.0 (macOS; native client)"
+                let userAgent = endpoint.userAgentOverride ?? defaultUserAgent
                 request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
                 if endpoint.url.lastPathComponent == "app_api.php" ||
                     endpoint.userAgentOverride != nil {
@@ -97,7 +99,12 @@ actor NGANetworkClient {
                     category: "network",
                     "\(request.httpMethod ?? "GET") \(RuntimeLogger.sanitizedURL(endpoint.url)) attempt=\(attempt)"
                 )
-                let (data, response) = try await transport.data(for: request)
+                let (data, response): (Data, HTTPURLResponse)
+                do {
+                    (data, response) = try await transport.data(for: request)
+                } catch HTTPTransportError.invalidResponse {
+                    throw ForumServiceError.invalidResponse
+                }
                 let elapsedMilliseconds = Int(Date().timeIntervalSince(startedAt) * 1_000)
                 await RuntimeLogger.shared.log(
                     category: "network",
@@ -126,10 +133,10 @@ actor NGANetworkClient {
             }
         }
 
-        if endpoint.isWrite, !(lastError is NGAServiceError) {
-            throw NGAServiceError.ambiguousWrite
+        if endpoint.isWrite, !(lastError is ForumServiceError) {
+            throw ForumServiceError.ambiguousWrite
         }
-        throw lastError ?? NGAServiceError.invalidResponse
+        throw lastError ?? ForumServiceError.invalidResponse
     }
 
     private func throttle() async throws {
@@ -157,28 +164,28 @@ actor NGANetworkClient {
         case 200..<300:
             break
         case 401:
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         case 403:
             if explicitlyRequiresLogin {
-                throw NGAServiceError.requiresLogin
+                throw ForumServiceError.requiresLogin
             }
             if responseIndicatesLockedTopic(response) {
-                throw NGAServiceError.topicLocked
+                throw ForumServiceError.topicLocked
             }
             if responseIndicatesDeletedTopic(response) {
-                throw NGAServiceError.topicDeleted
+                throw ForumServiceError.topicDeleted
             }
-            throw NGAServiceError.restricted("NGA 暂时拒绝了本次访问（HTTP 403），请稍后重试")
+            throw ForumServiceError.restricted("暂时拒绝了本次访问（HTTP 403），请稍后重试")
         case 429:
-            throw NGAServiceError.rateLimited
+            throw ForumServiceError.rateLimited
         case 500...599:
-            throw NGAServiceError.server(response.statusCode)
+            throw ForumServiceError.server(response.statusCode)
         default:
-            throw NGAServiceError.server(response.statusCode)
+            throw ForumServiceError.server(response.statusCode)
         }
 
         if explicitlyRequiresLogin {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
     }
 
@@ -251,7 +258,7 @@ actor NGANetworkClient {
     }
 
     private func isRetryable(_ error: Error) -> Bool {
-        if let error = error as? NGAServiceError {
+        if let error = error as? ForumServiceError {
             switch error {
             // 429/503 往往是 NGA 的临时限流或防护响应，立即重试只会延长封锁。
             case .rateLimited, .server(503): false
@@ -264,23 +271,11 @@ actor NGANetworkClient {
     }
 
     private func makeCookieHeader(for url: URL) -> String {
-        let host = url.host?.lowercased() ?? ""
-        let requestPath = url.path.isEmpty ? "/" : url.path
-        return cookies
-            .filter { cookie in
-                guard !cookie.isExpired else { return false }
-                let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                return (host == domain || host.hasSuffix(".\(domain)")) && requestPath.hasPrefix(cookie.path)
-            }
-            .sorted { $0.name < $1.name }
-            .map { "\($0.name)=\($0.value)" }
-            .joined(separator: "; ")
+        jar.header(for: url)
     }
 
     private func cookieValue(named name: String) -> String {
-        cookies.first {
-            !$0.isExpired && $0.name.caseInsensitiveCompare(name) == .orderedSame
-        }?.value ?? ""
+        jar.value(named: name)
     }
 
     private func formEncoded(_ fields: [String: String]) -> Data {
@@ -290,19 +285,8 @@ actor NGANetworkClient {
     }
 
     private func mergeResponseCookies(headers: [String: String], url: URL) async {
-        let normalized = headers.reduce(into: [String: String]()) { result, item in
-            if item.key.caseInsensitiveCompare("Set-Cookie") == .orderedSame {
-                result["Set-Cookie"] = item.value
-            }
-        }
-        guard !normalized.isEmpty else { return }
-        let newCookies = HTTPCookie.cookies(withResponseHeaderFields: normalized, for: url).map(SessionCookie.init)
-        guard !newCookies.isEmpty else { return }
-        for cookie in newCookies {
-            cookies.removeAll { $0.name == cookie.name && $0.domain == cookie.domain && $0.path == cookie.path }
-            if !cookie.isExpired { cookies.append(cookie) }
-        }
-        await cookieDidChange(cookies)
+        guard jar.merge(responseHeaders: headers, url: url) else { return }
+        await cookieDidChange(jar.cookies)
     }
 }
 

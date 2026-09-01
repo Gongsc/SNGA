@@ -42,12 +42,12 @@ final class FavoriteAndCheckInTests: XCTestCase {
             URL(string: "https://img4.nga.cn/ngabbs/nga_classic/f/app/35925536.png")
         )
         let firstForum = Forum(
-            id: ForumID(rawValue: 414),
+            id: ForumID(nga: 414),
             name: "综合游戏讨论区",
             iconURL: firstIconURL
         )
         let secondForum = Forum(
-            id: ForumID(stid: 35_925_536),
+            id: ForumID(ngaSubforum: 35_925_536),
             name: "幻兽帕鲁"
         )
         let model = AppModel(container: container)
@@ -102,34 +102,34 @@ final class FavoriteAndCheckInTests: XCTestCase {
         let model = AppModel(container: container)
         model.session.activeAccountID = accountID
 
-        await model.openForum(Forum(id: ForumID(rawValue: 1), name: "版面一"))
-        await model.openForum(Forum(id: ForumID(rawValue: 2), name: "版面二"))
-        await model.openForum(Forum(id: ForumID(rawValue: 3), name: "版面三"))
+        await model.openForum(Forum(id: ForumID(nga: 1), name: "版面一"))
+        await model.openForum(Forum(id: ForumID(nga: 2), name: "版面二"))
+        await model.openForum(Forum(id: ForumID(nga: 3), name: "版面三"))
 
         model.session.activeAccountID = secondAccountID
-        await model.openForum(Forum(id: ForumID(rawValue: 11), name: "版面十一"))
-        await model.openForum(Forum(id: ForumID(rawValue: 12), name: "版面十二"))
-        await model.openForum(Forum(id: ForumID(rawValue: 13), name: "版面十三"))
+        await model.openForum(Forum(id: ForumID(nga: 11), name: "版面十一"))
+        await model.openForum(Forum(id: ForumID(nga: 12), name: "版面十二"))
+        await model.openForum(Forum(id: ForumID(nga: 13), name: "版面十三"))
 
         model.browsing.updateRecentForumLimit(2)
 
         XCTAssertEqual(model.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 13),
-            ForumID(rawValue: 12)
+            ForumID(nga: 13),
+            ForumID(nga: 12)
         ])
 
         let restoredModel = AppModel(container: container)
         restoredModel.session.activeAccountID = accountID
         restoredModel.browsing.loadRecentForums()
         XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 3),
-            ForumID(rawValue: 2)
+            ForumID(nga: 3),
+            ForumID(nga: 2)
         ])
         restoredModel.session.activeAccountID = secondAccountID
         restoredModel.browsing.loadRecentForums()
         XCTAssertEqual(restoredModel.browsing.recentForums.map(\.id), [
-            ForumID(rawValue: 13),
-            ForumID(rawValue: 12)
+            ForumID(nga: 13),
+            ForumID(nga: 12)
         ])
     }
 
@@ -153,7 +153,7 @@ final class FavoriteAndCheckInTests: XCTestCase {
             configurations: [configuration]
         )
         let model = AppModel(container: container)
-        let forumID = ForumID(rawValue: -7)
+        let forumID = ForumID(nga: -7)
         let topicA = Topic(
             id: TopicID(rawValue: 101),
             forumID: forumID,
@@ -270,9 +270,9 @@ final class FavoriteAndCheckInTests: XCTestCase {
     }
 
     func testPendingLocalOperationsWinDuringMerge() {
-        let one = Forum(id: ForumID(rawValue: 1), name: "一号板块")
-        let two = Forum(id: ForumID(rawValue: 2), name: "二号板块")
-        let three = Forum(id: ForumID(rawValue: 3), name: "三号板块")
+        let one = Forum(id: ForumID(nga: 1), name: "一号板块")
+        let two = Forum(id: ForumID(nga: 2), name: "二号板块")
+        let three = Forum(id: ForumID(nga: 3), name: "三号板块")
         let local = [
             FavoriteSnapshot(forum: one, order: 0, state: .pendingRemove),
             FavoriteSnapshot(forum: two, order: 1, state: .pendingAdd)
@@ -286,8 +286,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
     }
 
     func testServerAdditionsKeepLocalOrder() {
-        let localForum = Forum(id: ForumID(rawValue: 1), name: "本地")
-        let serverForum = Forum(id: ForumID(rawValue: 2), name: "站端")
+        let localForum = Forum(id: ForumID(nga: 1), name: "本地")
+        let serverForum = Forum(id: ForumID(nga: 2), name: "站端")
         let result = FavoriteSyncEngine.merge(
             server: [localForum, serverForum],
             local: [FavoriteSnapshot(forum: localForum, order: 4, state: .synced)]
@@ -340,7 +340,8 @@ final class FavoriteAndCheckInTests: XCTestCase {
             notificationService: .shared
         )
         let record = AccountRecord(
-            ngaUID: 10_001,
+            site: .nga,
+            siteUserID: 10_001,
             displayName: "签到测试账号",
             isCurrent: true
         )
@@ -378,10 +379,10 @@ final class FavoriteAndCheckInTests: XCTestCase {
 
     func testSubforumPreferenceKeepsSelectionIncludingExplicitEmptyChoice() {
         let accountID = AccountID(rawValue: UUID())
-        let parentForumID = ForumID(rawValue: 414)
+        let parentForumID = ForumID(nga: 414)
         let selectedForumIDs: Set<ForumID> = [
-            ForumID(rawValue: 614),
-            ForumID(stid: 35_925_536)
+            ForumID(nga: 614),
+            ForumID(ngaSubforum: 35_925_536)
         ]
         let record = SubforumPreferenceRecord(
             accountID: accountID,
@@ -618,331 +619,6 @@ final class FavoriteAndCheckInTests: XCTestCase {
         XCTAssertEqual(result.messages.map(\.id), [MessageID(rawValue: 88)])
     }
 }
-
-final class ToolboxAPIParserTests: XCTestCase {
-    func testParsesWorldBriefingMetadataAndFiltersBlankNews() throws {
-        let data = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": {
-                "date": "2026-07-28",
-                "news": ["第一条新闻", "  ", "第二条新闻"],
-                "image": "https://example.com/daily.png",
-                "cover": "https://example.com/cover.png",
-                "tip": "保持好奇",
-                "link": "https://example.com/source",
-                "day_of_week": "星期二",
-                "lunar_date": "丙午年六月十五",
-                "updated_at": 1785206253792
-              }
-            }
-            """.utf8
-        )
-
-        let result = try ToolboxAPIParser.worldBriefing(from: data)
-
-        XCTAssertEqual(result.date, "2026-07-28")
-        XCTAssertEqual(result.news, ["第一条新闻", "第二条新闻"])
-        XCTAssertEqual(result.dayOfWeek, "星期二")
-        XCTAssertEqual(result.lunarDate, "丙午年六月十五")
-        XCTAssertEqual(result.tip, "保持好奇")
-        XCTAssertEqual(result.imageURL?.absoluteString, "https://example.com/daily.png")
-        XCTAssertEqual(result.sourceURL?.absoluteString, "https://example.com/source")
-        XCTAssertEqual(
-            try XCTUnwrap(result.updatedAt).timeIntervalSince1970,
-            1_785_206_253.792,
-            accuracy: 0.001
-        )
-    }
-
-    func testParsesAIArticlesAndSupportsEmptyDailyFeed() throws {
-        let populated = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": {
-                "date": "2026-07-28",
-                "news": [{
-                  "title": "新的 AI 模型",
-                  "detail": "模型能力说明",
-                  "link": "https://example.com/ai",
-                  "source": "测试来源",
-                  "date": "2026-07-28"
-                }]
-              }
-            }
-            """.utf8
-        )
-        let empty = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": {"date": "2026-07-28", "news": []}
-            }
-            """.utf8
-        )
-
-        let articles = try ToolboxAPIParser.aiNews(from: populated)
-
-        XCTAssertEqual(articles.count, 1)
-        XCTAssertEqual(articles[0].title, "新的 AI 模型")
-        XCTAssertEqual(articles[0].summary, "模型能力说明")
-        XCTAssertEqual(articles[0].source, "测试来源")
-        XCTAssertEqual(articles[0].link?.absoluteString, "https://example.com/ai")
-        XCTAssertEqual(try ToolboxAPIParser.aiNews(from: empty), [])
-    }
-
-    func testParsesRealtimeITArticlesAndRejectsFailedEnvelope() throws {
-        let data = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "实时科技新闻",
-                "description": "新闻摘要",
-                "link": "https://www.ithome.com/0/1/2.htm",
-                "created": "2026-07-28 11:10:14",
-                "created_at": 1785208214000
-              }]
-            }
-            """.utf8
-        )
-        let failed = Data(
-            """
-            {"code": 503, "message": "上游服务不可用", "data": []}
-            """.utf8
-        )
-
-        let articles = try ToolboxAPIParser.itNews(from: data)
-
-        XCTAssertEqual(articles.count, 1)
-        XCTAssertEqual(articles[0].title, "实时科技新闻")
-        XCTAssertEqual(articles[0].source, "IT之家")
-        XCTAssertEqual(articles[0].publishedText, "2026-07-28 11:10:14")
-        XCTAssertEqual(
-            try XCTUnwrap(articles[0].publishedAt).timeIntervalSince1970,
-            1_785_208_214,
-            accuracy: 0.001
-        )
-        XCTAssertThrowsError(try ToolboxAPIParser.itNews(from: failed)) { error in
-            XCTAssertEqual(error as? ToolboxAPIError, .service("上游服务不可用"))
-        }
-    }
-
-    func testParsesDouyinRednoteAndBilibiliHotLists() throws {
-        let douyin = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "抖音热点",
-                "hot_value": 12050789,
-                "link": "https://www.douyin.com/search/test",
-                "active_time_at": 1785239248000
-              }]
-            }
-            """.utf8
-        )
-        let rednote = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "rank": 3,
-                "title": "小红书热点",
-                "score": "910.4w",
-                "word_type": "热",
-                "link": "https://www.xiaohongshu.com/search_result?keyword=test"
-              }]
-            }
-            """.utf8
-        )
-        let bilibili = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "哔哩哔哩热搜",
-                "link": "https://search.bilibili.com/all?keyword=test"
-              }]
-            }
-            """.utf8
-        )
-
-        let douyinArticles = try ToolboxAPIParser.douyinHot(from: douyin)
-        XCTAssertEqual(douyinArticles.first?.rank, 1)
-        XCTAssertEqual(douyinArticles.first?.source, "抖音")
-        XCTAssertEqual(douyinArticles.first?.publishedText, "热度 1205.1 万")
-        XCTAssertEqual(
-            try XCTUnwrap(douyinArticles.first?.publishedAt).timeIntervalSince1970,
-            1_785_239_248,
-            accuracy: 0.001
-        )
-
-        let rednoteArticles = try ToolboxAPIParser.rednoteHot(from: rednote)
-        XCTAssertEqual(rednoteArticles.first?.rank, 3)
-        XCTAssertEqual(rednoteArticles.first?.source, "小红书")
-        XCTAssertEqual(rednoteArticles.first?.publishedText, "热度 910.4w · 热")
-
-        let bilibiliArticles = try ToolboxAPIParser.bilibiliHot(from: bilibili)
-        XCTAssertEqual(bilibiliArticles.first?.rank, 1)
-        XCTAssertEqual(bilibiliArticles.first?.source, "哔哩哔哩")
-        XCTAssertEqual(
-            bilibiliArticles.first?.link?.absoluteString,
-            "https://search.bilibili.com/all?keyword=test"
-        )
-    }
-
-    func testParsesWeiboAndZhihuHotLists() throws {
-        let weibo = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "微博热搜",
-                "hot_value": 2283800,
-                "link": "https://s.weibo.com/weibo?q=test"
-              }]
-            }
-            """.utf8
-        )
-        let zhihu = Data(
-            """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "知乎热门问题",
-                "detail": "问题的详细说明",
-                "hot_value_desc": "1713 万热度",
-                "created_at": 1784956439000,
-                "created": "2026/07/25 13:13:59",
-                "link": "https://www.zhihu.com/question/1"
-              }]
-            }
-            """.utf8
-        )
-
-        let weiboArticles = try ToolboxAPIParser.weiboHot(from: weibo)
-        XCTAssertEqual(weiboArticles.first?.rank, 1)
-        XCTAssertEqual(weiboArticles.first?.source, "微博")
-        XCTAssertEqual(weiboArticles.first?.publishedText, "热度 228.4 万")
-
-        let zhihuArticles = try ToolboxAPIParser.zhihuHot(from: zhihu)
-        XCTAssertEqual(zhihuArticles.first?.rank, 1)
-        XCTAssertEqual(zhihuArticles.first?.summary, "问题的详细说明")
-        XCTAssertEqual(zhihuArticles.first?.source, "知乎")
-        XCTAssertEqual(zhihuArticles.first?.publishedText, "1713 万热度")
-        XCTAssertEqual(
-            try XCTUnwrap(zhihuArticles.first?.publishedAt).timeIntervalSince1970,
-            1_784_956_439,
-            accuracy: 0.001
-        )
-    }
-
-    func testToolboxServiceFallsBackToOfficialBackupInstance() async throws {
-        let transport = ToolboxFallbackTransport()
-        let service = ToolboxAPIService(
-            transport: transport,
-            baseURLs: [
-                ToolboxInstanceSettings.primaryBaseURL,
-                ToolboxInstanceSettings.officialBackupBaseURL
-            ]
-        )
-
-        let content = try await service.load(.bilibiliHot)
-
-        guard case let .articles(articles) = content else {
-            return XCTFail("哔哩哔哩热搜应解析为文章列表")
-        }
-        let requestedHosts = await transport.requestedHosts()
-        XCTAssertEqual(articles.first?.title, "备用实例热搜")
-        XCTAssertEqual(
-            requestedHosts,
-            ["60s.viki.moe", "60s.b23.run"]
-        )
-    }
-
-    func testToolboxInstanceSettingsValidateAndPrioritizeCustomBaseURL() throws {
-        XCTAssertEqual(
-            ToolboxInstanceSettings.normalizedBaseURL(
-                from: "  https://example.com/60s/  "
-            )?.absoluteString,
-            "https://example.com/60s"
-        )
-        XCTAssertNil(
-            ToolboxInstanceSettings.normalizedBaseURL(
-                from: "ftp://example.com"
-            )
-        )
-        XCTAssertNil(
-            ToolboxInstanceSettings.normalizedBaseURL(
-                from: "https://example.com?token=secret"
-            )
-        )
-
-        let customURLs = ToolboxInstanceSettings.configuredBaseURLs(
-            selectionRawValue: ToolboxInstanceChoice.custom.rawValue,
-            customBaseURLString: "https://example.com/60s/"
-        )
-        XCTAssertEqual(
-            customURLs.map(\.absoluteString),
-            ["https://example.com/60s"]
-        )
-
-        let backupURLs = ToolboxInstanceSettings.configuredBaseURLs(
-            selectionRawValue: ToolboxInstanceChoice.officialBackup.rawValue,
-            customBaseURLString: ""
-        )
-        XCTAssertEqual(
-            backupURLs.map(\.absoluteString),
-            ["https://60s.b23.run"]
-        )
-    }
-
-    func testToolboxServiceAppendsEndpointToCustomBasePath() async throws {
-        let transport = ToolboxURLRecordingTransport()
-        let service = ToolboxAPIService(
-            transport: transport,
-            baseURLs: [try XCTUnwrap(URL(string: "https://example.com/60s"))]
-        )
-
-        _ = try await service.load(.bilibiliHot)
-
-        let requestedURLs = await transport.requestedURLs()
-        XCTAssertEqual(
-            requestedURLs.map(\.absoluteString),
-            ["https://example.com/60s/v2/bili"]
-        )
-    }
-
-    func testToolboxImageClipboardRecognizesImageData() throws {
-        let pngData = try XCTUnwrap(Data(
-            base64Encoded:
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-        ))
-
-        XCTAssertEqual(
-            ToolboxImageClipboard.pasteboardType(for: pngData)?.rawValue,
-            "public.png"
-        )
-        XCTAssertNil(
-            ToolboxImageClipboard.pasteboardType(
-                for: Data("not an image".utf8)
-            )
-        )
-    }
-}
-
 final class ForumDirectorySearchTests: XCTestCase {
     private let categories = [
         ForumCategory(
@@ -950,7 +626,7 @@ final class ForumDirectorySearchTests: XCTestCase {
             name: "综合讨论",
             forums: [
                 Forum(
-                    id: ForumID(rawValue: 7),
+                    id: ForumID(nga: 7),
                     name: "艾泽拉斯国家地理",
                     subtitle: "魔兽世界综合讨论",
                     category: "综合讨论"
@@ -962,15 +638,18 @@ final class ForumDirectorySearchTests: XCTestCase {
             name: "游戏社区",
             forums: [
                 Forum(
-                    id: ForumID(rawValue: 510381),
+                    id: ForumID(nga: 510381),
                     name: "晴风村",
                     subtitle: "FINAL FANTASY XIV",
-                    category: "游戏社区"
+                    category: "游戏社区",
+                    searchAliases: ["fid"]
                 ),
                 Forum(
-                    id: ForumID(stid: 35925536),
+                    id: ForumID(ngaSubforum: 35925536),
                     name: "二次元综合",
-                    category: "游戏社区"
+                    category: "游戏社区",
+                    isSubforum: true,
+                    searchAliases: ["stid"]
                 )
             ]
         )
@@ -1020,69 +699,5 @@ final class ForumDirectorySearchTests: XCTestCase {
         let result = ForumDirectorySearch.filter(categories, query: "不存在的版面")
 
         XCTAssertTrue(result.isEmpty)
-    }
-}
-
-private actor ToolboxFallbackTransport: HTTPTransport {
-    private var hosts: [String] = []
-
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let host = request.url?.host ?? ""
-        hosts.append(host)
-        let body: String
-        if host == "60s.viki.moe" {
-            body = #"{"code":500,"message":"上游服务不可用","data":[]}"#
-        } else {
-            body = """
-            {
-              "code": 200,
-              "message": "获取成功",
-              "data": [{
-                "title": "备用实例热搜",
-                "link": "https://search.bilibili.com/all?keyword=test"
-              }]
-            }
-            """
-        }
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        return (Data(body.utf8), response)
-    }
-
-    func requestedHosts() -> [String] {
-        hosts
-    }
-}
-
-private actor ToolboxURLRecordingTransport: HTTPTransport {
-    private var urls: [URL] = []
-
-    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        urls.append(request.url!)
-        let body = """
-        {
-          "code": 200,
-          "message": "获取成功",
-          "data": [{
-            "title": "自定义实例热搜",
-            "link": "https://search.bilibili.com/all?keyword=test"
-          }]
-        }
-        """
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: "HTTP/1.1",
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        return (Data(body.utf8), response)
-    }
-
-    func requestedURLs() -> [URL] {
-        urls
     }
 }

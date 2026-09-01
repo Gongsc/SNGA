@@ -75,7 +75,7 @@ struct NGAParser: Sendable {
     func searchedProfile(from response: NGAHTTPResponse) throws -> Profile? {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("未找到用户搜索数据")
+            throw ForumServiceError.unexpectedPage("未找到用户搜索数据")
         }
         if let dictionary = root as? [String: Any],
            let errorValue = dictionary["error"] ?? dictionary["__MESSAGE"] {
@@ -101,7 +101,7 @@ struct NGAParser: Sendable {
             in: text,
             sectionName: "__T"
         )
-        let fallbackForumID = request.forumID ?? ForumID(rawValue: 0)
+        let fallbackForumID = request.forumID ?? ForumID(nga: 0)
         let topics = unique(topicValues.compactMap {
             parseTopic(from: $0, fallbackForumID: fallbackForumID)
         })
@@ -138,7 +138,7 @@ struct NGAParser: Sendable {
             try throwJSONErrorIfPresent(in: root)
         }
         if text.contains("你必须登录") || text.contains("必须登录后") {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
 
         let document = try SwiftSoup.parse(text, response.url.absoluteString)
@@ -156,7 +156,7 @@ struct NGAParser: Sendable {
             let boardLink = try row.select(".titleadd2 a[href*='fid='], .titleadd2 a").first()
             let forumID = try boardLink.flatMap {
                 absoluteURL(try $0.attr("href"), relativeTo: response.url)
-            }.flatMap { queryInt64("fid", in: $0) }.map(ForumID.init(rawValue:))
+            }.flatMap { queryInt64("fid", in: $0) }.map(ForumID.init(nga:))
             let forumName = try boardLink?.text()
                 .trimmingCharacters(in: CharacterSet(charactersIn: "[]").union(.whitespacesAndNewlines))
             let dateElement = try row.select(".c3 .postdate, .postdate").first()
@@ -206,7 +206,7 @@ struct NGAParser: Sendable {
         }
 
         if activities.isEmpty, !rows.isEmpty {
-            throw NGAServiceError.unexpectedPage("未能解析用户\(kind.title)列表")
+            throw ForumServiceError.unexpectedPage("未能解析用户\(kind.title)列表")
         }
         if activities.isEmpty, rows.isEmpty {
             let pageTitle = try document.title()
@@ -214,7 +214,7 @@ struct NGAParser: Sendable {
                     || text.contains("没有符合条件")
                     || text.contains("没有找到")
                     || text.contains("暂无") else {
-                throw NGAServiceError.unexpectedPage("未找到用户\(kind.title)列表")
+                throw ForumServiceError.unexpectedPage("未找到用户\(kind.title)列表")
             }
         }
 
@@ -244,9 +244,9 @@ struct NGAParser: Sendable {
             if let code = int(root["code"]), code != 0 {
                 let message = string(root["msg"]) ?? "版面目录请求失败（代码 \(code)）"
                 if code == 5 || message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(message)
+                throw ForumServiceError.restricted(message)
             }
 
             if let categories = root["result"] as? [Any] {
@@ -269,7 +269,7 @@ struct NGAParser: Sendable {
                     }
                 }
                 guard !result.isEmpty else {
-                    throw NGAServiceError.unexpectedPage("官方版面目录返回为空")
+                    throw ForumServiceError.unexpectedPage("官方版面目录返回为空")
                 }
                 return unique(result)
             }
@@ -286,17 +286,22 @@ struct NGAParser: Sendable {
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else { continue }
             let forumID: ForumID
             if let stid = queryInt64("stid", in: target) {
-                forumID = ForumID(stid: stid)
+                forumID = ForumID(ngaSubforum: stid)
             } else if let fid = queryInt64("fid", in: target) {
-                forumID = ForumID(rawValue: fid)
+                forumID = ForumID(nga: fid)
             } else {
                 continue
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
-            result.append(Forum(id: forumID, name: name))
+            result.append(Forum(
+                id: forumID,
+                name: name,
+                isSubforum: forumID.ngaIsSubforum,
+                searchAliases: [forumID.ngaQueryName]
+            ))
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到版面目录") }
+        guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到版面目录") }
         return unique(result)
     }
 
@@ -307,9 +312,9 @@ struct NGAParser: Sendable {
                code != 0 {
                 let message = string(dictionary["msg"]) ?? flattenedText(dictionary)
                 if code == 5 || message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(concise(message))
+                throw ForumServiceError.restricted(concise(message))
             }
 
             let result = dictionaries(in: root).compactMap { dictionary in
@@ -340,17 +345,24 @@ struct NGAParser: Sendable {
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else { continue }
             let id: ForumID
             if let stid = queryInt64("stid", in: target) {
-                id = ForumID(stid: stid)
+                id = ForumID(ngaSubforum: stid)
             } else if let fid = queryInt64("fid", in: target) {
-                id = ForumID(rawValue: fid)
+                id = ForumID(nga: fid)
             } else {
                 continue
             }
             let name = try link.text().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { result.append(Forum(id: id, name: name)) }
+            if !name.isEmpty {
+                result.append(Forum(
+                    id: id,
+                    name: name,
+                    isSubforum: id.ngaIsSubforum,
+                    searchAliases: [id.ngaQueryName]
+                ))
+            }
         }
         guard !result.isEmpty else {
-            throw NGAServiceError.unexpectedPage("未找到账号收藏版面")
+            throw ForumServiceError.unexpectedPage("未找到账号收藏版面")
         }
         return unique(result)
     }
@@ -385,12 +397,19 @@ struct NGAParser: Sendable {
                     fallbackTopicCount: topics.count
                 )
                 let parsedForum: Forum?
-                if forumID.isSubforum {
+                if forumID.ngaIsSubforum {
                     parsedForum = subforums.first { $0.id == forumID }
                         ?? forumMetadata
                             .flatMap { string($0["set_topic_subject"]) }
                             .flatMap { name in
-                                name.isEmpty ? nil : Forum(id: forumID, name: name)
+                                name.isEmpty
+                                    ? nil
+                                    : Forum(
+                                        id: forumID,
+                                        name: name,
+                                        isSubforum: true,
+                                        searchAliases: [forumID.ngaQueryName]
+                                    )
                             }
                 } else {
                     parsedForum = forumMetadata.flatMap {
@@ -431,7 +450,7 @@ struct NGAParser: Sendable {
                 isAnonymous: isAnonymousUsername(rawAuthor)
             ))
         }
-        guard !topics.isEmpty else { throw NGAServiceError.unexpectedPage("未找到话题列表") }
+        guard !topics.isEmpty else { throw ForumServiceError.unexpectedPage("未找到话题列表") }
         let paginationPages = try document.select("a[href*='page=']").compactMap { link -> Int? in
             guard let target = absoluteURL(try link.attr("href"), relativeTo: response.url) else {
                 return nil
@@ -457,7 +476,7 @@ struct NGAParser: Sendable {
         if let root = jsonRoot(response.data) {
             try throwJSONErrorIfPresent(in: root)
             let topics = dictionaries(in: root).compactMap {
-                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+                parseTopic(from: $0, fallbackForumID: ForumID(nga: 0))
             }.map { topic in
                 var topic = topic
                 topic.isFavorite = true
@@ -489,7 +508,7 @@ struct NGAParser: Sendable {
         }
         var result = try forumPage(
             from: response,
-            forumID: ForumID(rawValue: 0),
+            forumID: ForumID(nga: 0),
             page: page
         )
         result.topics = result.topics.map { topic in
@@ -503,7 +522,7 @@ struct NGAParser: Sendable {
     func favoriteTopicFolders(from response: NGAHTTPResponse) throws -> [TopicFavoriteFolder] {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("未找到收藏目录数据")
+            throw ForumServiceError.unexpectedPage("未找到收藏目录数据")
         }
         try throwJSONErrorIfPresent(in: root)
         let folders = dictionaries(in: jsonPayload(in: root)).compactMap { dictionary -> TopicFavoriteFolder? in
@@ -539,7 +558,7 @@ struct NGAParser: Sendable {
     func createdTopicFavoriteFolderID(from response: NGAHTTPResponse) throws -> String? {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.ambiguousWrite
+            throw ForumServiceError.ambiguousWrite
         }
         try throwJSONErrorIfPresent(in: root)
         let payload = jsonPayload(in: root)
@@ -581,12 +600,12 @@ struct NGAParser: Sendable {
                 topicMetadata = nil
             }
             var topic = topicMetadata.flatMap {
-                parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0))
+                parseTopic(from: $0, fallbackForumID: ForumID(nga: 0))
             }
                 ?? dictionaries(in: root)
-                    .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(rawValue: 0)) }
+                    .compactMap { parseTopic(from: $0, fallbackForumID: ForumID(nga: 0)) }
                     .first { $0.id == topicID }
-                ?? Topic(id: topicID, forumID: ForumID(rawValue: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
+                ?? Topic(id: topicID, forumID: ForumID(nga: 0), subject: "帖子 \(topicID.rawValue)", author: "", replyCount: 0, isPinned: false, isLocked: false)
             let customLevelSource = (payload?["__F"] as? [String: Any])
                 .flatMap { string($0["custom_level"]) }
             var users = payload
@@ -737,11 +756,11 @@ struct NGAParser: Sendable {
                 ))
             }
         }
-        guard !posts.isEmpty else { throw NGAServiceError.unexpectedPage("未找到帖子楼层") }
+        guard !posts.isEmpty else { throw ForumServiceError.unexpectedPage("未找到帖子楼层") }
         posts.sort(by: postOrder)
         let topic = Topic(
             id: topicID,
-            forumID: ForumID(rawValue: 0),
+            forumID: ForumID(nga: 0),
             subject: title,
             author: posts.first(where: { $0.floor == 0 })?.author ?? "",
             authorUID: posts.first(where: { $0.floor == 0 })?.authorUID,
@@ -869,7 +888,7 @@ struct NGAParser: Sendable {
         if result.isEmpty, text.contains("暂无") || text.contains("没有消息") {
             return MessagePage(folder: folder, messages: [], page: page, hasMore: false)
         }
-        guard !result.isEmpty else { throw NGAServiceError.unexpectedPage("未找到消息列表") }
+        guard !result.isEmpty else { throw ForumServiceError.unexpectedPage("未找到消息列表") }
         return MessagePage(folder: folder, messages: unique(result), page: page, hasMore: result.count >= 20)
     }
 
@@ -967,7 +986,7 @@ struct NGAParser: Sendable {
     func checkInStatus(from response: NGAHTTPResponse) throws -> CheckInStatistics {
         let text = try response.decodedString()
         guard let root = jsonRoot(response.data) ?? jsonRoot(text) else {
-            throw NGAServiceError.unexpectedPage("无法读取签到状态")
+            throw ForumServiceError.unexpectedPage("无法读取签到状态")
         }
         try throwJSONErrorIfPresent(in: root)
 
@@ -977,7 +996,7 @@ struct NGAParser: Sendable {
         let consecutiveDays = int(values["continued"]),
         let totalDays = int(values["sum"]),
         let lastCheckInTimestamp = int64(values["last_time"]) else {
-            throw NGAServiceError.unexpectedPage("签到统计字段缺失")
+            throw ForumServiceError.unexpectedPage("签到统计字段缺失")
         }
 
         let serverTimestamp = (root as? [String: Any]).flatMap { int64($0["time"]) }
@@ -1003,7 +1022,7 @@ struct NGAParser: Sendable {
                 return .alreadyCheckedIn(message: checkInAlreadyCompletedMessage(from: message))
             }
             if message.localizedCaseInsensitiveContains("client error") {
-                throw NGAServiceError.restricted("签到请求被 NGA 拒绝，请稍后重试")
+                throw ForumServiceError.restricted("签到请求被拒绝，请稍后重试")
             }
             try throwJSONErrorIfPresent(in: root)
             if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
@@ -1022,7 +1041,7 @@ struct NGAParser: Sendable {
         if message.contains("成功") || (message.contains("签到") && !message.contains("失败")) {
             return .success(message: CheckInPolicy.userFacingSuccessMessage(from: message))
         }
-        throw NGAServiceError.unexpectedPage("无法确认签到结果")
+        throw ForumServiceError.unexpectedPage("无法确认签到结果")
     }
 
     private func checkInAlreadyCompletedMessage(from source: String) -> String {
@@ -1044,7 +1063,7 @@ struct NGAParser: Sendable {
     func submissionSucceeded(from response: NGAHTTPResponse) throws -> PostID? {
         let text = try response.decodedString()
         if text.contains("ERROR:") || text.contains("操作失败") || text.contains("发送失败") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
         if let root = jsonRoot(response.data) {
             for dictionary in dictionaries(in: root) {
@@ -1061,9 +1080,9 @@ struct NGAParser: Sendable {
                 return nil
             }
             if message.contains("登录") {
-                throw NGAServiceError.requiresLogin
+                throw ForumServiceError.requiresLogin
             }
-            throw NGAServiceError.restricted(concise(message))
+            throw ForumServiceError.restricted(concise(message))
         }
         if let pidText = try document.select("root > pid").first()?.text(),
            let pid = Int64(pidText.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -1072,7 +1091,7 @@ struct NGAParser: Sendable {
         if text.contains("成功") || text.contains("正在跳转") || response.statusCode == 302 {
             return nil
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func actionSucceeded(from response: NGAHTTPResponse) throws {
@@ -1084,15 +1103,15 @@ struct NGAParser: Sendable {
                 guard code == 0 else {
                     let message = string(dictionary["msg"]) ?? flattenedText(root)
                     if code == 5 || message.contains("登录") {
-                        throw NGAServiceError.requiresLogin
+                        throw ForumServiceError.requiresLogin
                     }
-                    throw NGAServiceError.restricted(concise(message))
+                    throw ForumServiceError.restricted(concise(message))
                 }
                 return
             }
             let flattened = flattenedText(root)
             if flattened.contains("失败") || flattened.contains("错误") {
-                throw NGAServiceError.restricted(concise(flattened))
+                throw ForumServiceError.restricted(concise(flattened))
             }
             return
         }
@@ -1100,9 +1119,9 @@ struct NGAParser: Sendable {
             return
         }
         if text.contains("失败") || text.contains("ERROR") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func voteState(from response: NGAHTTPResponse) throws -> PostVoteState {
@@ -1136,9 +1155,9 @@ struct NGAParser: Sendable {
         }
 
         if text.contains("ERROR:") || text.contains("失败") {
-            throw NGAServiceError.restricted(concise(text))
+            throw ForumServiceError.restricted(concise(text))
         }
-        throw NGAServiceError.ambiguousWrite
+        throw ForumServiceError.ambiguousWrite
     }
 
     func form(from response: NGAHTTPResponse, requiredField: String) throws -> ParsedHTMLForm {
@@ -1168,9 +1187,9 @@ struct NGAParser: Sendable {
                     ?? messageItems.first(where: { !$0.isEmpty })
                     ?? ""
                 if message.contains("登录") {
-                    throw NGAServiceError.requiresLogin
+                    throw ForumServiceError.requiresLogin
                 }
-                throw NGAServiceError.restricted(concise(message))
+                throw ForumServiceError.restricted(concise(message))
             }
 
             let replyPayloadTags = ["auth", "content", "subject", "attach_url"]
@@ -1200,7 +1219,7 @@ struct NGAParser: Sendable {
             }
             return ParsedHTMLForm(action: response.url, fields: values)
         }
-        throw NGAServiceError.unsupported("NGA 当前页面没有可用的提交表单")
+        throw ForumServiceError.unsupported("当前页面没有可用的提交表单")
     }
 
     private func structuredMessageItems(in source: String) -> [String] {
@@ -1236,9 +1255,9 @@ struct NGAParser: Sendable {
             ?? ""
         guard !message.isEmpty else { return }
         if explicitlyRequiresLogin(message) {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
-        throw NGAServiceError.restricted(concise(message))
+        throw ForumServiceError.restricted(concise(message))
     }
 
     private func structuredItemDictionaries(
@@ -1380,7 +1399,7 @@ struct NGAParser: Sendable {
         var clean: String
         var nativeContent: PostContent?
         do {
-            guard let whitelist else { throw NGAServiceError.invalidResponse }
+            guard let whitelist else { throw ForumServiceError.invalidResponse }
             let document = try SwiftSoup.parseBodyFragment(rendered.html, NGAEndpoint.baseURL.absoluteString)
             for element in try document.select("*") {
                 for textNode in element.textNodes() {
@@ -1420,7 +1439,7 @@ struct NGAParser: Sendable {
             // （`SwiftSoup.clean` 额外做的 nbsp 归一化只对纯文本白名单生效，这里不适用。）
             let cleaner = Cleaner(headWhitelist: nil, bodyWhitelist: whitelist)
             guard let cleanBody = try cleaner.clean(document).body() else {
-                throw NGAServiceError.invalidResponse
+                throw ForumServiceError.invalidResponse
             }
             nativeContent = PostContentBuilder.content(from: cleanBody)
             clean = compactedPostSpacing(try cleanBody.html())
@@ -1428,34 +1447,12 @@ struct NGAParser: Sendable {
             clean = "<p>内容无法显示</p>"
             nativeContent = nil
         }
-        let html = """
-        <!doctype html><html><head><meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; font-src 'none'; media-src https:">
-        <style>
-        :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-quote-rail:color-mix(in srgb,CanvasText 42%,transparent);--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
-        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child:not(blockquote){margin-bottom:0}p{margin:6px 0}
-        img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}.ubb-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ubb-split-left{text-align:left}.ubb-split-right{text-align:right}
-        .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
-        ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
-        blockquote{margin:8px 0 12px;padding:7px 11px;border-left:3px solid var(--snga-quote-rail);border-radius:0 6px 6px 0;background:color-mix(in srgb,CanvasText 6%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
-        details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
-        .nga-random-block-panel{display:none}.nga-random-block-panel.snga-is-active{display:block}.nga-random-block-controls{display:flex;align-items:center;justify-content:center;min-height:28px;margin:1px 0 4px;overflow:hidden}.nga-random-block-button{position:relative;width:44px;height:28px;margin:0 2px;padding:0;border:0;border-radius:8px;color:inherit;background:transparent;cursor:pointer}.nga-random-block-button::before{position:absolute;top:10px;left:10px;width:24px;height:8px;border-radius:999px;background:color-mix(in srgb,CanvasText 22%,transparent);content:""}.nga-random-block-button.snga-is-active::before{background:var(--snga-highlight)}.nga-random-block-button:hover::before{background:color-mix(in srgb,var(--snga-highlight) 72%,CanvasText)}.nga-random-block-button:focus-visible{outline:2px solid var(--snga-highlight);outline-offset:-3px}
-        .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
-        .nga-rich-card-title{margin:0 0 8px;font-size:1.15em}.nga-rich-card-image{margin:6px 0}.nga-rich-card-image img{display:block;border-radius:7px}
-        .nga-game-card{display:grid;grid-template-columns:minmax(88px,9rem) minmax(0,1fr);gap:12px;margin:8px 0 12px;padding:14px;box-sizing:border-box;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;color:CanvasText;background:color-mix(in srgb,var(--snga-highlight) 9%,transparent)}.nga-game-card-no-score{grid-template-columns:minmax(0,1fr)}
-        .nga-game-score{display:flex;min-height:88px;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:center;padding:8px;border-radius:7px;color:#fff;background:#b22222;text-align:center}.nga-game-score-value{font-size:2.75em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.nga-game-score-count{margin-top:7px;font-size:.9em;font-weight:600}
-        .nga-game-heading{align-self:center;min-width:0}.nga-game-title{margin:0;font-size:1.8em;line-height:1.2;overflow-wrap:anywhere}.nga-game-subtitle{margin-top:5px;font-size:1.05em}.nga-game-release{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:9px}.nga-game-release-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.nga-game-platform{padding:1px 7px;border-radius:4px;color:#fff;background:#0c7da8;font-weight:600}
-        .nga-game-cover{grid-column:1/-1;overflow:hidden;border-radius:7px;background:color-mix(in srgb,CanvasText 6%,transparent)}.nga-game-cover img{display:block;width:100%;height:auto}.nga-game-cover .snga-image-placeholder{display:flex;width:100%}
-        .nga-game-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 20px}.nga-game-field{min-width:0}.nga-game-label{font-size:1.05em;font-weight:650}.nga-game-value{margin-top:3px;color:#b22222;font-size:1.05em;overflow-wrap:anywhere}.nga-game-website{grid-column:1/-1}.nga-game-website a{display:inline-flex;align-items:center;gap:5px;color:#b22222;font-size:1.05em;font-weight:600}.nga-game-extra{grid-column:1/-1}
-        @media(max-width:520px){.nga-game-card{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px}.nga-game-card-no-score{grid-template-columns:1fr}.nga-game-score{min-height:76px}.nga-game-score-value{font-size:2.2em}.nga-game-score-count{font-size:.72em}.nga-game-title{font-size:1.4em}.nga-game-details{grid-template-columns:repeat(2,minmax(0,1fr))}.nga-game-website{grid-column:1/-1}}@media(max-width:360px){.nga-game-card{grid-template-columns:1fr}.nga-game-score{width:112px;min-height:72px}.nga-game-cover,.nga-game-details{grid-column:1}.nga-game-details{grid-template-columns:1fr}}
-        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-orangered{color:orangered}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-darkblue{color:darkblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}.ubb-color-silver{color:silver}.ubb-color-white{color:white}
-        .ubb-size-50{font-size:50%}.ubb-size-60{font-size:60%}.ubb-size-70{font-size:70%}.ubb-size-80{font-size:80%}.ubb-size-90{font-size:90%}.ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}.ubb-size-160{font-size:160%}.ubb-size-170{font-size:170%}.ubb-size-180{font-size:180%}.ubb-size-190{font-size:190%}.ubb-size-200{font-size:200%}
-        .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
-        @media(max-width:700px){table,thead,tbody,tfoot{display:block;width:100%}tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:8px 0}td,th{display:block;width:auto!important;min-width:0;border-radius:6px}}@media(max-width:360px){.ubb-split-row{grid-template-columns:1fr}.ubb-split-right{text-align:left}}
-        \(rendered.additionalStyleSheet)
-        </style></head><body><main id="snga-post-content">\(clean)</main></body></html>
-        """
+        // 骨架和基础样式两个站共用，见 `PostDocument`。这一大块是 NGA 自己的：
+        // 表情、UBB 的颜色/字号/对齐、游戏卡片、随机块 —— NodeSeek 一个都用不上。
+        let html = PostDocument.html(
+            body: clean,
+            extraCSS: Self.ngaStyleSheet + "\n" + rendered.additionalStyleSheet
+        )
         return SanitizedPost(
             html: html,
             nativeContent: nativeContent,
@@ -2836,9 +2833,9 @@ struct NGAParser: Sendable {
     ) -> Forum? {
         let forumID: ForumID
         if let stid = int64(dictionary["stid"]), stid > 0 {
-            forumID = ForumID(stid: stid)
+            forumID = ForumID(ngaSubforum: stid)
         } else if let fid = int64(dictionary["fid"]) {
-            forumID = ForumID(rawValue: fid)
+            forumID = ForumID(nga: fid)
         } else {
             return nil
         }
@@ -2862,7 +2859,9 @@ struct NGAParser: Sendable {
             iconURL: iconURL,
             category: category ?? string(dictionary["group"]),
             pinnedTopicID: pinnedTopicID(in: dictionary),
-            isSelectedInParent: selectedSubforumState(from: dictionary)
+            isSelectedInParent: selectedSubforumState(from: dictionary),
+            isSubforum: forumID.ngaIsSubforum,
+            searchAliases: [forumID.ngaQueryName]
         )
     }
 
@@ -2953,7 +2952,7 @@ struct NGAParser: Sendable {
         let type = int(dictionary["type"]) ?? 0
         return Topic(
             id: TopicID(rawValue: tid),
-            forumID: ForumID(rawValue: int64(dictionary["fid"]) ?? fallbackForumID.rawValue),
+            forumID: int64(dictionary["fid"]).map(ForumID.init(nga:)) ?? fallbackForumID,
             subject: subject,
             author: normalizedUsername(string(dictionary["author"])) ?? "",
             authorUID: postAuthorID(in: dictionary),
@@ -3044,7 +3043,7 @@ struct NGAParser: Sendable {
         guard type & 2_097_152 != 0 || parentName == "版面镜像" else {
             return nil
         }
-        return ForumID(rawValue: rawForumID)
+        return ForumID(nga: rawForumID)
     }
 
     private func subforums(from forumMetadata: [String: Any]) -> [Forum] {
@@ -3066,9 +3065,9 @@ struct NGAParser: Sendable {
             let id: ForumID
             if key.lowercased().hasPrefix("t") {
                 guard rawID >= 0 else { return nil }
-                id = ForumID(stid: rawID)
+                id = ForumID(ngaSubforum: rawID)
             } else {
-                id = ForumID(rawValue: rawID)
+                id = ForumID(nga: rawID)
             }
             let subtitle = fields.count > 2 ? string(fields[2]).map(plainText) : nil
             let pinnedTopicID = fields.count > 3
@@ -3080,7 +3079,9 @@ struct NGAParser: Sendable {
                 name: name,
                 subtitle: subtitle,
                 pinnedTopicID: pinnedTopicID,
-                isSelectedInParent: attributes.map(isSelectedSubforumAttributes)
+                isSelectedInParent: attributes.map(isSelectedSubforumAttributes),
+                isSubforum: id.ngaIsSubforum,
+                searchAliases: [id.ngaQueryName]
             )
         }
     }
@@ -3109,11 +3110,11 @@ struct NGAParser: Sendable {
             return nil
         }
         let parentID = int64(parent["0"]).map {
-            ForumID(rawValue: $0)
+            ForumID(nga: $0)
         }
         let id: ForumID
         if let stid = int64(parent["1"]), stid > 0 {
-            id = ForumID(stid: stid)
+            id = ForumID(ngaSubforum: stid)
         } else if let parentID {
             id = parentID
         } else {
@@ -4503,12 +4504,12 @@ struct NGAParser: Sendable {
         let message = concise(flattenedText(errorValue))
         guard !message.isEmpty else { return }
         if explicitlyRequiresLogin(message) {
-            throw NGAServiceError.requiresLogin
+            throw ForumServiceError.requiresLogin
         }
         if indicatesLockedTopic(message) {
-            throw NGAServiceError.topicLocked
+            throw ForumServiceError.topicLocked
         }
-        throw NGAServiceError.restricted(message)
+        throw ForumServiceError.restricted(message)
     }
 
     private func indicatesLockedTopic(_ message: String) -> Bool {
@@ -4872,4 +4873,30 @@ struct NGAParser: Sendable {
             .joined(separator: " ")
         return String(collapsed.prefix(160))
     }
+}
+
+extension NGAParser {
+    /// NGA 专有的样式。基础样式在 `PostDocument.baseStyleSheet`。
+    fileprivate static let ngaStyleSheet = """
+        :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-quote-rail:color-mix(in srgb,CanvasText 42%,transparent);--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
+        #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child:not(blockquote){margin-bottom:0}p{margin:6px 0}
+        img{max-width:100%;height:auto;vertical-align:middle}.nga-smile{max-width:64px;max-height:64px;background:var(--snga-smile-backdrop);border-radius:6px}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}.ubb-split-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ubb-split-left{text-align:left}.ubb-split-right{text-align:right}
+        .snga-image-placeholder{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:132px;min-height:58px;max-width:100%;margin:3px 0;padding:10px 14px;border:1px dashed color-mix(in srgb,var(--snga-accent) 55%,CanvasText 20%);border-radius:7px;color:var(--snga-accent);background:color-mix(in srgb,var(--snga-accent) 8%,transparent);cursor:pointer;user-select:none}.snga-image-placeholder:hover,.snga-image-placeholder:focus{background:color-mix(in srgb,var(--snga-accent) 15%,transparent);outline:1px solid color-mix(in srgb,var(--snga-accent) 45%,transparent);outline-offset:1px}.nga-rich-card-image .snga-image-placeholder{display:flex}
+        ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
+        blockquote{margin:8px 0 12px;padding:7px 11px;border-left:3px solid var(--snga-quote-rail);border-radius:0 6px 6px 0;background:color-mix(in srgb,CanvasText 6%,transparent)}a{color:var(--snga-accent)}.nga-post-reference{display:inline-block;font-weight:600;text-decoration:none;border-bottom:1px dashed currentColor}pre,code{white-space:pre-wrap}
+        details{margin:8px 0;padding:6px 10px;border:1px solid color-mix(in srgb,CanvasText 18%,transparent);border-radius:6px}summary{cursor:pointer;font-weight:600}.nga-section-title{margin:14px 0 8px;font-size:1.15em}
+        .nga-random-block-panel{display:none}.nga-random-block-panel.snga-is-active{display:block}.nga-random-block-controls{display:flex;align-items:center;justify-content:center;min-height:28px;margin:1px 0 4px;overflow:hidden}.nga-random-block-button{position:relative;width:44px;height:28px;margin:0 2px;padding:0;border:0;border-radius:8px;color:inherit;background:transparent;cursor:pointer}.nga-random-block-button::before{position:absolute;top:10px;left:10px;width:24px;height:8px;border-radius:999px;background:color-mix(in srgb,CanvasText 22%,transparent);content:""}.nga-random-block-button.snga-is-active::before{background:var(--snga-highlight)}.nga-random-block-button:hover::before{background:color-mix(in srgb,var(--snga-highlight) 72%,CanvasText)}.nga-random-block-button:focus-visible{outline:2px solid var(--snga-highlight);outline-offset:-3px}
+        .nga-rich-card{margin:8px 0 12px;padding:12px;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;background:color-mix(in srgb,var(--snga-highlight) 8%,transparent)}
+        .nga-rich-card-title{margin:0 0 8px;font-size:1.15em}.nga-rich-card-image{margin:6px 0}.nga-rich-card-image img{display:block;border-radius:7px}
+        .nga-game-card{display:grid;grid-template-columns:minmax(88px,9rem) minmax(0,1fr);gap:12px;margin:8px 0 12px;padding:14px;box-sizing:border-box;border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:10px;color:CanvasText;background:color-mix(in srgb,var(--snga-highlight) 9%,transparent)}.nga-game-card-no-score{grid-template-columns:minmax(0,1fr)}
+        .nga-game-score{display:flex;min-height:88px;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:center;padding:8px;border-radius:7px;color:#fff;background:#b22222;text-align:center}.nga-game-score-value{font-size:2.75em;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.nga-game-score-count{margin-top:7px;font-size:.9em;font-weight:600}
+        .nga-game-heading{align-self:center;min-width:0}.nga-game-title{margin:0;font-size:1.8em;line-height:1.2;overflow-wrap:anywhere}.nga-game-subtitle{margin-top:5px;font-size:1.05em}.nga-game-release{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:9px}.nga-game-release-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.nga-game-platform{padding:1px 7px;border-radius:4px;color:#fff;background:#0c7da8;font-weight:600}
+        .nga-game-cover{grid-column:1/-1;overflow:hidden;border-radius:7px;background:color-mix(in srgb,CanvasText 6%,transparent)}.nga-game-cover img{display:block;width:100%;height:auto}.nga-game-cover .snga-image-placeholder{display:flex;width:100%}
+        .nga-game-details{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 20px}.nga-game-field{min-width:0}.nga-game-label{font-size:1.05em;font-weight:650}.nga-game-value{margin-top:3px;color:#b22222;font-size:1.05em;overflow-wrap:anywhere}.nga-game-website{grid-column:1/-1}.nga-game-website a{display:inline-flex;align-items:center;gap:5px;color:#b22222;font-size:1.05em;font-weight:600}.nga-game-extra{grid-column:1/-1}
+        @media(max-width:520px){.nga-game-card{grid-template-columns:76px minmax(0,1fr);gap:10px;padding:10px}.nga-game-card-no-score{grid-template-columns:1fr}.nga-game-score{min-height:76px}.nga-game-score-value{font-size:2.2em}.nga-game-score-count{font-size:.72em}.nga-game-title{font-size:1.4em}.nga-game-details{grid-template-columns:repeat(2,minmax(0,1fr))}.nga-game-website{grid-column:1/-1}}@media(max-width:360px){.nga-game-card{grid-template-columns:1fr}.nga-game-score{width:112px;min-height:72px}.nga-game-cover,.nga-game-details{grid-column:1}.nga-game-details{grid-template-columns:1fr}}
+        .ubb-color-red{color:red}.ubb-color-orange{color:orange}.ubb-color-orangered{color:orangered}.ubb-color-green{color:green}.ubb-color-teal{color:teal}.ubb-color-blue{color:blue}.ubb-color-skyblue{color:skyblue}.ubb-color-darkblue{color:darkblue}.ubb-color-royalblue{color:royalblue}.ubb-color-purple{color:purple}.ubb-color-deeppink{color:deeppink}.ubb-color-chocolate{color:chocolate}.ubb-color-sienna{color:sienna}.ubb-color-gray{color:gray}.ubb-color-silver{color:silver}.ubb-color-white{color:white}
+        .ubb-size-50{font-size:50%}.ubb-size-60{font-size:60%}.ubb-size-70{font-size:70%}.ubb-size-80{font-size:80%}.ubb-size-90{font-size:90%}.ubb-size-100{font-size:100%}.ubb-size-110{font-size:110%}.ubb-size-120{font-size:120%}.ubb-size-130{font-size:130%}.ubb-size-140{font-size:140%}.ubb-size-150{font-size:150%}.ubb-size-160{font-size:160%}.ubb-size-170{font-size:170%}.ubb-size-180{font-size:180%}.ubb-size-190{font-size:190%}.ubb-size-200{font-size:200%}
+        .ubb-align-left{text-align:left}.ubb-align-center{text-align:center}.ubb-align-right{text-align:right}
+        @media(max-width:700px){table,thead,tbody,tfoot{display:block;width:100%}tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:8px 0}td,th{display:block;width:auto!important;min-width:0;border-radius:6px}}@media(max-width:360px){.ubb-split-row{grid-template-columns:1fr}.ubb-split-right{text-align:left}}
+    """
 }
