@@ -9,7 +9,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Gongsc/SNGA?label=%E8%AE%B8%E5%8F%AF%E8%AF%81&color=blue" alt="许可证"></a>
 </p>
 
-SNGA 是一个使用 SwiftUI 构建的原生 macOS 论坛客户端，开发中的版本为 1.9.0（[已发布的版本见 Releases](https://github.com/Gongsc/SNGA/releases)）。它支持多账号登录、论坛浏览、话题互动、AI 辅助阅读、消息通知与常用资讯工具。
+SNGA 是一个使用 SwiftUI 构建的原生 macOS 论坛客户端，开发中的版本为 1.9.1（[已发布的版本见 Releases](https://github.com/Gongsc/SNGA/releases)）。它支持多账号登录、论坛浏览、话题互动、AI 辅助阅读、消息通知与常用资讯工具。
 
 1.9.0 把网络与解析层做成了站点无关的适配层，并在此之上接入了 **NodeSeek** —— 同一套界面现在能同时用于两个论坛。
 
@@ -17,7 +17,11 @@ SNGA 是一个使用 SwiftUI 构建的原生 macOS 论坛客户端，开发中�
 
 > SNGA 是非官方客户端，与 NGA、NodeSeek 官方均无从属关系。两个站点都没有提供稳定的公开 API，页面或接口调整可能导致部分功能暂时不可用。
 
-## 1.9.0 更新（开发中）
+## 1.9.1 更新（开发中）
+
+- AI API Key 改存在应用沙盒内权限 0600 的私有文件里，不再使用 macOS 钥匙串。**从 1.9.0 或更早的版本升级上来需要重新填一次 API Key**：旧密钥仍留在钥匙串中，应用不会再去读它，可自行在「钥匙串访问」里删除 `cn.snga.client.ai` 这一项
+
+## [1.9.0 更新](https://github.com/Gongsc/SNGA/releases/tag/1.9.0)
 
 - 新增第二个论坛 NodeSeek：登录、版面与话题浏览、回复、私信与通知、签到、话题收藏、话题内投票、楼层表态、帖子标题搜索
 - 网络与解析适配层完成站点无关化，一个账号属于哪个站点由适配层说了算
@@ -26,7 +30,6 @@ SNGA 是一个使用 SwiftUI 构建的原生 macOS 论坛客户端，开发中�
 - 运行日志的脱敏名单改为按站点推导，新增站点的会话 Cookie 不会漏进日志
 - 小工具不再需要论坛账号，一个账号都没添加时也能打开资讯热榜
 - 小工具自己的网络故障不再显示成论坛的错误，两边各说各的
-- AI API Key 改存在应用沙盒内权限 0600 的私有文件里，不再使用 macOS 钥匙串。**从 1.8.3 升级上来需要重新填一次 API Key**：旧密钥仍留在钥匙串中，应用不会再去读它，可自行在「钥匙串访问」里删除 `cn.snga.client.ai` 这一项
 
 ## [1.8.3 更新](https://github.com/Gongsc/SNGA/releases/tag/1.8.3)
 
