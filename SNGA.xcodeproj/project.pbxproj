@@ -981,7 +981,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.1;
+				MARKETING_VERSION = 1.9.2;
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;
 				SDKROOT = macosx;
@@ -1023,7 +1023,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.9.1;
+				MARKETING_VERSION = 1.9.2;
 				PRODUCT_BUNDLE_IDENTIFIER = cn.snga.client;
 				PRODUCT_NAME = SNGA;
 				SDKROOT = macosx;
