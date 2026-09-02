@@ -8,6 +8,14 @@ import SwiftUI
 enum ReplyMarkup: String, Codable, Sendable {
     case ubb
     case markdown
+
+    /// 界面上怎么称呼它。编辑器的档位名和「实际提交为什么」那句话都用这个。
+    var displayName: String {
+        switch self {
+        case .ubb: "UBB"
+        case .markdown: "Markdown"
+        }
+    }
 }
 
 /// 一种登录方式。
@@ -135,8 +143,25 @@ struct ForumSiteDescriptor: Sendable {
     /// 同步返回：视图 body 里等不了 actor，而各站的清洗器都是无状态的。
     func sanitizedPreviewHTML(_ source: String) -> String {
         switch site {
-        case .nga: NGAParser().sanitizedPostHTML(source)
-        case .nodeseek: MarkdownRenderer.previewHTML(source)
+        case .nga:
+            // NGA 的清洗器自己就把正文包进 `PostDocument` 了。
+            NGAParser().sanitizedPostHTML(source)
+        case .nodeseek:
+            // Markdown 渲染器只吐一段裸 HTML，外壳得在这里补上：字体、配色、
+            // 主题变量和 `.sticker` 的尺寸上限都在里面。少了它，预览在深色下是
+            // 黑字黑底，表情也不受 120px 的约束。
+            PostDocument.html(
+                body: MarkdownRenderer.previewHTML(source, emoticons: NodeSeekStickers.index),
+                extraCSS: PostDocument.markdownStyleSheet
+            )
+        }
+    }
+
+    /// 站点的表情包。空数组表示这个站没有表情，编辑器上就不画那个按钮。
+    var emoticonPacks: [EmoticonPack] {
+        switch site {
+        case .nga: EmoticonPack.nga
+        case .nodeseek: NodeSeekStickers.packs
         }
     }
 

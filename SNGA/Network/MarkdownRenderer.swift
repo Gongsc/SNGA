@@ -11,7 +11,10 @@ import Foundation
 /// 内联 HTML —— 写 `<u>` 就显示 `<u>`。代价是少一点表现力，换的是没有缺口。
 enum MarkdownRenderer {
 
-    static func previewHTML(_ source: String) -> String {
+    /// - Parameter emoticons: 短代码名 → 表情图。站点把表情写成 ` :ac01: ` 这样的
+    ///   短代码，名单是站点资料（见 `NodeSeekStickers`），所以由调用方给。
+    ///   查不到的短代码原样留着 —— 正文里本来就可能出现别的冒号。
+    static func previewHTML(_ source: String, emoticons: [String: URL] = [:]) -> String {
         var blocks: [String] = []
         var paragraph: [String] = []
         var listItems: [String] = []
@@ -20,20 +23,20 @@ enum MarkdownRenderer {
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
-            blocks.append("<p>\(inline(paragraph.joined(separator: "<br>")))</p>")
+            blocks.append("<p>\(inline(paragraph.joined(separator: "<br>"), emoticons: emoticons))</p>")
             paragraph = []
         }
         func flushList() {
             guard !listItems.isEmpty else { return }
             let tag = listIsOrdered ? "ol" : "ul"
-            let items = listItems.map { "<li>\(inline($0))</li>" }.joined()
+            let items = listItems.map { "<li>\(inline($0, emoticons: emoticons))</li>" }.joined()
             blocks.append("<\(tag)>\(items)</\(tag)>")
             listItems = []
         }
         func flushQuote() {
             guard !quoted.isEmpty else { return }
             // 引用块里可以再有别的东西，所以整段递归渲染一次。
-            blocks.append("<blockquote>\(previewHTML(quoted.joined(separator: "\n")))</blockquote>")
+            blocks.append("<blockquote>\(previewHTML(quoted.joined(separator: "\n"), emoticons: emoticons))</blockquote>")
             quoted = []
         }
         func flushAll() {
@@ -75,7 +78,7 @@ enum MarkdownRenderer {
             }
             flushQuote()
 
-            if let heading = heading(trimmed) {
+            if let heading = heading(trimmed, emoticons: emoticons) {
                 flushAll()
                 blocks.append(heading)
                 continue
@@ -112,13 +115,13 @@ enum MarkdownRenderer {
 
     // MARK: - 块
 
-    private static func heading(_ line: String) -> String? {
+    private static func heading(_ line: String, emoticons: [String: URL]) -> String? {
         let hashes = line.prefix(while: { $0 == "#" }).count
         guard (1...6).contains(hashes) else { return nil }
         let rest = String(line.dropFirst(hashes))
         // `#标签` 不是标题，井号后面得有空格。
         guard rest.hasPrefix(" ") else { return nil }
-        return "<h\(hashes)>\(inline(rest.trimmingCharacters(in: .whitespaces)))</h\(hashes)>"
+        return "<h\(hashes)>\(inline(rest.trimmingCharacters(in: .whitespaces), emoticons: emoticons))</h\(hashes)>"
     }
 
     private static func bulletItem(_ line: String) -> String? {
@@ -139,7 +142,7 @@ enum MarkdownRenderer {
     // MARK: - 行内
 
     /// 转义在最前面，之后每一步放进去的都是这里自己写的标签。
-    private static func inline(_ source: String) -> String {
+    private static func inline(_ source: String, emoticons: [String: URL]) -> String {
         var text = escaped(source)
 
         // 行内代码得先从正文里摘出去，换成占位符。
@@ -150,6 +153,17 @@ enum MarkdownRenderer {
         text = replacePairs(in: text, pattern: "`([^`\n]+)`") { body in
             protectedSpans.append("<code>\(body)</code>")
             return Self.placeholder(protectedSpans.count - 1)
+        }
+        // 表情和行内代码一样要摘出去：换出来的 `<img>` 里有斜杠和点，留在正文里
+        // 会被后面的强调规则扫到。
+        if !emoticons.isEmpty {
+            text = replacePairs(in: text, pattern: Self.emoticonPattern) { name in
+                guard let url = emoticons[name] else { return ":\(name):" }
+                protectedSpans.append(
+                    #"<img class="sticker" src="\#(escaped(url.absoluteString))" alt="\#(name)">"#
+                )
+                return Self.placeholder(protectedSpans.count - 1)
+            }
         }
         text = replacePairs(in: text, pattern: #"!\[([^\]]*)\]\(([^)\s]+)\)"#, groups: 2) { parts in
             guard let url = safeURL(parts[1]) else { return parts[0] }
@@ -170,6 +184,12 @@ enum MarkdownRenderer {
         }
         return text
     }
+
+    /// 短代码长成「字母 + 数字」，两侧不能贴着别的字母数字。
+    ///
+    /// 这样 `https://x:8080` 和 `12:30:45` 都不会被误认 —— 前者冒号后面没有字母，
+    /// 后者整段没有字母。真正兜底的还是名单：查不到就原样退回。
+    private static let emoticonPattern = "(?<![A-Za-z0-9_]):([A-Za-z]+[0-9]+):(?![A-Za-z0-9_])"
 
     /// 占位符用的是对象替换符（U+FFFC）。转义那一步会先把源码里的这个字符去掉，
     /// 所以正文里不可能出现和它撞车的东西。

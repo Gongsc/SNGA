@@ -18,7 +18,11 @@ enum UBBEditorAction: Equatable {
     case fontSize(String)
     case align(String)
     case removeFormat
-    case insertUBB(String)
+    /// 插一个表情。
+    ///
+    /// 载荷仍是 `insertUBB`：可视化编辑器只有 UBB 站点才有，那里表情的插入串
+    /// （`[s:ac:茶]`）本身就是一段 UBB，交给同一条分支去转 HTML 正合适。
+    case insertEmoticon(ForumEmoticon)
 
     fileprivate var payload: [String: Any] {
         switch self {
@@ -52,8 +56,8 @@ enum UBBEditorAction: Equatable {
             ["name": "align", "value": value]
         case .removeFormat:
             ["name": "removeFormat"]
-        case let .insertUBB(value):
-            ["name": "insertUBB", "value": value]
+        case let .insertEmoticon(emoticon):
+            ["name": "insertUBB", "value": emoticon.insertion]
         }
     }
 }
@@ -61,31 +65,6 @@ enum UBBEditorAction: Equatable {
 struct UBBEditorCommand: Equatable {
     let id = UUID()
     let action: UBBEditorAction
-}
-
-struct NGAEmoticon: Identifiable, Hashable {
-    let family: String
-    let name: String
-    let fileName: String
-
-    var id: String { "\(family):\(name)" }
-    var code: String { "[s:\(family):\(name)]" }
-    var imageURL: URL? {
-        URL(string: "https://img4.nga.cn/ngabbs/post/smile/\(fileName)")
-    }
-
-    static let common: [NGAEmoticon] = {
-        let names = [
-            "blink", "goodjob", "上", "中枪", "偷笑", "冷", "凌乱", "反对", "吓",
-            "吻", "呆", "咦", "哦", "哭", "哭1", "哭笑", "哼", "喘", "喷", "嘲笑",
-            "嘲笑1", "囧", "委屈", "心", "忧伤", "怒", "怕", "惊", "愁", "抓狂",
-            "抠鼻", "擦汗", "无语", "晕", "汗", "瞎", "羞", "羡慕", "花痴", "茶",
-            "衰", "计划通", "赞同", "闪光", "黑枪"
-        ]
-        return names.enumerated().map {
-            NGAEmoticon(family: "ac", name: $0.element, fileName: "ac\($0.offset).png")
-        }
-    }()
 }
 
 struct UBBRichEditor: NSViewRepresentable {

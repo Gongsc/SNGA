@@ -109,3 +109,74 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertEqual(render("\n\n  \n"), "")
     }
 }
+
+/// 表情短代码。
+///
+/// 站点把表情写成 ` :ac01: `，预览得把它换回图 —— 不换的话，用户在预览里看到的是
+/// 一串冒号，没法判断自己插对了没有。
+extension MarkdownRendererTests {
+
+    private func renderWithStickers(_ source: String) -> String {
+        MarkdownRenderer.previewHTML(source, emoticons: NodeSeekStickers.index)
+    }
+
+    func testAKnownShortcodeBecomesTheStickerImage() {
+        let html = renderWithStickers("行 :ac01: 了")
+
+        XCTAssertTrue(html.contains(#"<img class="sticker""#), html)
+        XCTAssertTrue(
+            html.contains("https://www.nodeseek.com/static/image/sticker/ac/01.png"),
+            html
+        )
+        XCTAssertTrue(html.contains(#"alt="ac01""#), html)
+        // 两侧的正文不能被吃掉。
+        XCTAssertTrue(html.contains("行"), html)
+        XCTAssertTrue(html.contains("了"), html)
+    }
+
+    /// 名单里没有的原样留着。冒号在正文里太常见了，吃掉就是在改用户写的字。
+    func testAnUnknownShortcodeIsLeftAsText() {
+        let html = renderWithStickers("配置 :nginx1: 之类的")
+
+        XCTAssertTrue(html.contains(":nginx1:"), html)
+        XCTAssertFalse(html.contains("<img"), html)
+    }
+
+    /// 时间和端口号里也有冒号，不能被当成表情。
+    func testColonsInOrdinaryTextAreNotTouched() {
+        let html = renderWithStickers("12:30:45 连 https://example.com:8080/x")
+
+        XCTAssertTrue(html.contains("12:30:45"), html)
+        XCTAssertTrue(html.contains(":8080/x"), html)
+        XCTAssertFalse(html.contains("<img"), html)
+    }
+
+    /// 代码块里写的短代码是在讲这个语法本身，不是要一张图。
+    func testAShortcodeInsideInlineCodeStaysLiteral() {
+        let html = renderWithStickers("表情写成 `:ac01:`")
+
+        XCTAssertTrue(html.contains("<code>:ac01:</code>"), html)
+        XCTAssertFalse(html.contains("<img"), html)
+    }
+
+    /// 换出来的 `<img>` 里有斜杠和点，留在正文里会被强调规则扫到。
+    func testAStickerNextToEmphasisSurvivesIntact() {
+        let html = renderWithStickers("**粗** :xhj004: **体**")
+
+        XCTAssertTrue(
+            html.contains("https://www.nodeseek.com/static/image/sticker/xhj/004.gif"),
+            html
+        )
+        XCTAssertEqual(html.components(separatedBy: "<strong>").count - 1, 2, html)
+    }
+
+    /// 引用块是递归渲染的，名单得一路带下去。
+    func testStickersAlsoRenderInsideQuotes() {
+        XCTAssertTrue(renderWithStickers("> 他说 :yct001:").contains(#"<img class="sticker""#))
+    }
+
+    /// 不给名单时（别的调用方、别的站点）短代码原样留着，不能凭空冒出图来。
+    func testWithoutACatalogNothingIsSubstituted() {
+        XCTAssertTrue(render("行 :ac01: 了").contains(":ac01:"))
+    }
+}

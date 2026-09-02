@@ -76,6 +76,12 @@ enum NodeSeekEndpoint {
         return url("/search", query: items)
     }
 
+    /// 表情图。站点把它们摊在静态目录里，地址形如 `/static/image/sticker/ac/01.png`，
+    /// 名单见 `NodeSeekStickers`。
+    static func stickerImage(group: String, file: String) -> URL {
+        url("/static/image/sticker/\(group)/\(file)")
+    }
+
     // MARK: - JSON 接口
 
     static func accountInfo(uid: Int64) -> URL {
