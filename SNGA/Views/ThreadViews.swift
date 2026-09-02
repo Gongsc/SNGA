@@ -1533,7 +1533,12 @@ struct ReplyComposerView: View {
 
             Divider()
             HStack {
-                Label("实际提交为 NGA UBB", systemImage: "checkmark.shield")
+                // 按站点说，别写死 NGA：在 NodeSeek 上提交的是 Markdown，
+                // 那句「实际提交为 NGA UBB」既认错了站，也认错了标记。
+                Label(
+                    "实际提交为 \(siteDescriptor.displayName) \(siteDescriptor.replyMarkup.displayName)",
+                    systemImage: "checkmark.shield"
+                )
                 Spacer()
                 Text("\(content.count) 个字符")
                     .monospacedDigit()
@@ -1672,7 +1677,9 @@ struct ReplyComposerView: View {
             }
         }
 
-        if siteDescriptor.replyMarkup == .ubb {
+        // 按名单画，不按标记语言画：两个站都有表情，只是形态不同 —— NGA 是 UBB 的
+        // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `。名单空了才不画。
+        if !siteDescriptor.emoticonPacks.isEmpty {
             Button {
                 showsEmoticons = true
             } label: {
@@ -1681,8 +1688,8 @@ struct ReplyComposerView: View {
             .labelStyle(.iconOnly)
             .help("选择表情")
             .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
-                NGAEmoticonPicker { emoticon in
-                    apply(.insertUBB(emoticon.code))
+                EmoticonPicker(packs: siteDescriptor.emoticonPacks) { emoticon in
+                    apply(.insertEmoticon(emoticon))
                     showsEmoticons = false
                 }
             }
@@ -1766,7 +1773,7 @@ struct ReplyComposerView: View {
     private func markdownInsertion(for action: UBBEditorAction) -> String {
         switch action {
         case .undo, .redo, .removeFormat, .underline,
-             .color, .fontSize, .align, .collapse, .insertUBB:
+             .color, .fontSize, .align, .collapse:
             return ""
         case .bold:
             return "****"
@@ -1782,6 +1789,9 @@ struct ReplyComposerView: View {
             return "[\(url)](\(url))"
         case let .image(url):
             return "![](\(url))"
+        case let .insertEmoticon(emoticon):
+            // 短代码连同两侧的空格由 `ForumEmoticon` 定死，这里不再拼。
+            return emoticon.insertion
         }
     }
 
@@ -1813,8 +1823,8 @@ struct ReplyComposerView: View {
             return "[size=\(value)][/size]"
         case let .align(value):
             return "[align=\(value)][/align]"
-        case let .insertUBB(value):
-            return value
+        case let .insertEmoticon(emoticon):
+            return emoticon.insertion
         }
     }
 }
@@ -1831,7 +1841,7 @@ private enum ReplyEditorMode: Hashable, Identifiable {
     func title(for markup: ReplyMarkup) -> String {
         switch self {
         case .visual: "可视化"
-        case .source: markup == .ubb ? "UBB" : "Markdown"
+        case .source: markup.displayName
         case .preview: "预览"
         }
     }

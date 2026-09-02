@@ -114,6 +114,32 @@ TLS 指纹确实是因素，而 macOS 的网络栈被接受。**验证这类站�
 `/api/notification/unread-count` 不带 cookie 时是 HTTP 500，不是 401 —— 印证了 nodyssey
 文档里的说法。
 
+### 表情是 markdown-it 的 emoji 短代码（2026-09-01 实测）
+
+正文里的表情不是图片语法，是 `:ac01:` 这样的短代码。分组表写死在编辑器 chunk
+`assets/markdownEditor-*.js` 里（那一份同时供预览和服务端渲染用），没有接口能问：
+
+| 组 | 面板上叫 | 张数 | 文件 |
+| --- | --- | --- | --- |
+| `ac` | AC娘 | 149 | `01.png`–`54.png`、`1001`–`1040`、`2001`–`2055` |
+| `yct` | 洋葱头 | 22 | `001.gif`–`022.gif` |
+| `xhj` | 小黄鸡 | 32 | png 和 gif 混排，**扩展名推不出来** |
+| `emoji` | Fluent | 49 | `00`–`48`，不带扩展名 |
+
+- 短代码名 = 组名 + 去掉扩展名的文件名（站点的 `n4(e) = e.replace(/\..*$/,"")`）。
+- 图片地址 `/static/image/sticker/{组}/{文件}`。
+- 编辑器插入的是 **` :ac01: `，前后各一个空格**（`replaceSelection`）。
+- 渲染出来是 `<img class="sticker" src="…" loading="lazy" alt="ac01">` —— 服务端渲染的
+  `/post-905301-1` 与那份模板逐字节一致，两边用的是同一个渲染器。
+- **Fluent 那组是 `<video class="sticker">`**（`.webm` + `.mov` 两个源），因为
+  `is_video` 为真。站点给每个都备了同名 `.png`（它自己的面板用的就是那张），
+  实测 `/static/image/sticker/emoji/00.png` 200。
+- 面板上还有一档「App」（`vote.png`、`stardust.png`），**那不是表情**：点它弹的是
+  发起投票和收星辰两个面板，一个字都不往正文里插。
+
+没能找到带 Fluent 表情的真实帖子 —— 顺着 5 个分类扫了 114 篇近期帖子，`<img class="sticker">`
+有 77 个，`<video>` 一个都没有。用的人少，不是渲染方式不同。
+
 ## 一、传输层：最大的风险有答案了
 
 计划里把"NodeSeek 能不能用 `URLSession` 直连"列为整个项目的最大技术风险。答案是**能，但有三个硬约束**，

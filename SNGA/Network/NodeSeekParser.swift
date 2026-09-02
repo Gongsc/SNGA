@@ -430,6 +430,8 @@ struct NodeSeekParser: Sendable {
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
         try replaceEmbedMarkers(in: element)
+        // 换在转绝对地址之前：换出来的 `src` 同样是相对的，得跟着一起转。
+        try replaceVideoStickers(in: element)
         try rewriteTabs(in: element)
         try renderANSI(in: element)
         try resolveRelativeURLs(in: element)
@@ -535,6 +537,37 @@ struct NodeSeekParser: Sendable {
             // 换掉站点的类名而不是追加：留着它只会让人以为那套 CSS 还在起作用。
             try container.attr("class", "ns-tabs")
         }
+    }
+
+    /// 把视频表情换成它的静态图。
+    ///
+    /// Fluent 那组表情站点是拿 `<video class="sticker">` 渲染的（webm + mov 两个源，
+    /// 见 `NodeSeekStickers`）。清洗白名单里没有 `video`，整块会被丢掉 ——
+    /// 读者看到的是一个凭空消失的表情，前后的话还接不上。
+    ///
+    /// 换成 `<img>` 而不是放行 `video`：表情是行内小图，一层楼里能有好几个，
+    /// 让它们各自起一个自动播放的解码器不成比例。站点给每个视频表情都备了同名 PNG
+    /// （它自己的表情面板用的就是那张），换过去正好。
+    ///
+    /// 只认静态目录下的那些，别的 `<video>` 照旧交给白名单处理 —— 那些没有备好的图，
+    /// 猜一个地址出来只会换成裂图。
+    private static func replaceVideoStickers(in element: Element) throws {
+        for video in try element.select("video") {
+            guard let source = try video.select("source[src]").first(),
+                  let poster = stickerPoster(for: try source.attr("src")) else { continue }
+            let image = try element.ownerDocument()?.createElement("img")
+                ?? Element(Tag.valueOf("img"), "")
+            try image.attr("class", "sticker")
+            try image.attr("src", poster)
+            try video.replaceWith(image)
+        }
+    }
+
+    /// `/static/image/sticker/emoji/00.webm` → `/static/image/sticker/emoji/00.png`。
+    private static func stickerPoster(for source: String) -> String? {
+        guard source.contains("/static/image/sticker/"),
+              let dot = source.lastIndex(of: ".") else { return nil }
+        return source[source.startIndex..<dot] + ".png"
     }
 
     /// 把正文里的相对地址换成绝对地址 —— **必须在清洗之前做**。

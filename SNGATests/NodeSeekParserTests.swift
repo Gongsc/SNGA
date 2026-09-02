@@ -1940,6 +1940,57 @@ extension NodeSeekParserTests {
             "正常的相对链接该转成绝对地址"
         )
     }
+
+    /// Fluent 那组表情站点是拿 `<video>` 渲染的，清洗白名单里没有这个标签。
+    ///
+    /// 不换成图，整块会被丢掉：读者看到的是一个凭空消失的表情，前后的话还接不上。
+    ///
+    /// 这段标记不是从帖子里抓的 —— 扫过 114 篇近期帖子一个都没有，Fluent 用的人很少。
+    /// 它是照抄站点渲染器自己的模板（`assets/markdownEditor-*.js` 里 emoji 规则的
+    /// `is_video` 分支），`<img>` 那条分支抄出来的形状与真实夹具逐字节一致
+    /// （见 `testStickersKeepTheirImageSource` 对着的 `nodeseek-post-poll`），
+    /// 所以这条按同一份模板写。
+    func testAVideoStickerBecomesItsPosterImage() throws {
+        // 带上 base URL：正文里的地址都是相对的，解析时没有它，
+        // `resolveRelativeURLs` 会把解不出绝对地址的图当裂图丢掉。
+        let document = try SwiftSoup.parseBodyFragment("""
+        <article>前面的话
+        <video autoplay loop muted playsinline
+            class="sticker" width="100" height="100"
+        >
+            <source src="/static/image/sticker/emoji/00.webm" type='video/webm; codecs="vp9"'>
+            <source src="/static/image/sticker/emoji/00.mov"  type='video/mp4; codecs="hvc1"'>
+        </video>
+        后面的话</article>
+        """, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
+        let article = try XCTUnwrap(try document.select("article").first())
+
+        let html = try NodeSeekParser.sanitizedForTesting(article)
+
+        XCTAssertFalse(html.contains("<video"), "视频标签留下了：\(html)")
+        XCTAssertTrue(html.contains("class=\"sticker\""), "表情没了：\(html)")
+        XCTAssertTrue(
+            html.contains("https://www.nodeseek.com/static/image/sticker/emoji/00.png"),
+            "没换成同名的静态图：\(html)"
+        )
+        XCTAssertTrue(html.contains("前面的话"), "正文被连累了")
+        XCTAssertTrue(html.contains("后面的话"), "正文被连累了")
+    }
+
+    /// 静态目录以外的视频不猜地址：猜出来的多半是裂图，不如照旧丢掉。
+    func testAVideoThatIsNotAStickerIsNotGuessedAtAndStillDropped() throws {
+        let document = try SwiftSoup.parseBodyFragment(
+            #"<article><video class="sticker"><source src="/uploads/clip.webm"></video>正文</article>"#,
+            ForumSiteDescriptor.nodeseek.baseURL.absoluteString
+        )
+        let article = try XCTUnwrap(try document.select("article").first())
+
+        let html = try NodeSeekParser.sanitizedForTesting(article)
+
+        XCTAssertFalse(html.contains("<video"), html)
+        XCTAssertFalse(html.contains("clip"), "不该给它编一个图片地址出来：\(html)")
+        XCTAssertTrue(html.contains("正文"))
+    }
 }
 
 /// 楼层右下角那四个数。夹具是 post-1033 的真实页面。
