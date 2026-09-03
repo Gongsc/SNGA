@@ -1166,6 +1166,7 @@ private struct FavoriteFolderEditorSheet: View {
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let forumID: ForumID
     var reservesSidebarToggleSpace = false
@@ -1181,14 +1182,7 @@ struct TopicListView: View {
                 forumTitleRow
                     .id(topAnchor)
 
-                CurrentForumSearchBar(
-                    query: $forumSearchQuery,
-                    kind: $forumSearchKind,
-                    isSearching: model.isSearchingForum,
-                    isActive: model.isCurrentForumSearchActive,
-                    search: performForumSearch,
-                    clear: clearForumSearch
-                )
+                searchBar
 
                 if !model.isCurrentForumSearchActive,
                    !model.browsing.subforums.isEmpty {
@@ -1417,6 +1411,30 @@ struct TopicListView: View {
             model.clearForumSearch()
         }
         .ignoresSafeArea(.container, edges: .top)
+    }
+
+    /// 和全站搜索面板是同一个视图，只是措辞和档位按「当前版面」来。
+    private var searchBar: some View {
+        // 写成闭包而不是方法引用：三元的另一头是 nil，直接把 `clearForumSearch`
+        // 摆进去，类型检查器在这个体量的 body 里会崩成一句「无法生成诊断」。
+        var clear: (() -> Void)?
+        if model.isCurrentForumSearchActive {
+            clear = { clearForumSearch() }
+        }
+        return ForumSearchBar(
+            identifierPrefix: "current-forum-search",
+            fieldAccessibilityLabel: "在当前版面搜索",
+            scopeSubject: "当前版面",
+            scopeSystemImage: "rectangle.inset.filled",
+            // 档位按站点给：NodeSeek 的搜索只匹配标题，摆出「话题标题和内容」
+            // 是在许一个空头。
+            kinds: siteDescriptor.currentForumSearchKinds,
+            query: $forumSearchQuery,
+            kind: $forumSearchKind,
+            isSearching: model.isSearchingForum,
+            search: performForumSearch,
+            clear: clear
+        )
     }
 
     private var topicListHeader: some View {
