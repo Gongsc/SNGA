@@ -29,17 +29,6 @@ enum ForumSearchKind: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .topicSubject: "text.magnifyingglass"
-        case .topicContent: "doc.text.magnifyingglass"
-        case .forum: "rectangle.3.group.bubble.left"
-        case .user: "person.crop.circle.badge.questionmark"
-        case .userTopics: "person.text.rectangle"
-        case .userContent: "person.bubble"
-        }
-    }
-
     var supportsCurrentForum: Bool {
         switch self {
         case .topicSubject, .topicContent: true

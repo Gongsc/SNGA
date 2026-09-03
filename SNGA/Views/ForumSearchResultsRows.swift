@@ -1,17 +1,16 @@
 import SwiftUI
 
-struct ForumSearchResultsView: View {
-    /// 这个 `List` 的容器缩进比版面列表那个小，左右都要补回来，而且两边不是同一个数。
-    /// 实测（内容栏 1993.5…2450.5）：补之前搜索结果的行是 2009.5…2414.5，
-    /// 版面列表的行是 2023.5…2400.5。
-    static let leadingCompensation: CGFloat = 14
-    static let trailingCompensation: CGFloat = 28
-
+/// 全站搜索结果的那几种行。
+///
+/// 它只出行，不出容器：容器是 `GlobalForumSearchView` 那个 `List`，和版面话题列表
+/// 是同一种。两个列表用同一个容器形状，行才会自然落在同一条竖线上 —— 之前这里
+/// 自己开一个 `List`，两个容器的缩进不一样，只能靠量出来的补偿值去凑。
+struct ForumSearchResultsRows: View {
     @Environment(AppModel.self) private var model
     let page: ForumSearchPage
 
     var body: some View {
-        List {
+        Group {
             ForEach(page.topics) { topic in
                 Button {
                     Task { await model.openTopic(topic) }
@@ -22,10 +21,7 @@ struct ForumSearchResultsView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .forumTopicListRow(
-                    leadingCompensation: Self.leadingCompensation,
-                    trailingCompensation: Self.trailingCompensation
-                )
+                .forumTopicListRow()
                 .accessibilityIdentifier("search-topic-\(topic.id.rawValue)")
             }
 
@@ -62,10 +58,7 @@ struct ForumSearchResultsView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .forumTopicListRow(
-                    leadingCompensation: Self.leadingCompensation,
-                    trailingCompensation: Self.trailingCompensation
-                )
+                .forumTopicListRow()
                 .accessibilityIdentifier("search-forum-\(forum.id.description)")
             }
 
@@ -108,10 +101,7 @@ struct ForumSearchResultsView: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .forumTopicListRow(
-                        leadingCompensation: Self.leadingCompensation,
-                        trailingCompensation: Self.trailingCompensation
-                    )
+                    .forumTopicListRow()
                     .accessibilityIdentifier("search-user-\(profile.uid)")
                 }
             }
@@ -144,25 +134,8 @@ struct ForumSearchResultsView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .forumTopicListRow(
-                    leadingCompensation: Self.leadingCompensation,
-                    trailingCompensation: Self.trailingCompensation
-                )
+                .forumTopicListRow()
                 .accessibilityIdentifier("search-activity-\(activity.id)")
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        // 和版面话题列表用同一套：少了这一句，搜索结果的行会顶到内容栏两条边上 ——
-        // 左边比话题列表窄一截，右边则伸到详情栏底下，日期被裁掉半截。
-        .contentMargins(.horizontal, 0, for: .scrollContent)
-        .overlay(alignment: .top) {
-            if model.isSearchingForum {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 8)
             }
         }
     }
