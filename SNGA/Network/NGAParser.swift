@@ -716,6 +716,8 @@ struct NGAParser: Sendable {
                     postedAt: metadata?.postedAt,
                     device: metadata?.device ?? .desktop,
                     html: contentHTML,
+                    signature: try htmlPostSignature(in: row, floor: floor)
+                        .map { PostSignature(html: $0) },
                     edits: htmlPostEdits[floor] ?? [],
                     punishment: postPunishment(
                         type: nil,
@@ -1323,14 +1325,19 @@ struct NGAParser: Sendable {
         fileprivate let whitelist: Whitelist?
 
         /// 清洗出楼层正文，同时给出可原生渲染的结构（无法原生还原时为 nil）。
+        ///
+        /// - Parameter extraCSS: 追加在楼层样式之后。签名档用它压小一号 ——
+        ///   走 `WKWebView` 那条路时，尺寸只能由样式表说。
         func post(
             _ source: String,
-            topicRating: TopicRating? = nil
+            topicRating: TopicRating? = nil,
+            extraCSS: String = ""
         ) -> SanitizedPost {
             parser.sanitizedPost(
                 source,
                 topicRating: topicRating,
-                whitelist: whitelist
+                whitelist: whitelist,
+                extraCSS: extraCSS
             )
         }
 
@@ -1393,7 +1400,8 @@ struct NGAParser: Sendable {
     private func sanitizedPost(
         _ source: String,
         topicRating: TopicRating?,
-        whitelist: Whitelist?
+        whitelist: Whitelist?,
+        extraCSS: String = ""
     ) -> SanitizedPost {
         let rendered = renderBBCode(source, topicRating: topicRating)
         var clean: String
@@ -1451,7 +1459,8 @@ struct NGAParser: Sendable {
         // 表情、UBB 的颜色/字号/对齐、游戏卡片、随机块 —— NodeSeek 一个都用不上。
         let html = PostDocument.html(
             body: clean,
-            extraCSS: Self.ngaStyleSheet + "\n" + rendered.additionalStyleSheet
+            extraCSS: [Self.ngaStyleSheet, rendered.additionalStyleSheet, extraCSS]
+                .joined(separator: "\n")
         )
         return SanitizedPost(
             html: html,
@@ -3127,6 +3136,8 @@ struct NGAParser: Sendable {
         var name: String
         var avatarURL: URL?
         var authorInfo: PostAuthorInfo?
+        /// 作者签名的 UBB 原文。清洗和渲染在 `NGAForumService` 里和正文一起做。
+        var signature: String?
         var isAnonymous: Bool = false
     }
 
@@ -3172,6 +3183,28 @@ struct NGAParser: Sendable {
         return try row.select(
             "[id^='postcontent'], [id^='post_content'], .postcontent, .postContent"
         ).first { !isHTMLPostContentAndSubjectWrapper($0) }
+    }
+
+    /// 网页版楼层末尾的签名档。
+    ///
+    /// 结构是 `.postsignC > #postsigncontent{楼层}`，和正文的 `#postcontent{楼层}`
+    /// 用的是同一个序号。取里层而不是 `.postsignC`：外层还包着一条写着 BBS.NGA.CN
+    /// 的横线（`.sigline`），那是网页版自己画的分隔，客户端这边由 `Divider` 负责。
+    ///
+    /// 未登录时整块都不下发 —— 这也是拿不到匿名夹具的原因。
+    private func htmlPostSignature(in row: Element, floor: Int) throws -> String? {
+        guard let element = try row.select(
+            "#postsigncontent\(floor), .postsignC .sign, [id^='postsigncontent']"
+        ).first else {
+            return nil
+        }
+        // 网页版在签名末尾塞了两样只对它自己有用的东西：一个撑高度的 `.clear`，
+        // 和一张 `src="about:blank"` 的图 —— 它靠 `onerror` 触发复制检查脚本。
+        // 留着它们会让 `PostContentBuilder` 多还原出一个空段落，图更是清洗时才被
+        // 丢掉，白走一遍。
+        try element.select("div.clear, img[src=about:blank], img[onerror]").remove()
+        let html = try element.html().trimmingCharacters(in: .whitespacesAndNewlines)
+        return html.isEmpty ? nil : html
     }
 
     private func isHTMLPostContentAndSubjectWrapper(_ element: Element) -> Bool {
@@ -3558,6 +3591,9 @@ struct NGAParser: Sendable {
             postedAt: date(dictionary["postdatetimestamp"]) ?? date(dictionary["postdate"]),
             device: postDevice(from: rawDevice),
             html: content,
+            // 和 `html` 一样，这里装的还是 UBB 原文，清洗在 `NGAForumService` 里做 ——
+            // 一页十几层通常只有三五份不同的签名，那边按原文去重之后只渲染一次。
+            signature: (user?.signature).map { PostSignature(html: $0) },
             quotedPostID: (
                 int64(dictionary["reply_to"]) ?? referencedPostID(in: content)
             ).map(PostID.init(rawValue:)),
@@ -3983,6 +4019,14 @@ struct NGAParser: Sendable {
                         name: name,
                         avatarURL: remoteResourceURL(string(dictionary["avatar"]), kind: .avatar),
                         authorInfo: hasVisibleAuthorInfo(authorInfo) ? authorInfo : nil,
+                        // 话题页里叫 `signature`（实测一页 18 条用户记录里 18 条都带这个
+                        // 键，其中 4 条非空，其余是 null）；资料接口里同一样东西叫 `sign`。
+                        //
+                        // 用 `rawNonEmptyString` 而不是 `nonEmptyString`：后者会把标记拍平，
+                        // 而签名里就是标记 —— 实测那 4 条里有的是已渲染的 HTML、有的是 UBB
+                        // 原文、有的两者都有。拍平之后 `<br>` 没了，多行签名挤成一行。
+                        signature: rawNonEmptyString(dictionary["signature"])
+                            ?? rawNonEmptyString(dictionary["sign"]),
                         isAnonymous: isAnonymous
                     )
                 }
@@ -4584,6 +4628,18 @@ struct NGAParser: Sendable {
             return !["0", "false", "no", "off"].contains(normalized)
         }
         return true
+    }
+
+    /// 去掉首尾空白之后仍有内容的原样字符串。
+    ///
+    /// 和 `nonEmptyString` 的差别只有一处：不调 `plainText`。给那些**要保留标记**的
+    /// 字段用 —— 楼层签名进的是正文那条渲染管线，标记就是它的内容。
+    private func rawNonEmptyString(_ value: Any?) -> String? {
+        guard let value = string(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func nonEmptyString(_ value: Any?) -> String? {

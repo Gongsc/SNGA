@@ -42,7 +42,7 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 - **`ForumService`**（[SNGA/Network/ForumService.swift](SNGA/Network/ForumService.swift)）—— 站点能做的**动作**，一个协议、24 个 async 方法。每个账号一个实例（actor），自带 cookie，绝不共享 cookie 容器。协议保留全集，`extension` 给部分方法一份抛 `.unsupported` 的默认实现，适配器只写自己有的。
 - **`ForumCapabilities`**（[SNGA/Models/ForumCapabilities.swift](SNGA/Models/ForumCapabilities.swift)）—— OptionSet，站点**支不支持**某个功能。原则是「不支持就不画」，而不是画出来等用户点了再报错。只有「没数据也照样会画」的控件需要门控；数据为空时本来就不画的（评分、子版面、收藏夹）不必再问。**门控要挡在调用层，不只是视图层**——版面收藏在启动和切账号时会主动去拉，光藏界面请求照样发。
-- **`ForumSiteDescriptor`**（[SNGA/Network/ForumSiteDescriptor.swift](SNGA/Network/ForumSiteDescriptor.swift)）—— 站点的**静态资料与措辞**：baseURL、登录方式、cookie 域、会话 cookie 名、用户编号从哪读、UA 策略、回复用 UBB 还是 Markdown、搜索有哪几档、资料页显示哪些字段（各站叫法不同，NodeSeek 管货币叫「鸡腿」不叫「N 币」）。视图通过 `@Environment(\.forumSiteDescriptor)` 拿，因为正文渲染链路太深，逐层传参会改一整条签名链。
+- **`ForumSiteDescriptor`**（[SNGA/Network/ForumSiteDescriptor.swift](SNGA/Network/ForumSiteDescriptor.swift)）—— 站点的**静态资料与措辞**：baseURL、登录方式、cookie 域、会话 cookie 名、用户编号从哪读、UA 策略、回复用 UBB 还是 Markdown、搜索有哪几档、楼层签名从哪儿取、资料页显示哪些字段（各站叫法不同，NodeSeek 管货币叫「鸡腿」不叫「N 币」）。视图通过 `@Environment(\.forumSiteDescriptor)` 拿，因为正文渲染链路太深，逐层传参会改一整条签名链。
 - **`ForumSite`**（[SNGA/Models/ForumSite.swift](SNGA/Models/ForumSite.swift)）—— 枚举。刻意不给 `default` 分支：加站点时编译器会把每一处要补的 `switch` 指出来。
 
 一个站点的实现是三个文件：`XxxEndpoint`（拼地址）+ `XxxParser`（解析，无状态）+ `XxxForumService`（actor，串起来）。网络往返统一走 `HTTPTransport` 协议（[SNGA/Network/HTTPTransport.swift](SNGA/Network/HTTPTransport.swift)），测试注入假实现。

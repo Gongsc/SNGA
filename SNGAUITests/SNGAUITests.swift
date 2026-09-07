@@ -153,6 +153,40 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(mainWindow.descendants(matching: .any)["post-author-prestige-1"].exists)
     }
 
+    /// 签名画在楼层末尾，和正文之间有一条分割线；作者没写签名的楼层什么都不多画。
+    ///
+    /// 假数据里只有楼主有签名（见 `DebugForumService`），所以这一条同时验了两件事：
+    /// 有签名的画出来，没签名的不占位置。
+    func testTheAuthorSignatureSitsAtTheBottomOfItsOwnFloor() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        let signature = mainWindow.descendants(matching: .any)["post-signature-1"]
+        XCTAssertTrue(signature.waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.staticTexts["测试签名"].exists)
+
+        // 排在作者那一行下面：签名是楼层的末尾，不是抬头的一部分。
+        let authorName = mainWindow.descendants(matching: .any)["post-author-name-1"]
+        XCTAssertTrue(authorName.exists)
+        XCTAssertGreaterThan(signature.frame.minY, authorName.frame.maxY)
+
+        // 第二层的作者没写签名。
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["post-author-name-2"].exists,
+            "前提：第二层已经画出来了"
+        )
+        XCTAssertFalse(mainWindow.descendants(matching: .any)["post-signature-2"].exists)
+    }
+
     func testRecentlyVisitedForumsAppearInVisitOrder() {
         continueAfterFailure = false
         let app = XCUIApplication()

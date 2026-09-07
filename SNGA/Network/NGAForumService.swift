@@ -175,26 +175,35 @@ actor NGAForumService: ForumService {
         )
 
         let sanitize = parser.makePostHTMLSanitizer()
-        result.posts = result.posts.map { post in
-            var post = post
-            let sanitized = sanitize.post(
-                post.html,
-                topicRating: post.floor == 0 ? result.topic.rating : nil
+        // 签名按原文记一份就够。同一个人在一页里回好几层，签名是同一份 UBB；而
+        // 渲染 + 清洗 + `PostContentBuilder` 是这条管线上最贵的一段，照层数重做等于
+        // 白算 —— 一页十几层通常只有三五份不同的签名。
+        var renderedSignatures: [String: PostSignature] = [:]
+        func signature(ubb: String) -> PostSignature {
+            if let cached = renderedSignatures[ubb] { return cached }
+            let sanitized = sanitize.post(ubb, extraCSS: PostDocument.signatureStyleSheet)
+            let rendered = PostSignature(
+                html: sanitized.html,
+                nativeContent: sanitized.nativeContent
             )
+            renderedSignatures[ubb] = rendered
+            return rendered
+        }
+        func sanitizing(_ post: Post, topicRating: TopicRating?) -> Post {
+            var post = post
+            let sanitized = sanitize.post(post.html, topicRating: topicRating)
             post.html = sanitized.html
             post.nativeContent = sanitized.nativeContent
             // 楼层元数据里的处罚标记优先，正文自带的 `[lessernuke]` 兜底。
             post.punishment = post.punishment ?? sanitized.punishment
+            // 解析阶段放进来的还是 UBB 原文，见 `NGAParser.post(from:)`。
+            post.signature = post.signature.map { signature(ubb: $0.html) }
             return post
         }
-        result.hotReplies = result.hotReplies.map { post in
-            var post = post
-            let sanitized = sanitize.post(post.html)
-            post.html = sanitized.html
-            post.nativeContent = sanitized.nativeContent
-            post.punishment = post.punishment ?? sanitized.punishment
-            return post
+        result.posts = result.posts.map {
+            sanitizing($0, topicRating: $0.floor == 0 ? result.topic.rating : nil)
         }
+        result.hotReplies = result.hotReplies.map { sanitizing($0, topicRating: nil) }
         return result
     }
 

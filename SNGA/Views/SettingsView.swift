@@ -34,6 +34,7 @@ struct SettingsMenuView: View {
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(ToolboxInstanceSettings.selectionKey)
@@ -96,7 +97,9 @@ struct SettingsMenuView: View {
                 : selected.displayName
         case .browsing:
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
-            return "无图模式\(imageFreeMode ? "已开" : "已关") · 最近访问 \(count) 条"
+            return "无图模式\(imageFreeMode ? "已开" : "已关")"
+                + " · 签名\(showsPostSignature ? "已开" : "已关")"
+                + " · 最近访问 \(count) 条"
         case .ai:
             guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -335,6 +338,7 @@ private struct SettingsAppearancePane: View {
 private struct SettingsBrowsingPane: View {
     @Environment(AppModel.self) private var model
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
+    @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
 
@@ -348,6 +352,19 @@ private struct SettingsBrowsingPane: View {
                 .toggleStyle(.switch)
 
                 Text("开启后，话题正文中的图片会显示为占位框，点击后才加载；表情仍正常显示。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Toggle(isOn: $showsPostSignature) {
+                    Text("在话题中显示签名")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("browsing-post-signature")
+
+                Text("楼层末尾用一条分割线隔开作者的签名。没写签名的作者不占位置。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

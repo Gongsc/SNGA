@@ -5,6 +5,18 @@ import SwiftUI
 
 enum BrowsingSettings {
     static let imageFreeModeKey = "browsing.imageFreeMode"
+    /// 楼层里画不画作者的签名档。
+    ///
+    /// 默认开着，和两个站点自己的网页一致。关掉之后连取都不取 —— 话题页自带签名的
+    /// 站点（NGA）本来就没有额外请求，而要按作者去问资料接口的站点（NodeSeek）
+    /// 也不会因为一个看不见的东西去多问一次。
+    static let postSignatureKey = "browsing.showsPostSignature"
+
+    static var showsPostSignature: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: postSignatureKey) != nil else { return true }
+        return defaults.bool(forKey: postSignatureKey)
+    }
 }
 
 enum RecentForumSettings {

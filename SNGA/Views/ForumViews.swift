@@ -280,7 +280,10 @@ struct UserCenterView: View {
 
                 if let signature = profile.signature, !signature.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("签名").font(.caption).foregroundStyle(.secondary)
+                        // 站点自己管它叫什么：NGA 是「签名」，NodeSeek 是「个人简介」。
+                        Text(siteDescriptor.signatureTitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Text(signature)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)

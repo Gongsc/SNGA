@@ -923,6 +923,8 @@ private struct AnimatedThreadBackButton: View {
 struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
+    @AppStorage(BrowsingSettings.postSignatureKey) private var showsSignature = true
     let post: Post
     let topicRating: TopicRating?
     var isHotReply = false
@@ -1036,6 +1038,18 @@ struct PostRow: View {
             } else if let topicRating, !post.ratingScores.isEmpty {
                 PostRatingView(rating: topicRating, scores: post.ratingScores)
             }
+            if showsSignature, let signature = post.signature {
+                // 排在投票和评分之后：那两样还是这一层楼的内容，签名才是末尾那份
+                // 与本次发言无关的固定落款。
+                PostSignatureView(
+                    signature: signature,
+                    postID: post.id,
+                    cacheKey: "\(contentCacheKey)-signature",
+                    loadOrder: loadOrder,
+                    openPost: openPost,
+                    openInternalLink: openInternalLink
+                )
+            }
             HStack(spacing: 12) {
                 Label(postDevice.title, systemImage: deviceSystemImage)
                     .labelStyle(.iconOnly)
@@ -1082,9 +1096,19 @@ struct PostRow: View {
                 )
         }
         .task(id: authorUID) {
-            guard post.authorInfo?.location == nil, let authorUID else { return }
-            await model.thread.loadPostAuthorLocation(uid: authorUID)
+            guard let authorUID, needsAuthorDetails else { return }
+            await model.thread.loadPostAuthorDetails(uid: authorUID)
         }
+    }
+
+    /// 这一层还缺不缺只有资料接口才给的东西。属地和签名装在同一份资料里，
+    /// 缺任意一个都值得问一次；两个都齐了就别发请求。
+    private var needsAuthorDetails: Bool {
+        if post.authorInfo?.location == nil { return true }
+        // 话题页自带签名的站点不为签名多问一次：`__U` 里没有，就是作者没写。
+        return showsSignature
+            && siteDescriptor.postSignatureSource == .userProfile
+            && post.signature == nil
     }
 
     /// 「2026/08/11 12:38 修改」，被人代改时补上改动者，与网页版的措辞一致。
@@ -1236,6 +1260,46 @@ struct PostRow: View {
         .disabled(model.thread.votingPostIDs.contains(post.id))
         .help(direction == .up ? "点赞" : "点踩")
         .accessibilityIdentifier("post-vote-\(direction.rawValue)-\(post.id.rawValue)")
+    }
+}
+
+/// 楼层末尾的签名档。
+///
+/// 一条分割线把它和正文隔开。签名是作者挂在每层楼后面的固定落款，不是他这次说的
+/// 话 —— 紧贴着正文排，读者分不出哪一句才是回复，尤其是签名本身就写成一段话的时候。
+private struct PostSignatureView: View {
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
+    let signature: PostSignature
+    let postID: PostID
+    let cacheKey: String
+    let loadOrder: Int?
+    var openPost: @MainActor @Sendable (PostID, Int?) -> Void
+    var openInternalLink: @MainActor @Sendable (NGAInternalDestination) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Divider()
+            PostBodyView(
+                html: signature.html,
+                nativeContent: signature.nativeContent,
+                emphasis: .signature,
+                cacheKey: cacheKey,
+                loadOrder: loadOrder,
+                onOpenInternalLink: { destination in
+                    switch destination {
+                    case let .post(postID, page):
+                        openPost(postID, page)
+                    default:
+                        openInternalLink(destination)
+                    }
+                }
+            )
+        }
+        // 签名里的链接照样能点，但它不是这层楼的正文 —— 读屏先说清楚这是什么，
+        // 用站点自己的说法（NodeSeek 显示的是「个人简介」）。
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(siteDescriptor.signatureTitle)
+        .accessibilityIdentifier("post-signature-\(postID.rawValue)")
     }
 }
 

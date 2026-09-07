@@ -12,23 +12,28 @@ private struct ThreadNavigationSnapshot: Sendable {
     let showsOnlyTopicAuthor: Bool
 }
 
-private struct PostAuthorLocationKey: Hashable, Sendable {
+private struct PostAuthorKey: Hashable, Sendable {
     let accountID: AccountID
     let uid: Int64
 }
 
-private struct CachedPostAuthorLocation: Sendable {
-    let value: String?
+/// 楼层作者身上那些话题页没给全、只能去资料接口补的东西。
+///
+/// 一次请求补两样：IP 属地和签名档。分成两次问就是同一份资料取两遍 —— 两个站的
+/// 资料接口都只有这一个入口。
+private struct CachedPostAuthorDetails: Sendable {
+    let location: String?
+    let signature: String?
 }
 
-private enum PostAuthorLocationResult: Sendable {
-    case loaded(String?)
+private enum PostAuthorDetailsResult: Sendable {
+    case loaded(CachedPostAuthorDetails)
     case failed
 }
 
-private struct PostAuthorLocationRequest {
+private struct PostAuthorDetailsRequest {
     let id: UUID
-    let task: Task<PostAuthorLocationResult, Never>
+    let task: Task<PostAuthorDetailsResult, Never>
 }
 
 enum AITopicSummaryPhase: Equatable, Sendable {
@@ -80,8 +85,8 @@ final class ThreadStore {
     @ObservationIgnored private var isTopicFavorite: (TopicID) -> Bool = { _ in false }
     @ObservationIgnored private let threadRequests = RequestSlot()
     @ObservationIgnored private var threadNavigationPath: [ThreadNavigationSnapshot] = []
-    @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
-    @ObservationIgnored private var postAuthorLocationRequests: [PostAuthorLocationKey: PostAuthorLocationRequest] = [:]
+    @ObservationIgnored private var postAuthorDetailsCache: [PostAuthorKey: CachedPostAuthorDetails] = [:]
+    @ObservationIgnored private var postAuthorDetailsRequests: [PostAuthorKey: PostAuthorDetailsRequest] = [:]
     @ObservationIgnored private var aiSummaryTask: Task<Void, Never>?
     @ObservationIgnored private var aiSummaryRequestID = UUID()
 
@@ -130,72 +135,93 @@ final class ThreadStore {
         isShowingOnlyTopicAuthor = false
         threadRequests.invalidate()
         threadNavigationPath = []
-        postAuthorLocationCache = [:]
-        // 在途的属地查询必须取消：切账号后它们的结果不该再落到新账号的楼层上。
-        postAuthorLocationRequests.values.forEach { $0.task.cancel() }
-        postAuthorLocationRequests = [:]
+        postAuthorDetailsCache = [:]
+        // 在途的作者资料查询必须取消：切账号后它们的结果不该再落到新账号的楼层上。
+        postAuthorDetailsRequests.values.forEach { $0.task.cancel() }
+        postAuthorDetailsRequests = [:]
     }
 
-    func loadPostAuthorLocation(uid: Int64) async {
+    /// 按作者补一次资料：IP 属地和签名档。
+    ///
+    /// 谁需要补由楼层视图判断（见 `PostRow`）—— 它手上有那一层已经有什么。这里
+    /// 只保证同一个作者最多问一次：结果按账号 + 编号缓存，在途的请求由后来者共享。
+    func loadPostAuthorDetails(uid: Int64) async {
         guard uid > 0, let service = session.activeService else { return }
-        let key = PostAuthorLocationKey(accountID: service.accountID, uid: uid)
-        if let cached = postAuthorLocationCache[key] {
-            applyPostAuthorLocation(cached.value, to: uid)
+        let key = PostAuthorKey(accountID: service.accountID, uid: uid)
+        if let cached = postAuthorDetailsCache[key] {
+            applyPostAuthorDetails(cached, to: uid)
             return
         }
 
-        let request: PostAuthorLocationRequest
-        if let existing = postAuthorLocationRequests[key] {
+        let request: PostAuthorDetailsRequest
+        if let existing = postAuthorDetailsRequests[key] {
             request = existing
         } else {
             let requestID = UUID()
-            let task = Task<PostAuthorLocationResult, Never> { [service] in
+            let task = Task<PostAuthorDetailsResult, Never> { [service] in
                 do {
                     let profile = try await service.profile(uid: uid)
-                    return PostAuthorLocationResult.loaded(profile.location)
+                    return PostAuthorDetailsResult.loaded(
+                        CachedPostAuthorDetails(
+                            location: profile.location,
+                            signature: profile.signature
+                        )
+                    )
                 } catch {
-                    return PostAuthorLocationResult.failed
+                    return PostAuthorDetailsResult.failed
                 }
             }
-            request = PostAuthorLocationRequest(id: requestID, task: task)
-            postAuthorLocationRequests[key] = request
+            request = PostAuthorDetailsRequest(id: requestID, task: task)
+            postAuthorDetailsRequests[key] = request
         }
 
         let result = await request.task.value
-        if postAuthorLocationRequests[key]?.id == request.id {
-            postAuthorLocationRequests[key] = nil
+        if postAuthorDetailsRequests[key]?.id == request.id {
+            postAuthorDetailsRequests[key] = nil
         }
         guard session.activeAccountID == key.accountID else { return }
 
         switch result {
-        case let .loaded(location):
-            let normalizedLocation = location?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let visibleLocation = normalizedLocation?.isEmpty == false
-                ? normalizedLocation
-                : nil
-            postAuthorLocationCache[key] = CachedPostAuthorLocation(
-                value: visibleLocation
+        case let .loaded(details):
+            let visible = CachedPostAuthorDetails(
+                location: Self.visibleText(details.location),
+                signature: Self.visibleText(details.signature)
             )
-            applyPostAuthorLocation(visibleLocation, to: uid)
+            postAuthorDetailsCache[key] = visible
+            applyPostAuthorDetails(visible, to: uid)
         case .failed:
             break
         }
     }
 
-    private func applyPostAuthorLocation(_ location: String?, to uid: Int64) {
-        guard let location else { return }
+    /// 只留有内容的那一份：站点对没填的字段给的是空串，不是缺字段。
+    private static func visibleText(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func applyPostAuthorDetails(
+        _ details: CachedPostAuthorDetails,
+        to uid: Int64
+    ) {
+        // 资料接口给的签名是一段纯文本：NGA 的 `sign` 在解析时已经拍平，NodeSeek 的
+        // `bio` 本来就是纯文本。话题页自带 UBB 的那一份更完整，所以只在楼层还空着时
+        // 才填 —— 补上去的不覆盖已有的。
+        let signature = details.signature.map(PostSignature.init(plainText:))
+        guard details.location != nil || signature != nil else { return }
 
         func enriching(_ values: [Post]) -> [Post] {
             values.map { post in
-                guard post.authorUID == uid,
-                      post.authorInfo?.location != location else {
-                    return post
-                }
+                guard post.authorUID == uid else { return post }
                 var updated = post
-                var authorInfo = updated.authorInfo ?? PostAuthorInfo()
-                authorInfo.location = location
-                updated.authorInfo = authorInfo
+                if let location = details.location, post.authorInfo?.location != location {
+                    var authorInfo = updated.authorInfo ?? PostAuthorInfo()
+                    authorInfo.location = location
+                    updated.authorInfo = authorInfo
+                }
+                if let signature, updated.signature == nil {
+                    updated.signature = signature
+                }
                 return updated
             }
         }
