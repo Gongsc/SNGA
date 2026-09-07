@@ -60,25 +60,6 @@ enum SiteUserAgent: Sendable, Hashable {
     case webView
 }
 
-/// 楼层末尾那份签名档从哪儿来。
-///
-/// 两个站都有签名，但拿法完全不同，而这个差别决定了要不要多发请求，所以它得摆在
-/// 明面上，不能让调用方去猜：
-///
-/// - NGA 把签名跟着话题页一起下发，翻一页就全有了。两种页面变体各放一处：结构化
-///   响应在 `__U` 的用户记录里，网页变体在 `.postsignC > #postsigncontent{楼层}`。
-///   **未登录一个都看不到**，所以这条路上没有匿名夹具可抓。
-/// - NodeSeek 的话题页 HTML 里一个字都没有（站点自己也只在悬停的用户卡片上显示
-///   `bio`），只能按作者去问资料接口。这条路听着贵，实际不额外增加往返 —— 楼层
-///   作者的资料本来就要问一次，IP 属地走的是同一个请求（见
-///   `ThreadStore.loadPostAuthorDetails`）。
-enum PostSignatureSource: Sendable, Hashable {
-    case threadPage
-    case userProfile
-    /// 站点没有签名这回事。
-    case none
-}
-
 /// 一个站点的固定资料：从哪里发请求、去哪里登录、哪些域算它的、登录凭据叫什么。
 ///
 /// 这些值原本散在 `NGAEndpoint`、`NGAInternalLink` 和 `LoginWebView` 里各写一份。
@@ -231,19 +212,13 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
-    /// 楼层签名从哪儿来。见 `PostSignatureSource`。
-    var postSignatureSource: PostSignatureSource {
-        switch site {
-        case .nga: .threadPage
-        case .nodeseek: .userProfile
-        }
-    }
-
     /// 用户资料里那段自我介绍，站点自己管它叫什么。
     ///
-    /// NGA 叫「签名」，它就是挂在每层楼后面的那份东西。NodeSeek 的字段叫 `bio`，
-    /// 站点在设置里写的是「个人简介」—— 照搬「签名」会让人以为改了它楼层里就会变。
-    var signatureTitle: String {
+    /// **和楼层末尾的签名不是一回事。** NGA 那边两者确实是同一份东西；NodeSeek 分开
+    /// 存两份 —— 资料里的 `bio` 站点写作「个人简介」，只画在悬停的用户卡片上，
+    /// 楼层签名是另一份带排版和链接的 HTML（见 `NodeSeekParser`）。照搬「签名」
+    /// 会让人以为改了它楼层里就会变。
+    var profileSignatureTitle: String {
         switch site {
         case .nga: "签名"
         case .nodeseek: "个人简介"

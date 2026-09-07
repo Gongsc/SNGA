@@ -152,9 +152,12 @@ struct PostAuthorInfo: Hashable, Codable, Sendable {
 /// 交给 `WKWebView` —— 签名里也会出现表格和游戏卡片，那是 `PostContentBuilder`
 /// 认输的地方。
 ///
-/// 两个站的来源不一样，见 `ForumSiteDescriptor.postSignatureSource`：NGA 把每个
-/// 作者的签名跟着话题页一起下发（`__U` 里的一份 UBB），NodeSeek 的话题页里一个
-/// 字都没有，只能按作者去问资料接口，拿回来的是一段纯文本。
+/// 两个站都把它跟着话题页一起下发，翻一页就全有了，形状各不相同：NGA 放在 `__U`
+/// 的用户记录里（结构化响应）或 `#postsigncontent{楼层}`（网页变体），NodeSeek 放在
+/// 楼层里的 `div.signature`。两边都**对未登录用户不下发**。
+///
+/// NodeSeek 的签名和资料里的 `bio` 不是一回事：后者站点叫「个人简介」、是纯文本、
+/// 只画在悬停的用户卡片上，进的是用户中心那一栏。
 struct PostSignature: Hashable, Codable, Sendable {
     var html: String
     var nativeContent: PostContent? = nil

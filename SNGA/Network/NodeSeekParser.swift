@@ -389,6 +389,10 @@ struct NodeSeekParser: Sendable {
         let postedAt = try item.select("span.date-created time[datetime]").first()
             .flatMap { Self.date(fromISO8601: try $0.attr("datetime")) }
 
+        // 先摘签名再清洗正文。站点把签名放在楼层里，而它到底是 `article.post-content`
+        // 的兄弟还是它的一部分，两种都得当心：摘走之后正文里必然没有它，不会出现
+        // 同一段签名既画在末尾又粘在正文后面。
+        let signature = try Self.extractedSignature(in: item)
         let body = try item.select("article.post-content").first()
         let sanitized = try body.map { try Self.sanitized($0) } ?? ""
 
@@ -400,7 +404,8 @@ struct NodeSeekParser: Sendable {
             authorUID: authorUID,
             avatarURL: authorUID.flatMap(Self.avatarURL(uid:)),
             postedAt: postedAt,
-            html: sanitized
+            html: sanitized,
+            signature: signature
         )
     }
 
@@ -429,6 +434,24 @@ struct NodeSeekParser: Sendable {
     /// 楼层正文是别人写的，要进 `WKWebView`。SwiftSoup 的 relaxed 白名单已经挡掉了
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
+        let cleaned = try cleaned(element)
+        // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
+        // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
+        return PostDocument.html(
+            body: try cleaned.document.body()?.html() ?? cleaned.html,
+            extraCSS: Self.postStyleSheet
+        )
+    }
+
+    /// 清洗到一份干净的 DOM。正文和签名共用这几步 —— 签名同样是别人写的 HTML。
+    ///
+    /// 返回的是**文档**而不是它的 body：SwiftSoup 的 `parentNode` 是弱引用，文档一撒手
+    /// 就没人持有它，元素的 `ownerDocument()` 变成 nil，`html()` 于是退回默认输出设置
+    /// 重新排版 —— 终端报告里对齐用的连续空格会被压成一个，标签页那条靠相邻选择器
+    /// 工作的开关也会被插进来的空白截断。
+    private static func cleaned(
+        _ element: Element
+    ) throws -> (document: Document, html: String) {
         try replaceEmbedMarkers(in: element)
         // 换在转绝对地址之前：换出来的 `src` 同样是相对的，得跟着一起转。
         try replaceVideoStickers(in: element)
@@ -447,16 +470,38 @@ struct NodeSeekParser: Sendable {
         for tag in ["script", "style", "iframe", "form", "object", "embed"] {
             try document.select(tag).remove()
         }
-        let body = try document.body()?.html() ?? cleaned
-        // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
-        // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
-        return PostDocument.html(
-            body: body,
-            extraCSS: [
-                PostDocument.markdownStyleSheet,
-                PostDocument.ansiStyleSheet,
-                PostDocument.terminalStyleSheet
-            ].joined(separator: "\n")
+        return (document, cleaned)
+    }
+
+    private static let postStyleSheet = [
+        PostDocument.markdownStyleSheet,
+        PostDocument.ansiStyleSheet,
+        PostDocument.terminalStyleSheet
+    ].joined(separator: "\n")
+
+    /// 楼层末尾的签名档，摘下来并清洗好。
+    ///
+    /// 站点自己把它渲染成 `div.signature`，内容是一段带链接的 HTML（不是 Markdown
+    /// 原文，也不是资料里的 `bio` —— 那是另一份东西，只画在悬停的用户卡片上）。
+    /// 未登录看不到，所以这一份没法匿名抓：实测 11 个帖子 82 层，一个签名都没有。
+    ///
+    /// 摘走是必须的：留在 DOM 里，正文清洗会把它一并卷进去。
+    private static func extractedSignature(in item: Element) throws -> PostSignature? {
+        guard let element = try item.select("div.signature").first() else { return nil }
+        try element.remove()
+        let cleaned = try cleaned(element)
+        guard let body = try cleaned.document.body() else { return nil }
+        let html = try body.html().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else { return nil }
+        return PostSignature(
+            html: PostDocument.html(
+                body: html,
+                extraCSS: Self.postStyleSheet + "\n" + PostDocument.signatureStyleSheet
+            ),
+            // 这个站的楼层正文一律走 `WKWebView`（标签页、ANSI、表情视频都得靠它），
+            // 签名不能跟着这么办：一页二十层每层再多一个网页视图，代价翻倍。而签名
+            // 通常只是一行链接，`PostContentBuilder` 还得原，还不动的才回退。
+            nativeContent: PostContentBuilder.content(from: body)
         )
     }
 

@@ -923,7 +923,6 @@ private struct AnimatedThreadBackButton: View {
 struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
-    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsSignature = true
     let post: Post
     let topicRating: TopicRating?
@@ -1096,19 +1095,9 @@ struct PostRow: View {
                 )
         }
         .task(id: authorUID) {
-            guard let authorUID, needsAuthorDetails else { return }
-            await model.thread.loadPostAuthorDetails(uid: authorUID)
+            guard post.authorInfo?.location == nil, let authorUID else { return }
+            await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
-    }
-
-    /// 这一层还缺不缺只有资料接口才给的东西。属地和签名装在同一份资料里，
-    /// 缺任意一个都值得问一次；两个都齐了就别发请求。
-    private var needsAuthorDetails: Bool {
-        if post.authorInfo?.location == nil { return true }
-        // 话题页自带签名的站点不为签名多问一次：`__U` 里没有，就是作者没写。
-        return showsSignature
-            && siteDescriptor.postSignatureSource == .userProfile
-            && post.signature == nil
     }
 
     /// 「2026/08/11 12:38 修改」，被人代改时补上改动者，与网页版的措辞一致。
@@ -1268,7 +1257,6 @@ struct PostRow: View {
 /// 一条分割线把它和正文隔开。签名是作者挂在每层楼后面的固定落款，不是他这次说的
 /// 话 —— 紧贴着正文排，读者分不出哪一句才是回复，尤其是签名本身就写成一段话的时候。
 private struct PostSignatureView: View {
-    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     let signature: PostSignature
     let postID: PostID
     let cacheKey: String
@@ -1295,10 +1283,9 @@ private struct PostSignatureView: View {
                 }
             )
         }
-        // 签名里的链接照样能点，但它不是这层楼的正文 —— 读屏先说清楚这是什么，
-        // 用站点自己的说法（NodeSeek 显示的是「个人简介」）。
+        // 签名里的链接照样能点，但它不是这层楼的正文 —— 读屏先说清楚这是什么。
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(siteDescriptor.signatureTitle)
+        .accessibilityLabel("签名")
         .accessibilityIdentifier("post-signature-\(postID.rawValue)")
     }
 }

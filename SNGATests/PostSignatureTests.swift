@@ -203,6 +203,103 @@ final class PostSignatureTests: XCTestCase {
         XCTAssertEqual(thread.posts.last?.signature, signature)
     }
 
+    // MARK: - NodeSeek
+
+    private func nodeSeekThread(fixture: String) throws -> ThreadPage {
+        let url = try XCTUnwrap(
+            Bundle(for: PostSignatureTests.self)
+                .url(forResource: fixture, withExtension: "html")
+        )
+        return try NodeSeekParser().threadPage(
+            html: try String(contentsOf: url, encoding: .utf8),
+            topicID: TopicID(rawValue: 800_001),
+            page: 1
+        )
+    }
+
+    /// NodeSeek 把签名渲染成楼层里的 `div.signature`，是一段带链接的 HTML。
+    ///
+    /// 和资料里的 `bio` 不是一回事 —— 那个站点只画在悬停的用户卡片上，而且是纯文本。
+    func testNodeSeekReadsTheSignatureFromTheThreadPage() throws {
+        let thread = try nodeSeekThread(fixture: "nodeseek-post-signature")
+
+        let signature = try XCTUnwrap(thread.posts.first?.signature)
+        XCTAssertTrue(signature.html.contains("TG"))
+        XCTAssertTrue(signature.html.contains("我写过的帖子"))
+        // 没写签名的作者不该多出一条分割线。
+        XCTAssertNil(thread.posts.last?.signature)
+    }
+
+    /// 签名里的链接要能点。站内的两条得是绝对地址，导航层才认得出它们是站内的。
+    func testTheNodeSeekSignatureKeepsItsLinksAndResolvesThemToAbsoluteURLs() throws {
+        let thread = try nodeSeekThread(fixture: "nodeseek-post-signature")
+        let signature = try XCTUnwrap(thread.posts.first?.signature)
+        let content = try XCTUnwrap(
+            signature.nativeContent,
+            "一行链接应该能原生还原，不该为它再开一个 WKWebView"
+        )
+
+        let links = content.blocks.flatMap { block -> [URL] in
+            guard case let .paragraph(paragraph) = block else { return [] }
+            return paragraph.segments.compactMap { segment in
+                guard case let .text(_, style) = segment else { return nil }
+                return style.link
+            }
+        }
+        XCTAssertEqual(links.count, 3, "三条链接一条都不能掉")
+        XCTAssertTrue(links.contains { $0.absoluteString == "https://example.com/chat" })
+
+        // 站内那两条要被导航层认出来，而不是丢给浏览器。
+        let descriptor = ForumSiteDescriptor.nodeseek
+        let internalLinks = links.filter { descriptor.internalDestination(for: $0) != nil }
+        XCTAssertFalse(
+            internalLinks.isEmpty,
+            "站内链接没被认出来，点了会跳去浏览器：\(links.map(\.absoluteString))"
+        )
+    }
+
+    /// 签名摘走之后正文里就不能再有它。
+    ///
+    /// 站点的楼层结构里，签名紧挨着正文；不摘干净就会出现同一段签名既画在楼层末尾、
+    /// 又粘在正文后面。
+    func testTheNodeSeekSignatureIsNotAlsoLeftInTheBody() throws {
+        let thread = try nodeSeekThread(fixture: "nodeseek-post-signature")
+        let post = try XCTUnwrap(thread.posts.first)
+
+        XCTAssertTrue(post.html.contains("这一层的作者写了签名"), "前提：正文还在")
+        XCTAssertFalse(post.html.contains("我写过的帖子"))
+        XCTAssertFalse(post.html.contains("signature"))
+    }
+
+    /// 签名长在 `article.post-content` 里面的那种排法也不能重复画。
+    ///
+    /// 站点两种排法哪一种都可能，而使用者贴出来的那份元素看不出它的父节点是谁，
+    /// 所以两种都得对：按 `.content-item` 找，找到就摘走。
+    func testANestedNodeSeekSignatureIsStillHoistedOutOfTheBody() throws {
+        let html = """
+        <html><body><div class="nsk-post-wrapper"><div class="nsk-post">
+        <div class="post-title"><h1><a href="/post-800001-1" class="post-title-link">标题</a></h1></div>
+        <div id="0" data-comment-id="11000001" class="content-item">
+          <div class="nsk-content-meta-info"><div class="author-info">
+            <a href="/space/10001" class="author-name">甲用户</a></div></div>
+          <article class="post-content"><p>正文</p>
+            <div class="signature"><p><a href="/post-800002-1">签名链接</a></p></div>
+          </article>
+        </div></div></div></body></html>
+        """
+
+        let thread = try NodeSeekParser().threadPage(
+            html: html,
+            topicID: TopicID(rawValue: 800_001),
+            page: 1
+        )
+        let post = try XCTUnwrap(thread.posts.first)
+
+        XCTAssertNotNil(post.signature)
+        XCTAssertTrue(post.html.contains("正文"))
+        XCTAssertFalse(post.html.contains("签名链接"))
+    }
+
     /// 资料接口只给一段纯文本（NGA 的 `sign` 已拍平，NodeSeek 的 `bio` 本来就是）。
     /// 纯文本必定能原生还原，但兜底的 HTML 也得转义 —— 签名是别人写的。
     func testAPlainTextSignatureIsEscapedAndNativelyRenderable() {
@@ -222,21 +319,17 @@ final class PostSignatureTests: XCTestCase {
         )
     }
 
-    /// 两个站拿签名的路子不一样，而这个差别决定了要不要为它多发请求。
-    func testEachSiteDeclaresWhereItsSignaturesComeFrom() {
-        XCTAssertEqual(ForumSiteDescriptor.nga.postSignatureSource, .threadPage)
-        XCTAssertEqual(ForumSiteDescriptor.nodeseek.postSignatureSource, .userProfile)
-    }
-
-    /// 资料页上那一栏按站点自己的说法称呼：NodeSeek 的字段叫 `bio`，
-    /// 站点写的是「个人简介」，不是「签名」。
+    /// 资料页上那一栏按站点自己的说法称呼。
+    ///
+    /// NodeSeek 的 `bio` 站点写的是「个人简介」，而且和楼层签名是两份东西 ——
+    /// 叫成「签名」会让人以为改了它楼层里就会变。
     func testTheProfileSectionUsesEachSitesOwnWording() {
-        XCTAssertEqual(ForumSiteDescriptor.nga.signatureTitle, "签名")
-        XCTAssertEqual(ForumSiteDescriptor.nodeseek.signatureTitle, "个人简介")
+        XCTAssertEqual(ForumSiteDescriptor.nga.profileSignatureTitle, "签名")
+        XCTAssertEqual(ForumSiteDescriptor.nodeseek.profileSignatureTitle, "个人简介")
     }
 
-    /// NodeSeek 的签名只有资料接口给得出来，而且要带 `readme=1` 才有。
-    func testNodeSeekReadsTheSignatureFromTheProfileBio() throws {
+    /// 资料里的个人简介要带 `readme=1` 才有。它进用户中心那一栏，不进楼层。
+    func testNodeSeekReadsTheProfileBio() throws {
         let url = try XCTUnwrap(
             Bundle(for: PostSignatureTests.self)
                 .url(forResource: "nodeseek-account-info", withExtension: "json")

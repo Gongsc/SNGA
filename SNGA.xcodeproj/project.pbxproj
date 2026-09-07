@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0246EC521B336CF50CC0FCD7 /* NGAParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */; };
 		098F7E6F5B717E09187671D3 /* NodeSeekEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DFAC06F83AB61162157AD01 /* NodeSeekEndpoint.swift */; };
+		0B012160014CC1E267003795 /* nodeseek-post-signature.html in Resources */ = {isa = PBXBuildFile; fileRef = F3ADDC3014EFB03598E20548 /* nodeseek-post-signature.html */; };
 		0E6C15577B1C14B05544F08D /* nodeseek-category-sandbox.html in Resources */ = {isa = PBXBuildFile; fileRef = B1EE06E17DFB7BD3D5245D28 /* nodeseek-category-sandbox.html */; };
 		1081D471D274B56291188892 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 5EB00A3D61556F1889A61F1E /* SwiftSoup */; };
 		12376B2EA3D021BDF8C96087 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53569497661BA95D730D632C /* AppSession.swift */; };
@@ -331,6 +332,7 @@
 		F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		F34C7E7F57C5FC1740780D7D /* Identifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identifiers.swift; sourceTree = "<group>"; };
 		F354393C9451574BD8078C88 /* MarkdownRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRendererTests.swift; sourceTree = "<group>"; };
+		F3ADDC3014EFB03598E20548 /* nodeseek-post-signature.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "nodeseek-post-signature.html"; sourceTree = "<group>"; };
 		F40AB79D13D930F294866FB6 /* ForumIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumIdentityTests.swift; sourceTree = "<group>"; };
 		F46E194FA612A0DB5D531FAA /* ForumEmoticon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumEmoticon.swift; sourceTree = "<group>"; };
 		F5605E63A0F1FDAA4191D4B1 /* NGANetworkClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGANetworkClient.swift; sourceTree = "<group>"; };
@@ -398,6 +400,7 @@
 				C912525B1032787C368DEB87 /* nodeseek-post-counts.html */,
 				58EACEF890AD0B5EC8A84D59 /* nodeseek-post-denied.html */,
 				1FC4FF366583963162137BA1 /* nodeseek-post-poll.html */,
+				F3ADDC3014EFB03598E20548 /* nodeseek-post-signature.html */,
 				9B1096C51DC193D854FA80DE /* nodeseek-post-state.html */,
 				E8DED0DBE66E49EE29FFEE1E /* nodeseek-post-tabs.html */,
 				029CC8A954ECB8ECA167689B /* nodeseek-post.html */,
@@ -723,6 +726,7 @@
 				9B76E9911C639E7E78D2FB6B /* nodeseek-post-counts.html in Resources */,
 				D6C8400A97948E2D75C10221 /* nodeseek-post-denied.html in Resources */,
 				54EA20BB644D969E9E5B6A82 /* nodeseek-post-poll.html in Resources */,
+				0B012160014CC1E267003795 /* nodeseek-post-signature.html in Resources */,
 				DE7634E7269F93E5F92E07F0 /* nodeseek-post-state.html in Resources */,
 				F1A507D15DEA2B5EC3FCAAAA /* nodeseek-post-tabs.html in Resources */,
 				5D4949FDDD8615BAC9851FF8 /* nodeseek-post.html in Resources */,
