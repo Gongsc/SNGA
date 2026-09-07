@@ -1,21 +1,26 @@
 <!doctype html>
 <!-- 带签名档的楼层。
 
-     **这一份不是抓来的。** 站点对未登录用户不下发签名（实测 11 个帖子 82 层，
+     **这一份不是抓来的。** 站点对未登录用户不下发签名（匿名扫过 11 个帖子 82 层，
      一个 `div.signature` 都没有），所以匿名抓不到。楼层骨架照抄同目录下真实的
      nodeseek-post.html，签名那一块的结构取自使用者贴出来的真实元素，里面的
      用户编号、帖子编号和外站账号都换成了无关的值。
 
-     两层楼是有意的：#0 有签名，#1 没有 —— 大多数人没写签名，那种楼层不该多画
-     一条分割线。签名里三种链接也是有意的：外站、站内私信、站内帖子，
+     位置是在登录的浏览器里确认过的（Design/probe-nodeseek-signature.js）：签名是
+     `.content-item` 的直接子节点，夹在 `.topic-warning` 和评论菜单之间，**不在**
+     `article.post-content` 里面。匿名抓到的 nodeseek-post.html 在同一个位置上是个
+     `<!---->` —— 那正是登录后签名会长出来的地方。
+
+     两层楼是有意的：#0 有签名，#1 没有 —— 实测一页 24 层里 12 层有签名，没写的
+     那种不该多画一条分割线。签名里三种链接也是有意的：外站、站内私信、站内帖子，
      后两种要能在应用里直接打开。 -->
 <html lang="zh-CN"><body>
 <div class="nsk-post-wrapper"><div class="nsk-post">
 <div class="post-title"><h1><a href="/post-800001-1" class="post-title-link">签名档夹具</a></h1></div>
 <div id="0" data-comment-id="11000001" class="content-item" style="position: relative;"><div class="nsk-content-meta-info"><div class="avatar-wrapper"><a title="甲用户" href="/space/10001"><img src="/avatar/10001.png" alt="甲用户" class="avatar-normal skeleton"></a></div> <div><div class="author-info"><a href="/space/10001" class="author-name">甲用户</a><span class="is-poster role-tag nsk-badge">楼主</span></div> <div class="content-info"><span class="date-created"><time title="2026-08-05 00:58:23" datetime="2026-08-04T16:58:23.000Z">21days ago</time></span> <span class="content-category"> in
                 <a href="/categories/daily">日常</a></span></div></div> <div class="floor-link-wrapper"><a href="#0" class="floor-link">#0</a></div></div> <article class="post-content"><p>这一层的作者写了签名。</p>
-</article> <div class="signature"><p><a href="https://example.com/chat">✈️TG</a>|<a href="https://www.nodeseek.com/notification#/message?mode=talk&amp;to=10001">✉️站内PM</a>|<a href="https://www.nodeseek.com/post-800002-1">我写过的帖子</a></p>
-</div> <div class="topic-warning"></div> <div class="comment-menu-mount"></div></div></div>
+</article> <div class="topic-warning"></div> <div class="signature"><p><a href="https://example.com/chat">✈️TG</a>|<a href="https://www.nodeseek.com/notification#/message?mode=talk&amp;to=10001">✉️站内PM</a>|<a href="https://www.nodeseek.com/post-800002-1">我写过的帖子</a></p>
+</div> <div class="comment-menu-mount"></div></div></div>
 </div>
 <div class="comment-container"><ul class="comments">
 <li data-comment-id="11000002" id="1" class="content-item"><div class="nsk-content-meta-info"><div class="avatar-wrapper"><a title="乙用户" href="/space/10002"><img src="/avatar/10002.png" alt="乙用户" class="avatar-normal skeleton"></a></div> <div><div class="author-info"><a href="/space/10002" class="author-name">乙用户</a><!----></div> <div class="content-info"><span class="date-created"><time title="2026-08-05 01:03:11" datetime="2026-08-04T17:03:11.000Z">21days ago</time></span></div></div> <div class="floor-link-wrapper"><a href="#1" class="floor-link">#1</a></div></div> <article class="post-content"><p>这一层的作者没写签名。</p>

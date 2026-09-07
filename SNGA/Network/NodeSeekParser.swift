@@ -389,9 +389,9 @@ struct NodeSeekParser: Sendable {
         let postedAt = try item.select("span.date-created time[datetime]").first()
             .flatMap { Self.date(fromISO8601: try $0.attr("datetime")) }
 
-        // 先摘签名再清洗正文。站点把签名放在楼层里，而它到底是 `article.post-content`
-        // 的兄弟还是它的一部分，两种都得当心：摘走之后正文里必然没有它，不会出现
-        // 同一段签名既画在末尾又粘在正文后面。
+        // 先摘签名再清洗正文。实测它是 `.content-item` 的直接子节点、排在正文之后，
+        // 不在 `article.post-content` 里面；但仍然按整个楼层去找，因为摘走之后正文里
+        // 必然没有它 —— 万一哪天站点把它挪进正文，也不会变成同一段签名画两遍。
         let signature = try Self.extractedSignature(in: item)
         let body = try item.select("article.post-content").first()
         let sanitized = try body.map { try Self.sanitized($0) } ?? ""
@@ -481,9 +481,12 @@ struct NodeSeekParser: Sendable {
 
     /// 楼层末尾的签名档，摘下来并清洗好。
     ///
-    /// 站点自己把它渲染成 `div.signature`，内容是一段带链接的 HTML（不是 Markdown
-    /// 原文，也不是资料里的 `bio` —— 那是另一份东西，只画在悬停的用户卡片上）。
-    /// 未登录看不到，所以这一份没法匿名抓：实测 11 个帖子 82 层，一个签名都没有。
+    /// 站点自己把它渲染成 `div.signature`，是 `.content-item` 的直接子节点，夹在
+    /// `.topic-warning` 和评论菜单之间。内容是一段带链接的 HTML（不是 Markdown 原文，
+    /// 也不是资料里的 `bio` —— 那是另一份东西，只画在悬停的用户卡片上）。
+    ///
+    /// 未登录看不到，所以没法匿名抓：匿名扫过 11 个帖子 82 层，一个签名都没有；
+    /// 而登录着的同一种页面，24 层里有 12 层带签名。
     ///
     /// 摘走是必须的：留在 DOM 里，正文清洗会把它一并卷进去。
     private static func extractedSignature(in item: Element) throws -> PostSignature? {
@@ -499,8 +502,10 @@ struct NodeSeekParser: Sendable {
                 extraCSS: Self.postStyleSheet + "\n" + PostDocument.signatureStyleSheet
             ),
             // 这个站的楼层正文一律走 `WKWebView`（标签页、ANSI、表情视频都得靠它），
-            // 签名不能跟着这么办：一页二十层每层再多一个网页视图，代价翻倍。而签名
-            // 通常只是一行链接，`PostContentBuilder` 还得原，还不动的才回退。
+            // 签名不能跟着这么办：实测一页 24 层里 12 层有签名，跟着走就是网页视图
+            // 数量翻一倍。而签名通常只是一行链接 —— 实测抽查的几份里，节点最少的
+            // 只有一个 `<p>`，没有一份用到 `PostContentBuilder` 还不动的标签。
+            // 还不动的才回退。
             nativeContent: PostContentBuilder.content(from: body)
         )
     }
