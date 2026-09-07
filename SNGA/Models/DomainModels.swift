@@ -146,6 +146,45 @@ struct PostAuthorInfo: Hashable, Codable, Sendable {
     var honor: String? = nil
 }
 
+/// 楼层末尾的签名档。
+///
+/// 和正文走同一条渲染管线：能原生还原就走 `nativeContent`，还原不了才把 `html`
+/// 交给 `WKWebView` —— 签名里也会出现表格和游戏卡片，那是 `PostContentBuilder`
+/// 认输的地方。
+///
+/// 两个站都把它跟着话题页一起下发，翻一页就全有了，形状各不相同：NGA 放在 `__U`
+/// 的用户记录里（结构化响应）或 `#postsigncontent{楼层}`（网页变体），NodeSeek 放在
+/// 楼层里的 `div.signature`。两边都**对未登录用户不下发**。
+///
+/// NodeSeek 的签名和资料里的 `bio` 不是一回事：后者站点叫「个人简介」、是纯文本、
+/// 只画在悬停的用户卡片上，进的是用户中心那一栏。
+struct PostSignature: Hashable, Codable, Sendable {
+    var html: String
+    var nativeContent: PostContent? = nil
+}
+
+extension PostSignature {
+    /// 一段纯文本签名。
+    ///
+    /// 纯文本必定还原得了，所以 `html` 只是个不会走到的兜底 —— 但仍然要填对：
+    /// 签名是别人写的，里面的 `<` 不转义就会被 `WKWebView` 当标签解释。
+    init(plainText: String) {
+        let escaped = plainText
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        self.init(
+            html: PostDocument.html(
+                body: "<p>\(escaped)</p>",
+                extraCSS: PostDocument.signatureStyleSheet
+            ),
+            nativeContent: PostContent(
+                blocks: [.paragraph(PostParagraph(segments: [.text(plainText, PostTextStyle())]))]
+            )
+        )
+    }
+}
+
 struct Post: Identifiable, Hashable, Codable, Sendable {
     let id: PostID
     var topicID: TopicID
@@ -161,6 +200,11 @@ struct Post: Identifiable, Hashable, Codable, Sendable {
     var html: String
     /// 可原生渲染的正文结构。为 nil 表示该层含图片、表格等复杂内容，需要 `WKWebView`。
     var nativeContent: PostContent? = nil
+    /// 作者挂在这层楼后面的签名档。站点不提供、作者没写、或者还没取到时为 nil。
+    ///
+    /// 不并进 `authorInfo`：那一格是抬头那一行的等级、威望、属地，签名要画在楼层
+    /// 末尾，两者的位置和篇幅都不是一回事。
+    var signature: PostSignature? = nil
     var quotedPostID: PostID? = nil
     /// 该层发出之后的改动记录，按 NGA 下发的先后顺序排列。
     var edits: [PostEdit] = []

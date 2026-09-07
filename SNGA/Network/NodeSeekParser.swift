@@ -261,7 +261,7 @@ struct NodeSeekParser: Sendable {
               !comments.isEmpty else {
             throw ForumServiceError.unexpectedPage("内嵌状态里没有楼层")
         }
-        let renderedBodies = try self.renderedBodies(inHTML: html)
+        let renderedFloors = try self.renderedFloors(inHTML: html)
 
         var posts: [Post] = []
         for comment in comments {
@@ -279,7 +279,17 @@ struct NodeSeekParser: Sendable {
                 authorUID: uid,
                 avatarURL: uid.flatMap(Self.avatarURL(uid:)),
                 postedAt: (times["createdDate"] as? String).flatMap(Self.date(fromISO8601:)),
-                html: renderedBodies[commentID] ?? "",
+                html: renderedFloors[commentID]?.html ?? "",
+                // 签名取 HTML 里渲染好的那一份，理由和正文一样。
+                //
+                // 内嵌状态的每条楼层上**也有**一个 `signature` 字段，但别改用它：它和
+                // `content` 一样是原文而不是渲染结果（未登录抓到的那份里是空串，看不出
+                // 具体格式），而站点显示给读者的就是 `div.signature` 里那一份。
+                //
+                // 这条是主路 —— 内嵌状态解得开就走它，按 `.content-item` 抓的那条只是
+                // 退路。先前只给退路补了签名，于是应用里一个签名都不显示，而测试全绿：
+                // 手写的夹具没有内嵌状态，走的正好是退路。
+                signature: renderedFloors[commentID]?.signature,
                 // 点赞是免费的那个。加鸡腿和反对都要花鸡腿，各自的计数在
                 // `reactions` 里。见 `NodeSeekReaction`。
                 upvoteCount: count("upvoteCount"),
@@ -355,19 +365,33 @@ struct NodeSeekParser: Sendable {
     }
 
     /// 楼层编号 → 渲染好的正文 HTML。
-    private func renderedBodies(inHTML html: String) throws -> [Int64: String] {
+    /// 一层楼里只能从 HTML 拿的两样：渲染好的正文，和作者的签名档。
+    ///
+    /// 内嵌状态里两样都没有 —— 它给的正文是 Markdown 原文（应用还没有渲染器），
+    /// 签名则压根不在里面。
+    private struct RenderedFloor {
+        var html: String
+        var signature: PostSignature?
+    }
+
+    private func renderedFloors(inHTML html: String) throws -> [Int64: RenderedFloor] {
         let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
         // 这份文档的输出设置一路管到取正文的每一次 `html()`。默认的 pretty-print 会在
         // 标签之间加换行和缩进 —— 正文里有 `<pre>`，那些空白会原样显示，
         // 检测报告靠空格对齐的表格就全歪了。
         document.outputSettings(Self.verbatimOutput)
-        var bodies: [Int64: String] = [:]
+        var floors: [Int64: RenderedFloor] = [:]
         for item in try document.select(".content-item") {
-            guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw),
-                  let body = try item.select("article.post-content").first() else { continue }
-            bodies[id] = try Self.sanitized(body)
+            guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw) else { continue }
+            // 摘签名赶在取正文之前，理由和 `post(from:)` 那条一样。
+            let signature = try Self.extractedSignature(in: item)
+            guard let body = try item.select("article.post-content").first() else { continue }
+            floors[id] = RenderedFloor(
+                html: try Self.sanitized(body),
+                signature: signature
+            )
         }
-        return bodies
+        return floors
     }
 
     private func post(from item: Element, topicID: TopicID) throws -> Post? {
@@ -389,6 +413,10 @@ struct NodeSeekParser: Sendable {
         let postedAt = try item.select("span.date-created time[datetime]").first()
             .flatMap { Self.date(fromISO8601: try $0.attr("datetime")) }
 
+        // 先摘签名再清洗正文。实测它是 `.content-item` 的直接子节点、排在正文之后，
+        // 不在 `article.post-content` 里面；但仍然按整个楼层去找，因为摘走之后正文里
+        // 必然没有它 —— 万一哪天站点把它挪进正文，也不会变成同一段签名画两遍。
+        let signature = try Self.extractedSignature(in: item)
         let body = try item.select("article.post-content").first()
         let sanitized = try body.map { try Self.sanitized($0) } ?? ""
 
@@ -400,7 +428,8 @@ struct NodeSeekParser: Sendable {
             authorUID: authorUID,
             avatarURL: authorUID.flatMap(Self.avatarURL(uid:)),
             postedAt: postedAt,
-            html: sanitized
+            html: sanitized,
+            signature: signature
         )
     }
 
@@ -429,6 +458,24 @@ struct NodeSeekParser: Sendable {
     /// 楼层正文是别人写的，要进 `WKWebView`。SwiftSoup 的 relaxed 白名单已经挡掉了
     /// 脚本和事件属性，这里再显式去掉几类它允许但我们不想要的。
     private static func sanitized(_ element: Element) throws -> String {
+        let cleaned = try cleaned(element)
+        // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
+        // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
+        return PostDocument.html(
+            body: try cleaned.document.body()?.html() ?? cleaned.html,
+            extraCSS: Self.postStyleSheet
+        )
+    }
+
+    /// 清洗到一份干净的 DOM。正文和签名共用这几步 —— 签名同样是别人写的 HTML。
+    ///
+    /// 返回的是**文档**而不是它的 body：SwiftSoup 的 `parentNode` 是弱引用，文档一撒手
+    /// 就没人持有它，元素的 `ownerDocument()` 变成 nil，`html()` 于是退回默认输出设置
+    /// 重新排版 —— 终端报告里对齐用的连续空格会被压成一个，标签页那条靠相邻选择器
+    /// 工作的开关也会被插进来的空白截断。
+    private static func cleaned(
+        _ element: Element
+    ) throws -> (document: Document, html: String) {
         try replaceEmbedMarkers(in: element)
         // 换在转绝对地址之前：换出来的 `src` 同样是相对的，得跟着一起转。
         try replaceVideoStickers(in: element)
@@ -447,16 +494,43 @@ struct NodeSeekParser: Sendable {
         for tag in ["script", "style", "iframe", "form", "object", "embed"] {
             try document.select(tag).remove()
         }
-        let body = try document.body()?.html() ?? cleaned
-        // 光有一段清洗过的 body 不够：字体、配色、主题变量、CSP 全在这层外壳里。
-        // 少了它，正文会用 WebKit 的默认字体，深色模式下还是白底黑字。
-        return PostDocument.html(
-            body: body,
-            extraCSS: [
-                PostDocument.markdownStyleSheet,
-                PostDocument.ansiStyleSheet,
-                PostDocument.terminalStyleSheet
-            ].joined(separator: "\n")
+        return (document, cleaned)
+    }
+
+    private static let postStyleSheet = [
+        PostDocument.markdownStyleSheet,
+        PostDocument.ansiStyleSheet,
+        PostDocument.terminalStyleSheet
+    ].joined(separator: "\n")
+
+    /// 楼层末尾的签名档，摘下来并清洗好。
+    ///
+    /// 站点自己把它渲染成 `div.signature`，是 `.content-item` 的直接子节点，夹在
+    /// `.topic-warning` 和评论菜单之间。内容是一段带链接的 HTML（不是 Markdown 原文，
+    /// 也不是资料里的 `bio` —— 那是另一份东西，只画在悬停的用户卡片上）。
+    ///
+    /// 未登录看不到，所以没法匿名抓：匿名扫过 11 个帖子 82 层，一个签名都没有；
+    /// 而登录着的同一种页面，24 层里有 12 层带签名。
+    ///
+    /// 摘走是必须的：留在 DOM 里，正文清洗会把它一并卷进去。
+    private static func extractedSignature(in item: Element) throws -> PostSignature? {
+        guard let element = try item.select("div.signature").first() else { return nil }
+        try element.remove()
+        let cleaned = try cleaned(element)
+        guard let body = try cleaned.document.body() else { return nil }
+        let html = try body.html().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else { return nil }
+        return PostSignature(
+            html: PostDocument.html(
+                body: html,
+                extraCSS: Self.postStyleSheet + "\n" + PostDocument.signatureStyleSheet
+            ),
+            // 这个站的楼层正文一律走 `WKWebView`（标签页、ANSI、表情视频都得靠它），
+            // 签名不能跟着这么办：实测一页 24 层里 12 层有签名，跟着走就是网页视图
+            // 数量翻一倍。而签名通常只是一行链接 —— 实测抽查的几份里，节点最少的
+            // 只有一个 `<p>`，没有一份用到 `PostContentBuilder` 还不动的标签。
+            // 还不动的才回退。
+            nativeContent: PostContentBuilder.content(from: body)
         )
     }
 

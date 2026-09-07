@@ -9,6 +9,8 @@ import SwiftUI
 struct PostContentView: View {
     let content: PostContent
     var imageFreeMode = false
+    /// 整块内容的排版档位。签名档比正文小一号，其余一律 `.body`。
+    var emphasis: PostParagraphEmphasis = .body
     var onOpenLink: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
@@ -16,6 +18,7 @@ struct PostContentView: View {
             PostBlockListView(
                 blocks: content.blocks,
                 imageFreeMode: imageFreeMode,
+                emphasis: emphasis,
                 onOpenLink: onOpenLink
             )
         }
@@ -27,13 +30,18 @@ private struct PostBlockListView: View {
     @Environment(\.sngaTheme) private var theme
     let blocks: [PostBlock]
     let imageFreeMode: Bool
+    var emphasis: PostParagraphEmphasis = .body
     let onOpenLink: @MainActor (URL) -> Void
 
     var body: some View {
         ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
             switch block {
             case let .paragraph(paragraph):
-                PostParagraphView(paragraph: paragraph, onOpenLink: onOpenLink)
+                PostParagraphView(
+                    paragraph: paragraph,
+                    emphasis: emphasis,
+                    onOpenLink: onOpenLink
+                )
             case let .quote(nested):
                 quote(nested)
             case let .image(image):
@@ -55,6 +63,7 @@ private struct PostBlockListView: View {
             PostBlockListView(
                 blocks: split.body,
                 imageFreeMode: imageFreeMode,
+                emphasis: emphasis,
                 onOpenLink: onOpenLink
             )
         }
@@ -155,6 +164,9 @@ enum QuoteAttribution {
 enum PostParagraphEmphasis: Hashable {
     case body
     case quoteAttribution
+    /// 楼层末尾的签名档：和引用抬头一样小一号、用次级颜色，但保留作者自己写的
+    /// 加粗 —— 签名整段都是他排的版，抹掉粗体就等于替他重排了一遍。
+    case signature
 }
 
 /// 一个段落。
@@ -446,10 +458,11 @@ private enum PostParagraphAttributedText {
         } else if let color = style.color {
             attributes[.foregroundColor] = NSColor(color.swiftUIColor)
         } else {
-            // 抬头整行都是加粗的，颜色再和正文一样就完全分不出主次。
-            attributes[.foregroundColor] = emphasis == .quoteAttribution
-                ? NSColor.secondaryLabelColor
-                : NSColor.labelColor
+            // 抬头整行都是加粗的，颜色再和正文一样就完全分不出主次。签名同理：
+            // 它不是作者这次说的话，和正文一样重会抢读者的注意力。
+            attributes[.foregroundColor] = emphasis == .body
+                ? NSColor.labelColor
+                : NSColor.secondaryLabelColor
         }
         if style.isUnderlined {
             attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
@@ -466,7 +479,9 @@ private enum PostParagraphAttributedText {
     ) -> NSFont {
         let size = fontSize(for: emphasis) * sizeScale(style)
         // 抬头本身整段就是 `[b]`，照着加粗只会让它比被引正文还抢眼。
-        let weight: NSFont.Weight = emphasis == .body && style.isBold ? .bold : .regular
+        let weight: NSFont.Weight = emphasis != .quoteAttribution && style.isBold
+            ? .bold
+            : .regular
         var font = style.isMonospaced
             ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
             : NSFont.systemFont(ofSize: size, weight: weight)
@@ -479,7 +494,9 @@ private enum PostParagraphAttributedText {
     private static func fontSize(for emphasis: PostParagraphEmphasis) -> CGFloat {
         switch emphasis {
         case .body: baseFontSize
-        case .quoteAttribution: 12
+        // 和 `PostDocument.signatureStyleSheet` 里的 12px 是同一个数：同一份签名
+        // 在原生和 WebView 两条路上得一样大。
+        case .quoteAttribution, .signature: 12
         }
     }
 

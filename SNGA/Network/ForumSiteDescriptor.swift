@@ -212,6 +212,19 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 用户资料里那段自我介绍，站点自己管它叫什么。
+    ///
+    /// **和楼层末尾的签名不是一回事。** NGA 那边两者确实是同一份东西；NodeSeek 分开
+    /// 存两份 —— 资料里的 `bio` 站点写作「个人简介」，只画在悬停的用户卡片上，
+    /// 楼层签名是另一份带排版和链接的 HTML（见 `NodeSeekParser`）。照搬「签名」
+    /// 会让人以为改了它楼层里就会变。
+    var profileSignatureTitle: String {
+        switch site {
+        case .nga: "签名"
+        case .nodeseek: "个人简介"
+        }
+    }
+
     /// 资料页要不要「声望」那一段（威望、声望、N 币）。
     ///
     /// 这是 NGA 一家的东西。按「有没有数」来判断会出错：NodeSeek 的鸡腿也走

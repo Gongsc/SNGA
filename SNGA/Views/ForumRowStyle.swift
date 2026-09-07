@@ -8,25 +8,9 @@ extension View {
     /// 自己猜，猜到了右边那块回复数和日期上，画出来只剩右半截。
     ///
     /// 两条参考线必须成对给：只给一条，另一端仍然是猜的。
-    /// 补偿两个列表容器默认缩进的差额。
-    ///
-    /// 版面列表和搜索结果是两个各自配置的 `List`，同样的行边距落在屏幕上并不在同一条
-    /// 竖线上：实测搜索结果的行比版面列表靠左 14pt、靠右 28pt（右边那份多出来的多半是
-    /// 滚动条的空档），多出来的部分正好伸到详情栏底下，日期被裁掉半截。
-    ///
-    /// 左右不是同一个数，所以分开给。这两个值只能靠量，`testSearchBarsAndResultRowsLineUpWithTheTopicList`
-    /// 那条 UI 用例盯着两个列表的行对不对得齐 —— 系统哪天改了默认边距，它会先叫。
-    func forumTopicListRow(
-        leadingCompensation: CGFloat = 0,
-        trailingCompensation: CGFloat = 0
-    ) -> some View {
+    func forumTopicListRow() -> some View {
         self
-            .listRowInsets(EdgeInsets(
-                top: 2,
-                leading: leadingCompensation,
-                bottom: 2,
-                trailing: 6 + trailingCompensation
-            ))
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
             .listRowBackground(Color.clear)
             .alignmentGuide(.listRowSeparatorLeading) { dimensions in
                 dimensions[.leading] + 8

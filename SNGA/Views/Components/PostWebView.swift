@@ -823,6 +823,11 @@ struct PostBodyView: View {
     var html: String
     /// 可原生渲染的正文。为 nil 时回退到 `WKWebView`。
     var nativeContent: PostContent? = nil
+    /// 排版档位。签名档小一号，正文用默认的 `.body`。
+    ///
+    /// 只对原生分支有效：回退到 `WKWebView` 时大小由文档自己的样式表决定，那份
+    /// 样式在清洗阶段就压进 HTML 里了（见 `PostDocument.signatureStyleSheet`）。
+    var emphasis: PostParagraphEmphasis = .body
     var cacheKey: String? = nil
     var loadOrder: Int? = nil
     var onOpenInternalLink: @MainActor (NGAInternalDestination) -> Void = { _ in }
@@ -836,6 +841,7 @@ struct PostBodyView: View {
     init(
         html: String,
         nativeContent: PostContent? = nil,
+        emphasis: PostParagraphEmphasis = .body,
         cacheKey: String? = nil,
         loadOrder: Int? = nil,
         onOpenInternalLink: @escaping @MainActor (NGAInternalDestination) -> Void = { _ in },
@@ -843,6 +849,7 @@ struct PostBodyView: View {
     ) {
         self.html = html
         self.nativeContent = nativeContent
+        self.emphasis = emphasis
         self.cacheKey = cacheKey
         self.loadOrder = loadOrder
         self.onOpenInternalLink = onOpenInternalLink
@@ -869,6 +876,7 @@ struct PostBodyView: View {
         PostContentView(
             content: content,
             imageFreeMode: imageFreeMode,
+            emphasis: emphasis,
             onOpenLink: { url in
                 if let destination = siteDescriptor.internalDestination(for: url) {
                     onOpenInternalLink(destination)

@@ -45,6 +45,15 @@ enum PostDocument {
     @media(max-width:700px){table,thead,tbody,tfoot{display:block;width:100%}tr{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin:8px 0}td,th{display:block;width:auto!important;min-width:0;border-radius:6px}}
     """
 
+    /// 签名档那一份。
+    ///
+    /// 小一号、次级颜色，和原生渲染的 `PostParagraphEmphasis.signature` 是同一件事
+    /// 的两份实现：同一份签名可能走原生、也可能因为一张表格回退到 WebView，两条路
+    /// 画出来的大小和轻重必须一致，否则同一个人的签名在相邻两层楼里长得不一样。
+    static let signatureStyleSheet = """
+    body{font-size:12px;color:color-mix(in srgb,CanvasText 62%,transparent)}p{margin:4px 0}img{max-height:240px}
+    """
+
     /// NodeSeek 的正文是 Markdown 渲染出来的 HTML，要的东西和 UBB 那套完全不同：
     /// 没有表情、没有颜色标签，但有代码块、行内代码和表格。
     static let markdownStyleSheet = """

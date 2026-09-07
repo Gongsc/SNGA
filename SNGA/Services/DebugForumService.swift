@@ -234,6 +234,11 @@ actor DebugForumService: ForumService {
         let nativeReply = NGAParser().sanitizedPost(
             "[quote]引用内容[/quote]回复成功。<br/>[url=https://bbs.nga.cn/read.php?tid=9002]打开原生关联话题[/url]"
         )
+        // 只给楼主一份签名：第二层没有，用例才验得出「作者没写签名时不占位置」。
+        let signature = NGAParser().makePostHTMLSanitizer().post(
+            "[b]测试签名[/b] —— 这一行来自签名档",
+            extraCSS: PostDocument.signatureStyleSheet
+        )
         let postIDOffset = page == 1 ? 0 : Int64((page - 1) * 100)
         let allPosts = [
             Post(
@@ -262,6 +267,10 @@ actor DebugForumService: ForumService {
                     : nil,
                 postedAt: Date(timeIntervalSince1970: 1_785_000_000),
                 html: renderedFirstPostHTML,
+                signature: PostSignature(
+                    html: signature.html,
+                    nativeContent: signature.nativeContent
+                ),
                 poll: isPrimaryTopic
                     ? TopicPoll(
                         id: topicID,

@@ -153,6 +153,40 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(mainWindow.descendants(matching: .any)["post-author-prestige-1"].exists)
     }
 
+    /// 签名画在楼层末尾，和正文之间有一条分割线；作者没写签名的楼层什么都不多画。
+    ///
+    /// 假数据里只有楼主有签名（见 `DebugForumService`），所以这一条同时验了两件事：
+    /// 有签名的画出来，没签名的不占位置。
+    func testTheAuthorSignatureSitsAtTheBottomOfItsOwnFloor() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        XCTAssertTrue(mainWindow.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        mainWindow.buttons["艾泽拉斯国家地理"].click()
+        XCTAssertTrue(mainWindow.buttons["topic-9001"].waitForExistence(timeout: 5))
+        mainWindow.buttons["topic-9001"].click()
+
+        let signature = mainWindow.descendants(matching: .any)["post-signature-1"]
+        XCTAssertTrue(signature.waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.staticTexts["测试签名"].exists)
+
+        // 排在作者那一行下面：签名是楼层的末尾，不是抬头的一部分。
+        let authorName = mainWindow.descendants(matching: .any)["post-author-name-1"]
+        XCTAssertTrue(authorName.exists)
+        XCTAssertGreaterThan(signature.frame.minY, authorName.frame.maxY)
+
+        // 第二层的作者没写签名。
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["post-author-name-2"].exists,
+            "前提：第二层已经画出来了"
+        )
+        XCTAssertFalse(mainWindow.descendants(matching: .any)["post-signature-2"].exists)
+    }
+
     func testRecentlyVisitedForumsAppearInVisitOrder() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -652,10 +686,15 @@ final class SNGAUITests: XCTestCase {
 
     /// 两条搜索栏、两个结果列表，缩进都得在同一条竖线上，两边都不许贴边。
     ///
-    /// 补的是屏幕上看得见、可访问性树里看不出来的一类毛病：全站面板是裸 `VStack`、
-    /// 搜索结果和版面列表是两个各自配置的 `List`。留白写成同一个数时**画面并不齐**，
-    /// 而且贴边的一侧会被盖住 —— 左边是侧栏浮层，右边是分栏拖拽条和详情栏：
-    /// 搜索按钮点上去变成拖动栏宽，话题行的日期被裁掉半截。
+    /// 补的是屏幕上看得见、可访问性树里看不出来的一类毛病。全站面板曾经是 `List`
+    /// 外面的一个裸 `VStack`，两边留白靠量：量出来的数只在「侧栏浮层伸进内容栏」
+    /// 那个状态下成立，换个窗口状态整条栏和整张结果列表就一起偏出去二十多点。
+    /// 现在两条栏是同一个 `ForumSearchBar`、同一种 `List` 里的一行，这条用例盯的是
+    /// 这个前提没被拆掉 —— 谁再给其中一条单独加留白、把它挪出列表、或者让栏里某个
+    /// 控件把整行撑宽，四条断言里必有一条先红。
+    ///
+    /// 贴边的一侧会被盖住：左边是侧栏浮层，右边是分栏拖拽条和详情栏 —— 搜索按钮
+    /// 点上去变成拖动栏宽，话题行的日期被裁掉半截。
     ///
     /// 关键词用 ASCII，绕开中文 `typeText` 那个偶发问题。
     func testSearchBarsAndResultRowsLineUpWithTheTopicList() {
