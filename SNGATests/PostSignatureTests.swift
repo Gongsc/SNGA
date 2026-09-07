@@ -258,6 +258,57 @@ final class PostSignatureTests: XCTestCase {
         )
     }
 
+    /// 走内嵌状态那条路时也要带上签名。
+    ///
+    /// 这个站的话题页有两条解析路径：内嵌状态解得开就走它（**主路**），解不开才按
+    /// `.content-item` 抓（退路）。签名只有 HTML 里有，两条路都得去取它 —— 先前只
+    /// 补了退路，于是应用里 NodeSeek 的签名一个都不显示，而所有测试都是绿的：
+    /// 手写的夹具没有内嵌状态，走的正好是退路。
+    ///
+    /// 所以这一条对着**带内嵌状态的真实夹具**跑，签名那一块按实测的位置插进去 ——
+    /// 站点不对未登录用户下发它，真实响应里只有一个空位。
+    func testTheEmbeddedStatePathAlsoCarriesTheSignature() throws {
+        let url = try XCTUnwrap(
+            Bundle(for: PostSignatureTests.self)
+                .url(forResource: "nodeseek-post-state", withExtension: "html")
+        )
+        let captured = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertNotNil(
+            NodeSeekParser.embeddedState(inHTML: captured),
+            "前提：这份夹具带内嵌状态，走的是主路"
+        )
+        // 只给主楼插一份，第二层保持原样。
+        guard let slot = captured.range(of: "</article></div>") else {
+            return XCTFail("夹具的楼层结构变了，插不进签名")
+        }
+        let html = captured.replacingCharacters(
+            in: slot,
+            with: """
+            </article> <div class="signature"><p>            <a href="https://www.nodeseek.com/post-800002-1">签名里的帖子链接</a></p></div></div>
+            """
+        )
+
+        let thread = try NodeSeekParser().threadPage(
+            html: html,
+            topicID: TopicID(rawValue: 857_694),
+            page: 1
+        )
+
+        // 总页数只有内嵌状态里有 —— 它对上了，说明走的确实是主路，而不是解析
+        // 失败悄悄退回去抓 HTML（那条路也会带上签名，测试就白测了）。
+        XCTAssertEqual(thread.totalPages, 1, "前提：走的是内嵌状态那条路")
+        XCTAssertEqual(thread.posts.count, 3)
+
+        let first = try XCTUnwrap(thread.posts.first)
+        XCTAssertNotNil(first.signature, "主路没去取签名")
+        XCTAssertTrue(
+            try XCTUnwrap(first.signature).html.contains("签名里的帖子链接")
+        )
+        XCTAssertFalse(first.html.contains("签名里的帖子链接"), "签名不该同时留在正文里")
+        XCTAssertTrue(first.html.contains("三家的价格和权益差不多"), "前提：正文还在")
+        XCTAssertNil(thread.posts.dropFirst().first?.signature)
+    }
+
     /// 签名摘走之后正文里就不能再有它。
     ///
     /// 站点的楼层结构里，签名紧挨着正文；不摘干净就会出现同一段签名既画在楼层末尾、

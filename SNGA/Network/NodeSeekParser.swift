@@ -261,7 +261,7 @@ struct NodeSeekParser: Sendable {
               !comments.isEmpty else {
             throw ForumServiceError.unexpectedPage("内嵌状态里没有楼层")
         }
-        let renderedBodies = try self.renderedBodies(inHTML: html)
+        let renderedFloors = try self.renderedFloors(inHTML: html)
 
         var posts: [Post] = []
         for comment in comments {
@@ -279,7 +279,17 @@ struct NodeSeekParser: Sendable {
                 authorUID: uid,
                 avatarURL: uid.flatMap(Self.avatarURL(uid:)),
                 postedAt: (times["createdDate"] as? String).flatMap(Self.date(fromISO8601:)),
-                html: renderedBodies[commentID] ?? "",
+                html: renderedFloors[commentID]?.html ?? "",
+                // 签名取 HTML 里渲染好的那一份，理由和正文一样。
+                //
+                // 内嵌状态的每条楼层上**也有**一个 `signature` 字段，但别改用它：它和
+                // `content` 一样是原文而不是渲染结果（未登录抓到的那份里是空串，看不出
+                // 具体格式），而站点显示给读者的就是 `div.signature` 里那一份。
+                //
+                // 这条是主路 —— 内嵌状态解得开就走它，按 `.content-item` 抓的那条只是
+                // 退路。先前只给退路补了签名，于是应用里一个签名都不显示，而测试全绿：
+                // 手写的夹具没有内嵌状态，走的正好是退路。
+                signature: renderedFloors[commentID]?.signature,
                 // 点赞是免费的那个。加鸡腿和反对都要花鸡腿，各自的计数在
                 // `reactions` 里。见 `NodeSeekReaction`。
                 upvoteCount: count("upvoteCount"),
@@ -355,19 +365,33 @@ struct NodeSeekParser: Sendable {
     }
 
     /// 楼层编号 → 渲染好的正文 HTML。
-    private func renderedBodies(inHTML html: String) throws -> [Int64: String] {
+    /// 一层楼里只能从 HTML 拿的两样：渲染好的正文，和作者的签名档。
+    ///
+    /// 内嵌状态里两样都没有 —— 它给的正文是 Markdown 原文（应用还没有渲染器），
+    /// 签名则压根不在里面。
+    private struct RenderedFloor {
+        var html: String
+        var signature: PostSignature?
+    }
+
+    private func renderedFloors(inHTML html: String) throws -> [Int64: RenderedFloor] {
         let document = try SwiftSoup.parse(html, ForumSiteDescriptor.nodeseek.baseURL.absoluteString)
         // 这份文档的输出设置一路管到取正文的每一次 `html()`。默认的 pretty-print 会在
         // 标签之间加换行和缩进 —— 正文里有 `<pre>`，那些空白会原样显示，
         // 检测报告靠空格对齐的表格就全歪了。
         document.outputSettings(Self.verbatimOutput)
-        var bodies: [Int64: String] = [:]
+        var floors: [Int64: RenderedFloor] = [:]
         for item in try document.select(".content-item") {
-            guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw),
-                  let body = try item.select("article.post-content").first() else { continue }
-            bodies[id] = try Self.sanitized(body)
+            guard let raw = try? item.attr("data-comment-id"), let id = Int64(raw) else { continue }
+            // 摘签名赶在取正文之前，理由和 `post(from:)` 那条一样。
+            let signature = try Self.extractedSignature(in: item)
+            guard let body = try item.select("article.post-content").first() else { continue }
+            floors[id] = RenderedFloor(
+                html: try Self.sanitized(body),
+                signature: signature
+            )
         }
-        return bodies
+        return floors
     }
 
     private func post(from item: Element, topicID: TopicID) throws -> Post? {
