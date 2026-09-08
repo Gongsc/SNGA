@@ -1096,7 +1096,12 @@ struct PostRow: View {
                 )
         }
         .task(id: authorUID) {
-            guard post.authorInfo?.location == nil, let authorUID else { return }
+            // 站点报不出属地就别为此逐楼发请求 —— 取回来也没有东西可填。
+            guard model.session.supports(.postAuthorLocation),
+                  post.authorInfo?.location == nil,
+                  let authorUID else {
+                return
+            }
             await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
     }

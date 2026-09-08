@@ -50,10 +50,22 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     static let userActivities = ForumCapabilities(rawValue: 1 << 8)
     /// 匿名话题与匿名楼层。
     static let anonymousPosts = ForumCapabilities(rawValue: 1 << 10)
+    /// 楼层上报得出作者的 IP 属地。
+    ///
+    /// 这一位挡的是**请求**，不是控件。属地画不画本来就看 `Post.authorInfo` 有没有值，
+    /// 用不着问；但那份值取不到时，界面会逐楼去拉一次作者资料补 —— NGA 的
+    /// `ipLoc` 偶尔缺，那一下是值得的。
+    ///
+    /// 另外两个站不是「偶尔缺」，是根本没有：NodeSeek 的资料里没有属地这一项，
+    /// 拉多少次都是空；V2EX 的 `location` 是会员自己填的一行字（「cn」），
+    /// 不是 IP 属地，拿它冒充反而是错的。而代价按楼层数算 —— V2EX 一页 100 层，
+    /// 一开帖就是上百次请求排在同一个连接上，后面所有请求都得等它们走完。
+    static let postAuthorLocation = ForumCapabilities(rawValue: 1 << 14)
 
     static let all: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
         .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
-        .privateMessages, .globalSearch, .userActivities, .anonymousPosts
+        .privateMessages, .globalSearch, .userActivities, .anonymousPosts,
+        .postAuthorLocation
     ]
 }

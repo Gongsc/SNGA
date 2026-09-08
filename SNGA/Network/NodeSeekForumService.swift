@@ -24,6 +24,9 @@ actor NodeSeekForumService: ForumService {
     /// `.postDownvote` 没点亮：站点的「反对」要花掉用户 2 个鸡腿，而且撤不回来。
     /// 一个不作声就扣钱的按钮不该摆在界面上 —— 真要接，得先让界面能把代价讲明白
     /// （比如二次确认），那是界面那边的事。
+    /// `.postAuthorLocation` 没点亮：站点的资料里**根本没有属地这一项**
+    /// （见 `NodeSeekParser.profile`）。开着的时候，每开一个帖子就按楼层数
+    /// 逐个去拉作者资料，拉回来一个空值，什么都填不上 —— 纯赔。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost, .poll,
         .privateMessages, .userActivities, .globalSearch

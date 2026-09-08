@@ -136,8 +136,14 @@ final class ThreadStore {
         postAuthorLocationRequests = [:]
     }
 
+    /// 补一层楼的作者属地。
+    ///
+    /// **按楼层数发请求，所以门控必须挡在这里。** 站点报不出属地时，一页 100 层的
+    /// 帖子（V2EX 就是这个页宽）会把上百次请求排在同一个连接上，后面所有请求 ——
+    /// 翻页、刷新、发回复 —— 都得等它们走完。取回来还没有属地可填，纯赔。
     func loadPostAuthorLocation(uid: Int64) async {
         guard uid > 0, let service = session.activeService else { return }
+        guard service.capabilities.contains(.postAuthorLocation) else { return }
         let key = PostAuthorLocationKey(accountID: service.accountID, uid: uid)
         if let cached = postAuthorLocationCache[key] {
             applyPostAuthorLocation(cached.value, to: uid)

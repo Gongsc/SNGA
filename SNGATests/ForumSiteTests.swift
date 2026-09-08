@@ -272,7 +272,8 @@ final class ForumSiteTests: XCTestCase {
         let declared: [ForumCapabilities] = [
             .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
             .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
-            .privateMessages, .globalSearch, .userActivities, .anonymousPosts
+            .privateMessages, .globalSearch, .userActivities, .anonymousPosts,
+            .postAuthorLocation
         ]
         for capability in declared {
             XCTAssertTrue(ForumCapabilities.all.contains(capability))

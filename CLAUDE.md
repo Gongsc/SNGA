@@ -101,7 +101,8 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 2. **会话过期是 302 到 `/signin`，不是 401。** `URLSession` 跟着跳，拿回来的是一张 200 的登录页；不认这一条，解析器会去登录页上找列表，报出来的是「页面结构已变化」。见 `V2EXNetworkClient.isSignInPage`。
 3. **写操作没有接口**，是表单加一个一次性令牌 `once`（`GET /poll_once` 现取，匿名也给）。
 4. **「感谢」花掉感谢者 10 个铜币且撤不回来**，所以它不是赞踩，而是带 `cost` 和 `isIrreversible` 的 `PostReaction`，界面先确认再发 —— 和 NodeSeek 的鸡腿同一个道理。
-5. **首页分类（`/?tab=tech`）是聚合版面，不分页，而且会和节点重名**（`?tab=qna` 和 `/go/qna` 是两份列表）。所以它的 `ForumID` 加了 `tab:` 前缀，翻页在服务层被钳成第一页。它底下那第二排节点走 `ForumPage.subforums`，筛选靠 `Topic.sourceForumID`。分类表写死在 `V2EXEndpoint.tabs`。
+5. **主题页一页 100 层**（NGA 二十几、NodeSeek 十）。任何「按楼层数发一次请求」的功能，代价在这个站上乘十 —— 补作者属地那一下就变成了 176 次请求、56 秒，见 `.postAuthorLocation`。这个站上凡是按楼层数的事，先算一遍一百倍是多少。
+6. **首页分类（`/?tab=tech`）是聚合版面，不分页，而且会和节点重名**（`?tab=qna` 和 `/go/qna` 是两份列表）。所以它的 `ForumID` 加了 `tab:` 前缀，翻页在服务层被钳成第一页。它底下那第二排节点走 `ForumPage.subforums`，筛选靠 `Topic.sourceForumID`。分类表写死在 `V2EXEndpoint.tabs`。
 
 浏览面全部公开、匿名抓得全，所以夹具是真实响应；收藏 / 提醒 / 每日奖励只在登录后的页面上，一样都没接，能力位也关着。**唯一一处推断是发回复那张表单的字段名**，理由和验法记在 [Design/SiteProbe-V2EX.md](Design/SiteProbe-V2EX.md) 第五节。
 
