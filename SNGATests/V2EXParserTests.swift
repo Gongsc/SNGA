@@ -246,6 +246,53 @@ final class V2EXParserTests: XCTestCase {
         XCTAssertTrue(opening.html.contains("没想到热度这么高"), opening.html)
     }
 
+    /// 内嵌播放器不能整个丢掉。
+    ///
+    /// 站点把视频渲染成 `<iframe src="…/embed/…">`，而 iframe 是清洗时一定要去掉的
+    /// 东西 —— 正文是别人写的。去掉的时候要把地址留下来换成一条链接，
+    /// 否则那一层楼里的视频连地址都不剩，读者只看到半句话。
+    func testAnEmbeddedPlayerBecomesALink() throws {
+        let page = try parser.threadPage(
+            html: try fixture("v2ex-post-video"),
+            topicID: TopicID(rawValue: 1_240_256),
+            page: 1
+        )
+        let post = try XCTUnwrap(page.posts.first { $0.floor == 57 })
+
+        XCTAssertFalse(post.html.contains("<iframe"), "iframe 一定要清掉")
+        XCTAssertTrue(
+            post.html.contains("https://www.youtube.com/embed/BpqYEWbkFYw"),
+            "地址得留下来：\(post.html)"
+        )
+        // 前面那半句话不能被连累。
+        XCTAssertTrue(post.html.contains("舍弃掉房子"))
+        // 还原得了就该原生画出来，那条链接点得动。
+        let content = try XCTUnwrap(post.nativeContent)
+        XCTAssertTrue(
+            String(describing: content).contains("youtube.com/embed/BpqYEWbkFYw"),
+            "原生正文里也要有那条链接"
+        )
+    }
+
+    /// 解不出地址的播放器留着也没用，但不能因此把整段正文弄丢。
+    func testAPlayerWithoutAUsableSourceJustDisappears() throws {
+        let reply = "<div class=\"reply_content\">看这个 <iframe src=\"about:blank\"></iframe></div>"
+        let html = "<html><body><div id=\"Main\"><div class=\"box\"><div class=\"header\">"
+            + "<a href=\"/\">V2EX</a> <a href=\"/go/qna\">问与答</a><h1>标题</h1>"
+            + "<small class=\"gray\"><a href=\"/member/x\">x</a>"
+            + "<span title=\"2026-09-08 10:00:00 +08:00\">刚刚</span></small></div>"
+            + "<div class=\"cell\"><div class=\"topic_content\">正文</div></div></div>"
+            + "<div class=\"box\"><div id=\"r_1\" class=\"cell\"><span class=\"no\">1</span>"
+            + reply + "</div></div></div></body></html>"
+
+        let page = try parser.threadPage(html: html, topicID: TopicID(rawValue: 1), page: 1)
+        let post = try XCTUnwrap(page.posts.first { $0.floor == 1 })
+
+        XCTAssertTrue(post.html.contains("看这个"))
+        XCTAssertFalse(post.html.contains("iframe"))
+        XCTAssertFalse(post.html.contains("about:blank"))
+    }
+
     /// 感谢是一种**要花钱且撤不回来**的表态，不是赞踩。界面据此先问一次再发。
     func testEveryPostOffersTheThankReaction() throws {
         let page = try parser.threadPage(

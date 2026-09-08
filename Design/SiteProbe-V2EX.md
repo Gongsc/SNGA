@@ -156,6 +156,25 @@ V2EX 的主题页每页 **100 层**（NGA 二十几，NodeSeek 十）。任何�
 所以加了 `.postAuthorLocation` 这一位，门控挡在 `ThreadStore.loadPostAuthorLocation`
 的入口。**这个站上凡是「按楼层数」的事，先算一遍一百倍是多少。**
 
+### 正文里会有内嵌播放器（实测）
+
+站点把视频地址渲染成一个播放器：
+
+```html
+<div class="embedded_video_wrapper">
+  <iframe src="https://www.youtube.com/embed/BpqYEWbkFYw" class="embedded_video"></iframe>
+</div>
+```
+
+`iframe` 是清洗时一定要去掉的东西（正文是别人写的，要进 `WKWebView`），
+也不能改成留着让它播 —— 文档的 CSP 是 `default-src 'none'`，留着也是一块空白。
+但**去掉的时候要把地址留下来**：直接清掉的话，那一层楼里的视频连地址都不剩，
+读者只看到半句话，还不知道后面本来有东西。
+
+`V2EXParser.replaceEmbeds` 在清洗**之前**把它换成一条能点的链接，播不了至少去得了。
+按标签认不按类名认：`embedded_video_wrapper` 是站点现在的写法，
+「iframe 里装着一个地址」才是通用的。夹具是 `v2ex-post-video.html`。
+
 ## 二、用户名和编号是两套（实测）
 
 页面地址里是**用户名**（`/member/Livid`），应用内部一律拿 `Int64` 认人。翻译只能问

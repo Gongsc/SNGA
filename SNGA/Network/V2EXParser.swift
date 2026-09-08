@@ -721,6 +721,8 @@ struct V2EXParser: Sendable {
         // 主题正文外面还套着一层 `.markdown_body`，剥掉它只是少一层 div，
         // 但正文里的 `<div>` 白名单本来就不放行，留着反而多一层没有样式的壳。
         let source = try element.select("> .markdown_body").first() ?? element
+        // 换在清洗之前：清洗会把 iframe 整个丢掉，连地址一起。
+        try replaceEmbeds(in: source)
         try resolveRelativeURLs(in: source)
         let cleaned = try SwiftSoup.clean(
             try source.html(),
@@ -752,6 +754,42 @@ struct V2EXParser: Sendable {
         fragment.outputSettings(verbatimOutput)
         guard let root = try fragment.body() else { return nil }
         return PostContentBuilder.content(from: root)
+    }
+
+    /// 把内嵌的播放器换成一条链接。
+    ///
+    /// 站点会把视频地址渲染成一个播放器：
+    /// `<div class="embedded_video_wrapper"><iframe src="https://www.youtube.com/embed/…"></iframe></div>`。
+    /// 而 `iframe` 是清洗时一定要去掉的东西 —— 正文是别人写的，要进 `WKWebView`。
+    /// 于是那一层楼里的视频**连地址都不剩**：读者只看到半句话，不知道后面本来有东西。
+    ///
+    /// 也不能改成留着 iframe 让它播：文档的 CSP 是 `default-src 'none'`，
+    /// 留着也是一块空白。所以在清洗**之前**把它换成一条能点的链接 ——
+    /// 播不了，至少去得了。
+    ///
+    /// 按标签认，不按站点认：`embedded_video_wrapper` 这个类名是 V2EX 现在的写法，
+    /// 而「iframe 里装着一个地址」是通用的。哪天它换个包装，这里照样接得住。
+    private static func replaceEmbeds(in element: Element) throws {
+        for embed in try element.select("iframe[src], video[src], video source[src]") {
+            let source = try embed.attr("abs:src")
+            guard source.hasPrefix("http://") || source.hasPrefix("https://") else {
+                // 解不出地址的播放器留着也没用，去掉 —— 反正清洗那一步也会去掉。
+                try embed.remove()
+                continue
+            }
+            // `<video>` 里的 `<source>` 要换掉的是整个 `<video>`，
+            // 不然剩一个空壳在那儿。
+            let target = embed.tagName() == "source" ? (embed.parent() ?? embed) : embed
+            let document = target.ownerDocument()
+            let paragraph = try document?.createElement("p") ?? Element(Tag.valueOf("p"), "")
+            let anchor = try document?.createElement("a") ?? Element(Tag.valueOf("a"), "")
+            try anchor.attr("href", source)
+            // 链接文字就写地址本身：说「视频」而不给地址，读者还是不知道去哪儿；
+            // 而地址里通常就带着是哪个站、哪一支。
+            try anchor.text("视频：\(source)")
+            try paragraph.appendChild(anchor)
+            try target.replaceWith(paragraph)
+        }
     }
 
     private static func resolveRelativeURLs(in element: Element) throws {
