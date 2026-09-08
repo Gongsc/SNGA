@@ -52,6 +52,9 @@ final class AppModel {
     let favorite: FavoriteStore
     let browsing: ForumStore
     let aiProfiles: AIProfileStore
+    /// 搜索历史。搜索本身留在 AppModel（它牵着导航和结果页），历史只是一份
+    /// 按账号存的关键词，单独收在这里。
+    let searchHistory: SearchHistoryStore
     /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
     let toolbox = ToolboxStore()
 
@@ -80,6 +83,7 @@ final class AppModel {
         messaging = MessageStore(session: session)
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
+        searchHistory = SearchHistoryStore(session: session)
         aiProfiles = AIProfileStore(
             context: session.context,
             session: session,
@@ -222,6 +226,7 @@ final class AppModel {
         await session.reloadAccountsAndServices()
         if let activeAccount = session.activeAccount {
             browsing.loadRecentForums()
+            searchHistory.reload()
             sidebarSelection = .userCenter(activeAccount.siteUserID)
             currentProfile = Profile(
                 uid: activeAccount.siteUserID,
@@ -283,6 +288,7 @@ final class AppModel {
             await session.reloadAccountsAndServices()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
+                searchHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -316,6 +322,7 @@ final class AppModel {
             session.updateActiveAccountCheckInStatus()
             clearVisibleContent()
             browsing.loadRecentForums()
+            searchHistory.reload()
             if let activeAccount = session.activeAccount {
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
@@ -359,6 +366,7 @@ final class AppModel {
             recentForumRecords
                 .filter { $0.accountIDString == accountID.description }
                 .forEach(session.context.delete)
+            searchHistory.removeAll(accountID: accountID)
             try await session.sessionStore.remove(accountID: accountID)
             session.setService(nil, for: accountID)
             try session.context.save()
@@ -366,6 +374,7 @@ final class AppModel {
             clearVisibleContent()
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
+                searchHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -571,6 +580,8 @@ final class AppModel {
         }
         let ticket = forumSearchRequests.begin()
         forumSearchRequest = request
+        // 记在发出去这一刻，两条搜索栏都从这里过。
+        searchHistory.record(request.query)
         forumSearchErrorMessage = nil
         isSearchingForum = true
         defer {

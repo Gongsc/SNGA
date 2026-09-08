@@ -36,6 +36,12 @@ struct ForumSearchBar: View {
         /// 「话题标题和内容」差着一倍），贴着内容会让输入框跟着一起变宽变窄。
         /// 只有一档的站点根本不画这个控件，所以这个值不必迁就短标题。
         static let kindPickerMinWidth: CGFloat = 140
+        /// 历史面板的圆角。
+        static let historyCornerRadius: CGFloat = 8
+        /// 历史面板每一行的上下留白。
+        static let historyRowVerticalPadding: CGFloat = 5
+        /// 历史面板左右的留白，和面板里的按钮共用。
+        static let historyRowHorizontalPadding: CGFloat = 8
     }
 
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
@@ -52,9 +58,15 @@ struct ForumSearchBar: View {
     @Binding var query: String
     @Binding var kind: ForumSearchKind
     let isSearching: Bool
+    /// 搜过的关键词。两条栏共用同一份 —— 见 `SearchHistoryStore`。
+    let history: SearchHistoryStore
     let search: () -> Void
     /// 给了才画「清除」。版面内搜索用它退回原来的话题列表，全站面板没有可退的。
     var clear: (() -> Void)?
+
+    @FocusState private var isQueryFieldFocused: Bool
+    /// 面板开着没有。跟着焦点走，但不是焦点本身 —— Esc 收掉面板时焦点还在输入框里。
+    @State private var isShowingHistory = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
@@ -77,6 +89,22 @@ struct ForumSearchBar: View {
                 }
             }
             .font(.caption)
+
+            historyPanel
+        }
+        // Esc 只收面板，不动焦点和已经输入的字 —— 那是 macOS 上「取消这层临时界面」
+        // 的意思。
+        .onExitCommand {
+            isShowingHistory = false
+        }
+        // 焦点离开时不立刻收面板：点面板里那一行的瞬间，输入框先把焦点交出去，
+        // 这时候把面板拆掉，那一下点击就落到空处 —— 从用户那边看是「面板闪了一下，
+        // 什么也没发生」。等一小会儿再看焦点是不是真的走了。
+        .task(id: isQueryFieldFocused) {
+            guard !isQueryFieldFocused else { return }
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !isQueryFieldFocused else { return }
+            isShowingHistory = false
         }
         .padding(.horizontal, Metrics.rowHorizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
@@ -90,7 +118,12 @@ struct ForumSearchBar: View {
             .textFieldStyle(.roundedBorder)
             .frame(maxWidth: .infinity)
             .layoutPriority(1)
+            .focused($isQueryFieldFocused)
             .onSubmit(performSearch)
+            .onChange(of: isQueryFieldFocused) { _, isFocused in
+                guard isFocused else { return }
+                isShowingHistory = true
+            }
             .accessibilityLabel(fieldAccessibilityLabel)
             .accessibilityIdentifier("\(identifierPrefix)-field")
     }
@@ -142,6 +175,122 @@ struct ForumSearchBar: View {
 
     private func performSearch() {
         guard canSearch else { return }
+        // 搜完把焦点交出去：面板是「点一下输入框就弹」的，焦点一直赖在框里，
+        // 下一次点进来就没有「进入焦点」这件事，面板也就不再弹了。
+        isShowingHistory = false
+        isQueryFieldFocused = false
         search()
+    }
+
+    /// 面板里现在该列哪些词。
+    ///
+    /// 输入框空着就是全部（这是「点一下就弹」的那一下）；开始打字之后按输入过滤，
+    /// 一条都不匹配时整块收掉 —— 打字时底下杵着一张对不上号的列表，比没有更烦。
+    private var visibleHistory: [String] {
+        let keyword = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return history.entries }
+        return history.entries.filter {
+            $0.localizedCaseInsensitiveContains(keyword)
+        }
+    }
+
+    @ViewBuilder
+    private var historyPanel: some View {
+        if isShowingHistory, !visibleHistory.isEmpty {
+            // 面板是这一行自己的一部分，不是浮在列表上的另一层：`List` 的行会把
+            // 越界的内容裁掉，而 `popover` 会把键盘焦点连同输入框一起端走 ——
+            // 弹出来就打不了字了。这里让行自己长高，代价是底下的内容往下让一让。
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("搜索历史")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("全部清除") {
+                        history.clear()
+                        isShowingHistory = false
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .accessibilityIdentifier("\(identifierPrefix)-history-clear-all")
+                }
+                .padding(.horizontal, Metrics.historyRowHorizontalPadding)
+                .padding(.vertical, Metrics.historyRowVerticalPadding)
+
+                Divider()
+
+                // 不套 ScrollView：条数本来就有上限（默认 10，最多 30），
+                // 而列表里再嵌一层滚动，滚轮该归谁全凭指针停在哪。
+                ForEach(visibleHistory, id: \.self) { entry in
+                    SearchHistoryEntryRow(
+                        entry: entry,
+                        identifierPrefix: identifierPrefix,
+                        select: { select(entry) },
+                        remove: { history.remove(entry) }
+                    )
+                }
+            }
+            .background(
+                .regularMaterial,
+                in: RoundedRectangle(cornerRadius: Metrics.historyCornerRadius)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Metrics.historyCornerRadius)
+                    .strokeBorder(.separator)
+            )
+            .accessibilityIdentifier("\(identifierPrefix)-history")
+        }
+    }
+
+    /// 点历史里的一条：填进输入框并立刻搜。历史存的就是「下次点一下重搜一次」。
+    private func select(_ entry: String) {
+        query = entry
+        performSearch()
+    }
+
+    /// 历史里的一行：整行是「重搜这个词」，行尾的叉是「只删这一条」。
+    ///
+    /// 两个按钮是并排的兄弟，不是嵌套 —— 按钮套按钮在 macOS 上里面那个点不动。
+    /// 放在这里面是为了和上面那些控件共用同一份 `Metrics`：留白在两个地方各写
+    /// 一遍，正是这条栏当年分裂成两条的起点。
+    private struct SearchHistoryEntryRow: View {
+        let entry: String
+        let identifierPrefix: String
+        let select: () -> Void
+        let remove: () -> Void
+
+        @State private var isHovering = false
+
+        var body: some View {
+            HStack(spacing: 4) {
+                Button(action: select) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(.secondary)
+                        Text(entry)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    // 整行可点，而不是只有那几个字：一行里最容易点中的是空白处。
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("重新搜索“\(entry)”")
+                .accessibilityIdentifier("\(identifierPrefix)-history-entry-\(entry)")
+
+                Button("删除", systemImage: "xmark", action: remove)
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("从搜索历史中删除“\(entry)”")
+                    .accessibilityIdentifier("\(identifierPrefix)-history-delete-\(entry)")
+            }
+            .padding(.horizontal, Metrics.historyRowHorizontalPadding)
+            .padding(.vertical, Metrics.historyRowVerticalPadding)
+            .background(isHovering ? Color.primary.opacity(0.08) : .clear)
+            .onHover { isHovering = $0 }
+        }
     }
 }

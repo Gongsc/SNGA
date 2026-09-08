@@ -1435,6 +1435,7 @@ struct TopicListView: View {
             query: $forumSearchQuery,
             kind: $forumSearchKind,
             isSearching: model.isSearchingForum,
+            history: model.searchHistory,
             search: performForumSearch,
             clear: clear
         )

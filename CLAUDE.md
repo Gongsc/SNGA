@@ -49,7 +49,7 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 ### 状态层
 
-`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和六个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`ToolboxStore`。
+`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和七个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`ToolboxStore`。
 
 - `AppSession`（[SNGA/App/AppSession.swift](SNGA/App/AppSession.swift)）是各 store 的唯一依赖：给「当前账号的服务」「出错怎么呈现」「加载指示」三件事。store 不反手持有 `AppModel`；跨领域的事（收藏状态变化要更新话题列表）用闭包在 `AppModel.init` 里对接。
 - 错误呈现只有 `AppSession.present(_:)` 一道门。取消（`CancellationError` 和 `URLError.cancelled` 两种形态都要认）在这里拦掉，展示时冠上站名。
@@ -68,7 +68,7 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 `ForumID` 是「站点 + 字符串键」（[SNGA/Models/Identifiers.swift](SNGA/Models/Identifiers.swift)）；`TopicID` / `PostID` / `MessageID` 仍是 `Int64`。NGA 自己的编码约定（子版面加 `s` 前缀、`fid` 还是 `stid`）全在 [SNGA/Network/ForumID+NGA.swift](SNGA/Network/ForumID+NGA.swift) 里，不外泄到通用层。
 
-SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`SubforumPreferenceRecord` 主键都以 `accountIDString` 打头，所以**天然按站点隔离**，不需要给每张表加站点列。存量库靠 `LegacyStoreBackfill` 回填，它必须在任何人按主键查记录**之前**跑（见 `SNGAApp.init`）—— 主键算法换过，没补过的老行查不到会被当新行插进去。`SNGATests/Fixtures/legacy-1.8.2.store` 是用 1.8.2 的模型定义真实生成的库，迁移用例对着它跑。
+SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`SubforumPreferenceRecord`、`SearchHistoryRecord` 主键都以 `accountIDString` 打头，所以**天然按站点隔离**，不需要给每张表加站点列。存量库靠 `LegacyStoreBackfill` 回填，它必须在任何人按主键查记录**之前**跑（见 `SNGAApp.init`）—— 主键算法换过，没补过的老行查不到会被当新行插进去。`SNGATests/Fixtures/legacy-1.8.2.store` 是用 1.8.2 的模型定义真实生成的库，迁移用例对着它跑。
 
 会话 cookie 按账号存成独立文件（0600，`LocalSessionStore`），不进 SwiftData。AI API Key 同样存成 0600 文件（`LocalAIKeyStore`）。运行日志的脱敏名单从 `ForumSite.allCases` 的 descriptor 推导，加站点自动纳入，别写死。
 

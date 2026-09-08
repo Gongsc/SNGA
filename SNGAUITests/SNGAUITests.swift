@@ -814,6 +814,72 @@ final class SNGAUITests: XCTestCase {
         )
     }
 
+    /// 搜索历史：点一下输入框就弹出来，能逐条删，也能一次清空。
+    ///
+    /// 面板是搜索栏自己的一部分（`List` 的行会把越界的内容裁掉，`popover` 会把
+    /// 键盘焦点连输入框一起端走），所以这条用例顺带盯着「弹出来之后还能打字」——
+    /// 焦点要是被端走了，清空关键词那一步就先红。
+    ///
+    /// 关键词用 ASCII，绕开中文 `typeText` 那个偶发问题。
+    func testSearchHistoryDropdownRemembersDeletesAndClearsKeywords() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        app.buttons["搜索"].click()
+        let field = app.textFields["global-search-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+
+        // 还没搜过时点输入框，不该凭空弹一张空面板。
+        field.click()
+        XCTAssertFalse(app.descendants(matching: .any)["global-search-history"].exists)
+
+        field.typeText("alpha")
+        app.buttons["global-search-submit"].click()
+        XCTAssertTrue(app.buttons["search-topic-9101"].waitForExistence(timeout: 5))
+
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText("beta")
+        XCTAssertEqual(field.value as? String, "beta")
+        app.buttons["global-search-submit"].click()
+        XCTAssertTrue(app.buttons["search-topic-9101"].waitForExistence(timeout: 5))
+
+        // 清空关键词，面板就列出全部历史 —— 有内容时按内容过滤，
+        // 所以两条都在，本身就说明刚才那几下按键真的打进了输入框。
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeKey(.delete, modifierFlags: [])
+        let panel = app.descendants(matching: .any)["global-search-history"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        let alphaEntry = app.buttons["global-search-history-entry-alpha"]
+        let betaEntry = app.buttons["global-search-history-entry-beta"]
+        XCTAssertTrue(betaEntry.waitForExistence(timeout: 5))
+        XCTAssertTrue(alphaEntry.exists)
+
+        // 逐条删：删掉的那条走人，另一条留下。
+        app.buttons["global-search-history-delete-alpha"].click()
+        XCTAssertTrue(waitForDisappearance(of: alphaEntry))
+        XCTAssertTrue(betaEntry.exists)
+
+        // 点一条就是重搜它。
+        betaEntry.click()
+        XCTAssertTrue(app.buttons["search-topic-9101"].waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "beta")
+
+        // 全部清除之后，再点输入框也没有面板了。
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        app.buttons["global-search-history-clear-all"].click()
+        XCTAssertTrue(waitForDisappearance(of: panel))
+        field.click()
+        XCTAssertFalse(panel.waitForExistence(timeout: 2))
+    }
+
     func testToolboxNavigationShowsAllFeeds() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -1258,6 +1324,19 @@ final class SNGAUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("REPRO[\(name)] \(extra)")
+    }
+
+    /// 等一个元素消失。XCUITest 只给了「等它出现」。
+    private func waitForDisappearance(
+        of element: XCUIElement,
+        timeout: TimeInterval = 5
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return !element.exists
     }
 
     private func ensureMainWindow(in app: XCUIApplication) {

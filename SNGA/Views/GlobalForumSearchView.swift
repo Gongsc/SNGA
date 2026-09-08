@@ -22,6 +22,7 @@ struct GlobalForumSearchView: View {
                 query: $query,
                 kind: $kind,
                 isSearching: model.isSearchingForum,
+                history: model.searchHistory,
                 search: performSearch
             )
             searchContent

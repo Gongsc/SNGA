@@ -154,6 +154,7 @@ final class LegacyStoreMigrationTests: XCTestCase {
             DraftRecord.self,
             SubforumPreferenceRecord.self,
             RecentForumRecord.self,
+            SearchHistoryRecord.self,
             AIProfileSummaryRecord.self
         ])
         // 这一行就是被测的迁移：老库 + 新 schema，打不开就抛。
