@@ -257,12 +257,11 @@ struct ForumSiteDescriptor: Sendable {
         // 用户搜索的响应字段还没验过（`/api/account/find/{name}` 要登录才看得到成功的
         // 那份），验到之前不摆出来 —— 摆一个必定失败的选项比少一个选项更糟。
         case .nodeseek: [.topicSubject]
-        // 站点**没有自己的全文搜索**。这不是「匿名试出来的」——`/search` 匿名 302 到
-        // `/go/search`（一个叫 search 的节点），而站点自己的搜索框（`combo.js` 里
-        // `FEATURES.includes('search')` 那一段）给的四档是：节点、用户、谷歌
-        // `site:v2ex.com/t`、第三方 SoV2EX。前两档是本地过滤和跳转，后两档在站外。
-        // 所以这里只留节点一档，它是真能搜的那个。
-        case .v2ex: [.forum]
+        // 站点**自己**没有全文搜索：`combo.js` 里搜索框给的四档是节点、用户、
+        // 谷歌 `site:v2ex.com/t`、第三方 SoV2EX。前两档是本地过滤和跳转，
+        // 谷歌那档应用里没有对应物，而 SoV2EX 是唯一真能搜正文的 —— 主题那一档
+        // 走的就是它。名字写在档位上，因为关键词确实会离开 V2EX。
+        case .v2ex: [.topicContent, .forum]
         }
     }
 
@@ -275,6 +274,50 @@ struct ForumSiteDescriptor: Sendable {
         searchKinds.filter(\.supportsCurrentForum)
     }
 
+    /// 这一档搜索的结果是谁给的。自家给的返回 nil，那种情况不必说。
+    ///
+    /// 走站外服务时必须说出来：关键词离开了本站，用的人有权知道去了哪儿。
+    /// 放在「范围」那一行而不是档位名里 —— 那是个定宽的选择器，名字一长就截断，
+    /// 而这一行是跟着内容走的。
+    func searchProviderNote(for kind: ForumSearchKind) -> String? {
+        switch (site, kind) {
+        case (.v2ex, .topicContent):
+            "结果来自第三方 \(V2EXEndpoint.searchProviderName)，不含你的登录状态"
+        default:
+            nil
+        }
+    }
+
+    /// 这一档搜索收得下哪几样筛选条件。
+    ///
+    /// 细到「同一个站点的哪一档」：V2EX 的主题搜索走 SoV2EX，作者、日期区间、
+    /// 排序三样全收；同一个站的节点搜索是本地过滤一份名单，一样都收不下。
+    /// 收不下的界面上根本不画 —— 摆一个改了不生效的控件，比没有这个控件更糟。
+    func searchFilters(for kind: ForumSearchKind) -> ForumSearchFilterOptions {
+        switch (site, kind) {
+        case (.v2ex, .topicContent): .all
+        // NGA 的搜索有自己的一套参数，还没摸过；NodeSeek 的搜索是整页跳转，
+        // 地址上只有关键词和分类两个参数。两边都不画。
+        default: []
+        }
+    }
+
+    /// 在**这个**版面里搜得了吗。
+    ///
+    /// 比 `currentForumSearchKinds` 又细一层：站点支持版面内搜索，不代表每个版面
+    /// 都缩得进去。V2EX 的首页分类和「最近主题」都不是节点 —— 而搜索那边能收的
+    /// 只有节点名，带不上。画出来就是一句谎：范围写着「当前版面」，搜的却是全站。
+    func supportsSearch(in forumID: ForumID) -> Bool {
+        guard !currentForumSearchKinds.isEmpty else { return false }
+        switch site {
+        case .nga, .nodeseek:
+            return true
+        case .v2ex:
+            return V2EXEndpoint.tabKey(of: forumID) == nil
+                && forumID.key != V2EXEndpoint.recentKey
+        }
+    }
+
     /// 搜索面板还没搜过东西时，那句说明写什么。
     ///
     /// 各站能搜的范围不一样，写死 NGA 那句会在 NodeSeek 上承诺搜得到版面和用户。
@@ -282,7 +325,10 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: "可搜索话题、版面、版主和用户发布的内容。"
         case .nodeseek: "按帖子标题搜索全站，正文不在搜索范围内。"
-        case .v2ex: "按名称搜索节点。站点自己没有主题全文搜索，正文和标题都搜不了。"
+        case .v2ex:
+            "主题搜索由第三方的 \(V2EXEndpoint.searchProviderName) 提供 —— "
+                + "V2EX 自己没有全文搜索，所以关键词会发给它（不会带上你的登录状态）。"
+                + "节点搜索在本地完成，不出网。"
         }
     }
 
@@ -297,6 +343,10 @@ struct ForumSiteDescriptor: Sendable {
         case (.nodeseek, .user): "用户"
         // 站点管版面叫节点，而这一档搜的只有节点，搜不到版主 —— 它根本没有版主。
         case (.v2ex, .forum): "节点"
+        // 站点管话题叫主题，而这一档标题和正文都搜。提供方不写在这儿 ——
+        // 档位选择器是个定宽控件，名字一长就截断成「主题正文（SoV2…」，
+        // 反而谁也看不见。它写在下面那行范围里，见 `searchProviderNote`。
+        case (.v2ex, .topicContent): "主题正文"
         default: kind.title
         }
     }

@@ -83,6 +83,7 @@
 		714C9844E7177DC7EB3CC06B /* ForumSearchKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0734A89E0257A2AF3D07BEF8 /* ForumSearchKind.swift */; };
 		74ED27743D9E1835F4F3AA61 /* V2EXNetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95C1E31E0EBA5304999DBD01 /* V2EXNetworkClient.swift */; };
 		77CE3F840056CB3A8D542724 /* ToolboxViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 275484E9D5B99D03DF123C6C /* ToolboxViews.swift */; };
+		77F103C1FD4B81CA0C469850 /* v2ex-sov2ex-search.json in Resources */ = {isa = PBXBuildFile; fileRef = 8AE2486E74E439721AD8AEAD /* v2ex-sov2ex-search.json */; };
 		783A1A3511B715C849A5B8AA /* LegacyStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */; };
 		7B88D3EBAC60DA251B06A9B4 /* v2ex-nodes.json in Resources */ = {isa = PBXBuildFile; fileRef = 613C3F3F9AC7847D9EF8D8CF /* v2ex-nodes.json */; };
 		7C6126D97B43C31665ADE89C /* NodeSeekParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48EBA43529B23C6BC6E89B44 /* NodeSeekParser.swift */; };
@@ -108,6 +109,7 @@
 		8FD2A44644F23270764E9538 /* PostImageSlicerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA567D0CC7BEA6E8BB29C4CB /* PostImageSlicerTests.swift */; };
 		91E1C251D134021F6B00861B /* SearchHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F63423E187E3C315A45974A6 /* SearchHistoryStore.swift */; };
 		927AFABD010C6F73ABC930AF /* v2ex-recent-topics.html in Resources */ = {isa = PBXBuildFile; fileRef = BE16A2B542463F77EBC30C9A /* v2ex-recent-topics.html */; };
+		930F4A63918FD872A800E121 /* V2EXSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD7FB466C0A62ACAB6CF9C4 /* V2EXSearchTests.swift */; };
 		9410BCD985FBFAF4028338B7 /* ForumSite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A6ABB86221363E412C05AB /* ForumSite.swift */; };
 		941FACC3AB24FDF441C06995 /* PaginationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C926F674DF7FD9306C451DFF /* PaginationBar.swift */; };
 		95C61683A59EFE9231626483 /* ThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2AA5E0624D43795D13C6C9F /* ThemePalette.swift */; };
@@ -237,6 +239,7 @@
 		275484E9D5B99D03DF123C6C /* ToolboxViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolboxViews.swift; sourceTree = "<group>"; };
 		28985CF51AE918757BDF81DD /* ANSITextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSITextTests.swift; sourceTree = "<group>"; };
 		291F04F8F760A051FC6F266C /* PostImageContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostImageContextMenu.swift; sourceTree = "<group>"; };
+		2AD7FB466C0A62ACAB6CF9C4 /* V2EXSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXSearchTests.swift; sourceTree = "<group>"; };
 		2D5977B956991E18788ADB30 /* MessageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageViews.swift; sourceTree = "<group>"; };
 		2EB1E6EBF89005A786C462A2 /* ForumSiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSiteTests.swift; sourceTree = "<group>"; };
 		2F474EA77E9AF6FD2DF9CDAD /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
@@ -313,6 +316,7 @@
 		8717C07BC66996081C13AF31 /* ANSIText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ANSIText.swift; sourceTree = "<group>"; };
 		872BDE23AA1AE8A84FC9F909 /* ForumSearchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchRequest.swift; sourceTree = "<group>"; };
 		8832D4CE472AC37C4868F769 /* SNGA.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SNGA.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8AE2486E74E439721AD8AEAD /* v2ex-sov2ex-search.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "v2ex-sov2ex-search.json"; sourceTree = "<group>"; };
 		8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmoticonImageStoreTests.swift; sourceTree = "<group>"; };
 		8D7D78EB211DCB9F23A11693 /* AIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIKeyStore.swift; sourceTree = "<group>"; };
 		8F3AE681907138C9E40EC442 /* v2ex-node-topics.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "v2ex-node-topics.html"; sourceTree = "<group>"; };
@@ -477,6 +481,7 @@
 				A60B37350690DF536D618037 /* v2ex-planes.html */,
 				98B9C90B0D9A5491B73F951D /* v2ex-post-video.html */,
 				BE16A2B542463F77EBC30C9A /* v2ex-recent-topics.html */,
+				8AE2486E74E439721AD8AEAD /* v2ex-sov2ex-search.json */,
 				E0AD1D4760C5383151526DD9 /* v2ex-topic-paged.html */,
 				3D7A8327C088FCCD54B05C69 /* v2ex-topic.html */,
 			);
@@ -687,6 +692,7 @@
 				FAD1FFDA48D04E87858BB25B /* V2EXEndpointTests.swift */,
 				FD4192272BC81733549F41E4 /* V2EXLiveTests.swift */,
 				D0402B275762A28040084F66 /* V2EXParserTests.swift */,
+				2AD7FB466C0A62ACAB6CF9C4 /* V2EXSearchTests.swift */,
 				7328E599537151C15296E412 /* V2EXTabListingTests.swift */,
 				A77E68B9F8AAC20597F432C3 /* V2EXWriteTests.swift */,
 			);
@@ -831,6 +837,7 @@
 				EC7A05602521AEFB685DC685 /* v2ex-planes.html in Resources */,
 				A8C83FFC2FFCF39E2F5561B1 /* v2ex-post-video.html in Resources */,
 				927AFABD010C6F73ABC930AF /* v2ex-recent-topics.html in Resources */,
+				77F103C1FD4B81CA0C469850 /* v2ex-sov2ex-search.json in Resources */,
 				3F3881CC59180443242D1CFB /* v2ex-topic-paged.html in Resources */,
 				C0CDD249754ACA6F04F6D1C3 /* v2ex-topic.html in Resources */,
 			);
@@ -1011,6 +1018,7 @@
 				D3F79B9273200C0924C6880F /* V2EXEndpointTests.swift in Sources */,
 				41FB7F0DFE2458662E27C9FE /* V2EXLiveTests.swift in Sources */,
 				A4F3018698512D664C718A2A /* V2EXParserTests.swift in Sources */,
+				930F4A63918FD872A800E121 /* V2EXSearchTests.swift in Sources */,
 				D244A03B6CBE8E5B48613EF9 /* V2EXTabListingTests.swift in Sources */,
 				1561DDC4760643755F1784FB /* V2EXWriteTests.swift in Sources */,
 			);

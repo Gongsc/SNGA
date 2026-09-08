@@ -276,7 +276,7 @@ struct UserCenterView: View {
                     }
                 }
                 .padding(16)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
 
                 // 站点资料页上那一排外部链接。空了整块不画 —— 没有链接的人占多数，
                 // 摆一个空盒子只是多一道分隔线。
@@ -303,7 +303,7 @@ struct UserCenterView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
                 }
 
                 if let signature = profile.signature, !signature.isEmpty {
@@ -317,7 +317,7 @@ struct UserCenterView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(16)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
         }
@@ -495,6 +495,7 @@ private struct ProfileField: View {
 }
 
 private struct ReputationMetric: View {
+    @Environment(\.sngaTheme) private var theme
     let title: String
     let value: String
     let systemImage: String
@@ -503,9 +504,9 @@ private struct ReputationMetric: View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.accentColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.caption).foregroundStyle(theme.secondaryForegroundColor)
                 Text(value)
                     .font(.title3.monospacedDigit().bold())
                     .lineLimit(1)
@@ -514,7 +515,7 @@ private struct ReputationMetric: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -1204,6 +1205,7 @@ struct TopicListView: View {
     @State private var isSubforumsExpanded = false
     @State private var forumSearchQuery = ""
     @State private var forumSearchKind = ForumSearchKind.topicSubject
+    @State private var forumSearchFilters = ForumSearchFilters.none
     private let topAnchor = "topic-list-top"
     private let hiddenSidebarTitleClearance: CGFloat = 140
 
@@ -1213,9 +1215,10 @@ struct TopicListView: View {
                 forumTitleRow
                     .id(topAnchor)
 
-                // 一档都没有的站点不画这条栏。V2EX 的搜索只能找节点，缩不进某一个
-                // 节点里 —— 画出来是摆一个按下去什么都不会发生的按钮。
-                if !siteDescriptor.currentForumSearchKinds.isEmpty {
+                // 缩不进这个版面的话就不画这条栏。V2EX 的首页分类和「最近主题」
+                // 都不是节点，而搜索那边只收得下节点名 —— 画出来就是一句谎：
+                // 范围写着「当前版面」，搜的却是全站。
+                if siteDescriptor.supportsSearch(in: forumID) {
                     searchBar
                 }
 
@@ -1445,6 +1448,7 @@ struct TopicListView: View {
             isSubforumsExpanded = false
             forumSearchQuery = ""
             forumSearchKind = .topicSubject
+            forumSearchFilters = .none
             model.clearForumSearch()
         }
         .ignoresSafeArea(.container, edges: .top)
@@ -1468,6 +1472,7 @@ struct TopicListView: View {
             kinds: siteDescriptor.currentForumSearchKinds,
             query: $forumSearchQuery,
             kind: $forumSearchKind,
+            filters: $forumSearchFilters,
             isSearching: model.isSearchingForum,
             history: model.searchHistory,
             search: performForumSearch,
@@ -1616,7 +1621,8 @@ struct TopicListView: View {
         guard let request = ForumSearchRequest(
             query: forumSearchQuery,
             kind: forumSearchKind,
-            forumID: forumID
+            forumID: forumID,
+            filters: forumSearchFilters
         ) else {
             return
         }

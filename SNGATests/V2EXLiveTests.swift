@@ -175,6 +175,85 @@ final class V2EXLiveTests: XCTestCase {
         XCTAssertTrue(once.allSatisfy(\.isNumber), "令牌应当是一串数字：\(once)")
     }
 
+    /// 主题搜索走第三方的 SoV2EX。这条会把关键词发到 sov2ex.com。
+    func manualLiveTopicSearchParses() async throws {
+        let request = try XCTUnwrap(ForumSearchRequest(query: "dmit", kind: .topicContent))
+
+        let page = try await service().search(request, page: 1)
+
+        XCTAssertFalse(page.topics.isEmpty)
+        XCTAssertGreaterThan(page.totalPages, 1)
+        let first = try XCTUnwrap(page.topics.first)
+        XCTAssertFalse(first.subject.isEmpty)
+        XCTAssertFalse(first.author.isEmpty)
+        // 节点编号翻得成名字，时间读得出来（而且不该差八小时）。
+        XCTAssertNotNil(first.sourceForumName)
+        XCTAssertNotNil(first.publishedAt)
+        print("线上搜索：\(page.totalPages) 页，首条 #\(first.id) \(first.subject.prefix(24)) @ \(first.sourceForumName ?? "—")")
+    }
+
+    /// 缩进一个节点搜。带的是节点名 —— 编号会被无声地忽略。
+    func manualLiveTopicSearchInsideANodeParses() async throws {
+        let all = try await service().search(
+            try XCTUnwrap(ForumSearchRequest(query: "dmit", kind: .topicContent)),
+            page: 1
+        )
+        let scoped = try await service().search(
+            try XCTUnwrap(ForumSearchRequest(
+                query: "dmit", kind: .topicContent,
+                forumID: V2EXEndpoint.forumID(key: "qna")
+            )),
+            page: 1
+        )
+
+        XCTAssertLessThan(scoped.totalPages, all.totalPages, "缩进节点之后结果该少一些")
+        XCTAssertTrue(
+            scoped.topics.allSatisfy { $0.forumID.key == "qna" },
+            "缩进 qna 之后不该有别的节点的结果"
+        )
+        print("线上搜索：全站 \(all.totalPages) 页，问与答 \(scoped.totalPages) 页")
+    }
+
+    /// 筛选条件真的能把结果缩窄。
+    ///
+    /// 日期那两个参数尤其值得打一次线上：它们的单位是**秒**，传毫秒接口不报错、
+    /// 只是一条都搜不到 —— 光看状态码验不出来。
+    func manualLiveSearchFiltersNarrowTheResults() async throws {
+        let service = service()
+        func search(_ filters: ForumSearchFilters) async throws -> ForumSearchPage {
+            try await service.search(
+                try XCTUnwrap(ForumSearchRequest(
+                    query: "dmit", kind: .topicContent, filters: filters
+                )),
+                page: 1
+            )
+        }
+
+        let all = try await search(.none)
+
+        var byAuthor = ForumSearchFilters.none
+        byAuthor.author = "idblife"
+        let authored = try await search(byAuthor)
+        XCTAssertLessThan(authored.totalPages, all.totalPages)
+        XCTAssertTrue(authored.topics.allSatisfy { $0.author == "idblife" })
+
+        var byDate = ForumSearchFilters.none
+        byDate.postedAfter = try XCTUnwrap(
+            DateComponents(calendar: .current, year: 2025, month: 1, day: 1).date
+        )
+        byDate.postedBefore = try XCTUnwrap(
+            DateComponents(calendar: .current, year: 2025, month: 12, day: 31).date
+        )
+        byDate.sort = .postedAt
+        let dated = try await search(byDate)
+        XCTAssertFalse(dated.topics.isEmpty, "日期区间传成毫秒的话这里就是空的")
+        for topic in dated.topics {
+            let year = Calendar.current.component(.year, from: try XCTUnwrap(topic.publishedAt))
+            XCTAssertEqual(year, 2025, "落在区间外：\(topic.subject)")
+        }
+        print("线上筛选：全部 \(all.totalPages) 页，idblife \(authored.totalPages) 页，2025 年内 \(dated.totalPages) 页")
+    }
+
     func manualLiveNodeSearchFindsSomething() async throws {
         let request = try XCTUnwrap(ForumSearchRequest(query: "swift", kind: .forum))
 

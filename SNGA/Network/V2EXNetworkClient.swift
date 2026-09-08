@@ -59,6 +59,36 @@ actor V2EXNetworkClient {
         try await send(url, method: "POST", form: fields, asJSON: false, referer: referer)
     }
 
+    /// 向**站外**发一次 GET。
+    ///
+    /// 主题搜索走的是第三方的 SoV2EX（V2EX 自己没有主题搜索）。那台服务器和这个站
+    /// 没有关系，所以这条路**一个 cookie 都不带**，也不带 Referer 和 Origin ——
+    /// 会话是用户的，没有理由让它离开 v2ex.com。
+    ///
+    /// 单独开一个方法而不是在 `send` 里判域名：判域名是一句可以被后来的人删掉的
+    /// 条件，而这里是「这条路本来就不碰 jar」。限流仍然共用，两边都不该被打太快。
+    func getThirdParty(_ url: URL) async throws -> Data {
+        try await throttle()
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 25
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+
+        await RuntimeLogger.shared.log(
+            category: "network",
+            "GET \(RuntimeLogger.sanitizedURL(url))（站外）"
+        )
+        let (data, response) = try await transport.data(for: request)
+        switch response.statusCode {
+        case 200..<300: return data
+        case 429: throw ForumServiceError.rateLimited
+        default: throw ForumServiceError.server(response.statusCode)
+        }
+    }
+
     /// 现取一个一次性令牌。
     ///
     /// 响应体就是一串数字，别的什么都没有。站点自己在本地缓存 10 秒，我们不缓存 ——

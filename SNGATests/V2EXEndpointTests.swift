@@ -29,17 +29,46 @@ final class V2EXEndpointTests: XCTestCase {
         XCTAssertEqual(site.userAgent, .fixed("SNGA/1.0 (macOS; native client)"))
     }
 
-    /// 站点没有主题全文搜索，只有节点搜索。
-    ///
-    /// 这个结论不是从「匿名访问 `/search` 被转走」推出来的 —— 那是 NodeSeek 上踩过
-    /// 两次的坑。判据是站点自己的 `combo.js`：搜索框给的四档是节点、用户、
-    /// 谷歌 `site:v2ex.com/t`、第三方 SoV2EX。
-    func testSearchOffersNodesOnly() {
-        XCTAssertEqual(site.searchKinds, [.forum])
+    /// 主题搜索走第三方的 SoV2EX；节点搜索在本地过滤。
+    func testSearchOffersTopicsThroughSoV2EXAndNodesLocally() {
+        XCTAssertEqual(site.searchKinds, [.topicContent, .forum])
         XCTAssertEqual(site.searchKindTitle(.forum), "节点")
-        XCTAssertTrue(site.searchSummary.contains("节点"))
-        // 节点搜索缩不进某一个节点里，所以版面内搜索一档都没有。
-        XCTAssertTrue(site.currentForumSearchKinds.isEmpty)
+        // 档位名要短 —— 那是个定宽的选择器，名字一长就截断成「主题正文（SoV2…」。
+        XCTAssertEqual(site.searchKindTitle(.topicContent), "主题正文")
+        // 提供方改写在「范围」那一行，它跟着内容走，不会被截断。
+        let note = site.searchProviderNote(for: .topicContent)
+        XCTAssertEqual(note?.contains("SoV2EX"), true)
+        XCTAssertEqual(note?.contains("登录状态"), true, "得说清会不会带上会话")
+        XCTAssertNil(site.searchProviderNote(for: .forum), "节点搜索不出网，不必说")
+        XCTAssertNil(ForumSiteDescriptor.nga.searchProviderNote(for: .topicContent))
+        XCTAssertTrue(site.searchSummary.contains("SoV2EX"))
+        XCTAssertTrue(site.searchSummary.contains("登录状态"), "得说清会不会带上会话")
+        // 主题那一档缩得进某一个节点。
+        XCTAssertEqual(site.currentForumSearchKinds, [.topicContent])
+    }
+
+    /// 但缩不进首页分类和「最近主题」—— 它们不是节点，搜索那边收不下。
+    /// 画出来就是一句谎：范围写着「当前版面」，搜的却是全站。
+    func testInForumSearchIsOnlyOfferedInsideRealNodes() {
+        XCTAssertTrue(site.supportsSearch(in: V2EXEndpoint.forumID(key: "qna")))
+        XCTAssertFalse(site.supportsSearch(in: V2EXEndpoint.tabForumID(key: "tech")))
+        XCTAssertFalse(
+            site.supportsSearch(in: V2EXEndpoint.forumID(key: V2EXEndpoint.recentKey))
+        )
+        // 别的站不受这条影响。
+        XCTAssertTrue(ForumSiteDescriptor.nga.supportsSearch(in: ForumID(nga: 414)))
+    }
+
+    /// 分页靠 `from`，一次二十条。节点为空时那个参数干脆不带。
+    func testSoV2EXSearchURL() {
+        XCTAssertEqual(
+            V2EXEndpoint.search(query: "dmit", node: nil, page: 1, pageSize: 20).absoluteString,
+            "https://www.sov2ex.com/api/search?q=dmit&from=0&size=20&sort=sumup&order=0"
+        )
+        XCTAssertEqual(
+            V2EXEndpoint.search(query: "dmit", node: "qna", page: 3, pageSize: 20).absoluteString,
+            "https://www.sov2ex.com/api/search?q=dmit&from=40&size=20&sort=sumup&order=0&node=qna"
+        )
     }
 
     func testCapabilitiesLeaveOutWhatTheSiteDoesNotHave() {
@@ -199,10 +228,116 @@ final class V2EXEndpointTests: XCTestCase {
         XCTAssertEqual(page.forum?.subtitle?.hasPrefix("程序员 · Python"), true)
     }
 
-    private func fixture(_ name: String) throws -> String {
+    // MARK: - 搜索的筛选条件
+
+    /// 哪几样画得出来按「站点 + 这一档」问。同一个 V2EX，主题搜索三样全收，
+    /// 节点搜索一样都收不下 —— 后者是本地过滤一份名单。
+    func testSearchFiltersAreDeclaredPerKind() {
+        XCTAssertEqual(site.searchFilters(for: .topicContent), .all)
+        XCTAssertTrue(site.searchFilters(for: .forum).isEmpty)
+        for other in [ForumSiteDescriptor.nga, .nodeseek] {
+            XCTAssertTrue(other.searchFilters(for: .topicSubject).isEmpty)
+            XCTAssertTrue(other.searchFilters(for: .topicContent).isEmpty)
+        }
+    }
+
+    /// 没填的条件整个不带。带一个空的 `username=` 和不带不是一回事。
+    func testUnsetFiltersAreNotSent() {
+        let url = V2EXEndpoint.search(
+            query: "dmit", node: nil, page: 1, pageSize: 20, filters: .none
+        ).absoluteString
+
+        XCTAssertFalse(url.contains("username="), url)
+        XCTAssertFalse(url.contains("gte="), url)
+        XCTAssertFalse(url.contains("lte="), url)
+        // 排序总要给一个 —— 默认就是站点自己的默认：相关度、降序。
+        XCTAssertTrue(url.contains("sort=sumup"))
+        XCTAssertTrue(url.contains("order=0"))
+    }
+
+    func testAuthorAndSortFilters() {
+        var filters = ForumSearchFilters.none
+        filters.author = "  idblife  "
+        filters.sort = .postedAt
+        filters.isAscending = true
+
+        let url = V2EXEndpoint.search(
+            query: "dmit", node: nil, page: 1, pageSize: 20, filters: filters
+        ).absoluteString
+
+        // 两头的空白要去掉，否则站点收到的是一个不存在的用户名。
+        XCTAssertTrue(url.contains("username=idblife"), url)
+        XCTAssertTrue(url.contains("sort=created"), url)
+        // order=1 是升序（实测；0 是降序）。
+        XCTAssertTrue(url.contains("order=1"), url)
+    }
+
+    /// **日期是秒，不是毫秒。** 传毫秒接口不报错，只是一条都搜不到 ——
+    /// 那个数落在很远的将来。这条盯的就是量级。
+    func testDateRangeIsSentInSecondsAndCoversWholeDays() throws {
+        let day = try XCTUnwrap(
+            DateComponents(
+                calendar: .current, year: 2025, month: 6, day: 15, hour: 13
+            ).date
+        )
+        var filters = ForumSearchFilters.none
+        filters.postedAfter = day
+        filters.postedBefore = day
+
+        let components = try XCTUnwrap(URLComponents(
+            url: V2EXEndpoint.search(
+                query: "dmit", node: nil, page: 1, pageSize: 20, filters: filters
+            ),
+            resolvingAgainstBaseURL: false
+        ))
+        func value(_ name: String) throws -> Int {
+            try XCTUnwrap(components.queryItems?.first { $0.name == name }?.value.flatMap(Int.init))
+        }
+        let gte = try value("gte")
+        let lte = try value("lte")
+
+        // 秒的量级是十位数；毫秒是十三位。传错了这一条立刻红。
+        XCTAssertLessThan(gte, 100_000_000_000, "日期得是秒，不是毫秒")
+        // 选的是「哪一天」，两端都含当天 —— 都送成同一个时刻的话，
+        // 「从 15 号搜到 15 号」会一条都搜不到。
+        XCTAssertEqual(gte, Int(Calendar.current.startOfDay(for: day).timeIntervalSince1970))
+        XCTAssertEqual(lte - gte, 24 * 60 * 60 - 1)
+    }
+
+    /// 筛选条件要真的跟着请求走，不能只存在界面上。
+    func testFiltersReachTheOutboundRequest() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/api/search": try fixture("v2ex-sov2ex-search", extension: "json"),
+                "/api/nodes": try fixture("v2ex-nodes", extension: "json")
+            ]
+        )
+        var filters = ForumSearchFilters.none
+        filters.author = "idblife"
+        filters.sort = .postedAt
+        let request = try XCTUnwrap(
+            ForumSearchRequest(query: "dmit", kind: .topicContent, filters: filters)
+        )
+
+        _ = try await V2EXForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        ).search(request, page: 1)
+
         let url = try XCTUnwrap(
-            Bundle(for: Self.self).url(forResource: name, withExtension: "html"),
-            "测试包里没有夹具 \(name).html"
+            transport.requests.first { $0.url?.host == "www.sov2ex.com" }?.url?.absoluteString
+        )
+        XCTAssertTrue(url.contains("username=idblife"), url)
+        XCTAssertTrue(url.contains("sort=created"), url)
+    }
+
+    private func fixture(
+        _ name: String,
+        extension ext: String = "html"
+    ) throws -> String {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: name, withExtension: ext),
+            "测试包里没有夹具 \(name).\(ext)"
         )
         return try String(contentsOf: url, encoding: .utf8)
     }

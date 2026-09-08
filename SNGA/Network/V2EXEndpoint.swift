@@ -138,6 +138,82 @@ enum V2EXEndpoint {
     /// 用户主页。解析用不上，「在浏览器中打开」用得上。
     static func memberPage(username: String) -> URL { url("/member/\(username)") }
 
+    // MARK: - 站内搜索（第三方）
+
+    /// 主题搜索走 SoV2EX。
+    ///
+    /// **它不是 V2EX。** `sov2ex.com` 是第三方建的全文索引，V2EX 自己没有主题搜索 ——
+    /// 站点搜索框里那四档（节点、用户、谷歌、SoV2EX）它排第四，是唯一一个真能
+    /// 搜正文的。接它意味着关键词会离开 V2EX，所以：**绝不能带着用户的会话去请求**，
+    /// 见 `V2EXNetworkClient.getThirdParty`。
+    ///
+    /// 三处和界面上写的不一样（实测 2026-09-08）：
+    ///
+    /// - 日期范围 `gte` / `lte` 收的是**秒**。它表单上写着 `YYYY-MM-DD`，传日期字符串
+    ///   答 400；而传毫秒**不报错、悄悄返回 0 条** —— 那个数落在很远的将来，
+    ///   什么都不在范围里。只看状态码验不出这条，得比对结果条数：
+    ///   `gte=1735689600`（2025-01-01）是 273 条，同一时刻的毫秒形式是 0 条。
+    /// - `node` 收的是**节点名**。表单说「支持节点名称与节点 id」，可传数字编号时
+    ///   过滤根本不生效 —— 结果条数和不带这个参数一模一样（410 对 410），
+    ///   而传 `qna` 是 41 条。
+    /// - `order=0` 是**降序**，`1` 是升序。
+    static func search(
+        query: String,
+        node: String?,
+        page: Int,
+        pageSize: Int,
+        filters: ForumSearchFilters = .none
+    ) -> URL {
+        var items = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "from", value: String(max(0, (max(1, page) - 1) * pageSize))),
+            URLQueryItem(name: "size", value: String(pageSize)),
+            URLQueryItem(
+                name: "sort",
+                // 站点自己的两个词。默认那个（权重）就是不带筛选时的排法。
+                value: filters.sort == .postedAt ? "created" : "sumup"
+            ),
+            URLQueryItem(name: "order", value: filters.isAscending ? "1" : "0")
+        ]
+        if let node, !node.isEmpty { items.append(URLQueryItem(name: "node", value: node)) }
+        // 没填就整个不带。带一个空的 `username=` 和不带不是一回事。
+        if let author = filters.trimmedAuthor {
+            items.append(URLQueryItem(name: "username", value: author))
+        }
+        if let after = filters.postedAfter {
+            items.append(URLQueryItem(name: "gte", value: String(Self.seconds(startOf: after))))
+        }
+        if let before = filters.postedBefore {
+            items.append(URLQueryItem(name: "lte", value: String(Self.seconds(endOf: before))))
+        }
+        var components = URLComponents(string: "https://www.sov2ex.com/api/search")!
+        components.queryItems = items
+        return components.url!
+    }
+
+    /// 用户选的是「哪一天」，两端都要含当天。
+    ///
+    /// 下界取当天零点，上界取当天最后一秒 —— 直接把两端都送成同一个时刻的话，
+    /// 「从 1 号到 1 号」会一条都搜不到。按本地时区算：用户看到的日历是本地的。
+    private static func seconds(startOf date: Date) -> Int {
+        Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
+    }
+
+    private static func seconds(endOf date: Date) -> Int {
+        let start = Calendar.current.startOfDay(for: date)
+        let next = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
+        return Int(next.timeIntervalSince1970) - 1
+    }
+
+    /// 每页取多少条。接口允许 1~50，默认 10。
+    ///
+    /// 取 20：太少的话一屏都填不满，还得马上翻页；取满 50 则要等一次更久的往返，
+    /// 而搜索结果很少有人翻到第三屏。
+    static let searchPageSize = 20
+
+    /// 搜索结果页上那句「结果来自哪儿」。第三方的事要说出来。
+    static let searchProviderName = "SoV2EX"
+
     // MARK: - 写操作
 
     /// 一次性令牌。

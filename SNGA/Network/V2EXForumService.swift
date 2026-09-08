@@ -45,8 +45,9 @@ actor V2EXForumService: ForumService {
     private var cachedUserID: Int64?
     /// 编号到用户名。用户页的地址里是用户名，翻译一次就够。
     private var usernames: [Int64: String] = [:]
-    /// 节点全表。搜索节点时在本地过滤，翻页不必重拉。
-    private var cachedNodes: [Forum]?
+    /// 节点全表，外加一份按数字编号索引的。搜索节点时在本地过滤，翻页不必重拉；
+    /// 编号那份用来把 SoV2EX 结果里的 `"node": 72` 翻成节点名。
+    private var cachedNodes: (all: [Forum], byID: [Int: Forum])?
 
     init(
         accountID: AccountID,
@@ -184,17 +185,56 @@ actor V2EXForumService: ForumService {
 
     /// 搜索。
     ///
-    /// 只有节点一档，因为站点只有这一档（见 `capabilities` 的说明）。做法和站点
-    /// 自己的搜索框一样：拉一次节点全表，在本地按名字和英文名过滤。
+    /// 两档，来路完全不同：
     ///
-    /// 分页也在本地做 —— 那份 JSON 是一次给全的，没有页码可传。
+    /// - **主题**走第三方的 SoV2EX。V2EX 自己没有主题搜索 —— 它搜索框里那四档
+    ///   （节点、用户、谷歌、SoV2EX）只有这一个真能搜正文。关键词因此会离开 V2EX，
+    ///   但用户的会话不会：见 `V2EXNetworkClient.getThirdParty`。
+    /// - **节点**在本地过滤，做法和站点自己的搜索框一样：拉一次节点全表按名字和
+    ///   英文名筛。分页也在本地做 —— 那份 JSON 是一次给全的，没有页码可传。
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
-        guard request.kind == .forum else {
+        switch request.kind {
+        case .topicContent: return try await searchTopics(request, page: page)
+        case .forum: return try await searchNodes(request, page: page)
+        default:
             throw ForumServiceError.unsupported(
-                "V2EX 没有主题搜索，只能按名称找节点。找帖子请在浏览器里用谷歌的 site: 搜索"
+                "V2EX 的搜索只有「主题正文」和「节点」两档"
             )
         }
-        let nodes = try await allNodes()
+    }
+
+    /// 主题搜索。
+    ///
+    /// 在某个节点里搜时把节点名带上 —— **带的是名字不是编号**，传编号那个参数
+    /// 会被无声地忽略（实测：结果条数和不带一模一样）。首页分类和「最近主题」
+    /// 不是节点，带不了，所以界面在那两种页面上不画版面内搜索那条栏。
+    private func searchTopics(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
+        let page = max(1, page)
+        let node = request.forumID.flatMap { forumID -> String? in
+            guard V2EXEndpoint.tabKey(of: forumID) == nil,
+                  forumID.key != V2EXEndpoint.recentKey else {
+                return nil
+            }
+            return forumID.key
+        }
+        let data = try await client.getThirdParty(V2EXEndpoint.search(
+            query: request.query,
+            node: node,
+            page: page,
+            pageSize: V2EXEndpoint.searchPageSize,
+            filters: request.filters
+        ))
+        return try parser.searchResults(
+            json: data,
+            request: request,
+            page: page,
+            pageSize: V2EXEndpoint.searchPageSize,
+            nodesByID: try await allNodes().byID
+        )
+    }
+
+    private func searchNodes(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
+        let nodes = try await allNodes().all
         let keyword = request.query.lowercased()
         let matches = nodes.filter { forum in
             forum.name.lowercased().contains(keyword)
@@ -214,7 +254,7 @@ actor V2EXForumService: ForumService {
         )
     }
 
-    private func allNodes() async throws -> [Forum] {
+    private func allNodes() async throws -> (all: [Forum], byID: [Int: Forum]) {
         if let cachedNodes { return cachedNodes }
         let nodes = try parser.nodes(json: await client.get(V2EXEndpoint.nodes, asJSON: true))
         cachedNodes = nodes

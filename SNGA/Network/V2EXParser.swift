@@ -455,15 +455,21 @@ struct V2EXParser: Sendable {
         return forums
     }
 
-    /// 节点全表。搜索节点用它 —— 站点自己的搜索框也是拉这份数据在本地过滤。
-    func nodes(json data: Data) throws -> [Forum] {
+    /// 节点全表。
+    ///
+    /// 两份都要：按站点顺序排好的那一份用来搜节点；按**数字编号**索引的那一份用来
+    /// 翻译搜索结果 —— SoV2EX 的每条命中只给 `"node": 72` 这样一个编号，
+    /// 没有这张表，结果列表上就说不出它属于哪个节点。
+    func nodes(json data: Data) throws -> (all: [Forum], byID: [Int: Forum]) {
         guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw ForumServiceError.unexpectedPage("无法读取节点列表")
         }
-        return rows.compactMap { row in
-            guard let key = row["name"] as? String, !key.isEmpty else { return nil }
+        var all: [Forum] = []
+        var byID: [Int: Forum] = [:]
+        for row in rows {
+            guard let key = row["name"] as? String, !key.isEmpty else { continue }
             let title = (row["title"] as? String) ?? key
-            return Forum(
+            let forum = Forum(
                 id: V2EXEndpoint.forumID(key: key),
                 name: title.isEmpty ? key : title,
                 // 站点在节点页上就是这么写的：「主题总数 241,426」。
@@ -471,7 +477,61 @@ struct V2EXParser: Sendable {
                 category: "节点",
                 searchAliases: [key] + ((row["aliases"] as? [String]) ?? [])
             )
+            all.append(forum)
+            if let id = (row["id"] as? NSNumber)?.intValue { byID[id] = forum }
         }
+        return (all, byID)
+    }
+
+    /// SoV2EX 的搜索结果。
+    ///
+    /// 响应形如 `{"total": 410, "hits": [{"_source": {…}}], "timed_out": false}`，
+    /// 每条命中的 `_source` 里是主题的编号、标题、正文、作者、回复数、节点编号和时间。
+    /// `highlight` 那一段带着 `<em>` 标记的片段，这里不用 —— 列表上只画标题。
+    ///
+    /// **节点是数字编号，时间是 UTC。** 前者要靠 `nodesByID` 翻成名字；后者没有时区
+    /// 后缀（`2026-04-03T05:17:59`），按本地时间读会整整差八个小时（实测：那条主题
+    /// 的 epoch 换算成 UTC 正好等于这个字符串）。
+    func searchResults(
+        json data: Data,
+        request: ForumSearchRequest,
+        page: Int,
+        pageSize: Int,
+        nodesByID: [Int: Forum]
+    ) throws -> ForumSearchPage {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hits = root["hits"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("无法读取搜索结果")
+        }
+        let total = (root["total"] as? NSNumber)?.intValue ?? hits.count
+        let topics = hits.compactMap { hit -> Topic? in
+            guard let source = hit["_source"] as? [String: Any],
+                  let id = (source["id"] as? NSNumber)?.int64Value else {
+                return nil
+            }
+            let node = (source["node"] as? NSNumber).flatMap { nodesByID[$0.intValue] }
+            let title = (source["title"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return Topic(
+                id: TopicID(rawValue: id),
+                // 认不出节点时给一个占位：结果照样打得开，主题是按编号打开的。
+                forumID: node?.id ?? ForumID.placeholder(site: .v2ex),
+                subject: title.isEmpty ? "主题 \(id)" : title,
+                author: (source["member"] as? String) ?? "",
+                replyCount: (source["replies"] as? NSNumber)?.intValue ?? 0,
+                publishedAt: (source["created"] as? String).flatMap(Self.date(fromUTC:)),
+                sourceForumID: node?.id,
+                sourceForumName: node?.name
+            )
+        }
+        let totalPages = max(1, (total + pageSize - 1) / pageSize)
+        return ForumSearchPage(
+            request: request,
+            topics: topics,
+            page: page,
+            hasMore: page < totalPages,
+            totalPages: totalPages
+        )
     }
 
     // MARK: - 会员
@@ -850,6 +910,19 @@ struct V2EXParser: Sendable {
             return nil
         }
         return PostID(rawValue: value)
+    }
+
+    /// `2026-04-03T05:17:59` —— SoV2EX 给的时间，**没有时区后缀，值是 UTC**。
+    ///
+    /// 当成本地时间读会整整差八个小时，搜索结果上的日期就全错了。
+    static func date(fromUTC value: String) -> Date? {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter.date(from: text)
     }
 
     /// `2026-09-08 10:07:41 +08:00`。

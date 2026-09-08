@@ -93,9 +93,10 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - **UI 套件 27 条、单次约 7 分半（算上构建 8 分钟），大约每 4 次有 1 次偶发失败**（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先）。跑一次、如实报告、继续干活，不要为偶发失败反复重跑。连续同一处失败才值得查，且只做一步判据：把改动 `checkout HEAD` 原样跑一次，分清「是我改的」还是「环境如此」，然后停下来汇报，而不是一轮轮加诊断。
 - **需要登录态才能摸清的接口，写探针脚本交给用户在浏览器控制台跑**（`Design/probe-nodeseek-*.js`），不要拿凭据自己发请求。探针只打印字段名、类型、条数，绝不打印值。会话凭据不进对话。
 - **不往真实论坛发测试回复** —— 那是替用户发内容。写请求的验证靠假传输层断言「取校验字段 → 提交一次 → 确认结果」。
-- 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。所以断言「站点没有某功能」时，判据得比「匿名访问被转走」更硬 —— V2EX「没有主题全文搜索」这一条是读站点自己的 `combo.js` 得出的（搜索框只有节点、用户、谷歌、SoV2EX 四档），不是靠那次 302。
+- 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。所以断言「站点没有某功能」时，判据得比「匿名访问被转走」更硬 —— V2EX「自己没有主题全文搜索」这一条是读站点自己的 `combo.js` 得出的（搜索框只有节点、用户、谷歌、SoV2EX 四档），不是靠那次 302。
+- **走第三方服务时，关键词可以出站，会话绝不能。** V2EX 的主题搜索接的是 SoV2EX（它搜索框里的第四档，第三方），走 `V2EXNetworkClient.getThirdParty` —— 一个 cookie 都不带，也不带 Referer 和 Origin。单独开一个方法而不是在发送函数里判域名：判域名是一句可以被后来的人删掉的条件。档位名和搜索框下那句说明都点了 SoV2EX 的名，用的人有权知道关键词发去了哪儿。
 
-### V2EX 的五条（实测，2026-09-08）
+### V2EX 的六条（实测，2026-09-08）
 
 1. **不校验 UA**，`.fixed("SNGA/1.0 …")` 就够；也没有 Cloudflare 挑战。但**语言要自己钉** —— 不带 `V2EX_LANG=zhcn` 时站点对匿名访客发英文页。
 2. **会话过期是 302 到 `/signin`，不是 401。** `URLSession` 跟着跳，拿回来的是一张 200 的登录页；不认这一条，解析器会去登录页上找列表，报出来的是「页面结构已变化」。见 `V2EXNetworkClient.isSignInPage`。
@@ -112,6 +113,19 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 2. 必须带站点的**全部** cookie（登录后有 6 个），只带其中两个会被拒。
 3. **别用 curl 验证这个站** —— 同样的请求 curl 被挑战、`URLSession` 通过。
 4. 几个「带 page、批量吐公开数据」的接口对非浏览器客户端一律回一句假的 `wrong uid`，`NodeSeekParser.rejectBulkGate` 负责识别并抛错，而不是给一页空数据。
+
+## 界面约束
+
+- **颜色一律走主题**（`@Environment(\.sngaTheme)` 拿 `ResolvedAppTheme`）：卡片和面板底色 `surfaceColor`、磁贴和边栏行 `fillColor` / `hoverFillColor`、描边 `separatorColor`、控件描边 `controlBorderColor`、强调 `accentColor` / `accentSoftColor`、文字 `foregroundColor` / `secondaryForegroundColor` / `tertiaryForegroundColor`。**别拿 `.background.secondary` 这类系统材质当卡片底** —— 应用有六套主题，午夜蓝和 NGA 暖金下它和周围对不上。`.tint` 可以用：`RootView` 已经把环境色设成了主题强调色。错误红、成功绿这种语义色不跟主题走（见 `SettingsView` 的连接状态）。
+- **`.regularMaterial` 只留给真正浮在内容之上的层**：底部动作栏、悬浮胶囊、登录遮罩、下拉面板。它要的是「透出底下的东西」，铺在内容里的块用主题色。
+- **主题色的用法有对比度测试**（`SNGATests/ThemeContrastTests.swift`）：新配色或新用法先过它，别只在自己那套主题下看着顺眼。
+- **排版尺寸收进视图自己的 `private enum Metrics`**，别散在 `body` 里。同一个东西在两处各写一个数，就会在两个页面上长得不一样 —— `ForumSearchBar` 的注释记着那次：两条本该一样的搜索栏，间距、边距、选择器宽度四处都差着几点。
+- **一小组要对齐的表单用 `Grid`**，别拿一列 `LabeledContent` 凑：后者每一行各管各的，标签宽度对不齐，控件会各起各的头。
+- **控件给死宽度，别让它贴着内容**。内容一变宽度就跳 —— 档位选择器的标题长短差一倍，贴着内容会让旁边的输入框跟着变形。
+- **`.controlSize` 管控件大小，`.font` 管文字大小。** 拿 `.font(.caption)` 罩住整块面板来「让它小一点」，会把里面的输入框和选择器一起缩掉。
+- **每个可交互控件配 `accessibilityIdentifier`**，前缀由调用方给（`ForumSearchBar` 的 `identifierPrefix` 就是这么用的）—— UI 测试只认得它。
+- **不支持就不画。** 这一条在能力位那一节，界面这边的落法是：站点收不下的控件根本不出现，而不是画出来等用户点了再报错。名字也按站点自己的说法给（`ForumSiteDescriptor` 里那一串 `xxxTitle`）。
+- **结果来自站外时要在界面上说出来。** 写在跟着内容走的那一行，别塞进定宽控件的标题里 —— 「主题正文（SoV2EX）」在档位选择器里会截断成「主题正文（SoV2…」，反而谁也看不见。
 
 ## 写代码的调子
 

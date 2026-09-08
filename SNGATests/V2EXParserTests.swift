@@ -377,13 +377,73 @@ final class V2EXParserTests: XCTestCase {
     }
 
     func testNodeTableFeedsNodeSearch() throws {
-        let forums = try parser.nodes(json: try fixtureData("v2ex-nodes"))
+        let forums = try parser.nodes(json: try fixtureData("v2ex-nodes")).all
 
-        XCTAssertEqual(forums.map(\.id.key), ["qna", "swift", "babel", "iphone"])
+        XCTAssertEqual(forums.prefix(4).map(\.id.key), ["qna", "swift", "babel", "iphone"])
         XCTAssertEqual(forums.first?.name, "问与答")
         XCTAssertTrue(forums.first?.subtitle?.hasPrefix("主题总数") == true)
         XCTAssertTrue(forums.first?.searchAliases.contains("qna") == true)
     }
+
+    /// 搜索结果里的节点是数字编号，所以同一份表还要按编号索引一份。
+    func testNodeTableIsAlsoIndexedByID() throws {
+        let byID = try parser.nodes(json: try fixtureData("v2ex-nodes")).byID
+
+        XCTAssertEqual(byID[12]?.id.key, "qna")
+        XCTAssertEqual(byID[72]?.name, "VPN")
+        XCTAssertNil(byID[999_999])
+    }
+
+    // MARK: - 主题搜索（SoV2EX）
+
+    /// 结果里的节点是**数字编号**，时间**没有时区后缀但值是 UTC**。
+    /// 前者要靠节点表翻成名字，后者按本地时间读会整整差八个小时。
+    func testSoV2EXResultsAreTranslatedIntoTopics() throws {
+        let nodes = try parser.nodes(json: try fixtureData("v2ex-nodes")).byID
+        let request = try XCTUnwrap(ForumSearchRequest(query: "dmit", kind: .topicContent))
+
+        let page = try parser.searchResults(
+            json: try fixtureData("v2ex-sov2ex-search"),
+            request: request,
+            page: 1,
+            pageSize: 20,
+            nodesByID: nodes
+        )
+
+        XCTAssertEqual(page.topics.map(\.id.rawValue), [1_203_314, 834_457, 1_077_726])
+        XCTAssertEqual(page.topics.first?.subject, "dmit 和 justmysocks 二选一")
+        XCTAssertEqual(page.topics.first?.author, "idblife")
+        XCTAssertEqual(page.topics.first?.replyCount, 35)
+        // 72 是 vpn 节点。翻不出名字的话，结果列表上说不出它属于哪儿。
+        XCTAssertEqual(page.topics.first?.sourceForumName, "VPN")
+        XCTAssertEqual(page.topics.first?.forumID.key, "vpn")
+        // 2026-04-03T05:17:59 是 UTC，对应 epoch 1775193479。
+        XCTAssertEqual(
+            page.topics.first?.publishedAt,
+            Date(timeIntervalSince1970: 1_775_193_479)
+        )
+    }
+
+    /// 总页数从 `total` 算，不是数这一页有几条 —— 数出来永远只有一页。
+    func testSoV2EXPageCountComesFromTheTotal() throws {
+        let request = try XCTUnwrap(ForumSearchRequest(query: "dmit", kind: .topicContent))
+
+        let page = try parser.searchResults(
+            json: try fixtureData("v2ex-sov2ex-search"),
+            request: request,
+            page: 1,
+            pageSize: 20,
+            nodesByID: [:]
+        )
+
+        XCTAssertEqual(page.totalPages, 21, "410 条、每页 20")
+        XCTAssertTrue(page.hasMore)
+        // 节点表是空的时候也不能把结果丢掉 —— 主题是按编号打开的，节点名只是显示。
+        XCTAssertEqual(page.topics.count, 3)
+        XCTAssertNil(page.topics.first?.sourceForumName)
+    }
+
+
 
     // MARK: - 会员
 
