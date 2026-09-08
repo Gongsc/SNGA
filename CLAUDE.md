@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发），同时支持 NGA 和 NodeSeek 两个站点。仓库内文档、代码注释用中文，commit message 用英文。
+SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发），同时支持 NGA、NodeSeek 和 V2EX 三个站点。仓库内文档、代码注释用中文，commit message 用英文。
 
 ## 常用命令
 
@@ -42,7 +42,7 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 - **`ForumService`**（[SNGA/Network/ForumService.swift](SNGA/Network/ForumService.swift)）—— 站点能做的**动作**，一个协议、24 个 async 方法。每个账号一个实例（actor），自带 cookie，绝不共享 cookie 容器。协议保留全集，`extension` 给部分方法一份抛 `.unsupported` 的默认实现，适配器只写自己有的。
 - **`ForumCapabilities`**（[SNGA/Models/ForumCapabilities.swift](SNGA/Models/ForumCapabilities.swift)）—— OptionSet，站点**支不支持**某个功能。原则是「不支持就不画」，而不是画出来等用户点了再报错。只有「没数据也照样会画」的控件需要门控；数据为空时本来就不画的（评分、子版面、收藏夹）不必再问。**门控要挡在调用层，不只是视图层**——版面收藏在启动和切账号时会主动去拉，光藏界面请求照样发。
-- **`ForumSiteDescriptor`**（[SNGA/Network/ForumSiteDescriptor.swift](SNGA/Network/ForumSiteDescriptor.swift)）—— 站点的**静态资料与措辞**：baseURL、登录方式、cookie 域、会话 cookie 名、用户编号从哪读、UA 策略、回复用 UBB 还是 Markdown、搜索有哪几档、楼层签名从哪儿取、资料页显示哪些字段（各站叫法不同，NodeSeek 管货币叫「鸡腿」不叫「N 币」）。视图通过 `@Environment(\.forumSiteDescriptor)` 拿，因为正文渲染链路太深，逐层传参会改一整条签名链。
+- **`ForumSiteDescriptor`**（[SNGA/Network/ForumSiteDescriptor.swift](SNGA/Network/ForumSiteDescriptor.swift)）—— 站点的**静态资料与措辞**：baseURL、登录方式、cookie 域、会话 cookie 名、用户编号从哪读、UA 策略、回复用 UBB / Markdown / 纯文本、搜索有哪几档、楼层签名从哪儿取、资料页显示哪些字段（各站叫法不同，NodeSeek 管货币叫「鸡腿」不叫「N 币」，V2EX 管版面叫「节点」）。视图通过 `@Environment(\.forumSiteDescriptor)` 拿，因为正文渲染链路太深，逐层传参会改一整条签名链。
 - **`ForumSite`**（[SNGA/Models/ForumSite.swift](SNGA/Models/ForumSite.swift)）—— 枚举。刻意不给 `default` 分支：加站点时编译器会把每一处要补的 `switch` 指出来。
 
 一个站点的实现是三个文件：`XxxEndpoint`（拼地址）+ `XxxParser`（解析，无状态）+ `XxxForumService`（actor，串起来）。网络往返统一走 `HTTPTransport` 协议（[SNGA/Network/HTTPTransport.swift](SNGA/Network/HTTPTransport.swift)），测试注入假实现。
@@ -54,6 +54,7 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 - `AppSession`（[SNGA/App/AppSession.swift](SNGA/App/AppSession.swift)）是各 store 的唯一依赖：给「当前账号的服务」「出错怎么呈现」「加载指示」三件事。store 不反手持有 `AppModel`；跨领域的事（收藏状态变化要更新话题列表）用闭包在 `AppModel.init` 里对接。
 - 错误呈现只有 `AppSession.present(_:)` 一道门。取消（`CancellationError` 和 `URLError.cancelled` 两种形态都要认）在这里拦掉，展示时冠上站名。
 - `RequestSlot`（[SNGA/App/RequestSlot.swift](SNGA/App/RequestSlot.swift)）是「最新者胜出」闸门：翻页、切版面、切账号时旧请求先发后至不能覆盖新结果。新起一类异步请求就配一个 slot。
+- **切账号时，界面上还挂着上一个站的版面。** 按版面编号触发的 `.task(id:)` 会拿它去问新账号的服务 —— V2EX 收到一个 NGA 的 `-7`，答一张「节点未找到」的正常页面，用户看到「论坛页面结构已变化」。`AppSession.belongsToActiveSite(_:)` 挡在 `ForumStore` 发请求**之前**：`ForumID` 本来就带着站点，判断只是没人做过。新加按 `ForumID` 发的请求，记得也过这一道。
 - `ToolboxStore` 是唯一不吃 `AppSession` 的 store —— 资讯小工具不认账号也不认论坛，一个账号没有时也能用，它的网络故障不能显示成论坛的错误。
 
 ### 正文管线
@@ -67,6 +68,8 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 ### 标识与持久化
 
 `ForumID` 是「站点 + 字符串键」（[SNGA/Models/Identifiers.swift](SNGA/Models/Identifiers.swift)）；`TopicID` / `PostID` / `MessageID` 仍是 `Int64`。NGA 自己的编码约定（子版面加 `s` 前缀、`fid` 还是 `stid`）全在 [SNGA/Network/ForumID+NGA.swift](SNGA/Network/ForumID+NGA.swift) 里，不外泄到通用层。
+
+用户一律按 `Int64` 认。V2EX 的页面地址里是**用户名**（`/member/Livid`），编号只能问 `/api/members/show.json` —— 所以那边看用户动态会多一次翻译请求（结果缓存在 service 里），而正文里的用户链接一概交给浏览器：`internalDestination(for:)` 是同步的，发不了那次请求，猜一个编号比打开浏览器更糟。
 
 SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`SubforumPreferenceRecord`、`SearchHistoryRecord` 主键都以 `accountIDString` 打头，所以**天然按站点隔离**，不需要给每张表加站点列。存量库靠 `LegacyStoreBackfill` 回填，它必须在任何人按主键查记录**之前**跑（见 `SNGAApp.init`）—— 主键算法换过，没补过的老行查不到会被当新行插进去。`SNGATests/Fixtures/legacy-1.8.2.store` 是用 1.8.2 的模型定义真实生成的库，迁移用例对着它跑。
 
@@ -90,7 +93,17 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - **UI 套件 27 条、单次约 7 分半（算上构建 8 分钟），大约每 4 次有 1 次偶发失败**（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先）。跑一次、如实报告、继续干活，不要为偶发失败反复重跑。连续同一处失败才值得查，且只做一步判据：把改动 `checkout HEAD` 原样跑一次，分清「是我改的」还是「环境如此」，然后停下来汇报，而不是一轮轮加诊断。
 - **需要登录态才能摸清的接口，写探针脚本交给用户在浏览器控制台跑**（`Design/probe-nodeseek-*.js`），不要拿凭据自己发请求。探针只打印字段名、类型、条数，绝不打印值。会话凭据不进对话。
 - **不往真实论坛发测试回复** —— 那是替用户发内容。写请求的验证靠假传输层断言「取校验字段 → 提交一次 → 确认结果」。
-- 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。
+- 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。所以断言「站点没有某功能」时，判据得比「匿名访问被转走」更硬 —— V2EX「没有主题全文搜索」这一条是读站点自己的 `combo.js` 得出的（搜索框只有节点、用户、谷歌、SoV2EX 四档），不是靠那次 302。
+
+### V2EX 的五条（实测，2026-09-08）
+
+1. **不校验 UA**，`.fixed("SNGA/1.0 …")` 就够；也没有 Cloudflare 挑战。但**语言要自己钉** —— 不带 `V2EX_LANG=zhcn` 时站点对匿名访客发英文页。
+2. **会话过期是 302 到 `/signin`，不是 401。** `URLSession` 跟着跳，拿回来的是一张 200 的登录页；不认这一条，解析器会去登录页上找列表，报出来的是「页面结构已变化」。见 `V2EXNetworkClient.isSignInPage`。
+3. **写操作没有接口**，是表单加一个一次性令牌 `once`（`GET /poll_once` 现取，匿名也给）。
+4. **「感谢」花掉感谢者 10 个铜币且撤不回来**，所以它不是赞踩，而是带 `cost` 和 `isIrreversible` 的 `PostReaction`，界面先确认再发 —— 和 NodeSeek 的鸡腿同一个道理。
+5. **首页分类（`/?tab=tech`）是聚合版面，不分页，而且会和节点重名**（`?tab=qna` 和 `/go/qna` 是两份列表）。所以它的 `ForumID` 加了 `tab:` 前缀，翻页在服务层被钳成第一页。它底下那第二排节点走 `ForumPage.subforums`，筛选靠 `Topic.sourceForumID`。分类表写死在 `V2EXEndpoint.tabs`。
+
+浏览面全部公开、匿名抓得全，所以夹具是真实响应；收藏 / 提醒 / 每日奖励只在登录后的页面上，一样都没接，能力位也关着。**唯一一处推断是发回复那张表单的字段名**，理由和验法记在 [Design/SiteProbe-V2EX.md](Design/SiteProbe-V2EX.md) 第五节。
 
 ### NodeSeek 的三条传输硬约束（实测）
 

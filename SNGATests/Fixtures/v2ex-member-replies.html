@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- 取自 https://www.v2ex.com/member/Livid/replies 的真实响应（2026-09-08，匿名访问）。
+     留下分页条（max=1572）和两条动态。这一页的形状和别处都不一样：
+     一条动态摊成两个相邻的兄弟节点 —— `div.dock_area` 装「回复了谁的哪个主题」，
+     紧跟着的 `div.inner` 装回复正文。时间只有相对说法，没有 title 属性。
+     全部是公开页面上的公开内容。 -->
+<html lang="zh-CN"><body>
+<div id="Main">
+<div class="box">
+<div class="cell ps_container">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+            <td width="92%" align="left"><a href="?p=1" class="page_current">1</a> &nbsp;<a href="?p=2" class="page_normal">2</a> &nbsp;<a href="?p=3" class="page_normal">3</a> &nbsp;<a href="?p=4" class="page_normal">4</a> &nbsp;<a href="?p=5" class="page_normal">5</a> &nbsp;<a href="?p=6" class="page_normal">6</a> &nbsp;<a href="?p=7" class="page_normal">7</a> &nbsp;<a href="?p=8" class="page_normal">8</a> &nbsp;<a href="?p=9" class="page_normal">9</a> &nbsp;<a href="?p=10" class="page_normal">10</a><span class="fade"> ... </span><a href="?p=1572" class="page_normal">1572</a> &nbsp; <input type="number" class="page_input" autocomplete="off" value="1" min="1" max="1572"  onkeydown = "if (event.keyCode == 13)
+                    location.href = '?p=' + this.value" /></td>
+            <td width="8%" align="right">
+                <table cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                        <td width="50%" align="center" class="super normal button disable_now" style="display: table-cell; border-right: none; border-top-right-radius: 0px; border-bottom-right-radius: 0px;"  >❮</td>
+                        <td width="50%" align="center" class="super normal_page_right button" style="display: table-cell; border-top-left-radius: 0px; border-bottom-left-radius: 0px;" onclick="location.href='?p=2';" onmouseover="$(this).addClass('hover_now');" onmousedown="$(this).addClass('active_now');" onmouseleave="$(this).removeClass('hover_now'); $(this).removeClass('active_now');" title="下一页" >❯</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</div>
+<div class="dock_area">
+        <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+                <td style="padding: 10px 15px 8px 15px; font-size: 12px; text-align: left;"><div class="fr"><span class="fade">23 分钟前</span></div><span class="gray">回复了 <a href="/member/ShawnShi">ShawnShi</a> 创建的主题 <span class="chevron">›</span> <a href="/go/promotions">推广</a> <span class="chevron">›</span> <a href="/t/1240321#reply65">每天合计 600 张 image-2 免费生图网站 额外每人赠送 200 张</a></span></td>
+            </tr>
+        </table>
+    </div>
+<div class="inner">
+        <div class="reply_content">@<a target="_blank" href="/member/PerFectTime" rel="nofollow noopener">PerFectTime</a> 谢谢举报。</div>
+    </div>
+<div class="dock_area">
+        <table cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+                <td style="padding: 10px 15px 8px 15px; font-size: 12px; text-align: left;"><div class="fr"><span class="fade">2 天前</span></div><span class="gray">回复了 <a href="/member/Livid">Livid</a> 创建的主题 <span class="chevron">›</span> <a href="/go/wunder">Wunder</a> <span class="chevron">›</span> <a href="/t/1239253#reply5">我给我的各种 agents 做了一个 social network</a></span></td>
+            </tr>
+        </table>
+    </div>
+<div class="inner">
+        <div class="reply_content">@<a target="_blank" href="/member/ken2025" rel="nofollow noopener">ken2025</a> 我这里从后台看到的一个可能和你的 IP 有关的报错信息是访问 /api/v2/chat/quota 这个接口的速率过快（导致访问速率过快的 User Agent 字符串是 APIQuotaWidgetExtension）。<br /><br />如果访问这个接口的速度过快导致 rate limit，那么 API 接口也会被 rate limit。</div>
+    </div>
+</div>
+</div>
+</body></html>

@@ -19,10 +19,35 @@ final class SymbolNameTests: XCTestCase {
         )
     }
 
+    /// 侧栏和站点列表上的站点图标。写一个不存在的名字，SwiftUI 不报错，
+    /// 只会画一片空白 —— 加站点时最容易漏的就是这个。
+    func testEverySiteIconExists() {
+        for site in ForumSite.allCases {
+            assertExists(site.systemImage, "站点「\(site.displayName)」")
+        }
+    }
+
+    /// 登录方式的图标同理：它画在「添加账号」那一列上。
+    func testEveryLoginMethodIconExists() {
+        for site in ForumSite.allCases {
+            for method in site.descriptor.loginMethods {
+                assertExists(method.systemImage, "\(site.displayName) 的「\(method.title)」")
+            }
+        }
+    }
+
     func testEveryReactionIconExists() {
         for reaction in NodeSeekReaction.allCases {
             assertExists(reaction.systemImage, "表态「\(reaction.title)」")
         }
+    }
+
+    /// V2EX 只有一种表态，它不在 `NodeSeekReaction` 里。
+    func testTheV2EXThankIconExists() {
+        assertExists(
+            V2EXParser.thankReaction(count: nil, isChosen: false).systemImage,
+            "V2EX 的「感谢」"
+        )
     }
 
     /// 列表标记的图标由解析器按站点的图标类名挑，认不出来的用兜底那个。

@@ -97,7 +97,7 @@ final class ForumSiteTests: XCTestCase {
             XCTAssertTrue(descriptor.loginURL.absoluteString.hasPrefix("https://"))
             XCTAssertTrue(descriptor.baseURL.absoluteString.hasPrefix("https://"))
             // 每个站都得挑定一种回复标记 —— 编辑器按它给工具条。
-            XCTAssertTrue([.ubb, .markdown].contains(descriptor.replyMarkup))
+            XCTAssertTrue([.ubb, .markdown, .plain].contains(descriptor.replyMarkup))
         }
     }
 
@@ -271,8 +271,8 @@ final class ForumSiteTests: XCTestCase {
     func testAllContainsEveryDeclaredCapability() {
         let declared: [ForumCapabilities] = [
             .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
-            .subforums, .forumFavorites, .topicFavoriteFolders, .privateMessages,
-            .globalSearch, .userActivities, .anonymousPosts
+            .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
+            .privateMessages, .globalSearch, .userActivities, .anonymousPosts
         ]
         for capability in declared {
             XCTAssertTrue(ForumCapabilities.all.contains(capability))

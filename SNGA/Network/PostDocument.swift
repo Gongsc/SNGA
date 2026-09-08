@@ -30,7 +30,7 @@ enum PostDocument {
         "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; " +
         "font-src 'none'; media-src https:"
 
-    /// 两个站都要的那一份。
+    /// 各站都要的那一份。
     ///
     /// `:root` 里那几个变量名和默认值不能随便改 —— `ResolvedAppTheme.applying(to:)`
     /// 是按这几个字符串做替换来上主题的，改了名字主题就静默失效。

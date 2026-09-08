@@ -278,6 +278,34 @@ struct UserCenterView: View {
                 .padding(16)
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
 
+                // 站点资料页上那一排外部链接。空了整块不画 —— 没有链接的人占多数，
+                // 摆一个空盒子只是多一道分隔线。
+                if !profile.links.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("链接")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(profile.links) { link in
+                            Link(destination: link.url) {
+                                HStack(spacing: 8) {
+                                    Text(link.title)
+                                        .foregroundStyle(.secondary)
+                                    Text(link.value)
+                                        .lineLimit(1)
+                                    Image(systemName: "arrow.up.forward.square")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .help(link.url.absoluteString)
+                            .accessibilityIdentifier("profile-link-\(link.title)")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                }
+
                 if let signature = profile.signature, !signature.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
                         // 站点自己管它叫什么：NGA 是「签名」，NodeSeek 是「个人简介」。
@@ -1185,7 +1213,11 @@ struct TopicListView: View {
                 forumTitleRow
                     .id(topAnchor)
 
-                searchBar
+                // 一档都没有的站点不画这条栏。V2EX 的搜索只能找节点，缩不进某一个
+                // 节点里 —— 画出来是摆一个按下去什么都不会发生的按钮。
+                if !siteDescriptor.currentForumSearchKinds.isEmpty {
+                    searchBar
+                }
 
                 if !model.isCurrentForumSearchActive,
                    !model.browsing.subforums.isEmpty {
@@ -1209,7 +1241,9 @@ struct TopicListView: View {
                                     HStack(spacing: 5) {
                                         Image(systemName: "square.grid.3x3")
                                             .foregroundStyle(theme.accentColor)
-                                        Text("子版面")
+                                        // 按站点的说法叫。V2EX 的节点是平的，
+                                        // 那一格装的是「这个分类聚合了哪几个节点」。
+                                        Text(siteDescriptor.subforumSectionTitle)
                                     }
                                     .font(.headline)
                                     Text("\(model.browsing.subforums.count)")
@@ -1227,7 +1261,7 @@ struct TopicListView: View {
 
                             if isSubforumsExpanded {
                                 HStack {
-                                    Text("勾选后在当前话题列表中显示该子版面的话题")
+                                    Text(siteDescriptor.subforumSelectionHint)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                     Spacer()

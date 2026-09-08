@@ -33,6 +33,13 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     static let subforums = ForumCapabilities(rawValue: 1 << 4)
     /// 可以收藏版面。NodeSeek 只能收藏话题。
     static let forumFavorites = ForumCapabilities(rawValue: 1 << 9)
+    /// 可以收藏话题。
+    ///
+    /// 和 `forumFavorites` 是两件事，而且不是「至少有一样」的关系 —— 有的站点
+    /// 两样都有（NGA），有的只有话题（NodeSeek），有的两样都还没接上（V2EX
+    /// 的收藏是登录后才画出来的链接，写法还没验过）。侧栏那个「收藏」入口
+    /// 和楼层上的星标都看这一位：关着就整个不画，而不是点了再报「不支持」。
+    static let topicFavorites = ForumCapabilities(rawValue: 1 << 13)
     /// 话题收藏支持分文件夹。V2EX 和 NodeSeek 都是平铺一个列表。
     static let topicFavoriteFolders = ForumCapabilities(rawValue: 1 << 5)
     /// 站内私信。
@@ -46,7 +53,7 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
 
     static let all: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
-        .subforums, .forumFavorites, .topicFavoriteFolders, .privateMessages,
-        .globalSearch, .userActivities, .anonymousPosts
+        .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
+        .privateMessages, .globalSearch, .userActivities, .anonymousPosts
     ]
 }

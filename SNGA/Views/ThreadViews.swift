@@ -195,7 +195,8 @@ struct ThreadView: View {
                             }
                         }
 
-                        if !model.session.supports(.topicFavoriteFolders) {
+                        if model.session.supports(.topicFavorites),
+                           !model.session.supports(.topicFavoriteFolders) {
                             // 站点只有一个收藏列表，没有可选的目录。那就是一个开关，
                             // 不是一份菜单 —— 菜单里只有一项，等于让人多点一下去选
                             // 一个没有第二种可能的选项。
@@ -218,7 +219,7 @@ struct ThreadView: View {
                                     } == true
                             )
                             .accessibilityIdentifier("thread-topic-favorite")
-                        } else {
+                        } else if model.session.supports(.topicFavorites) {
                         Menu {
                             if let topic = model.thread.currentTopic {
                                 if model.favorite.favoriteTopicFolders.isEmpty {
@@ -1465,9 +1466,9 @@ struct ReplyComposerView: View {
 
     /// 引用某一层时预填的开头。
     ///
-    /// 两种标记语言的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
+    /// 三种标记的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
     /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
-    /// 得把被引的话真的抄进去。
+    /// 得把被引的话真的抄进去；纯文本站点连引用块都没有，那里的惯例是 `@用户名`。
     private func quotedPrefix(_ replyTo: Post) -> String {
         switch siteDescriptor.replyMarkup {
         case .ubb:
@@ -1483,6 +1484,10 @@ struct ReplyComposerView: View {
             let head = "> **\(replyTo.author)** 在 #\(replyTo.floor) 楼说："
             return ([head] + (quoted.isEmpty ? [] : [quoted]) + ["", ""])
                 .joined(separator: "\n")
+        case .plain:
+            // 没有引用这回事。V2EX 的做法就是在开头 @ 一下，站点自己那个「回复」
+            // 按钮（`replyOne(username)`）插进去的也正是这一串。
+            return "@\(replyTo.author) "
         }
     }
     @State private var submitted = false
@@ -1537,22 +1542,28 @@ struct ReplyComposerView: View {
             .padding()
             Divider()
             HStack(spacing: 10) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 5) {
-                        editorToolbar
-                            .disabled(editorMode == .preview)
+                if showsFormattingToolbar {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 5) {
+                            editorToolbar
+                                .disabled(editorMode == .preview)
+                        }
                     }
+                    .scrollIndicators(.hidden)
                 }
-                .scrollIndicators(.hidden)
 
-                Picker("编辑模式", selection: $editorMode) {
-                    ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
-                        Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
+                // 只有一档的时候不画选择器：一个只有一个选项的分段控件，
+                // 点它什么都不会发生。
+                if ReplyEditorMode.modes(for: siteDescriptor.replyMarkup).count > 1 {
+                    Picker("编辑模式", selection: $editorMode) {
+                        ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
+                            Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 210)
             }
             .padding(8)
             Divider()
@@ -1728,8 +1739,9 @@ struct ReplyComposerView: View {
             }
         }
 
-        // 按名单画，不按标记语言画：两个站都有表情，只是形态不同 —— NGA 是 UBB 的
-        // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `。名单空了才不画。
+        // 按名单画，不按标记语言画：有表情的站点形态各不相同 —— NGA 是 UBB 的
+        // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `；V2EX 干脆没有
+        // 表情面板（正文里就是 Unicode emoji）。名单空了才不画。
         if !siteDescriptor.emoticonPacks.isEmpty {
             Button {
                 showsEmoticons = true
@@ -1765,6 +1777,10 @@ struct ReplyComposerView: View {
     /// 工具条上有几样是 UBB 独有的：字号、颜色、对齐、下划线、折叠。
     /// Markdown 写不出来，摆着只会插进去一段发出去不生效的东西。
     private var isUBB: Bool { siteDescriptor.replyMarkup == .ubb }
+
+    /// 纯文本站点整条工具条都不画 —— 上面每一个按钮插进去的都是一段
+    /// 发出去不生效的字符。
+    private var showsFormattingToolbar: Bool { siteDescriptor.replyMarkup.hasFormatting }
 
     private var toolbarDivider: some View {
         Divider()
@@ -1814,6 +1830,9 @@ struct ReplyComposerView: View {
         switch siteDescriptor.replyMarkup {
         case .ubb: ubbInsertion(for: action)
         case .markdown: markdownInsertion(for: action)
+        // 纯文本站点的工具条整条都不画，走不到这里；真走到了也只是什么都不插，
+        // 而不是把 `**` 塞进一段站点不会渲染的正文。
+        case .plain: ""
         }
     }
 
@@ -1904,6 +1923,9 @@ private enum ReplyEditorMode: Hashable, Identifiable {
         switch markup {
         case .ubb: [.visual, .source, .preview]
         case .markdown: [.source, .preview]
+        // 纯文本站点连预览都不该有：预览的作用是「看看标记会渲染成什么」，
+        // 而这里写什么发出去就是什么，摆一个和输入框长得一样的预览只是多一个档。
+        case .plain: [.source]
         }
     }
 }
