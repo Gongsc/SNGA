@@ -335,6 +335,60 @@ final class V2EXWriteTests: XCTestCase {
         )
     }
 
+    // MARK: - 每日登录奖励
+
+    /// 领取是读页面上那颗按钮的 onclick，不是拼地址。领完站点跳回同一页，
+    /// 所以新的天数就在响应里，不必再取一次。
+    func testClaimingTheDailyMissionFollowsTheButton() async throws {
+        let unclaimed = """
+        <html><body><div id="Main"><div class="cell">已连续登录 8 天</div>
+        <input type="button" value="领取 20 铜币"
+               onclick="location.href = '/mission/daily/redeem?once=73510';" />
+        </div></body></html>
+        """
+        let claimed = """
+        <html><body><div id="Main"><div class="cell">已连续登录 9 天</div>
+        <input type="button" value="查看我的账户余额" onclick="location.href = '/balance';" />
+        </div></body></html>
+        """
+        let transport = RecordingHTTPTransport(
+            responding: unclaimed,
+            byPath: ["/mission/daily/redeem": claimed]
+        )
+
+        let result = try await service(transport).checkIn()
+
+        XCTAssertEqual(
+            transport.requests.map { $0.url?.absoluteString },
+            [
+                "https://www.v2ex.com/mission/daily",
+                "https://www.v2ex.com/mission/daily/redeem?once=73510"
+            ]
+        )
+        guard case let .success(message) = result else {
+            return XCTFail("该是领到了：\(result)")
+        }
+        XCTAssertEqual(message, "已连续登录 9 天", "天数要取领完之后那一份")
+    }
+
+    /// 今天领过了不是错误 —— 站点把按钮换成了「查看我的账户余额」。
+    func testClaimingTwiceInADayIsNotAnError() async throws {
+        let claimed = """
+        <html><body><div id="Main"><div class="cell">已连续登录 8 天</div>
+        <input type="button" value="查看我的账户余额" onclick="location.href = '/balance';" />
+        </div></body></html>
+        """
+        let transport = RecordingHTTPTransport(responding: claimed)
+
+        let result = try await service(transport).checkIn()
+
+        XCTAssertEqual(transport.requests.count, 1, "取了一次页面，没再点什么")
+        guard case let .alreadyCheckedIn(message) = result else {
+            return XCTFail("该是已经领过了：\(result)")
+        }
+        XCTAssertEqual(message, "已连续登录 8 天")
+    }
+
     // MARK: - 搜索
 
     /// 节点搜索在本地过滤，翻页也在本地做 —— 那份 JSON 是一次给全的。

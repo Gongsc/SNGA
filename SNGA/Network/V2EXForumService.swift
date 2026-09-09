@@ -44,10 +44,15 @@ actor V2EXForumService: ForumService {
     /// `div.cell.item` 模板（用户在登录态下跑探针确认过），所以解析直接复用。
     /// `.topicFavoriteFolders` 没点亮：站点的收藏是平的一个列表，没有分组。
     ///
-    /// 提醒和每日奖励还没接 —— 它们的骨架已经摸到（提醒是 `div#n_{编号}.cell`，
-    /// 奖励是一颗带 `onclick` 的按钮），但只有一份样本，够不上写解析器。
+    /// `.checkIn` 是站点的「每日登录奖励」。领取那一下和收藏一样**不拼地址** ——
+    /// 它是页面上一颗按钮的 `onclick`，地址连同令牌一起写在里面。
+    ///
+    /// 提醒还没接：骨架摸到了（`div#n_{编号}.cell`，里面是头像、一句话和
+    /// `div.payload`），但那一页是**往下无限加载**（`/notifications/below/{游标}`）
+    /// 而不是翻页，而手上只有一条样本，看不出条与条之间怎么断。
     nonisolated let capabilities: ForumCapabilities = [
-        .globalSearch, .userActivities, .subforums, .forumFavorites, .topicFavorites
+        .globalSearch, .userActivities, .subforums,
+        .forumFavorites, .topicFavorites, .checkIn
     ]
 
     private let client: V2EXNetworkClient
@@ -503,7 +508,25 @@ actor V2EXForumService: ForumService {
         throw ForumServiceError.unsupported("V2EX 的收藏没有分组")
     }
 
-    func checkInStatus() async throws -> CheckInStatistics { throw notYet("每日登录奖励") }
+    func checkInStatus() async throws -> CheckInStatistics {
+        try parser.checkInStatistics(
+            html: try html(await client.get(V2EXEndpoint.dailyMission))
+        )
+    }
 
-    func checkIn() async throws -> CheckInResult { throw notYet("每日登录奖励") }
+    /// 领取每日登录奖励。
+    ///
+    /// 站点没有接口：那是页面上一颗按钮的 `onclick`（`location.href = '…'`）。
+    /// 所以照着做 —— 先取那一页把地址读出来，再请求它。领完站点跳回同一页，
+    /// 所以响应里就有新的天数，不必再取一次。
+    ///
+    /// 按钮不在就是今天已经领过了。那不是错误，站点把它换成了「查看我的账户余额」。
+    func checkIn() async throws -> CheckInResult {
+        let page = try html(await client.get(V2EXEndpoint.dailyMission))
+        guard let claim = V2EXParser.dailyMissionClaimLink(inHTML: page) else {
+            return .alreadyCheckedIn(message: parser.checkInMessage(html: page))
+        }
+        let done = try html(await client.get(claim, referer: V2EXEndpoint.dailyMission))
+        return .success(message: parser.checkInMessage(html: done))
+    }
 }

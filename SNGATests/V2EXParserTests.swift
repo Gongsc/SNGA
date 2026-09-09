@@ -581,6 +581,68 @@ final class V2EXParserTests: XCTestCase {
         XCTAssertTrue(node.path().contains("/node/"), node.absoluteString)
     }
 
+    // MARK: - 每日登录奖励
+
+    /// 领过之后站点把领奖按钮换成「查看我的账户余额」，并写着「已连续登录 N 天」。
+    /// 下面这段是照着用户在登录态下抓到的形状写的（按钮标签、类名、onclick 的写法
+    /// 都是实测的），但它**不是**抓来的页面，所以不进 `Fixtures/`。
+    func testCheckInStatusReadsTheStreakAndTheClaimedState() throws {
+        let claimed = """
+        <html><body><div id="Main"><div class="cell">已连续登录 8 天</div>
+        <input type="button" class="super normal button" value="查看我的账户余额"
+               onclick="location.href = '/balance';" />
+        </div></body></html>
+        """
+
+        let status = try parser.checkInStatistics(html: claimed)
+
+        XCTAssertTrue(status.isCheckedInToday, "领奖按钮不在了，就是今天领过了")
+        XCTAssertEqual(status.consecutiveDays, 8)
+        // 站点不报总天数。填 0 是在说一件错事 —— 留空，界面就不显示那一行。
+        XCTAssertNil(status.totalDays)
+    }
+
+    func testCheckInStatusSeesAnUnclaimedDay() throws {
+        let unclaimed = """
+        <html><body><div id="Main"><div class="cell">已连续登录 8 天</div>
+        <input type="button" class="super normal button" value="领取 20 铜币"
+               onclick="location.href = '/mission/daily/redeem?once=73510';" />
+        </div></body></html>
+        """
+
+        let status = try parser.checkInStatistics(html: unclaimed)
+
+        XCTAssertFalse(status.isCheckedInToday)
+        XCTAssertEqual(status.consecutiveDays, 8)
+    }
+
+    /// 同一页上不止一颗按钮，靠路径分 —— 认按钮上的字不行，那句字会随奖励金额变。
+    func testTheClaimLinkIsToldApartFromTheBalanceButton() throws {
+        let html = """
+        <html><body><div id="Main">
+        <input type="button" value="查看我的账户余额" onclick="location.href = '/balance';" />
+        <input type="button" value="领取 20 铜币"
+               onclick="location.href = '/mission/daily/redeem?once=73510';" />
+        </div></body></html>
+        """
+
+        let link = try XCTUnwrap(V2EXParser.dailyMissionClaimLink(inHTML: html))
+
+        XCTAssertEqual(
+            link.absoluteString,
+            "https://www.v2ex.com/mission/daily/redeem?once=73510",
+            "地址和令牌都要原样用"
+        )
+    }
+
+    /// 天数读不出来时别编一个。
+    func testAnUnrecognisableMissionPageStillAnswers() throws {
+        let status = try parser.checkInStatistics(html: "<html><body>别的东西</body></html>")
+
+        XCTAssertNil(status.consecutiveDays)
+        XCTAssertTrue(status.isCheckedInToday, "没有领奖按钮，只能当作没得领")
+    }
+
     // MARK: - 会员
 
     func testProfileFromTheMemberAPI() throws {

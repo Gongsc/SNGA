@@ -86,11 +86,10 @@ final class V2EXEndpointTests: XCTestCase {
         XCTAssertTrue(capabilities.contains(.subforums))
         XCTAssertTrue(capabilities.contains(.forumFavorites))
         XCTAssertTrue(capabilities.contains(.topicFavorites))
+        XCTAssertTrue(capabilities.contains(.checkIn), "站点的「每日登录奖励」")
         for absent in [
             // 「感谢」花钱又撤不回来，所以它走带确认的表态那条路，不是赞踩。
             ForumCapabilities.postVote, .postDownvote,
-            // 提醒和每日奖励只摸到骨架，还没接。
-            .checkIn,
             // 站点的主题收藏是平的一个列表，没有分组。
             .topicFavoriteFolders,
             // 站点本来就没有的。

@@ -100,7 +100,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 
 1. **不校验 UA**，`.fixed("SNGA/1.0 …")` 就够；也没有 Cloudflare 挑战。但**语言要自己钉** —— 不带 `V2EX_LANG=zhcn` 时站点对匿名访客发英文页。
 2. **会话过期是 302 到 `/signin`，不是 401。** `URLSession` 跟着跳，拿回来的是一张 200 的登录页；不认这一条，解析器会去登录页上找列表，报出来的是「页面结构已变化」。见 `V2EXNetworkClient.isSignInPage`。
-3. **写操作没有接口。** 回复是表单加一个一次性令牌 `once`（`GET /poll_once` 现取，匿名也给）；加减节点收藏干脆就是页面上的一条链接，点了整页跳转。后者**不拼地址**：先取那一页把链接原样读出来再请求它 —— 路径上是名字还是编号、令牌叫什么，全写在链接里。页面上已经有的东西，读它，别重新算一遍。
+3. **写操作没有接口。** 回复是表单加一个一次性令牌 `once`（`GET /poll_once` 现取，匿名也给）；加减收藏是页面上的一条链接（点了整页跳转），领每日奖励是一颗按钮的 `onclick`。后三样**一律不拼地址**：先取那一页，把链接 / `location.href` 的目标原样读出来再请求它 —— 路径上是名字还是编号、令牌叫什么，全写在里面。**页面上已经有的东西，读它，别重新算一遍。**
 4. **「感谢」花掉感谢者 10 个铜币且撤不回来**，所以它不是赞踩，而是带 `cost` 和 `isIrreversible` 的 `PostReaction`，界面先确认再发 —— 和 NodeSeek 的鸡腿同一个道理。
 5. **主题页一页 100 层**（NGA 二十几、NodeSeek 十）。任何「按楼层数发一次请求」的功能，代价在这个站上乘十 —— 补作者属地那一下就变成了 176 次请求、56 秒，见 `.postAuthorLocation`。这个站上凡是按楼层数的事，先算一遍一百倍是多少。
 6. **首页分类（`/?tab=tech`）是聚合版面，不分页，而且会和节点重名**（`?tab=qna` 和 `/go/qna` 是两份列表）。所以它的 `ForumID` 加了 `tab:` 前缀，翻页在服务层被钳成第一页。它底下那第二排节点走 `ForumPage.subforums`，筛选靠 `Topic.sourceForumID`。分类表写死在 `V2EXEndpoint.tabs`。

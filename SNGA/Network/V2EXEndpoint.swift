@@ -171,6 +171,13 @@ enum V2EXEndpoint {
     /// 用户主页。解析用不上，「在浏览器中打开」用得上。
     static func memberPage(username: String) -> URL { url("/member/\(username)") }
 
+    /// 每日登录奖励。要登录 —— 匿名 302。
+    ///
+    /// 领取那一下**不在这里拼**：它是页面上一颗按钮的 `onclick`
+    /// （`location.href = '…'`），地址连同令牌一起写在里面，读出来就是了。
+    /// 见 `V2EXParser.dailyMissionClaimLink`。
+    static let dailyMission = url("/mission/daily")
+
     // MARK: - 站内搜索（第三方）
 
     /// 主题搜索走 SoV2EX。

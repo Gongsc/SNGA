@@ -615,6 +615,62 @@ struct V2EXParser: Sendable {
         favoriteLink(inHTML: html, pathWord: "topic", adding: adding)
     }
 
+    // MARK: - 每日登录奖励
+
+    /// 领奖那颗按钮点下去要去哪儿。没有就是今天已经领过了。
+    ///
+    /// 站点把它写成一颗 `input[type=button]`，动作在 `onclick` 里
+    /// （`location.href = '…'`）—— 这个形状是实测的：同一页上「查看我的账户余额」
+    /// 那颗就是 `onclick="location.href = '/balance';"`。所以地址**不拼，读出来**，
+    /// 令牌也在里面。
+    ///
+    /// 同一页上不止一颗按钮，靠路径分：领奖那条在 `/mission/` 底下，
+    /// 余额那条是 `/balance`。认路径而不是认按钮上的字 —— 字会随奖励金额变
+    /// （「领取 20 铜币」），路径不会。
+    static func dailyMissionClaimLink(inHTML html: String) -> URL? {
+        guard let document = try? SwiftSoup.parse(html, baseURI),
+              let buttons = try? document.select("#Main input[onclick], #Main a[onclick]") else {
+            return nil
+        }
+        for button in buttons {
+            guard let onclick = try? button.attr("onclick"),
+                  let match = onclick.firstMatch(of: /location\.href\s*=\s*['"]([^'"]+)['"]/) else {
+                continue
+            }
+            let target = String(match.1)
+            guard target.hasPrefix("/mission/") else { continue }
+            return URL(string: target, relativeTo: descriptorBaseURL)?.absoluteURL
+        }
+        return nil
+    }
+
+    /// 每日登录奖励的状态。
+    ///
+    /// 站点在这一页上写着「已连续登录 N 天」（实测）。总天数它不报 —— 留 nil，
+    /// 界面就不显示那一行；填 0 是在说一件错事。
+    ///
+    /// 「今天领了没有」看的是那颗领奖按钮还在不在：领过之后站点把它换成
+    /// 「查看我的账户余额」。
+    func checkInStatistics(html: String) throws -> CheckInStatistics {
+        CheckInStatistics(
+            isCheckedInToday: Self.dailyMissionClaimLink(inHTML: html) == nil,
+            consecutiveDays: html.firstMatch(of: /已连续登录\s*(\d+)\s*天/).flatMap { Int($0.1) },
+            totalDays: nil
+        )
+    }
+
+    /// 领完之后站点说了什么。
+    ///
+    /// 领取是一次跳转，跳回来还是这一页，所以响应里就有新的天数。
+    func checkInMessage(html: String) -> String {
+        guard let match = html.firstMatch(of: /已连续登录\s*(\d+)\s*天/) else {
+            return "已领取每日登录奖励"
+        }
+        return "已连续登录 \(match.1) 天"
+    }
+
+    private static let descriptorBaseURL = ForumSiteDescriptor.v2ex.baseURL
+
     // MARK: - 会员
 
     func profile(json data: Data) throws -> Profile {
