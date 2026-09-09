@@ -178,6 +178,15 @@ enum V2EXEndpoint {
     /// 见 `V2EXParser.dailyMissionClaimLink`。
     static let dailyMission = url("/mission/daily")
 
+    /// 提醒。要登录 —— 匿名 302。
+    ///
+    /// **打开这一页会把站点那边的未读清零**（站点就是这么设计的：看过即已读）。
+    /// 所以解析出来的每一条 `isUnread` 都是 false —— 不是读不出来，是到我们手上
+    /// 时它们本来就都读过了。
+    static func notifications(page: Int) -> URL {
+        url("/notifications", query: [.init(name: "p", value: String(max(1, page)))])
+    }
+
     // MARK: - 站内搜索（第三方）
 
     /// 主题搜索走 SoV2EX。

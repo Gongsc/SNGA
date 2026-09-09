@@ -47,12 +47,11 @@ actor V2EXForumService: ForumService {
     /// `.checkIn` 是站点的「每日登录奖励」。领取那一下和收藏一样**不拼地址** ——
     /// 它是页面上一颗按钮的 `onclick`，地址连同令牌一起写在里面。
     ///
-    /// 提醒还没接：骨架摸到了（`div#n_{编号}.cell`，里面是头像、一句话和
-    /// `div.payload`），但那一页是**往下无限加载**（`/notifications/below/{游标}`）
-    /// 而不是翻页，而手上只有一条样本，看不出条与条之间怎么断。
+    /// `.notifications` 是站点的「提醒」。它**没有** `.privateMessages` ——
+    /// V2EX 根本没有站内私信，两位分开正是为了这种站点。
     nonisolated let capabilities: ForumCapabilities = [
         .globalSearch, .userActivities, .subforums,
-        .forumFavorites, .topicFavorites, .checkIn
+        .forumFavorites, .topicFavorites, .checkIn, .notifications
     ]
 
     private let client: V2EXNetworkClient
@@ -486,11 +485,27 @@ actor V2EXForumService: ForumService {
         throw ForumServiceError.unsupported("V2EX 没有主题内投票")
     }
 
+    /// 一页提醒。
+    ///
+    /// 站点没有私信，那个文件夹压根不该被请求 —— 界面上也进不去（侧栏那个入口
+    /// 落在提醒上，而「回复私信」是按消息的种类画的，V2EX 一条都产不出来）。
+    /// 真被调到了说清楚，别给一页空的。
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
-        throw notYet("提醒系统")
+        guard folder == .notifications else {
+            throw ForumServiceError.unsupported("V2EX 没有站内私信，只有提醒")
+        }
+        let page = max(1, page)
+        return try parser.notifications(
+            html: try html(await client.get(V2EXEndpoint.notifications(page: page))),
+            page: page
+        )
     }
 
-    func message(id: MessageID) async throws -> ForumMessage { throw notYet("提醒系统") }
+    /// 提醒不是会话，点开就是去看那个主题 —— 调用方拿 `topicID` 直接跳，
+    /// 不会走到这里（`MessageStore.open` 只对私信那一种再取一次详情）。
+    func message(id: MessageID) async throws -> ForumMessage {
+        throw ForumServiceError.unsupported("V2EX 的提醒没有单独的详情页")
+    }
 
     func replyMessage(id: MessageID, content: String) async throws {
         throw ForumServiceError.unsupported("V2EX 没有站内私信")

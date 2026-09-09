@@ -332,24 +332,54 @@ content={正文}&once={一次性令牌}
 （主题页的 HTML 里也写着 `var once = "35953";`，匿名页上就有，所以
 `V2EXParser.once(inHTML:)` 有夹具可对；但发请求时仍以现取的为准。）
 
-## 六、还没接的（都要登录才看得见）
+## 六、提醒
 
-只剩提醒一样。2026-09-09 用户在登录态下跑过探针，摸到的是：
+2026-09-09 用户在登录态下跑了三轮探针，最后一轮把一条的 `outerHTML` 打了出来
+（文字遮成 `文字×N`），结构因此是逐字确定的：
 
-- 一条是 `div#n_{编号}.cell`，里面是头像链接、`img.avatar`、一个 `span.fade`（包着
-  「谁在哪个主题里回复了你」那句话，含 `a.topic-link` 指向 `/t/{编号}?p=1#reply{编号}`）、
-  `div.sep5`，和 `div.payload`（回复正文）。
-- **这一页不翻页，是往下无限加载**：没有 `input.page_input`，但页面里有
-  `notificationBottom` 这个游标，配 `/notifications/below/{游标}` 用。
+```html
+<div class="cell" id="n_{编号}"><table><tbody><tr>
+  <td><a href="/member/{谁}"><img class="avatar" data-uid="{编号}"></a></td>
+  <td>
+    <span class="fade"><a href="/member/{谁}"><strong>{谁}</strong></a>
+      在 <a href="/t/{主题}#reply{楼层}" class="topic-link">{标题}</a> 里回复了你</span>
+    <span class="snow">{相对时间}</span>
+    <a href="#;" onclick="deleteNotification({编号}, {令牌})" class="node">删除</a>
+    <div class="sep5"></div>
+    <div class="payload">{正文}</div>
+  </td>
+</tr></tbody></table></div>
+```
 
-还差两件，都要等一份**多于一条**的样本：条与条之间怎么断（只有一条时看不出来），
-以及时间戳挂在哪个元素上。后者还有个坑：探针报的是「没有 `title`」，但那是浏览器里的
-DOM —— tippy.js 会把 `title` 挪进 `data-original-title`，而服务端发的是 `title`。
-探针已经改成两个都读。
+前两轮只报了类名和各自的字数，据此只能猜 —— `span.snow` 11 个字、
+`a.node[href="#;"]` 2 个字，看着像「相对时间」和「删除」。**那是猜的**，
+而猜错的后果是解析出来的正文里混进一个「删除」。第三轮直接看结构，两样都坐实了：
+`.snow` 是时间，那条 `a.node` 的 `onclick` 正是站点 JS 里的
+`deleteNotification(nId, token)`。
 
-`.privateMessages` 永远不会点亮：站点**没有站内私信**，只有提醒。所以接提醒之前
-还得先想清楚「只有通知、没有私信」在消息那一栏里怎么表达 —— 现在那个模型是两个
-文件夹并列的。
+四条要留意的：
+
+- **没有绝对时间。** 整条里一个 `title` 都没有，`data-original-title` 也没有
+  （两个都问过 —— 后者是 tippy.js 在浏览器里改写出来的）。所以 `sentAt` 留 nil：
+  把「3 小时 12 分钟前」换算成时刻，得到的是一个假的精确值。
+- **未读一律是假，而这是对的**，不是读不出来：打开这一页，站点那边的未读就清零了
+  （看过即已读）。换句话说，应用一拉这一页，用户网页上的未读角标也跟着清零。
+- **主题链接上的 `?p=` 是客户端加的**：第一轮报的是 `/t/{编号}?p=1#reply{编号}`，
+  第三轮是 `/t/{编号}#reply{编号}`。站点的 `combo.js` 里有一段会拿 lscache 里记着的
+  页码去改写 `.topic-link` 的 href。服务端发的是后者。
+- **翻页按 `?p=` 走**，和站点别处一样：只有一页时不画分页条，
+  `totalPages(in:currentPage:)` 那一套照用。（先前一轮我判过「是无限加载」，
+  那个判据不作数 —— 我拿 `innerHTML` 去搜 `notificationBottom`，而那个词住在外部的
+  combo.js 里。）
+
+### 私信和提醒得是两位
+
+站点**没有站内私信**。而能力位里原先只有 `.privateMessages`，侧栏那个「论坛消息」
+入口挂在它上面 —— 给 V2EX 点亮它，等于宣称这个站有私信。所以拆成两位：
+`.privateMessages`（收发一对一的消息）和 `.notifications`（别人回复你、提到你）。
+入口两者有其一就画，而「回复私信」那个按钮本来就是按消息自己的种类画的，不看这两位。
+
+NGA 和 NodeSeek 两样都有，V2EX 只有后一样。
 
 ### 收藏：节点和主题都接了
 

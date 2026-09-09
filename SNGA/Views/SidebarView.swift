@@ -86,7 +86,10 @@ struct SidebarView: View {
                             selection: .favorites
                         )
                     }
-                    if model.session.supports(.privateMessages) {
+                    // 两样有其一就画：这个入口是「论坛消息」，私信和提醒都算。
+                    // V2EX 只有提醒，NGA 和 NodeSeek 两样都有。
+                    if model.session.supports(.notifications)
+                        || model.session.supports(.privateMessages) {
                         sidebarButton(
                             "论坛消息",
                             systemImage: "bell",

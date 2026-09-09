@@ -581,6 +581,90 @@ final class V2EXParserTests: XCTestCase {
         XCTAssertTrue(node.path().contains("/node/"), node.absoluteString)
     }
 
+    // MARK: - 提醒
+
+    /// **结构逐字取自真实页面** —— 2026-09-09 用户在登录态下跑探针，把文字遮成
+    /// `文字×N` 之后把 `outerHTML` 打了出来，标签、类名、属性、次序都是那一份。
+    /// 填回去的只有文字。所以它写在用例里而不是放进 `Fixtures/`：那个目录里的
+    /// 每一份都是整页抓下来的响应，这一份不是。
+    private var notificationsPage: String {
+        """
+        <html><body><div id="Main"><div class="box">
+        <div class="cell" id="n_18100001"><table cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tbody><tr><td width="48" align="left" valign="top">
+        <a href="/member/Mysdes" target="_blank"><img
+          src="https://cdn.v2ex.com/avatar/ac1f/c3f1/600305_normal.png?m=1"
+          class="avatar" border="0" align="default" width="48" alt="Mysdes" data-uid="600305"></a>
+        </td><td valign="middle">
+        <span class="fade"><a href="/member/Mysdes" target="_blank"><strong>Mysdes</strong></a>
+         在 <a href="/t/1240288#reply3" class="topic-link">有啥方式可以防止丢伞</a> 里回复了你</span>
+        <span class="snow">3 小时 12 分钟前</span>
+        <a href="#;" onclick="deleteNotification(18100001, 73510)" class="node">删除</a>
+        <div class="sep5"></div>
+        <div class="payload">@<a href="/member/yuuuki">yuuuki</a> 我也丢过好几把</div>
+        </td></tr></tbody></table></div>
+        <div class="cell" id="n_18100002"><table><tbody><tr><td valign="middle">
+        <span class="fade"><a href="/member/livid"><strong>livid</strong></a>
+         在 <a href="/t/1240249#reply9" class="topic-link">另一个主题</a> 里提到了你</span>
+        <span class="snow">1 天前</span>
+        <a href="#;" onclick="deleteNotification(18100002, 73510)" class="node">删除</a>
+        <div class="sep5"></div>
+        <div class="payload">看看这个</div>
+        </td></tr></tbody></table></div>
+        </div></div></body></html>
+        """
+    }
+
+    func testNotificationsAreParsed() throws {
+        let page = try parser.notifications(html: notificationsPage, page: 1)
+
+        XCTAssertEqual(page.folder, .notifications)
+        XCTAssertEqual(page.messages.map(\.id.rawValue), [18_100_001, 18_100_002])
+        let first = try XCTUnwrap(page.messages.first)
+        XCTAssertEqual(first.sender, "Mysdes")
+        XCTAssertEqual(first.subject, "有啥方式可以防止丢伞")
+        XCTAssertEqual(first.topicID?.rawValue, 1_240_288)
+        XCTAssertTrue(first.preview.contains("我也丢过好几把"), first.preview)
+    }
+
+    /// 「删除」那条链接紧挨着正文，摘的时候不能把它带上。
+    func testTheDeleteLinkDoesNotLeakIntoTheBody() throws {
+        let page = try parser.notifications(html: notificationsPage, page: 1)
+        let first = try XCTUnwrap(page.messages.first)
+
+        XCTAssertFalse(first.preview.contains("删除"), first.preview)
+        XCTAssertFalse(first.preview.contains("3 小时"), "相对时间也不在正文里")
+    }
+
+    /// 种类靠那句话末尾的动词分 —— 两种提醒的结构一模一样。
+    func testNotificationKindComesFromTheSentence() throws {
+        let page = try parser.notifications(html: notificationsPage, page: 1)
+
+        XCTAssertEqual(page.messages.first?.kind, .reply)
+        XCTAssertEqual(page.messages.last?.kind, .mention)
+    }
+
+    /// 这一页只给相对时间（`span.snow` 里是「3 小时 12 分钟前」）。
+    /// 把它换算成时刻会得到一个假的精确值。
+    func testNotificationsHaveNoAbsoluteTime() throws {
+        let page = try parser.notifications(html: notificationsPage, page: 1)
+
+        XCTAssertTrue(page.messages.allSatisfy { $0.sentAt == nil })
+    }
+
+    /// 到我们手上时它们本来就都读过了 —— 打开这一页，站点那边的未读就清零了。
+    /// 所以「未读」一律是假，不是读不出来。
+    func testNotificationsAreNeverMarkedUnread() throws {
+        let page = try parser.notifications(html: notificationsPage, page: 1)
+
+        XCTAssertTrue(page.messages.allSatisfy { !$0.isUnread })
+    }
+
+    /// 只有一页时站点不画分页条，那就是没有下一页。
+    func testASinglePageOfNotificationsHasNoMore() throws {
+        XCTAssertFalse(try parser.notifications(html: notificationsPage, page: 1).hasMore)
+    }
+
     // MARK: - 每日登录奖励
 
     /// 领过之后站点把领奖按钮换成「查看我的账户余额」，并写着「已连续登录 N 天」。

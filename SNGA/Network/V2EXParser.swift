@@ -615,6 +615,93 @@ struct V2EXParser: Sendable {
         favoriteLink(inHTML: html, pathWord: "topic", adding: adding)
     }
 
+    // MARK: - 提醒
+
+    /// 一页提醒。
+    ///
+    /// 结构逐字取自真实页面（2026-09-09 用户在登录态下跑探针，把文字遮掉之后
+    /// 把 `outerHTML` 打了出来）：
+    ///
+    /// ```html
+    /// <div class="cell" id="n_{编号}"><table><tbody><tr>
+    ///   <td><a href="/member/{谁}"><img class="avatar" data-uid="{编号}"></a></td>
+    ///   <td>
+    ///     <span class="fade"><a href="/member/{谁}"><strong>{谁}</strong></a>
+    ///       在 <a href="/t/{主题}#reply{楼层}" class="topic-link">{标题}</a> 里回复了你</span>
+    ///     <span class="snow">{相对时间}</span>
+    ///     <a href="#;" onclick="deleteNotification({编号}, {令牌})" class="node">删除</a>
+    ///     <div class="sep5"></div>
+    ///     <div class="payload">{正文}</div>
+    ///   </td>
+    /// </tr></tbody></table></div>
+    /// ```
+    ///
+    /// 三件要留意的：
+    ///
+    /// - **没有绝对时间。** 整条里一个 `title` 都没有（`data-original-title` 也没有），
+    ///   `span.snow` 里是「3 小时 12 分钟前」这种相对说法。硬把它换算成时刻会得到
+    ///   一个假的精确值，所以 `sentAt` 留 nil。
+    /// - **`.snow` 旁边那条 `a.node[href="#;"]` 是「删除」**，不是正文的一部分。
+    ///   它的 `onclick` 是 `deleteNotification(编号, 令牌)`。摘正文时别把它带上。
+    /// - **主题链接上的 `?p=` 是客户端加的**，服务端发的是 `/t/{主题}#reply{楼层}`。
+    ///   `topicID(fromPath:)` 两种都认得。
+    func notifications(html: String, page: Int) throws -> MessagePage {
+        let document = try SwiftSoup.parse(html, Self.baseURI)
+        var messages: [ForumMessage] = []
+        for item in try document.select("#Main div[id^=n_]") {
+            guard let message = try notification(from: item) else { continue }
+            messages.append(message)
+        }
+        let totalPages = try Self.totalPages(in: document, currentPage: page)
+        return MessagePage(
+            folder: .notifications,
+            messages: messages,
+            page: page,
+            hasMore: page < totalPages
+        )
+    }
+
+    private func notification(from item: Element) throws -> ForumMessage? {
+        guard let id = try item.id().wholeMatch(of: /n_(\d+)/).flatMap({ Int64($0.1) }) else {
+            return nil
+        }
+        let sentence = try item.select("span.fade").first()
+        let topicLink = try sentence?.select("a.topic-link").first()
+        let sender = try sentence?.select("strong").first()?.text()
+            ?? sentence?.select("a[href^=/member/]").first()?.text()
+            ?? ""
+        let payload = try item.select("div.payload").first()
+        let body = try payload.map { try Self.sanitizedBody(of: $0) }
+
+        return ForumMessage(
+            id: MessageID(rawValue: id),
+            kind: Self.notificationKind(sentence: try sentence?.text() ?? ""),
+            sender: sender.trimmingCharacters(in: .whitespacesAndNewlines),
+            // 标题就是主题的标题 —— 这条提醒说的是「你在这个主题里被回复了」。
+            subject: try topicLink?.text().trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            preview: try payload?.text().trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            html: body.map { Self.document($0) },
+            // 站点只给相对时间（`span.snow` 里是「3 小时 12 分钟前」）。换算成时刻
+            // 会得到一个假的精确值，留空。
+            sentAt: nil,
+            // **不是读不出来，是本来就都读过了**：打开这一页，站点那边的未读就清零了。
+            isUnread: false,
+            topicID: try topicLink.flatMap { Self.topicID(fromPath: try $0.attr("href")) }
+        )
+    }
+
+    /// 这条提醒是哪一种。
+    ///
+    /// 站点把动作写在那句话的末尾（「…里回复了你」「…里提到了你」）。认词而不是
+    /// 认结构 —— 结构上两种是一模一样的。认不出来的按「未知」走，界面照样显示，
+    /// 只是图标是通用的那个。
+    private static func notificationKind(sentence: String) -> ForumMessageKind {
+        if sentence.contains("提到") { return .mention }
+        if sentence.contains("回复") { return .reply }
+        if sentence.contains("收藏") || sentence.contains("感谢") { return .comment }
+        return .unknown
+    }
+
     // MARK: - 每日登录奖励
 
     /// 领奖那颗按钮点下去要去哪儿。没有就是今天已经领过了。

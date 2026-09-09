@@ -42,8 +42,14 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     static let topicFavorites = ForumCapabilities(rawValue: 1 << 13)
     /// 话题收藏支持分文件夹。V2EX 和 NodeSeek 都是平铺一个列表。
     static let topicFavoriteFolders = ForumCapabilities(rawValue: 1 << 5)
-    /// 站内私信。
+    /// 站内私信：能收发一对一的消息。
     static let privateMessages = ForumCapabilities(rawValue: 1 << 6)
+    /// 提醒：别人回复你、提到你时站点给的通知。
+    ///
+    /// 和私信分开两位，因为真有站点只有其中一样 —— V2EX 只有提醒，没有私信。
+    /// 侧栏那个「论坛消息」入口两者有其一就画，而「回复私信」那个按钮是按
+    /// 消息本身的种类画的，不看这两位。
+    static let notifications = ForumCapabilities(rawValue: 1 << 15)
     /// 全站搜索。
     static let globalSearch = ForumCapabilities(rawValue: 1 << 7)
     /// 按用户查看其发布的话题与回复。
@@ -65,7 +71,7 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     static let all: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
         .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
-        .privateMessages, .globalSearch, .userActivities, .anonymousPosts,
-        .postAuthorLocation
+        .privateMessages, .notifications, .globalSearch, .userActivities,
+        .anonymousPosts, .postAuthorLocation
     ]
 }

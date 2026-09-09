@@ -29,7 +29,7 @@ actor NodeSeekForumService: ForumService {
     /// 逐个去拉作者资料，拉回来一个空值，什么都填不上 —— 纯赔。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost, .poll,
-        .privateMessages, .userActivities, .globalSearch
+        .privateMessages, .notifications, .userActivities, .globalSearch
     ]
 
     private let client: NodeSeekNetworkClient
