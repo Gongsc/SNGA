@@ -81,7 +81,7 @@ final class V2EXLiveTests: XCTestCase {
         XCTAssertGreaterThan(forums.count, 1_000, "站点有一千三百多个节点")
         XCTAssertTrue(forums.contains { $0.id.key == "qna" })
         let planes = Set(forums.compactMap(\.category))
-            .subtracting(["站点", V2EXEndpoint.descriptor.pinnedForumsTitle])
+            .subtracting(["站点", V2EXEndpoint.tabCategoryName])
         XCTAssertEqual(planes.count, 6, "站点把节点分进六个位面")
         print("线上节点 \(forums.count) 项，位面：\(planes.sorted())")
     }

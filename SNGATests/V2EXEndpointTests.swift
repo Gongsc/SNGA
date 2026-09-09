@@ -84,11 +84,15 @@ final class V2EXEndpointTests: XCTestCase {
         // 节点** —— 界面上就是子版面那个形状：一格里列出几个版面，能点进去，
         // 也能筛掉几个不看。
         XCTAssertTrue(capabilities.contains(.subforums))
+        XCTAssertTrue(capabilities.contains(.forumFavorites))
+        XCTAssertTrue(capabilities.contains(.topicFavorites))
         for absent in [
             // 「感谢」花钱又撤不回来，所以它走带确认的表态那条路，不是赞踩。
             ForumCapabilities.postVote, .postDownvote,
-            // 收藏、提醒、每日奖励都要登录才看得见标记，还没接。
-            .topicFavorites, .topicFavoriteFolders, .forumFavorites, .checkIn,
+            // 提醒和每日奖励只摸到骨架，还没接。
+            .checkIn,
+            // 站点的主题收藏是平的一个列表，没有分组。
+            .topicFavoriteFolders,
             // 站点本来就没有的。
             .privateMessages, .poll, .topicRating, .quotePost, .anonymousPosts
         ] {
@@ -180,21 +184,28 @@ final class V2EXEndpointTests: XCTestCase {
         )
     }
 
-    /// 侧栏上钉的那一栏。只有 V2EX 有这种东西。
-    func testPinnedForumsAreTheHomepageTabs() {
-        let pinned = site.pinnedForums
+    /// 首页分类只进「全部版面」那份目录，**不钉在侧栏** —— 侧栏那一栏留给节点收藏。
+    func testHomepageTabsLiveInTheDirectoryOnly() async throws {
+        let transport = RecordingHTTPTransport(responding: try fixture("v2ex-planes"))
+        let service = V2EXForumService(
+            accountID: AccountID(), cookies: [], transport: transport, userAgent: "probe"
+        )
 
-        XCTAssertEqual(site.pinnedForumsTitle, "首页分类")
-        XCTAssertEqual(pinned.map(\.name).prefix(4), ["技术", "创意", "好玩", "Apple"])
-        XCTAssertEqual(pinned.count, V2EXEndpoint.tabs.count)
-        // 每一条都得是分类的键，不是节点的键。
-        XCTAssertTrue(pinned.allSatisfy { V2EXEndpoint.tabKey(of: $0.id) != nil })
-        // 目录里按分类名归组，和侧栏那一栏同名。
-        XCTAssertTrue(pinned.allSatisfy { $0.category == "首页分类" })
+        let forums = try await service.forums()
 
-        for other in [ForumSiteDescriptor.nga, .nodeseek] {
-            XCTAssertTrue(other.pinnedForums.isEmpty, "\(other.displayName) 不该钉版面")
-        }
+        // 第一条是应用自己补的「最近主题」，接着才是十一格分类。
+        XCTAssertEqual(forums.first?.id.key, V2EXEndpoint.recentKey)
+        let tabs = forums.filter { V2EXEndpoint.tabKey(of: $0.id) != nil }
+        XCTAssertEqual(tabs.count, V2EXEndpoint.tabs.count)
+        XCTAssertEqual(tabs.prefix(4).map(\.name), ["技术", "创意", "好玩", "Apple"])
+        // 目录里归成一类，一眼看得完。
+        XCTAssertTrue(tabs.allSatisfy { $0.category == "首页分类" })
+    }
+
+    /// 侧栏上那一栏按站点自己的说法叫：V2EX 管版面叫节点。
+    func testForumFavouritesSectionIsNamedBySite() {
+        XCTAssertEqual(site.forumFavoritesTitle, "节点收藏")
+        XCTAssertEqual(ForumSiteDescriptor.nga.forumFavoritesTitle, "收藏版面")
     }
 
     /// 分类页翻页翻不动，所以服务层就该只取第一页 —— 收下大页码只会把同一屏

@@ -179,36 +179,22 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
-    /// 固定摆在侧栏的一组版面。空数组表示这个站没有这种东西，那一栏就不画。
+    /// 侧栏上收藏版面那一栏叫什么。
     ///
-    /// 不是收藏，也不是最近访问 —— 是**站点自己就摆在显眼处的入口**。V2EX 的首页
-    /// 分类（技术、创意、Apple……）正是这种：它们是站点把若干节点聚合成的版面，
-    /// 既不在节点目录里（那份表只有节点），也收藏不了。不固定在侧栏就没有入口，
-    /// 而它们恰恰是这个站最常用的浏览方式。
-    ///
-    /// NGA 和 NodeSeek 返回空：前者的版面目录本来就分好了类，后者的十五个分类
-    /// 在「全部版面」里一眼看得完，再钉一份到侧栏只是把同一份东西画两遍。
-    var pinnedForums: [Forum] {
+    /// 按站点自己的说法：V2EX 管版面叫节点，标成「收藏版面」是在说一个它没有的词。
+    /// 站点收藏不了版面时这一栏根本不画（`.forumFavorites`），这个名字也就用不上。
+    var forumFavoritesTitle: String {
         switch site {
-        case .nga, .nodeseek:
-            return []
-        case .v2ex:
-            return V2EXEndpoint.tabs.map { tab in
-                Forum(
-                    id: V2EXEndpoint.tabForumID(key: tab.key),
-                    name: tab.name,
-                    category: pinnedForumsTitle,
-                    searchAliases: [tab.key]
-                )
-            }
+        case .nga, .nodeseek: "收藏版面"
+        case .v2ex: "节点收藏"
         }
     }
 
-    /// 侧栏上那一栏叫什么。按站点自己的说法 —— V2EX 管它们叫「分类」，不叫版面。
-    var pinnedForumsTitle: String {
+    /// 版面上那颗星按钮怎么说。同上，按站点的词。
+    var favoriteForumActionTitle: String {
         switch site {
-        case .nga, .nodeseek: "常用版面"
-        case .v2ex: "首页分类"
+        case .nga, .nodeseek: "收藏版面"
+        case .v2ex: "收藏节点"
         }
     }
 

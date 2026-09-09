@@ -52,6 +52,24 @@ enum V2EXEndpoint {
         ("r2", "R2")
     ]
 
+    /// 首页分类作为版面的样子。
+    ///
+    /// 只进「全部版面」那份目录，不钉在侧栏 —— 侧栏那一栏留给节点收藏，
+    /// 而这十一格在目录里归成一类，一眼看得完。
+    static var tabForums: [Forum] {
+        tabs.map { tab in
+            Forum(
+                id: tabForumID(key: tab.key),
+                name: tab.name,
+                category: tabCategoryName,
+                searchAliases: [tab.key]
+            )
+        }
+    }
+
+    /// 目录里这一组叫什么。按站点自己的说法：它管这些叫分类，不叫版面。
+    static let tabCategoryName = "首页分类"
+
     /// 分类的键要和节点区分开。
     ///
     /// **不能直接用 `tab` 的名字当键**：站点有一个叫 `qna` 的分类，也有一个叫 `qna`
@@ -111,6 +129,21 @@ enum V2EXEndpoint {
     static func page(ofFloor floor: Int) -> Int {
         floor <= 0 ? 1 : (floor - 1) / repliesPerPage + 1
     }
+
+    /// 收藏的节点。要登录 —— 匿名 302 到登录页。
+    static let favoriteNodes = url("/my/nodes")
+
+    /// 收藏的主题。同样要登录。
+    ///
+    /// 这一页用的是**和 `/recent` 同一套** `div.cell.item` 模板（2026-09-09 由用户
+    /// 在登录态下跑探针确认），所以解析直接复用 `topicList`。
+    static func favoriteTopics(page: Int) -> URL {
+        url("/my/topics", query: [.init(name: "p", value: String(max(1, page)))])
+    }
+
+    /// 站点的主题收藏没有分组，只有一个列表。这个编号代表那唯一的一个 ——
+    /// 它不会发给站点，只是应用内部用来指代「那个列表」。
+    static let implicitFavoriteFolderID = "favorites"
 
     // MARK: - 用户
 

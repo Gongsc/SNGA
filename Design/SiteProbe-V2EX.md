@@ -334,18 +334,59 @@ content={正文}&once={一次性令牌}
 
 ## 六、还没接的（都要登录才看得见）
 
-| 功能 | 地址 | 为什么没接 |
+| 功能 | 地址 | 还差什么 |
 | --- | --- | --- |
-| 话题收藏 | `/my/topics`、`/favorite/topic/{id}` | 列表模板和 `/recent` 大概率同一套，但收藏和取消收藏是两个**登录后才画出来的链接**，匿名看不到它们的参数名 |
-| 节点收藏 | `/my/nodes`、`/favorite/node/{id}` | 同上 |
-| 提醒 | `/notifications`、`/notifications/below/{游标}` | 匿名 302。删除走 `deleteNotification(id, token)`，token 就是 `once` |
-| 每日登录奖励 | `/mission/daily` | 匿名 302 |
+| 提醒 | `/notifications`、`/notifications/below/{游标}` | 骨架有了 —— `div#n_{编号}.cell`，子元素是 avatar / fade / topic-link / node / payload（2026-09-09 用户在登录态下跑探针）。但只有一份样本：时间挂在哪个元素的 `title` 上、`.payload` 里装什么、翻不翻页，都还不知道 |
+| 每日登录奖励 | `/mission/daily` | 只知道那是一颗带 `onclick` 的 `input[type=button]`。点下去做什么、领过之后页面怎么说、连续天数写在哪儿，都还不知道 |
 
-对应的能力位（`.topicFavorites`、`.forumFavorites`、`.checkIn`）一律关着，
-所以侧栏那个「收藏」入口、楼层上的星标、签到那一段**整个不画** —— 不是画出来等用户点了
-再报「不支持」。要接就先跑 `Design/probe-v2ex-logged-in.js`。
+对应的能力位（`.checkIn`、私信）关着，签到那一段和消息入口**整个不画** —— 不是画出来等
+用户点了再报「不支持」。下一步是 `Design/probe-v2ex-daily-and-notifications.js`，
+它只问上面这几个还缺的问题。
 
 站点**没有站内私信**（只有提醒），所以 `.privateMessages` 永远不会点亮。
+
+### 收藏：节点和主题都接了
+
+两边同一条路子，加减都**不拼地址**。
+
+`/my/nodes`（节点收藏）要登录，所以这一页**没有真实夹具**。但它的标记不是凭空猜的 ——
+站点自己的 `combo.css` 里有两个别处都不出现的类名，专为这一页存在：
+
+```css
+.fav-node { display:block; text-decoration:none; … }   /* :hover 里有 cursor:pointer → 是个 <a> */
+.fav-node * { display:block; margin:0 auto }
+.fav-node > .fav-node-name { margin:10px auto 5px auto }
+```
+
+所以 `V2EXParser.favoriteNodes` 先认 `a.fav-node` + `.fav-node-name`，认不出就退回
+「`#Main` 里指向 `/go/` 的链接」—— 站点的节点链接只有这一种形状，认宽一点也不会认错。
+两条都落空给空数组，不抛：收藏读不出来不该挡住浏览。
+
+写那一半**不拼地址**。站点没有收藏接口 —— 加减收藏就是节点页上的一条链接，
+点下去整页跳转（用户实测）。所以照着浏览器做：先取那一页，把链接原样读出来，再请求它。
+两次往返，换来的是一次都不用猜 —— 路径上是节点名还是编号、令牌叫 `once` 还是 `t`，
+全写在那条链接里，连令牌都是现成的。这和 `once` 那儿是同一个道理：**页面上已经有的
+东西，读它，别重新算一遍。**
+
+方向靠路径里的词分，`unfavorite` 要先判 —— 它里面也含着 `favorite`。两条链接都不在时，
+先看反方向那条在不在：在，说明已经是想要的状态了，什么都不做才对；都不在多半是会话
+过期（站点只把它们画给登录用户），报「请重新登录」。
+
+因为解析器对链接的形状不作要求，`V2EXParserTests` 里那几条**故意各写一种不同的写法**
+（编号 / 名字、`once` / `t`）—— 钉的是「不管站点怎么写都读得出来」，而不是某一种猜想。
+
+`/my/topics`（主题收藏）比节点那边扎实：2026-09-09 用户在登录态下跑探针，那一页的
+`div.cell.item` 是 2 条，**和 `/recent` 用的是同一套模板**，所以解析直接复用 `topicList`。
+写那一半同样是读主题页上的链接 —— 但**要挑对**：主题页的侧栏挂着它所属的节点，
+那儿也有一条收藏链接，不按路径里的词分（`topic` 还是 `node`），
+「收藏这个主题」会点成「收藏这个节点」。
+
+站点的主题收藏是平的一个列表，所以 `.topicFavoriteFolders` 关着，
+`favoriteTopicFolders()` 给一个隐含的收藏夹代表那个列表（和 NodeSeek 同一个做法）。
+
+顺带一条：`ForumSiteDescriptor` 里那几个 `xxxTitle` 又多了两个 ——
+侧栏那一栏在 V2EX 上叫「节点收藏」，版面上那颗星叫「收藏节点」。站点管版面叫节点，
+标成「收藏版面」是在说一个它没有的词。
 
 ## 七、夹具
 

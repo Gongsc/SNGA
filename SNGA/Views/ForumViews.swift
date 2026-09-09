@@ -1224,80 +1224,7 @@ struct TopicListView: View {
 
                 if !model.isCurrentForumSearchActive,
                    !model.browsing.subforums.isEmpty {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Button {
-                                withAnimation(motionAnimation(.easeInOut(duration: 0.16))) {
-                                    isSubforumsExpanded.toggle()
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(
-                                        systemName: isSubforumsExpanded
-                                            ? "chevron.down"
-                                            : "chevron.right"
-                                    )
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 12)
-
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "square.grid.3x3")
-                                            .foregroundStyle(theme.accentColor)
-                                        // 按站点的说法叫。V2EX 的节点是平的，
-                                        // 那一格装的是「这个分类聚合了哪几个节点」。
-                                        Text(siteDescriptor.subforumSectionTitle)
-                                    }
-                                    .font(.headline)
-                                    Text("\(model.browsing.subforums.count)")
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("已显示 \(includedSubforumCount)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("topic-list-subforums-toggle")
-
-                            if isSubforumsExpanded {
-                                HStack {
-                                    Text(siteDescriptor.subforumSelectionHint)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
-                                        model.browsing.setAllSubforumsIncluded(!allSubforumsIncluded)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .font(.caption)
-                                }
-
-                                LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
-                                    alignment: .leading,
-                                    spacing: 8
-                                ) {
-                                    ForEach(model.browsing.subforums) { forum in
-                                        SubforumTile(
-                                            forum: forum,
-                                            isIncluded: model.browsing.includedSubforumIDs.contains(forum.id)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-                            dimensions[.leading] + 8
-                        }
-                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-                            dimensions[.trailing] - 8
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
+                    subforumSection
                 }
 
                 if showsTopicListSkeleton {
@@ -1390,12 +1317,18 @@ struct TopicListView: View {
                         Task { await model.favorite.toggleFavorite(forum) }
                     } label: {
                         Label(
-                            model.isActiveForumFavorite ? "取消收藏" : "收藏版面",
+                            model.isActiveForumFavorite
+                                ? "取消收藏"
+                                : siteDescriptor.favoriteForumActionTitle,
                             systemImage: model.isActiveForumFavorite ? "star.fill" : "star"
                         )
                     }
                     .labelStyle(.iconOnly)
-                    .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
+                    .help(
+                        model.isActiveForumFavorite
+                            ? "取消收藏当前版面"
+                            : siteDescriptor.favoriteForumActionTitle
+                    )
                     .disabled(model.browsing.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
                     }
@@ -1478,6 +1411,89 @@ struct TopicListView: View {
             search: performForumSearch,
             clear: clear
         )
+    }
+
+    /// 子版面那一格（V2EX 上装的是首页分类聚合了哪几个节点）。
+    ///
+    /// 抽成属性而不是留在 `body` 里：这个 `body` 已经顶到类型检查器的上限，
+    /// 再往里加一层就崩成一句「无法在合理时间内完成类型检查」。同一个文件里
+    /// 那条搜索栏的注释记着同一件事。
+    @ViewBuilder
+    private var subforumSection: some View {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.16))) {
+                                    isSubforumsExpanded.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(
+                                        systemName: isSubforumsExpanded
+                                            ? "chevron.down"
+                                            : "chevron.right"
+                                    )
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 12)
+
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "square.grid.3x3")
+                                            .foregroundStyle(theme.accentColor)
+                                        // 按站点的说法叫。V2EX 的节点是平的，
+                                        // 那一格装的是「这个分类聚合了哪几个节点」。
+                                        Text(siteDescriptor.subforumSectionTitle)
+                                    }
+                                    .font(.headline)
+                                    Text("\(model.browsing.subforums.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("已显示 \(includedSubforumCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("topic-list-subforums-toggle")
+
+                            if isSubforumsExpanded {
+                                HStack {
+                                    Text(siteDescriptor.subforumSelectionHint)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
+                                        model.browsing.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption)
+                                }
+
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    ForEach(model.browsing.subforums) { forum in
+                                        SubforumTile(
+                                            forum: forum,
+                                            isIncluded: model.browsing.includedSubforumIDs.contains(forum.id)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                            dimensions[.leading] + 8
+                        }
+                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                            dimensions[.trailing] - 8
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
     }
 
     private var topicListHeader: some View {

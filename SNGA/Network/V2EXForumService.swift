@@ -35,9 +35,20 @@ actor V2EXForumService: ForumService {
     /// （V2EX 的节点是平的），但在界面上就是这个形状：一格里列出几个版面，
     /// 可以点进去，也可以筛掉几个不看。
     ///
-    /// 收藏（话题和节点都是）、通知、每日奖励都还没接：它们的链接和表单只在登录后
-    /// 的页面上，匿名抓不到，没有夹具就不写解析器。
-    nonisolated let capabilities: ForumCapabilities = [.globalSearch, .userActivities, .subforums]
+    /// `.forumFavorites` 点亮的是**节点收藏**（`/my/nodes`）。只接了读那一半：
+    /// 加减收藏是登录后才画出来的两个链接，地址形状还没验过，所以 `updateFavorite`
+    /// 仍然抛 `.unsupported` —— 收藏栈对这种情况有现成的退路，会把它记成一条
+    /// 只在本地的收藏，而不是报错（见 `FavoriteStore.replayFavoriteChanges`）。
+    ///
+    /// `.topicFavorites` 同理，走 `/my/topics`。那一页用的是和 `/recent` 一模一样的
+    /// `div.cell.item` 模板（用户在登录态下跑探针确认过），所以解析直接复用。
+    /// `.topicFavoriteFolders` 没点亮：站点的收藏是平的一个列表，没有分组。
+    ///
+    /// 提醒和每日奖励还没接 —— 它们的骨架已经摸到（提醒是 `div#n_{编号}.cell`，
+    /// 奖励是一颗带 `onclick` 的按钮），但只有一份样本，够不上写解析器。
+    nonisolated let capabilities: ForumCapabilities = [
+        .globalSearch, .userActivities, .subforums, .forumFavorites, .topicFavorites
+    ]
 
     private let client: V2EXNetworkClient
     private let parser = V2EXParser()
@@ -169,7 +180,7 @@ actor V2EXForumService: ForumService {
     /// `/recent`，那才是这个应用里「全部」的对应物。
     func forums() async throws -> [Forum] {
         let nodes = try parser.planes(html: try html(await client.get(V2EXEndpoint.planes)))
-        return [Self.recentForum] + V2EXEndpoint.descriptor.pinnedForums + nodes
+        return [Self.recentForum] + V2EXEndpoint.tabForums + nodes
     }
 
     /// 「最近主题」这一条是应用自己补的，不是站点的版面。
@@ -182,6 +193,86 @@ actor V2EXForumService: ForumService {
         subtitle: "全站按最后回复时间排列",
         category: "站点"
     )
+
+    /// 收藏的节点。
+    ///
+    /// 站点管它叫「节点收藏」，页面是 `/my/nodes`，要登录 —— 匿名 302 到登录页，
+    /// 所以这一份**没有夹具可对**。解析的依据是站点自己的样式表：`combo.css` 里有
+    /// `.fav-node`（`display:block` + `text-decoration:none` + `cursor:pointer`，
+    /// 是个 `<a>`）和它的子元素 `.fav-node-name`（节点名）。这两个类名在别的页面上
+    /// 都没出现过，是这一页专用的。
+    ///
+    /// 认不出那两个类名时退回「`#Main` 里所有指向 `/go/` 的链接」—— 站点的节点链接
+    /// 只有这一种形状。两条路都落空就给一份空的：收藏读不出来不该挡住浏览
+    /// （`FavoriteStore.refreshFavorites` 也是这么兜的）。
+    func favorites() async throws -> [Forum] {
+        try parser.favoriteNodes(html: try html(await client.get(V2EXEndpoint.favoriteNodes)))
+    }
+
+    /// 站点的主题收藏没有分组，只有一个列表 —— 那就给出一个隐含的收藏夹代表它。
+    ///
+    /// 返回空数组不行：应用里选中收藏夹、收藏/取消收藏、计数，全都挂在「有一个
+    /// 文件夹」这件事上。空数组会让收藏页永远是空的。界面上不会多冒出一条
+    /// 收藏夹 —— `.topicFavoriteFolders` 关着，那一栏和新建改名删除都不画。
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
+        [TopicFavoriteFolder(
+            id: V2EXEndpoint.implicitFavoriteFolderID,
+            name: "收藏",
+            isDefault: true
+        )]
+    }
+
+    /// 收藏的主题。站点没有收藏夹，`folderID` 无处可去。
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
+        let page = max(1, page)
+        return try parser.topicList(
+            html: try html(await client.get(V2EXEndpoint.favoriteTopics(page: page))),
+            forumID: ForumID.placeholder(site: .v2ex),
+            page: page
+        )
+    }
+
+    /// 收藏或取消收藏一个主题。
+    ///
+    /// 和节点那边同一条路子：站点没有接口，那是主题页上的一条链接，所以先取那一页
+    /// 把链接原样读出来再请求它。分辨靠路径里的词 —— 主题页的侧栏挂着它所属的节点，
+    /// 那儿也有一条收藏链接，不分就会把「收藏这个主题」点成「收藏这个节点」。
+    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
+        let url = V2EXEndpoint.topic(topicID: topicID, page: 1)
+        let page = try html(await client.get(url))
+        guard let link = V2EXParser.favoriteTopicLink(inHTML: page, adding: isFavorite) else {
+            // 反方向的链接在，就说明已经是想要的状态了。
+            if V2EXParser.favoriteTopicLink(inHTML: page, adding: !isFavorite) != nil { return }
+            throw ForumServiceError.requiresLogin
+        }
+        _ = try await client.get(link, referer: url)
+    }
+
+    /// 收藏或取消收藏一个节点。
+    ///
+    /// 站点**没有收藏接口**：加减收藏就是节点页上的一个链接，点下去整页跳转
+    /// （用户实测）。所以这里照着浏览器做 —— 先取那一页，把链接原样读出来，
+    /// 再请求它。两次往返，换来的是一次都不用猜：路径上是节点名还是编号、
+    /// 令牌叫什么，全写在那条链接里。
+    ///
+    /// 链接不在有两种可能：会话过期（站点只画给登录用户），或者**已经是想要的
+    /// 状态了**——想收藏而页面上只有「取消收藏」，说明早就收藏过。后者不是错误，
+    /// 什么都不做就是对的。
+    func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws {
+        guard V2EXEndpoint.tabKey(of: forumID) == nil,
+              forumID.key != V2EXEndpoint.recentKey else {
+            throw ForumServiceError.unsupported("首页分类不是节点，收藏不了")
+        }
+        let page = try html(await client.get(
+            V2EXEndpoint.topicList(forumID: forumID, page: 1)
+        ))
+        guard let link = V2EXParser.favoriteNodeLink(inHTML: page, adding: isFavorite) else {
+            // 反方向的链接在，就说明已经是想要的状态了。
+            if V2EXParser.favoriteNodeLink(inHTML: page, adding: !isFavorite) != nil { return }
+            throw ForumServiceError.requiresLogin
+        }
+        _ = try await client.get(link, referer: V2EXEndpoint.topicList(forumID: forumID, page: 1))
+    }
 
     /// 搜索。
     ///
@@ -291,7 +382,7 @@ actor V2EXForumService: ForumService {
                         ? nil
                         // 站点自己就把这几个节点画在分类底下，说清楚这一格聚合了什么。
                         : result.subforums.map(\.name).joined(separator: " · "),
-                    category: V2EXEndpoint.descriptor.pinnedForumsTitle
+                    category: V2EXEndpoint.tabCategoryName
                 )
             } else if forumID.key == V2EXEndpoint.recentKey {
                 result.forum = Self.recentForum
@@ -398,19 +489,6 @@ actor V2EXForumService: ForumService {
 
     func replyMessage(id: MessageID, content: String) async throws {
         throw ForumServiceError.unsupported("V2EX 没有站内私信")
-    }
-
-    /// 站点是有收藏的（`/my/topics`），但收藏和取消收藏是登录后才画出来的两个链接，
-    /// 匿名连它们的地址长什么样都看不见。没有夹具就不写，`.topicFavorites`
-    /// 也关着 —— 侧栏那个入口整个不画，不会有人点进一个永远是空的页面。
-    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { [] }
-
-    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
-        throw notYet("话题收藏")
-    }
-
-    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
-        throw notYet("话题收藏")
     }
 
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? {

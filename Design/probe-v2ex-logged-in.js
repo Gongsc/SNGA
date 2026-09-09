@@ -45,6 +45,28 @@
       'div.dock_area': countOf('div.dock_area'),
       'div.cell': countOf('div.cell')
     },
+    // 收藏的节点长什么样。应用现在按 `.fav-node` / `.fav-node-name` 认 ——
+    // 那两个类名是从站点自己的 combo.css 里读出来的，但**没有在真页面上验过**。
+    // 这几个数就是去验它的：`.fav-node` 的条数应当等于你收藏的节点数。
+    节点收藏页: {
+        'a.fav-node': countOf('a.fav-node'),
+        '.fav-node-name': countOf('.fav-node-name'),
+        'a.grid_item': countOf('a.grid_item'),
+        '#Main 里指向 /go/ 的链接': Array.from(
+            document.querySelectorAll('#Main a[href^="/go/"]')
+        ).length,
+        一条的类名: (() => {
+            const node = document.querySelector('#Main a[href^="/go/"]');
+            if (!node) return null;
+            return {
+                标签: node.tagName.toLowerCase(),
+                类名: node.className || null,
+                子元素类名: Array.from(node.querySelectorAll('[class]'))
+                    .slice(0, 4)
+                    .map((child) => child.className)
+            };
+        })()
+    },
     // 提醒每条挂一个删除按钮，`deleteNotification(id, token)` 的第二个参数就是 once。
     提醒项: Array.from(document.querySelectorAll('div[id^="n_"]'))
       .slice(0, 2)

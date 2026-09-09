@@ -445,6 +445,142 @@ final class V2EXParserTests: XCTestCase {
 
 
 
+    // MARK: - 节点收藏
+
+    /// **下面这两段 HTML 是按站点样式表推断的形状，不是抓来的夹具** ——
+    /// `/my/nodes` 要登录，匿名 302 到登录页。所以它们写在用例里，而不是放进
+    /// `Fixtures/`：那个目录里的每一份都取自真实响应，混进一份想象出来的，
+    /// 下一个人就分不清哪些验过哪些没验过。
+    ///
+    /// 依据是 `combo.css` 里只为这一页存在的两个类名：`.fav-node`
+    /// （`display:block; text-decoration:none; cursor:pointer`，是个 `<a>`）
+    /// 和它的子元素 `.fav-node-name`。
+    func testFavoriteNodesReadTheSitesOwnClassNames() throws {
+        let html = """
+        <html><body><div id="Main"><div class="box">
+        <a href="/go/qna" class="fav-node"><img src="/x.png" />
+          <div class="fav-node-name">问与答</div></a>
+        <a href="/go/programmer" class="fav-node"><img src="/y.png" />
+          <div class="fav-node-name">程序员</div></a>
+        </div></div></body></html>
+        """
+
+        let forums = try parser.favoriteNodes(html: html)
+
+        XCTAssertEqual(forums.map(\.id.key), ["qna", "programmer"])
+        XCTAssertEqual(forums.first?.name, "问与答")
+        XCTAssertTrue(forums.first?.searchAliases.contains("qna") == true)
+    }
+
+    /// 认不出那两个类名时退回「`#Main` 里指向 `/go/` 的链接」。
+    /// 站点改版把类名换掉时，收藏栏至少还是满的，而不是空的。
+    func testFavoriteNodesFallBackToPlainNodeLinks() throws {
+        let html = """
+        <html><body><div id="Main">
+        <a href="/go/swift">Swift</a>
+        <a href="/go/swift">Swift（重复的一条）</a>
+        <a href="/member/livid">不是节点</a>
+        </div></body></html>
+        """
+
+        let forums = try parser.favoriteNodes(html: html)
+
+        XCTAssertEqual(forums.map(\.id.key), ["swift"], "同一个节点只留一条")
+        XCTAssertEqual(forums.first?.name, "Swift")
+    }
+
+    /// 什么都认不出来时给空数组，不抛 —— 收藏读不出来不该挡住浏览。
+    func testFavoriteNodesAreEmptyRatherThanThrowing() throws {
+        XCTAssertTrue(
+            try parser.favoriteNodes(html: "<html><body>别的东西</body></html>").isEmpty
+        )
+    }
+
+    /// 加减收藏不拼地址，把节点页上那条链接原样读出来。
+    ///
+    /// 所以这几条用的不是某一种确定的写法 —— 恰恰相反，它们各写一种**不同的**
+    /// 形状（编号 / 名字、`once` / `t`），来钉住「不管站点怎么写，都读得出来」。
+    /// 站点真实用的是哪一种，仍然没验过；这个解析器的意义就是不必知道。
+    func testFavoriteNodeLinkIsReadNotConstructed() throws {
+        let shapes = [
+            #"<a href="/favorite/node/12?once=73510" class="tb">加入收藏</a>"#,
+            #"<a href="/favorite/node/qna?t=73510">收藏节点</a>"#,
+            #"<a href="https://www.v2ex.com/favorite/node/qna?once=1">收藏</a>"#
+        ]
+        for shape in shapes {
+            let html = "<html><body><div id=\"Main\">\(shape)</div></body></html>"
+            let link = try XCTUnwrap(
+                V2EXParser.favoriteNodeLink(inHTML: html, adding: true),
+                shape
+            )
+            XCTAssertTrue(link.absoluteString.hasPrefix("https://www.v2ex.com/favorite/node/"), shape)
+            // 页面上只有「收藏」那条时，取消收藏无从谈起。
+            XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: false), shape)
+        }
+    }
+
+    /// `unfavorite` 里也含着 `favorite` 这个词，先判它，否则两个方向会认混。
+    func testUnfavoriteIsNotMistakenForFavorite() throws {
+        let html = """
+        <html><body><div id="Main">
+        <a href="/unfavorite/node/12?once=73510" class="tb">取消收藏</a>
+        </div></body></html>
+        """
+
+        let removing = try XCTUnwrap(V2EXParser.favoriteNodeLink(inHTML: html, adding: false))
+        XCTAssertTrue(removing.path().contains("unfavorite"), removing.absoluteString)
+        // 页面上是「取消收藏」，说明现在收藏着 —— 再收藏一次无从谈起。
+        XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: true))
+    }
+
+    /// 主题的收藏链接不能被当成节点的。
+    func testTopicFavoriteLinksAreIgnored() {
+        let html = """
+        <html><body><div id="Main">
+        <a href="/favorite/topic/1240288?once=1">收藏主题</a>
+        </div></body></html>
+        """
+
+        XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: true))
+    }
+
+    /// 站外的链接一概不认 —— 正文是别人写的，谁都能在里面放一条。
+    func testForeignFavoriteLinksAreIgnored() {
+        let html = """
+        <html><body><div id="Main">
+        <a href="https://example.com/favorite/node/qna?once=1">看着像</a>
+        </div></body></html>
+        """
+
+        XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: true))
+    }
+
+    /// 匿名页上没有这两条链接 —— 站点只画给登录用户。
+    func testAnonymousNodePageHasNoFavoriteLink() throws {
+        let html = try fixture("v2ex-node-topics")
+
+        XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: true))
+        XCTAssertNil(V2EXParser.favoriteNodeLink(inHTML: html, adding: false))
+    }
+
+    /// 主题页上两条收藏链接会同时出现：一条收藏这个主题，一条收藏它所属的节点
+    /// （站点把节点挂在侧栏）。不按路径里的词分，「收藏主题」会点成「收藏节点」。
+    func testTopicAndNodeFavoriteLinksAreToldApart() throws {
+        let html = """
+        <html><body><div id="Main">
+        <a href="/favorite/topic/1240288?once=1">收藏主题</a>
+        </div><div id="Rightbar">
+        <a href="/favorite/node/12?once=1">收藏节点</a>
+        </div></body></html>
+        """
+
+        let topic = try XCTUnwrap(V2EXParser.favoriteTopicLink(inHTML: html, adding: true))
+        let node = try XCTUnwrap(V2EXParser.favoriteNodeLink(inHTML: html, adding: true))
+
+        XCTAssertTrue(topic.path().contains("/topic/"), topic.absoluteString)
+        XCTAssertTrue(node.path().contains("/node/"), node.absoluteString)
+    }
+
     // MARK: - 会员
 
     func testProfileFromTheMemberAPI() throws {

@@ -534,6 +534,87 @@ struct V2EXParser: Sendable {
         )
     }
 
+    /// 收藏的节点（`/my/nodes`）。
+    ///
+    /// **这一份没有真实夹具**：那一页要登录，匿名 302 到登录页。依据是站点自己的
+    /// 样式表 —— `combo.css` 里的 `.fav-node` 和 `.fav-node-name` 只为这一页存在，
+    /// 前者是 `display:block; text-decoration:none; cursor:pointer` 的一个 `<a>`，
+    /// 后者装节点名。地址形状和站点其余节点链接一致（`/go/{名字}`）。
+    ///
+    /// 所以这里按两层来认：先找那两个类名，找不到就退回「`#Main` 里指向 `/go/` 的
+    /// 链接」。后者宽得多，但站点的节点链接只有这一种形状，认宽一点也不会认错东西。
+    /// 都落空就给空数组 —— 收藏读不出来不该挡住浏览。
+    func favoriteNodes(html: String) throws -> [Forum] {
+        let document = try SwiftSoup.parse(html, Self.baseURI)
+        let byClass = try document.select("a.fav-node[href]")
+        let anchors = byClass.isEmpty()
+            ? try document.select("#Main a[href^=/go/]")
+            : byClass
+
+        var forums: [Forum] = []
+        var seen = Set<String>()
+        for anchor in anchors {
+            guard let id = Self.forumID(fromPath: try anchor.attr("href")) else { continue }
+            guard seen.insert(id.key).inserted else { continue }
+            // 名字优先取站点给的那一格；退回路径上没有它，就用链接自己的文字，
+            // 再不行用节点的英文名 —— 总比画一行空的强。
+            let named = try anchor.select(".fav-node-name").first()?.text()
+                ?? anchor.text()
+            let name = named.trimmingCharacters(in: .whitespacesAndNewlines)
+            forums.append(Forum(
+                id: id,
+                name: name.isEmpty ? id.key : name,
+                category: "节点",
+                searchAliases: [id.key]
+            ))
+        }
+        return forums
+    }
+
+    /// 页面上那条「收藏 / 取消收藏」的链接。
+    ///
+    /// 站点没有收藏接口 —— 加减收藏就是页面上的一个链接，点了整页跳转
+    /// （用户实测）。所以这里**不拼地址，把链接原样读出来**：拼就得猜路径上是
+    /// 节点名还是编号、令牌叫 `once` 还是 `t`，而那个链接本身就写着答案，
+    /// 连令牌都是现成的。同一个道理在 `once` 那儿也用过。
+    ///
+    /// 方向靠路径里的词分：带 `unfavorite` 的那条是「取消收藏」，也就意味着
+    /// **现在是收藏着的**；只带 `favorite` 的那条相反。先判 `unfavorite` ——
+    /// 它里面也含着 `favorite` 这个词。
+    ///
+    /// `pathWord` 分的是收藏什么：节点页上那条路径里带 `node`，主题页上那条带
+    /// `topic`。同一个页面上两种都可能出现（主题页的侧栏挂着它所属的节点），
+    /// 不分就会把「收藏这个主题」点成「收藏这个节点」。
+    ///
+    /// 匿名页上没有这两条链接（站点只画给登录用户），所以返回 nil 有两种意思：
+    /// 没登录，或者站点改了写法。调用方分不出来，也不该假装分得出来。
+    static func favoriteLink(inHTML html: String, pathWord: String, adding: Bool) -> URL? {
+        guard let document = try? SwiftSoup.parse(html, baseURI),
+              let anchors = try? document.select("a[href*=favorite]") else {
+            return nil
+        }
+        for anchor in anchors {
+            guard let href = try? anchor.attr("abs:href"),
+                  let url = URL(string: href),
+                  url.host?.hasSuffix("v2ex.com") == true else {
+                continue
+            }
+            let path = url.path().lowercased()
+            guard path.contains(pathWord) else { continue }
+            let removes = path.contains("unfavorite")
+            if removes != adding { return url }
+        }
+        return nil
+    }
+
+    static func favoriteNodeLink(inHTML html: String, adding: Bool) -> URL? {
+        favoriteLink(inHTML: html, pathWord: "node", adding: adding)
+    }
+
+    static func favoriteTopicLink(inHTML html: String, adding: Bool) -> URL? {
+        favoriteLink(inHTML: html, pathWord: "topic", adding: adding)
+    }
+
     // MARK: - 会员
 
     func profile(json data: Data) throws -> Profile {

@@ -24,6 +24,14 @@ final class V2EXWriteTests: XCTestCase {
         )
     }
 
+    private func html(_ name: String) throws -> String {
+        let url = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: name, withExtension: "html"),
+            "测试包里没有夹具 \(name).html"
+        )
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
     private func body(_ request: URLRequest) -> String {
         String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
     }
@@ -192,6 +200,139 @@ final class V2EXWriteTests: XCTestCase {
         } catch {
             XCTAssertEqual(transport.requests.count, 1, "只发了取令牌那一次")
         }
+    }
+
+    // MARK: - 节点收藏
+
+    /// 站点没有收藏接口，加减收藏是节点页上的一条链接（点了整页跳转）。
+    /// 所以这里先取那一页、把链接读出来，再请求它 —— 一次都不用猜。
+    func testFavouritingANodeFollowsTheLinkOnThePage() async throws {
+        let page = """
+        <html><body><div id="Main"><div class="box">
+        <a href="/favorite/node/12?once=73510" class="tb">加入收藏</a>
+        </div></div></body></html>
+        """
+        let transport = RecordingHTTPTransport(responding: page)
+
+        try await service(transport).updateFavorite(
+            forumID: V2EXEndpoint.forumID(key: "qna"),
+            isFavorite: true
+        )
+
+        XCTAssertEqual(transport.requests.count, 2, "取一次页面，点一次链接")
+        XCTAssertEqual(transport.requests[0].url?.absoluteString, "https://www.v2ex.com/go/qna")
+        XCTAssertEqual(
+            transport.requests[1].url?.absoluteString,
+            "https://www.v2ex.com/favorite/node/12?once=73510",
+            "链接要原样用，令牌也在里面"
+        )
+        XCTAssertEqual(transport.requests[1].httpMethod, "GET", "站点这一下就是个链接跳转")
+    }
+
+    /// 已经是想要的状态了就什么都不做 —— 页面上只有反方向那条链接。
+    func testFavouritingAnAlreadyFavouritedNodeDoesNothing() async throws {
+        let page = """
+        <html><body><div id="Main">
+        <a href="/unfavorite/node/12?once=73510">取消收藏</a>
+        </div></body></html>
+        """
+        let transport = RecordingHTTPTransport(responding: page)
+
+        try await service(transport).updateFavorite(
+            forumID: V2EXEndpoint.forumID(key: "qna"),
+            isFavorite: true
+        )
+
+        XCTAssertEqual(transport.requests.count, 1, "取了一次页面，没再点什么")
+    }
+
+    /// 两条链接都不在，多半是会话过期 —— 站点只把它们画给登录用户。
+    func testAnAnonymousNodePageMeansSignInAgain() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "<html><body><div id=\"Main\">没有收藏链接</div></body></html>"
+        )
+
+        do {
+            try await service(transport).updateFavorite(
+                forumID: V2EXEndpoint.forumID(key: "qna"),
+                isFavorite: true
+            )
+            XCTFail("读不到链接就不该当作成功")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .requiresLogin)
+        }
+    }
+
+    /// 首页分类不是节点，收藏不了 —— 一个请求都不该发。
+    func testAHomepageTabCannotBeFavourited() async {
+        let transport = RecordingHTTPTransport(responding: "")
+
+        do {
+            try await service(transport).updateFavorite(
+                forumID: V2EXEndpoint.tabForumID(key: "tech"),
+                isFavorite: true
+            )
+            XCTFail("首页分类不是节点")
+        } catch {
+            XCTAssertTrue(transport.requests.isEmpty)
+        }
+    }
+
+    /// 收藏的主题走 `/my/topics`。那一页用的是和 `/recent` 一模一样的
+    /// `div.cell.item` 模板（登录态下跑探针确认过），所以这里拿那份夹具当响应 ——
+    /// 验的是「同一套模板解析得动」，不是假装抓到了收藏页。
+    func testFavoriteTopicsReuseTheSharedListingTemplate() async throws {
+        let transport = RecordingHTTPTransport(responding: try html("v2ex-recent-topics"))
+
+        let page = try await service(transport).favoriteTopics(
+            folderID: V2EXEndpoint.implicitFavoriteFolderID,
+            page: 2
+        )
+
+        XCTAssertEqual(
+            transport.requests.first?.url?.absoluteString,
+            "https://www.v2ex.com/my/topics?p=2"
+        )
+        XCTAssertEqual(page.topics.count, 3)
+        XCTAssertTrue(page.topics.allSatisfy { $0.sourceForumName != nil })
+    }
+
+    /// 站点的收藏是平的一个列表，给一个隐含的收藏夹代表它 —— 空数组会让收藏页
+    /// 永远是空的。界面上不会多冒出一条：`.topicFavoriteFolders` 关着。
+    func testTopicFavouritesHaveOneImplicitFolder() async throws {
+        let folders = try await service(RecordingHTTPTransport(responding: ""))
+            .favoriteTopicFolders()
+
+        XCTAssertEqual(folders.map(\.id), [V2EXEndpoint.implicitFavoriteFolderID])
+        XCTAssertEqual(folders.first?.isDefault, true)
+    }
+
+    /// 收藏主题也是读页面上那条链接，而且要挑对 —— 主题页上同时挂着节点那条。
+    func testFavouritingATopicFollowsTheTopicLinkNotTheNodeOne() async throws {
+        let page = """
+        <html><body><div id="Main">
+        <a href="/favorite/topic/1240288?once=73510">收藏主题</a>
+        </div><div id="Rightbar">
+        <a href="/favorite/node/12?once=73510">收藏节点</a>
+        </div></body></html>
+        """
+        let transport = RecordingHTTPTransport(responding: page)
+
+        try await service(transport).updateTopicFavorite(
+            topicID: TopicID(rawValue: 1_240_288),
+            folderID: V2EXEndpoint.implicitFavoriteFolderID,
+            isFavorite: true
+        )
+
+        XCTAssertEqual(transport.requests.count, 2)
+        XCTAssertEqual(
+            transport.requests[0].url?.absoluteString,
+            "https://www.v2ex.com/t/1240288?p=1"
+        )
+        XCTAssertEqual(
+            transport.requests[1].url?.absoluteString,
+            "https://www.v2ex.com/favorite/topic/1240288?once=73510"
+        )
     }
 
     // MARK: - 搜索

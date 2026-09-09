@@ -96,18 +96,6 @@ struct SidebarView: View {
                     }
                 }
 
-                // 站点自己就摆在显眼处的那几个版面。V2EX 的首页分类（技术、创意、
-                // Apple……）是把若干节点聚合起来的版面，既不在节点目录那份表里，
-                // 也收藏不了 —— 不钉在这儿就根本没有入口，而它们恰恰是这个站
-                // 最常用的浏览方式。没有这种东西的站点返回空数组，整栏不画。
-                if !siteDescriptor.pinnedForums.isEmpty {
-                    Section(siteDescriptor.pinnedForumsTitle) {
-                        ForEach(siteDescriptor.pinnedForums) { forum in
-                            sidebarForumRow(forum, identifierPrefix: "pinned-forum")
-                        }
-                    }
-                }
-
                 Section("最近访问") {
                     if model.browsing.recentForums.isEmpty {
                         Text("暂无最近访问")
@@ -119,7 +107,8 @@ struct SidebarView: View {
                 }
 
                 if model.session.supports(.forumFavorites) {
-                Section("收藏版面") {
+                // 名字按站点自己的说法：V2EX 管版面叫节点。
+                Section(siteDescriptor.forumFavoritesTitle) {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)
