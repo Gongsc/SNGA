@@ -50,6 +50,11 @@ final class SymbolNameTests: XCTestCase {
         )
     }
 
+    /// 解码浮层抬头上那个图标。
+    func testTheBase64PopoverIconExists() {
+        assertExists("characters.uppercase", "Base64 解码浮层")
+    }
+
     /// 列表标记的图标由解析器按站点的图标类名挑，认不出来的用兜底那个。
     func testEveryTopicBadgeIconExists() throws {
         let html = """

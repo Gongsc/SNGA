@@ -1467,6 +1467,9 @@ struct ReplyComposerView: View {
     @State private var showsEmoticons = false
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
+    @State private var showsBase64Editor = false
+    /// 源码模式下光标在哪。插入要插在光标处，而不是接在末尾。
+    @State private var sourceSelection: TextSelection?
     @State private var loadedDraft = false
 
     /// 引用某一层时预填的开头。
@@ -1588,7 +1591,7 @@ struct ReplyComposerView: View {
                 UBBRichEditor(content: $content, command: editorCommand, theme: theme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .source:
-                TextEditor(text: $content)
+                TextEditor(text: $content, selection: $sourceSelection)
                     .font(.body.monospaced())
                     .padding(8)
             case .preview:
@@ -1607,6 +1610,7 @@ struct ReplyComposerView: View {
                     systemImage: "checkmark.shield"
                 )
                 Spacer()
+                base64Menu
                 Text("\(content.count) 个字符")
                     .monospacedDigit()
             }
@@ -1644,6 +1648,68 @@ struct ReplyComposerView: View {
         }
         .onDisappear {
             if !submitted { model.thread.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
+        }
+    }
+
+    /// 把正文整段编成 Base64，或者解回来。
+    ///
+    /// 论坛上常有人把内容编成 Base64 再发（挡爬虫、藏剧透），读的那一头在楼层的
+    /// 右键菜单里。这一头是写：**编的是整段正文**，不是选中的一部分 ——
+    /// 源码模式下的选中范围拿不到，而「编一半」发出去，读的人也只能解开一半。
+    ///
+    /// 编完就摆在输入框里，所见即所得：发出去的就是这一串。想改回来点「解码」，
+    /// 所以这一步是可逆的 —— 做成「发送时自动编码」那种开关的话，
+    /// 人就看不见自己到底发了什么。
+    ///
+    /// 不放进上面那条工具条：那条是按标记语言画的（纯文本站点整条都不画），
+    /// 而 Base64 和站点用哪种标记没有关系。
+    @ViewBuilder
+    private var base64Menu: some View {
+        Button {
+            showsBase64Editor = true
+        } label: {
+            Label("插入 Base64", systemImage: "characters.uppercase")
+        }
+        .buttonStyle(.borderless)
+        .disabled(editorMode == .preview)
+        .help("写一段话，编成 Base64 插到光标处")
+        .accessibilityIdentifier("reply-base64")
+        .popover(isPresented: $showsBase64Editor, arrowEdge: .top) {
+            Base64InsertPopover { encoded in
+                insertAtCursor(encoded)
+                showsBase64Editor = false
+            }
+        }
+    }
+
+    /// 把一段文字插到光标那儿。
+    ///
+    /// 两种编辑器各有各的光标：可视化那边在 `WKWebView` 里，只能让它自己去插；
+    /// 源码这边是 `TextEditor`，光标位置由 `TextSelection` 给。
+    ///
+    /// 拿不到光标位置时接在末尾 —— 那是「还没点进输入框」的情形，接在末尾
+    /// 至少东西还在，总比这一下什么都不发生强。
+    private func insertAtCursor(_ text: String) {
+        guard editorMode != .preview else { return }
+        if editorMode == .visual {
+            editorCommand = UBBEditorCommand(action: .insertText(text))
+            return
+        }
+        guard let selection = sourceSelection else {
+            content.append(text)
+            return
+        }
+        switch selection.indices {
+        case let .selection(range):
+            // 位置先换算成偏移量再改字符串：改完之后，原来那些下标指的已经是
+            // 另一份存储了，拿它们去算新位置是在碰运气。
+            let offset = content.distance(from: content.startIndex, to: range.lowerBound)
+            content.replaceSubrange(range, with: text)
+            // 插完把光标放在插入的那一段后面，接着打字才接得上。
+            let end = content.index(content.startIndex, offsetBy: offset + text.count)
+            sourceSelection = TextSelection(insertionPoint: end)
+        default:
+            content.append(text)
         }
     }
 
@@ -1847,6 +1913,9 @@ struct ReplyComposerView: View {
     /// 而不是把 `[color=red]` 塞进一篇 Markdown。
     private func markdownInsertion(for action: UBBEditorAction) -> String {
         switch action {
+        // 纯文字原样插进去，和站点用哪种标记没有关系。
+        case let .insertText(text):
+            return text
         case .undo, .redo, .removeFormat, .underline,
              .color, .fontSize, .align, .collapse:
             return ""
@@ -1872,6 +1941,9 @@ struct ReplyComposerView: View {
 
     private func ubbInsertion(for action: UBBEditorAction) -> String {
         switch action {
+        // 纯文字原样插进去，和站点用哪种标记没有关系。
+        case let .insertText(text):
+            return text
         case .undo, .redo, .removeFormat:
             return ""
         case .bold:
