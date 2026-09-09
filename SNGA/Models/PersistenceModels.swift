@@ -301,3 +301,30 @@ final class RecentForumRecord {
         "\(accountID.description):\(forumID.site.rawValue):\(forumID.key)"
     }
 }
+
+/// 一条搜索历史 —— 只有关键词，没有结果，也没有搜的是哪一档。
+///
+/// 不存档位是有意的：同一个词换个档位再搜一次，用户心里还是「我搜过这个词」，
+/// 存成两行只会把十条的位置占掉一半。结果更不能存 —— 它是一份会过期的抓取，
+/// 而历史要的是「下次点一下能重搜」。
+@Model
+final class SearchHistoryRecord {
+    /// 主键以账号打头，和别的表一样天然按站点隔离；关键词直接接在后面，
+    /// 于是「同一个账号搜过的同一个词」只可能有一行 —— 重搜是把时间往前挪，
+    /// 不是再插一行。
+    @Attribute(.unique) var id: String
+    var accountIDString: String
+    var query: String
+    var lastSearchedAt: Date
+
+    init(accountID: AccountID, query: String, lastSearchedAt: Date = .now) {
+        self.id = Self.recordID(accountID: accountID, query: query)
+        self.accountIDString = accountID.description
+        self.query = query
+        self.lastSearchedAt = lastSearchedAt
+    }
+
+    static func recordID(accountID: AccountID, query: String) -> String {
+        "\(accountID.description):\(query)"
+    }
+}

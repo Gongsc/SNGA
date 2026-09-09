@@ -3,19 +3,31 @@ import SwiftUI
 
 /// 回复正文用哪种标记语言。
 ///
-/// 不做成两个能力位：站点只会用其中一种，两个位允许出现「都开」和「都关」这两种
+/// 不做成能力位：站点只会用其中一种，一组位允许出现「都开」和「都关」这两种
 /// 没有意义的状态。
+///
+/// **说的是回复，不是主题。** V2EX 的主题正文走 Markdown（服务端渲染成
+/// `.markdown_body`），可回复不走 —— 回复只是把换行换成 `<br>` 再自动识别链接，
+/// 写 `**粗体**` 发出去就是两个星号。应用只提交回复，所以按回复算。
 enum ReplyMarkup: String, Codable, Sendable {
     case ubb
     case markdown
+    /// 没有标记。站点原样收下，只把换行当换行。
+    case plain
 
     /// 界面上怎么称呼它。编辑器的档位名和「实际提交为什么」那句话都用这个。
     var displayName: String {
         switch self {
         case .ubb: "UBB"
         case .markdown: "Markdown"
+        case .plain: "纯文本"
         }
     }
+
+    /// 有没有可以插进正文的格式写法。
+    ///
+    /// 纯文本站点没有 —— 工具条上每一个按钮插进去的都是一段发出去不生效的字符。
+    var hasFormatting: Bool { self != .plain }
 }
 
 /// 一种登录方式。
@@ -33,7 +45,7 @@ struct SiteLoginMethod: Sendable, Hashable, Identifiable {
 
 /// 登录之后从哪里得知「我是谁」。
 ///
-/// 两种站点都存在，而且差别不小：
+/// 两种来源都存在，而且差别不小：
 ///
 /// - NGA 把编号写在 Cookie 里，登录抓取当场就能读到，还能反过来校验「这份 Cookie 是不是
 ///   这个账号的」。
@@ -41,6 +53,8 @@ struct SiteLoginMethod: Sendable, Hashable, Identifiable {
 ///   服务端 HTML 不含身份、会话接口的响应里也没有。它的用户卡片是**客户端渲染**的，
 ///   所以编号只在浏览器渲染完的 DOM 里 —— 只有登录用的 `WKWebView` 看得见，
 ///   `URLSession` 抓多少次都没有。
+/// - V2EX 同样不写 Cookie，但页面上有：登录后的 HTML 里有 `memberId` 这个全局，
+///   顶栏头像的地址里也带着编号。它的资料接口只查得了别人，问不了「我是谁」。
 enum SiteUserIDSource: Sendable, Hashable {
     /// 从这个名字的 Cookie 里读。
     case cookie(name: String)
@@ -135,6 +149,7 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: return NGAInternalLink.destination(for: url)
         case .nodeseek: return NodeSeekInternalLink.destination(for: url)
+        case .v2ex: return V2EXInternalLink.destination(for: url)
         }
     }
 
@@ -154,6 +169,55 @@ struct ForumSiteDescriptor: Sendable {
                 body: MarkdownRenderer.previewHTML(source, emoticons: NodeSeekStickers.index),
                 extraCSS: PostDocument.markdownStyleSheet
             )
+        case .v2ex:
+            // 站点对回复只做两件事：转义、把换行换成 `<br>`。预览照着做，
+            // 别借道 Markdown —— 那样 `**粗* 会在预览里变粗，发出去却是三个星号。
+            PostDocument.html(
+                body: V2EXParser.plainTextPreviewHTML(source),
+                extraCSS: PostDocument.markdownStyleSheet
+            )
+        }
+    }
+
+    /// 侧栏上收藏版面那一栏叫什么。
+    ///
+    /// 按站点自己的说法：V2EX 管版面叫节点，标成「收藏版面」是在说一个它没有的词。
+    /// 站点收藏不了版面时这一栏根本不画（`.forumFavorites`），这个名字也就用不上。
+    var forumFavoritesTitle: String {
+        switch site {
+        case .nga, .nodeseek: "收藏版面"
+        case .v2ex: "节点收藏"
+        }
+    }
+
+    /// 版面上那颗星按钮怎么说。同上，按站点的词。
+    var favoriteForumActionTitle: String {
+        switch site {
+        case .nga, .nodeseek: "收藏版面"
+        case .v2ex: "收藏节点"
+        }
+    }
+
+    /// 版面里那一格「下面还有哪些版面」叫什么。
+    ///
+    /// NGA 那是真的子版面（版面下面挂着版面）。V2EX 不是：它的节点是平的，
+    /// 这一格装的是**首页分类聚合了哪几个节点** —— 管它叫「子版面」，
+    /// 等于说 V2EX 的节点有层级，而它没有。
+    var subforumSectionTitle: String {
+        switch site {
+        case .nga, .nodeseek: "子版面"
+        case .v2ex: "聚合节点"
+        }
+    }
+
+    /// 那一格展开之后，勾选框上面那句说明。
+    ///
+    /// 两个站的默认状态是反的：NGA 默认只显示服务端勾上的那几个，勾选是**加进来**；
+    /// V2EX 的主题站点已经全聚合好了，取消勾选是**筛出去**。照搬一句会把动作说反。
+    var subforumSelectionHint: String {
+        switch site {
+        case .nga, .nodeseek: "勾选后在当前话题列表中显示该子版面的话题"
+        case .v2ex: "取消勾选可以把该节点的主题从这一格里暂时隐藏"
         }
     }
 
@@ -162,6 +226,8 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: EmoticonPack.nga
         case .nodeseek: NodeSeekStickers.packs
+        // 站点没有表情面板，正文里的表情是 Unicode emoji，直接打就是了。
+        case .v2ex: []
         }
     }
 
@@ -177,6 +243,11 @@ struct ForumSiteDescriptor: Sendable {
         // 用户搜索的响应字段还没验过（`/api/account/find/{name}` 要登录才看得到成功的
         // 那份），验到之前不摆出来 —— 摆一个必定失败的选项比少一个选项更糟。
         case .nodeseek: [.topicSubject]
+        // 站点**自己**没有全文搜索：`combo.js` 里搜索框给的四档是节点、用户、
+        // 谷歌 `site:v2ex.com/t`、第三方 SoV2EX。前两档是本地过滤和跳转，
+        // 谷歌那档应用里没有对应物，而 SoV2EX 是唯一真能搜正文的 —— 主题那一档
+        // 走的就是它。名字写在档位上，因为关键词确实会离开 V2EX。
+        case .v2ex: [.topicContent, .forum]
         }
     }
 
@@ -189,6 +260,50 @@ struct ForumSiteDescriptor: Sendable {
         searchKinds.filter(\.supportsCurrentForum)
     }
 
+    /// 这一档搜索的结果是谁给的。自家给的返回 nil，那种情况不必说。
+    ///
+    /// 走站外服务时必须说出来：关键词离开了本站，用的人有权知道去了哪儿。
+    /// 放在「范围」那一行而不是档位名里 —— 那是个定宽的选择器，名字一长就截断，
+    /// 而这一行是跟着内容走的。
+    func searchProviderNote(for kind: ForumSearchKind) -> String? {
+        switch (site, kind) {
+        case (.v2ex, .topicContent):
+            "结果来自第三方 \(V2EXEndpoint.searchProviderName)，不含你的登录状态"
+        default:
+            nil
+        }
+    }
+
+    /// 这一档搜索收得下哪几样筛选条件。
+    ///
+    /// 细到「同一个站点的哪一档」：V2EX 的主题搜索走 SoV2EX，作者、日期区间、
+    /// 排序三样全收；同一个站的节点搜索是本地过滤一份名单，一样都收不下。
+    /// 收不下的界面上根本不画 —— 摆一个改了不生效的控件，比没有这个控件更糟。
+    func searchFilters(for kind: ForumSearchKind) -> ForumSearchFilterOptions {
+        switch (site, kind) {
+        case (.v2ex, .topicContent): .all
+        // NGA 的搜索有自己的一套参数，还没摸过；NodeSeek 的搜索是整页跳转，
+        // 地址上只有关键词和分类两个参数。两边都不画。
+        default: []
+        }
+    }
+
+    /// 在**这个**版面里搜得了吗。
+    ///
+    /// 比 `currentForumSearchKinds` 又细一层：站点支持版面内搜索，不代表每个版面
+    /// 都缩得进去。V2EX 的首页分类和「最近主题」都不是节点 —— 而搜索那边能收的
+    /// 只有节点名，带不上。画出来就是一句谎：范围写着「当前版面」，搜的却是全站。
+    func supportsSearch(in forumID: ForumID) -> Bool {
+        guard !currentForumSearchKinds.isEmpty else { return false }
+        switch site {
+        case .nga, .nodeseek:
+            return true
+        case .v2ex:
+            return V2EXEndpoint.tabKey(of: forumID) == nil
+                && forumID.key != V2EXEndpoint.recentKey
+        }
+    }
+
     /// 搜索面板还没搜过东西时，那句说明写什么。
     ///
     /// 各站能搜的范围不一样，写死 NGA 那句会在 NodeSeek 上承诺搜得到版面和用户。
@@ -196,6 +311,10 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: "可搜索话题、版面、版主和用户发布的内容。"
         case .nodeseek: "按帖子标题搜索全站，正文不在搜索范围内。"
+        case .v2ex:
+            "主题搜索由第三方的 \(V2EXEndpoint.searchProviderName) 提供 —— "
+                + "V2EX 自己没有全文搜索，所以关键词会发给它（不会带上你的登录状态）。"
+                + "节点搜索在本地完成，不出网。"
         }
     }
 
@@ -208,6 +327,12 @@ struct ForumSiteDescriptor: Sendable {
         switch (site, kind) {
         case (.nodeseek, .topicSubject): "帖子标题"
         case (.nodeseek, .user): "用户"
+        // 站点管版面叫节点，而这一档搜的只有节点，搜不到版主 —— 它根本没有版主。
+        case (.v2ex, .forum): "节点"
+        // 站点管话题叫主题，而这一档标题和正文都搜。提供方不写在这儿 ——
+        // 档位选择器是个定宽控件，名字一长就截断成「主题正文（SoV2…」，
+        // 反而谁也看不见。它写在下面那行范围里，见 `searchProviderNote`。
+        case (.v2ex, .topicContent): "主题正文"
         default: kind.title
         }
     }
@@ -222,6 +347,9 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: "签名"
         case .nodeseek: "个人简介"
+        // 站点设置页里这一栏就叫「个人简介」；`tagline` 是另一栏（一句话简介），
+        // 进的是资料页的字段那一格。
+        case .v2ex: "个人简介"
         }
     }
 
@@ -234,12 +362,15 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: true
         case .nodeseek: false
+        // 站点有铜币 / 银币 / 金币，但**只对本人下发**（`/ajax/money` 要登录），
+        // 别人的资料里根本没有这三个数。摆一段全是「—」的声望不如不摆。
+        case .v2ex: false
         }
     }
 
     /// 用户资料的「基础信息」里显示哪几行。
     ///
-    /// 用户编号和用户名两站都有，由界面固定显示；这里给的是站点自己那部分。
+    /// 用户编号和用户名每个站都有，由界面固定显示；这里给的是站点自己那部分。
     /// 叫法按站点的说法走 —— NodeSeek 管用户组叫「等级」，管货币叫「鸡腿」，
     /// 照搬 NGA 的词会让人对不上号。
     func profileFields(for profile: Profile) -> [ProfileStat] {
@@ -277,6 +408,29 @@ struct ForumSiteDescriptor: Sendable {
                 number("未读 @ 我", profile.unreadMentions),
                 number("未读私信", profile.unreadMessages)
             ].compactMap { $0 }
+        case .v2ex:
+            // 前四样来自资料接口，后两样只有网页上才有（见
+            // `V2EXParser.applyMemberPage`）。没有发帖数 —— 主题和回复的总数写在
+            // `/member/{用户名}/topics` 和 `/replies` 的页头上，不在资料里，
+            // 为一行数字多抓两张页面不值。
+            return [
+                ProfileStat(title: "加入时间", value: Self.formatted(profile.registeredAt)),
+                profile.location.flatMap {
+                    $0.isEmpty ? nil : ProfileStat(title: "所在地", value: $0)
+                },
+                profile.title.flatMap {
+                    // 站点管这一栏叫 tagline，设置页上写作「一句话介绍」。
+                    $0.isEmpty ? nil : ProfileStat(title: "一句话介绍", value: $0)
+                },
+                profile.userGroup.map { ProfileStat(title: "会员类型", value: $0) },
+                // 站点在资料页上原样写着「今日活跃度排名」。
+                number("今日活跃度排名", profile.dailyRank),
+                profile.affiliation.flatMap {
+                    // 站点只画一个 🏢 加一串字，不分开标「公司」和「职位」——
+                    // 很多人只填了其中一样。
+                    $0.isEmpty ? nil : ProfileStat(title: "公司 / 职位", value: $0)
+                }
+            ].compactMap { $0 }
         }
     }
 
@@ -298,6 +452,7 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga: NGAEndpoint.topicWebURL(topicID: topicID)
         case .nodeseek: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
+        case .v2ex: V2EXEndpoint.topic(topicID: topicID, page: 1)
         }
     }
 
@@ -386,12 +541,66 @@ extension ForumSiteDescriptor {
     )
 }
 
+extension ForumSiteDescriptor {
+    static let v2ex = ForumSiteDescriptor(
+        site: .v2ex,
+        // 说的是**回复**。主题正文走 Markdown（服务端渲染成 `.markdown_body`），
+        // 回复不走 —— 站点只把换行换成 `<br>` 再自动识别链接。应用只提交回复。
+        replyMarkup: .plain,
+        baseURL: URL(string: "https://www.v2ex.com")!,
+        loginMethods: [
+            SiteLoginMethod(
+                id: "password",
+                title: "账号密码登录",
+                systemImage: "person.badge.key",
+                url: URL(string: "https://www.v2ex.com/signin")!,
+                detail: "要输入图形验证码；连续失败几次会被锁定一小时"
+            )
+        ],
+        cookieDomains: ["v2ex.com"],
+        linkDomains: ["v2ex.com"],
+        // 会话就这一个。`PB3_SESSION` 每次匿名请求都会下发一个（里面编的是来访 IP，
+        // 不是身份），拿它判登录会把每一个没登录的会话都当成登录着的。
+        sessionCookieNames: ["A2"],
+        // 编号哪个响应头和 Cookie 里都没有，只能从登录后的页面上读。三条路依次试：
+        //
+        // 1. `memberId` 这个 JS 全局。站点自己的草稿功能就是拿它当键
+        //    （`saveTopicDraft(nodeName, memberId)`，见站点的 combo.js），
+        //    所以登录页上一定有；匿名页上没有。
+        // 2. 顶栏头像的地址。站点的头像路径里带着编号
+        //    （`/avatar/205f/180e/600305_normal.png`）。
+        // 3. 头像元素上的 `data-uid`。列表页的头像都带这个属性。
+        //
+        // 走到第 2 条时有个坑：用 gravatar 的会员，头像地址里是一串哈希、没有编号 ——
+        // 所以第 3 条不是多余的。三条都读不到就返回空串，调用方会继续轮询。
+        userIDSource: .renderedDOM(javaScript: """
+        (() => {
+          const fromAvatar = (value) => {
+            const match = (value || '').match(/\\/avatar\\/[^"'\\s]*?(\\d+)_[a-z]+\\./i);
+            return match ? match[1] : '';
+          };
+          if (typeof memberId !== 'undefined' && memberId) return String(memberId);
+          const scope = '#menu-entry img, #Top img.avatar, .tools img, #Rightbar img.avatar';
+          for (const image of document.querySelectorAll(scope)) {
+            const uid = image.getAttribute('data-uid') || fromAvatar(image.getAttribute('src'));
+            if (uid) return String(uid);
+          }
+          return '';
+        })()
+        """),
+        // 站点不校验 UA：拿 `SNGA/1.0 (macOS; native client)` 去请求节点页、主题页和
+        // 节点接口，三个都是 200（2026-09-08 实测）。所以自报家门就行，
+        // 不必像 NodeSeek 那样去问 WebView 要真实 UA。
+        userAgent: .fixed("SNGA/1.0 (macOS; native client)")
+    )
+}
+
 extension EnvironmentValues {
     /// 当前账号所属站点的资料。
     ///
     /// 正文渲染埋在 `ThreadPageContentView` → `PostContentView` → `PostWebView` 这一串
     /// 里面，逐层加参数会把一整条签名链都改一遍，所以走环境。
     ///
-    /// 默认值是 NGA：目前只有这一个站，缺注入时的表现与从前一致。
+    /// 默认值是 NGA：它是最早接的那个站，缺注入时的表现与从前一致。
     @Entry var forumSiteDescriptor: ForumSiteDescriptor = .nga
 }

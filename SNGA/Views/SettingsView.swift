@@ -37,6 +37,8 @@ struct SettingsMenuView: View {
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
+    @AppStorage(SearchHistorySettings.maximumCountKey)
+    private var searchHistoryMaximumCount = SearchHistorySettings.defaultMaximumCount
     @AppStorage(ToolboxInstanceSettings.selectionKey)
     private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
@@ -97,9 +99,13 @@ struct SettingsMenuView: View {
                 : selected.displayName
         case .browsing:
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
+            let historyCount = SearchHistorySettings.normalizedMaximumCount(
+                searchHistoryMaximumCount
+            )
             return "无图模式\(imageFreeMode ? "已开" : "已关")"
                 + " · 签名\(showsPostSignature ? "已开" : "已关")"
                 + " · 最近访问 \(count) 条"
+                + " · 搜索历史 \(historyCount) 条"
         case .ai:
             guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -341,6 +347,8 @@ private struct SettingsBrowsingPane: View {
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
+    @AppStorage(SearchHistorySettings.maximumCountKey)
+    private var searchHistoryMaximumCount = SearchHistorySettings.defaultMaximumCount
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -385,6 +393,30 @@ private struct SettingsBrowsingPane: View {
                 Text("最多保留指定数量的最近访问版面；减少数量会删除较早的记录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Stepper(
+                    value: $searchHistoryMaximumCount,
+                    in: SearchHistorySettings.allowedRange
+                ) {
+                    Text("搜索历史数量：\(searchHistoryMaximumCount)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("search-history-maximum-count")
+                .onChange(of: searchHistoryMaximumCount) { _, maximumCount in
+                    model.searchHistory.updateLimit(maximumCount)
+                }
+
+                Text("点搜索框会列出最近搜过的关键词；只记关键词，不记搜索结果。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("清除全部搜索历史") {
+                    model.searchHistory.clear()
+                }
+                .disabled(model.searchHistory.entries.isEmpty)
+                .accessibilityIdentifier("search-history-clear-all")
             }
         }
     }

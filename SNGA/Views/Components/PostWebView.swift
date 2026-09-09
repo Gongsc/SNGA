@@ -472,6 +472,8 @@ struct PostWebView: NSViewRepresentable {
         coordinator: Coordinator
     ) {
         webView.navigationDelegate = coordinator
+        // 解码浮层要按主题上色，而 AppKit 这边读不到环境。
+        (webView as? PassthroughWebView)?.currentTheme = theme
         (webView as? PassthroughWebView)?.onContentMayResize = {
             [weak coordinator, weak webView] in
             guard let coordinator, let webView else { return }
@@ -725,7 +727,19 @@ struct PostWebView: NSViewRepresentable {
 
 private final class PassthroughWebView: WKWebView {
     var onContentMayResize: (@MainActor () -> Void)?
+    /// 解码浮层要按主题上色。AppKit 这边读不到 SwiftUI 的环境，只能存一份。
+    var currentTheme: ResolvedAppTheme?
     private var lastMeasuredWidth: CGFloat = 0
+
+    /// 最近一次读到的选中文字。
+    ///
+    /// `menu(for:)` 是同步的，而问网页选中了什么只能异步（`evaluateJavaScript`），
+    /// 所以不能等到右键那一刻再问。改成在**每次松开鼠标之后**记一份：选中这件事
+    /// 本来就是拖完鼠标才成立的，右键发生在那之后，缓存必然是新的。
+    private var cachedSelection = ""
+
+    /// 右键时那一下的位置。浮层贴着它出现。
+    private var menuAnchor = NSRect.zero
 
     override func layout() {
         super.layout()
@@ -751,15 +765,51 @@ private final class PassthroughWebView: WKWebView {
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
+        refreshCachedSelection()
         Task { @MainActor [weak self] in
             self?.onContentMayResize?()
+        }
+    }
+
+    private func refreshCachedSelection() {
+        evaluateJavaScript("window.getSelection().toString()") { [weak self] value, _ in
+            Task { @MainActor [weak self] in
+                self?.cachedSelection = (value as? String) ?? ""
+            }
         }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let menu = super.menu(for: event) else { return nil }
         localize(menu)
+        addBase64ItemIfDecodable(to: menu, event: event)
         return menu
+    }
+
+    /// 选中的那段解得开 Base64 的话，在菜单顶上加一条。和原生段落那边同一个判据：
+    /// 解不开就不加，别让每次右键都多一行点了才说「这不是 Base64」的噪音。
+    private func addBase64ItemIfDecodable(to menu: NSMenu, event: NSEvent) {
+        guard Base64Text.looksDecodable(cachedSelection) else { return }
+        menuAnchor = NSRect(origin: convert(event.locationInWindow, from: nil), size: .zero)
+        let item = NSMenuItem(
+            title: Base64DecodeMenuItem.title,
+            action: #selector(decodeSelectedBase64(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        menu.insertItem(item, at: 0)
+        menu.insertItem(.separator(), at: 1)
+    }
+
+    @objc
+    private func decodeSelectedBase64(_ sender: NSMenuItem) {
+        guard let decoded = Base64Text.decoded(cachedSelection) else { return }
+        Base64DecodePopover.present(
+            decoded: decoded,
+            theme: currentTheme ?? .system,
+            relativeTo: menuAnchor,
+            of: self
+        )
     }
 
     private func localize(_ menu: NSMenu) {

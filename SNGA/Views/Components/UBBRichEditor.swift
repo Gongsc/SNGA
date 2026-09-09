@@ -23,6 +23,12 @@ enum UBBEditorAction: Equatable {
     /// 载荷仍是 `insertUBB`：可视化编辑器只有 UBB 站点才有，那里表情的插入串
     /// （`[s:ac:茶]`）本身就是一段 UBB，交给同一条分支去转 HTML 正合适。
     case insertEmoticon(ForumEmoticon)
+    /// 在光标处插一段纯文字。
+    ///
+    /// 走的也是 `insertUBB`：那条分支做的事就是「把这串东西插到光标那儿」，
+    /// 顺带把 UBB 转成 HTML。Base64 的字母表是 `A-Za-z0-9+/=`，一个方括号都没有，
+    /// 转与不转结果一样 —— 所以不必为它另开一条分支。
+    case insertText(String)
 
     fileprivate var payload: [String: Any] {
         switch self {
@@ -58,6 +64,8 @@ enum UBBEditorAction: Equatable {
             ["name": "removeFormat"]
         case let .insertEmoticon(emoticon):
             ["name": "insertUBB", "value": emoticon.insertion]
+        case let .insertText(text):
+            ["name": "insertUBB", "value": text]
         }
     }
 }

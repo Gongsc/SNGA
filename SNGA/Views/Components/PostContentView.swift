@@ -256,6 +256,8 @@ private struct PostParagraphText: NSViewRepresentable {
 
     func updateNSView(_ textView: PostParagraphTextView, context: Context) {
         context.coordinator.onOpenLink = onOpenLink
+        // 右键菜单里那个解码浮层要按主题上色，而 AppKit 这边读不到环境。
+        textView.currentTheme = theme
         apply(to: textView, coordinator: context.coordinator)
     }
 
@@ -338,6 +340,25 @@ final class PostParagraphTextView: NSTextView {
         size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
     )
 
+    /// 解码浮层要按主题上色。AppKit 这边读不到 SwiftUI 的环境，只能存一份。
+    var currentTheme: ResolvedAppTheme?
+
+    /// 右键时那一下的位置。浮层贴着它出现 —— 选中的那段可能跨好几行，
+    /// 贴着整段的外框反而离指针很远。
+    private var menuAnchor = NSRect.zero
+
+    @objc
+    private func decodeSelectedBase64(_ sender: NSMenuItem) {
+        let selected = (string as NSString).substring(with: selectedRange())
+        guard let decoded = Base64Text.decoded(selected) else { return }
+        Base64DecodePopover.present(
+            decoded: decoded,
+            theme: currentTheme ?? .system,
+            relativeTo: menuAnchor,
+            of: self
+        )
+    }
+
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
         measuringContainer.lineFragmentPadding = 0
@@ -387,7 +408,30 @@ final class PostParagraphTextView: NSTextView {
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let menu = super.menu(for: event) else { return nil }
         localize(menu)
+        addBase64ItemIfDecodable(to: menu, event: event)
         return menu
+    }
+
+    /// 选中的那段解得开 Base64 的话，在菜单顶上加一条。
+    ///
+    /// 解不开就不加：正文里绝大多数选中都不是 Base64，条条都摆一个点了才说
+    /// 「这不是 Base64」的菜单项，等于每次右键都多一行噪音。判据见
+    /// `Base64Text.decoded` —— 它对普通英文词是拒绝的。
+    private func addBase64ItemIfDecodable(to menu: NSMenu, event: NSEvent) {
+        let selected = (string as NSString).substring(with: selectedRange())
+        guard Base64Text.looksDecodable(selected) else { return }
+
+        // 浮层贴着指针出现，不贴整段的外框 —— 选中的那段可能跨好几行，
+        // 贴外框反而离指针很远。
+        menuAnchor = NSRect(origin: convert(event.locationInWindow, from: nil), size: .zero)
+        let item = NSMenuItem(
+            title: Base64DecodeMenuItem.title,
+            action: #selector(decodeSelectedBase64(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        menu.insertItem(item, at: 0)
+        menu.insertItem(.separator(), at: 1)
     }
 
     private func localize(_ menu: NSMenu) {

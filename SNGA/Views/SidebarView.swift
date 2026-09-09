@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
 
     var body: some View {
@@ -12,6 +13,34 @@ struct SidebarView: View {
         }
         .background(theme.backgroundColor)
         .navigationTitle("SNGA")
+    }
+
+    /// 侧栏上的一行版面。固定分类和最近访问长得一样，只有标识符前缀不同。
+    private func sidebarForumRow(_ forum: Forum, identifierPrefix: String) -> some View {
+        Button {
+            Task { await model.openForum(forum) }
+        } label: {
+            SidebarInteractiveRow(
+                isSelected: model.sidebarSelection == .forum(forum.id)
+            ) {
+                HStack(spacing: 8) {
+                    SidebarForumIcon(forum: forum)
+
+                    Text(forum.name)
+                        .lineLimit(1)
+                    Spacer()
+                    if model.browsing.isRefreshingTopics,
+                       model.selectedForumID == forum.id {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("正在刷新\(forum.name)")
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .sidebarListRow()
+        .accessibilityIdentifier("\(identifierPrefix)-\(forum.id.description)")
     }
 
     private var forumList: some View {
@@ -48,13 +77,19 @@ struct SidebarView: View {
                     sidebarButton("全部版面", systemImage: "square.grid.2x2", selection: .directory)
                     sidebarButton("搜索", systemImage: "magnifyingglass", selection: .search)
                     // 没有收藏夹这个概念的站点只有一个列表，叫「收藏夹」是在说站点
-                    // 没有的东西。
-                    sidebarButton(
-                        model.session.supports(.topicFavoriteFolders) ? "收藏夹" : "收藏",
-                        systemImage: "star",
-                        selection: .favorites
-                    )
-                    if model.session.supports(.privateMessages) {
+                    // 没有的东西；连话题收藏都没接上的站点整个入口都不画 ——
+                    // 一个点开永远是空的页面，比没有这个入口更让人以为是坏了。
+                    if model.session.supports(.topicFavorites) {
+                        sidebarButton(
+                            model.session.supports(.topicFavoriteFolders) ? "收藏夹" : "收藏",
+                            systemImage: "star",
+                            selection: .favorites
+                        )
+                    }
+                    // 两样有其一就画：这个入口是「论坛消息」，私信和提醒都算。
+                    // V2EX 只有提醒，NGA 和 NodeSeek 两样都有。
+                    if model.session.supports(.notifications)
+                        || model.session.supports(.privateMessages) {
                         sidebarButton(
                             "论坛消息",
                             systemImage: "bell",
@@ -70,37 +105,13 @@ struct SidebarView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.browsing.recentForums) { forum in
-                        Button {
-                            Task { await model.openForum(forum) }
-                        } label: {
-                            SidebarInteractiveRow(
-                                isSelected: model.sidebarSelection == .forum(forum.id)
-                            ) {
-                                HStack(spacing: 8) {
-                                    SidebarForumIcon(forum: forum)
-
-                                    Text(forum.name)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    if model.browsing.isRefreshingTopics,
-                                       model.selectedForumID == forum.id {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .accessibilityLabel("正在刷新\(forum.name)")
-                                    }
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .sidebarListRow()
-                        .accessibilityIdentifier(
-                            "recent-forum-\(forum.id.description)"
-                        )
+                        sidebarForumRow(forum, identifierPrefix: "recent-forum")
                     }
                 }
 
                 if model.session.supports(.forumFavorites) {
-                Section("收藏版面") {
+                // 名字按站点自己的说法：V2EX 管版面叫节点。
+                Section(siteDescriptor.forumFavoritesTitle) {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
                             .foregroundStyle(.secondary)

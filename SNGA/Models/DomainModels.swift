@@ -41,7 +41,12 @@ struct Forum: Identifiable, Hashable, Codable, Sendable {
     var iconURL: URL? = nil
     var category: String? = nil
     var pinnedTopicID: TopicID? = nil
-    /// NGA 在父版面页面中返回的当前勾选状态；普通版面没有该值。
+    /// 在父版面里默认显不显示这个子版面的话题；没有这个概念的版面为 nil。
+    ///
+    /// NGA 是**服务端状态**：父版面页面里就带着当前勾选，照读即可。V2EX 不一样 ——
+    /// 首页分类的主题是站点在服务端就聚合好了的，第二排那几个节点本来全在列表里，
+    /// 所以它们一律是 true。留 nil 的后果是一个都不勾，于是分类里除了那几个节点
+    /// 之外的零星主题，别的全被筛没了。
     var isSelectedInParent: Bool? = nil
     /// 这是不是一个子版面。由适配器在构造时盖章。
     ///
@@ -470,7 +475,30 @@ struct Profile: Hashable, Codable, Sendable {
     var unreadReplies: Int? = nil
     var unreadMentions: Int? = nil
     var unreadMessages: Int? = nil
+    /// 今日活跃度排名。V2EX 在资料页上给这个数，另外两个站没有。
+    var dailyRank: Int? = nil
+    /// 公司与职位。V2EX 的会员可以填，站点把它画成「🏢 公司 职位」。
+    var affiliation: String? = nil
+    /// 资料页上的外部链接：主页、GitHub、Twitter 这些。
+    ///
+    /// 站点不给就是空的，那一栏整个不画 —— 不必再问一次能力位。
+    var links: [ProfileLink] = []
     var isMasked: Bool = false
+}
+
+/// 用户资料上的一条外部链接。
+///
+/// 各站给的种类不一样，也随时会加，所以不做成固定字段：站点自己怎么标它、
+/// 显示成哪串字、点了去哪儿，三样一起带过来。认不出来的种类照样显示，
+/// 用站点自己的说法 —— 少显示一条，读者就少一条了解这个人的线索。
+struct ProfileLink: Identifiable, Hashable, Codable, Sendable {
+    /// 站点给这条链接的说法（「主页」「GitHub」）。
+    let title: String
+    /// 画出来的那串字：域名或用户名。
+    let value: String
+    let url: URL
+
+    var id: String { "\(title)-\(value)" }
 }
 
 /// 话题列表上标题旁边的一个标记。

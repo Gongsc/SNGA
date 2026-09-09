@@ -172,6 +172,13 @@ final class FavoriteStore {
     }
 
     func loadFavoriteTopicFolders(force: Bool = false) async {
+        // 门控挡在这里，不只是把侧栏那个入口藏掉：收藏目录在打开收藏页和切账号时
+        // 都会主动去拉，光藏界面请求照样发，用户会收到一个「不支持」的报错。
+        guard session.supports(.topicFavorites) else {
+            favoriteTopicFolders = []
+            selectedFavoriteTopicFolderID = nil
+            return
+        }
         guard force || favoriteTopicFolders.isEmpty else { return }
         guard let service = session.activeService else {
             favoriteTopicFolders = []

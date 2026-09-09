@@ -195,7 +195,8 @@ struct ThreadView: View {
                             }
                         }
 
-                        if !model.session.supports(.topicFavoriteFolders) {
+                        if model.session.supports(.topicFavorites),
+                           !model.session.supports(.topicFavoriteFolders) {
                             // 站点只有一个收藏列表，没有可选的目录。那就是一个开关，
                             // 不是一份菜单 —— 菜单里只有一项，等于让人多点一下去选
                             // 一个没有第二种可能的选项。
@@ -218,7 +219,7 @@ struct ThreadView: View {
                                     } == true
                             )
                             .accessibilityIdentifier("thread-topic-favorite")
-                        } else {
+                        } else if model.session.supports(.topicFavorites) {
                         Menu {
                             if let topic = model.thread.currentTopic {
                                 if model.favorite.favoriteTopicFolders.isEmpty {
@@ -1095,7 +1096,12 @@ struct PostRow: View {
                 )
         }
         .task(id: authorUID) {
-            guard post.authorInfo?.location == nil, let authorUID else { return }
+            // 站点报不出属地就别为此逐楼发请求 —— 取回来也没有东西可填。
+            guard model.session.supports(.postAuthorLocation),
+                  post.authorInfo?.location == nil,
+                  let authorUID else {
+                return
+            }
             await model.thread.loadPostAuthorLocation(uid: authorUID)
         }
     }
@@ -1461,13 +1467,16 @@ struct ReplyComposerView: View {
     @State private var showsEmoticons = false
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
+    @State private var showsBase64Editor = false
+    /// 源码模式下光标在哪。插入要插在光标处，而不是接在末尾。
+    @State private var sourceSelection: TextSelection?
     @State private var loadedDraft = false
 
     /// 引用某一层时预填的开头。
     ///
-    /// 两种标记语言的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
+    /// 三种标记的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
     /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
-    /// 得把被引的话真的抄进去。
+    /// 得把被引的话真的抄进去；纯文本站点连引用块都没有，那里的惯例是 `@用户名`。
     private func quotedPrefix(_ replyTo: Post) -> String {
         switch siteDescriptor.replyMarkup {
         case .ubb:
@@ -1483,6 +1492,10 @@ struct ReplyComposerView: View {
             let head = "> **\(replyTo.author)** 在 #\(replyTo.floor) 楼说："
             return ([head] + (quoted.isEmpty ? [] : [quoted]) + ["", ""])
                 .joined(separator: "\n")
+        case .plain:
+            // 没有引用这回事。V2EX 的做法就是在开头 @ 一下，站点自己那个「回复」
+            // 按钮（`replyOne(username)`）插进去的也正是这一串。
+            return "@\(replyTo.author) "
         }
     }
     @State private var submitted = false
@@ -1537,22 +1550,28 @@ struct ReplyComposerView: View {
             .padding()
             Divider()
             HStack(spacing: 10) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 5) {
-                        editorToolbar
-                            .disabled(editorMode == .preview)
+                if showsFormattingToolbar {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 5) {
+                            editorToolbar
+                                .disabled(editorMode == .preview)
+                        }
                     }
+                    .scrollIndicators(.hidden)
                 }
-                .scrollIndicators(.hidden)
 
-                Picker("编辑模式", selection: $editorMode) {
-                    ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
-                        Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
+                // 只有一档的时候不画选择器：一个只有一个选项的分段控件，
+                // 点它什么都不会发生。
+                if ReplyEditorMode.modes(for: siteDescriptor.replyMarkup).count > 1 {
+                    Picker("编辑模式", selection: $editorMode) {
+                        ForEach(ReplyEditorMode.modes(for: siteDescriptor.replyMarkup)) { mode in
+                            Text(mode.title(for: siteDescriptor.replyMarkup)).tag(mode)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 210)
             }
             .padding(8)
             Divider()
@@ -1572,7 +1591,7 @@ struct ReplyComposerView: View {
                 UBBRichEditor(content: $content, command: editorCommand, theme: theme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .source:
-                TextEditor(text: $content)
+                TextEditor(text: $content, selection: $sourceSelection)
                     .font(.body.monospaced())
                     .padding(8)
             case .preview:
@@ -1591,6 +1610,7 @@ struct ReplyComposerView: View {
                     systemImage: "checkmark.shield"
                 )
                 Spacer()
+                base64Menu
                 Text("\(content.count) 个字符")
                     .monospacedDigit()
             }
@@ -1628,6 +1648,68 @@ struct ReplyComposerView: View {
         }
         .onDisappear {
             if !submitted { model.thread.saveDraft(topicID: topic.id, content: content, replyTo: replyTo?.id) }
+        }
+    }
+
+    /// 把正文整段编成 Base64，或者解回来。
+    ///
+    /// 论坛上常有人把内容编成 Base64 再发（挡爬虫、藏剧透），读的那一头在楼层的
+    /// 右键菜单里。这一头是写：**编的是整段正文**，不是选中的一部分 ——
+    /// 源码模式下的选中范围拿不到，而「编一半」发出去，读的人也只能解开一半。
+    ///
+    /// 编完就摆在输入框里，所见即所得：发出去的就是这一串。想改回来点「解码」，
+    /// 所以这一步是可逆的 —— 做成「发送时自动编码」那种开关的话，
+    /// 人就看不见自己到底发了什么。
+    ///
+    /// 不放进上面那条工具条：那条是按标记语言画的（纯文本站点整条都不画），
+    /// 而 Base64 和站点用哪种标记没有关系。
+    @ViewBuilder
+    private var base64Menu: some View {
+        Button {
+            showsBase64Editor = true
+        } label: {
+            Label("插入 Base64", systemImage: "characters.uppercase")
+        }
+        .buttonStyle(.borderless)
+        .disabled(editorMode == .preview)
+        .help("写一段话，编成 Base64 插到光标处")
+        .accessibilityIdentifier("reply-base64")
+        .popover(isPresented: $showsBase64Editor, arrowEdge: .top) {
+            Base64InsertPopover { encoded in
+                insertAtCursor(encoded)
+                showsBase64Editor = false
+            }
+        }
+    }
+
+    /// 把一段文字插到光标那儿。
+    ///
+    /// 两种编辑器各有各的光标：可视化那边在 `WKWebView` 里，只能让它自己去插；
+    /// 源码这边是 `TextEditor`，光标位置由 `TextSelection` 给。
+    ///
+    /// 拿不到光标位置时接在末尾 —— 那是「还没点进输入框」的情形，接在末尾
+    /// 至少东西还在，总比这一下什么都不发生强。
+    private func insertAtCursor(_ text: String) {
+        guard editorMode != .preview else { return }
+        if editorMode == .visual {
+            editorCommand = UBBEditorCommand(action: .insertText(text))
+            return
+        }
+        guard let selection = sourceSelection else {
+            content.append(text)
+            return
+        }
+        switch selection.indices {
+        case let .selection(range):
+            // 位置先换算成偏移量再改字符串：改完之后，原来那些下标指的已经是
+            // 另一份存储了，拿它们去算新位置是在碰运气。
+            let offset = content.distance(from: content.startIndex, to: range.lowerBound)
+            content.replaceSubrange(range, with: text)
+            // 插完把光标放在插入的那一段后面，接着打字才接得上。
+            let end = content.index(content.startIndex, offsetBy: offset + text.count)
+            sourceSelection = TextSelection(insertionPoint: end)
+        default:
+            content.append(text)
         }
     }
 
@@ -1728,8 +1810,9 @@ struct ReplyComposerView: View {
             }
         }
 
-        // 按名单画，不按标记语言画：两个站都有表情，只是形态不同 —— NGA 是 UBB 的
-        // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `。名单空了才不画。
+        // 按名单画，不按标记语言画：有表情的站点形态各不相同 —— NGA 是 UBB 的
+        // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `；V2EX 干脆没有
+        // 表情面板（正文里就是 Unicode emoji）。名单空了才不画。
         if !siteDescriptor.emoticonPacks.isEmpty {
             Button {
                 showsEmoticons = true
@@ -1765,6 +1848,10 @@ struct ReplyComposerView: View {
     /// 工具条上有几样是 UBB 独有的：字号、颜色、对齐、下划线、折叠。
     /// Markdown 写不出来，摆着只会插进去一段发出去不生效的东西。
     private var isUBB: Bool { siteDescriptor.replyMarkup == .ubb }
+
+    /// 纯文本站点整条工具条都不画 —— 上面每一个按钮插进去的都是一段
+    /// 发出去不生效的字符。
+    private var showsFormattingToolbar: Bool { siteDescriptor.replyMarkup.hasFormatting }
 
     private var toolbarDivider: some View {
         Divider()
@@ -1814,6 +1901,9 @@ struct ReplyComposerView: View {
         switch siteDescriptor.replyMarkup {
         case .ubb: ubbInsertion(for: action)
         case .markdown: markdownInsertion(for: action)
+        // 纯文本站点的工具条整条都不画，走不到这里；真走到了也只是什么都不插，
+        // 而不是把 `**` 塞进一段站点不会渲染的正文。
+        case .plain: ""
         }
     }
 
@@ -1823,6 +1913,9 @@ struct ReplyComposerView: View {
     /// 而不是把 `[color=red]` 塞进一篇 Markdown。
     private func markdownInsertion(for action: UBBEditorAction) -> String {
         switch action {
+        // 纯文字原样插进去，和站点用哪种标记没有关系。
+        case let .insertText(text):
+            return text
         case .undo, .redo, .removeFormat, .underline,
              .color, .fontSize, .align, .collapse:
             return ""
@@ -1848,6 +1941,9 @@ struct ReplyComposerView: View {
 
     private func ubbInsertion(for action: UBBEditorAction) -> String {
         switch action {
+        // 纯文字原样插进去，和站点用哪种标记没有关系。
+        case let .insertText(text):
+            return text
         case .undo, .redo, .removeFormat:
             return ""
         case .bold:
@@ -1904,6 +2000,9 @@ private enum ReplyEditorMode: Hashable, Identifiable {
         switch markup {
         case .ubb: [.visual, .source, .preview]
         case .markdown: [.source, .preview]
+        // 纯文本站点连预览都不该有：预览的作用是「看看标记会渲染成什么」，
+        // 而这里写什么发出去就是什么，摆一个和输入框长得一样的预览只是多一个档。
+        case .plain: [.source]
         }
     }
 }

@@ -68,6 +68,18 @@ final class AppSession {
         activeCapabilities.contains(capability)
     }
 
+    /// 这个版面是不是当前账号那个站的。
+    ///
+    /// 切账号的一瞬间，界面上还挂着**上一个站**的版面，而按版面编号触发的那些
+    /// `.task(id:)` 会拿它去问**新**账号的服务 —— 于是 V2EX 收到一个 NGA 的版面号
+    /// `-7`，答一张「节点未找到」的正常页面，用户看到的是
+    /// 「V2EX：论坛页面结构已变化：未找到主题列表」。
+    ///
+    /// `ForumID` 本来就带着站点，判断只是没人做过。
+    func belongsToActiveSite(_ forumID: ForumID) -> Bool {
+        activeService.map { $0.site == forumID.site } ?? false
+    }
+
     /// 取当前账号的服务；没有就说明原因，而不是当作什么都没发生。
     ///
     /// 会话不完整的账号建不出服务（见 `reloadAccountsAndServices`）。原先各处一律
@@ -93,7 +105,8 @@ final class AppSession {
 
     // MARK: - 账号与服务
 
-    /// 按站点造服务。现在只有一个分支 —— 加站点时编译器会要求补上。
+    /// 按站点造服务。这里直接写着具体类型，是 factory 的分支，不是漏出 ——
+    /// 加站点时编译器会要求补上。
     ///
     /// `userAgent` 由调用方解析后传入：要求用 WebView 真实 UA 的站点得先去问一次 WebView，
     /// 而那是 `@MainActor` 上的异步动作，不能塞进这里。
@@ -107,6 +120,13 @@ final class AppSession {
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
         switch site {
+        case .v2ex:
+            return V2EXForumService(
+                accountID: accountID,
+                cookies: cookies,
+                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                cookieDidChange: persist
+            )
         case .nodeseek:
             return NodeSeekForumService(
                 accountID: accountID,
@@ -186,6 +206,12 @@ final class AppSession {
             let accountIDs = Set(records.map(\.accountID))
             checkInStatuses = checkInStatuses.filter { accountIDs.contains($0.key) }
             for record in records where record.sessionState == .valid {
+                // 没有签到的站点连「正在查询」都不该有 —— 那个状态会一直停在加载中，
+                // 因为后面根本没人去查它。
+                guard services[record.accountID]?.capabilities.contains(.checkIn) == true else {
+                    checkInStatuses.removeValue(forKey: record.accountID)
+                    continue
+                }
                 checkInStatuses[record.accountID] = checkInStatuses[record.accountID] ?? .loading
             }
             updateActiveAccountCheckInStatus()
@@ -320,6 +346,12 @@ final class AppSession {
             guard accountIDs?.contains(accountID) ?? true else { continue }
             guard let service = services[accountID] else {
                 checkInStatuses[accountID] = .failed(message: "无法创建签到状态查询服务")
+                continue
+            }
+            // 没有签到这回事的站点直接跳过，别去问。问了只会拿回一句「不支持」，
+            // 然后把它显示成「签到状态查询失败」—— 那是在报告一个不存在的故障。
+            guard service.capabilities.contains(.checkIn) else {
+                checkInStatuses.removeValue(forKey: accountID)
                 continue
             }
             if case .checkingIn = checkInStatuses[accountID] { continue }

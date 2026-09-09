@@ -1,0 +1,46 @@
+{
+ "took": 90,
+ "total": 410,
+ "hits": [
+  {
+   "_score": 144.4055,
+   "_id": "1203314",
+   "_source": {
+    "node": 72,
+    "replies": 35,
+    "created": "2026-04-03T05:17:59",
+    "member": "idblife",
+    "id": 1203314,
+    "title": "dmit 和 justmysocks 二选一",
+    "content": "奶昔挂了，想换一家，dmit 和 justmysocks 如何选呢？ \r\n之前用过 justmysocks 美国，号称是 cn2 gia ，但是感觉速度一般，\r\n用 dmit 会好一些吗？"
+   }
+  },
+  {
+   "_score": 138.43289,
+   "_id": "834457",
+   "_source": {
+    "node": 108,
+    "replies": 7,
+    "created": "2022-02-17T03:50:34",
+    "member": "waltcow",
+    "id": 834457,
+    "title": "DMIT 的洛杉矶 gg 了",
+    "content": "DMIT 的洛杉矶的机房今天早上 gg 了，v 友有推荐的 GIA CN2 vps 推荐吗"
+   }
+  },
+  {
+   "_score": 131.68864,
+   "_id": "1077726",
+   "_source": {
+    "node": 653,
+    "replies": 0,
+    "created": "2024-10-05T01:30:21",
+    "member": "cocacola1",
+    "id": 1077726,
+    "title": "大妈补货啦！ DMIT$49.9 $39.9 任君选择",
+    "content": "大妈补货啦！ DMIT- LAX.Pro.MALIBU $49.9-三网优化 CN2GIA\r\n\r\n流量比$36.9 多 500G ，口子也大一倍达到 1G ，价格也膨胀到了$49.9\r\n[有 aff 链接直达]( https://990599.xyz/dmit49)\r\n\r\n线路：\r\n三网优化，中国优化线路 CN2GIA\r\n\r\n配置信息：\r\n\r\nLAX.Pro.MALIBU\r\n\r\n1 vCPU\r\n\r\n1 GB RAM\r\n\r\n20G SSD Storage\r\n\r\n1000GB Transfer\r\n\r\n1Gbps VirtIO Interface\r\n\r\n1 IPv4 & 1 IPv6 /64\r\n\r\nPremium Network Profile\r\n\r\n价格：$49.9/年\r\n\r\nDMIT 维多利亚和美西的测评可见： https://990599.xyz/dmit/\r\n![image](  )\r\n\r\n本人自用 DMIT 美西$36.9 已有几个月，它太无聊了，一直是一条直线，稳如老狗\r\n由此不难推定$49.9,它的稳定性和解锁能力，绝对不会比$36.9 差，要相信一分钱一分货\r\n\r\n①DMIT 美西网络情况\r\n![image](  )\r\n②三网回程情况\r\n![image](  )\r\n③流媒体解锁情况\r\n![image](  )\r\n④IP 质量\r\n![image](  )\r\n\r\n\r\n\r\n\r\n[有 aff 链接直达 $49.9]( https://990599.xyz/dmit49)\r\n\r\nDMIT- PVM.LAX.EB.WEE 39.9-电信联通 CN2 ，移动 CMIN2\r\n\r\n线路：\r\n去程：电信联通 CN2 ，移动 CMIN2\r\n回程：三网 CMIN2\r\n测试 IP4: 154.17.226.2\r\n推荐使用移动宽带的用户入手，双程 cmin2 。\r\n每 15 天可免费更换一次 IP\r\n\r\n配置信息：\r\nLAX.EB.WEE (热门)\r\n\r\n1 vCPU\r\n\r\n1 GB RAM\r\n\r\n20G SSD Storage\r\n\r\n1000GB Transfer\r\n\r\n1Gbps VirtIO Interface\r\n\r\n1 IPv4 & 1 IPv6 /64\r\n\r\n价格：$39.9/年\r\n\r\nDMIT 维多利亚和美西的测评可见： https://990599.xyz/dmit/\r\n![image](  )\r\n\r\n[有 aff 链接直达 $39.9]( https://990599.xyz/DMIT39.9)"
+   }
+  }
+ ],
+ "timed_out": false
+}

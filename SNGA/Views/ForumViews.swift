@@ -276,7 +276,35 @@ struct UserCenterView: View {
                     }
                 }
                 .padding(16)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
+
+                // 站点资料页上那一排外部链接。空了整块不画 —— 没有链接的人占多数，
+                // 摆一个空盒子只是多一道分隔线。
+                if !profile.links.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("链接")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(profile.links) { link in
+                            Link(destination: link.url) {
+                                HStack(spacing: 8) {
+                                    Text(link.title)
+                                        .foregroundStyle(.secondary)
+                                    Text(link.value)
+                                        .lineLimit(1)
+                                    Image(systemName: "arrow.up.forward.square")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .help(link.url.absoluteString)
+                            .accessibilityIdentifier("profile-link-\(link.title)")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
+                }
 
                 if let signature = profile.signature, !signature.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
@@ -289,7 +317,7 @@ struct UserCenterView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(16)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
         }
@@ -467,6 +495,7 @@ private struct ProfileField: View {
 }
 
 private struct ReputationMetric: View {
+    @Environment(\.sngaTheme) private var theme
     let title: String
     let value: String
     let systemImage: String
@@ -475,9 +504,9 @@ private struct ReputationMetric: View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .foregroundStyle(theme.accentColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption).foregroundStyle(.secondary)
+                Text(title).font(.caption).foregroundStyle(theme.secondaryForegroundColor)
                 Text(value)
                     .font(.title3.monospacedDigit().bold())
                     .lineLimit(1)
@@ -486,7 +515,7 @@ private struct ReputationMetric: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(theme.surfaceColor, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -1176,6 +1205,7 @@ struct TopicListView: View {
     @State private var isSubforumsExpanded = false
     @State private var forumSearchQuery = ""
     @State private var forumSearchKind = ForumSearchKind.topicSubject
+    @State private var forumSearchFilters = ForumSearchFilters.none
     private let topAnchor = "topic-list-top"
     private let hiddenSidebarTitleClearance: CGFloat = 140
 
@@ -1185,82 +1215,16 @@ struct TopicListView: View {
                 forumTitleRow
                     .id(topAnchor)
 
-                searchBar
+                // 缩不进这个版面的话就不画这条栏。V2EX 的首页分类和「最近主题」
+                // 都不是节点，而搜索那边只收得下节点名 —— 画出来就是一句谎：
+                // 范围写着「当前版面」，搜的却是全站。
+                if siteDescriptor.supportsSearch(in: forumID) {
+                    searchBar
+                }
 
                 if !model.isCurrentForumSearchActive,
                    !model.browsing.subforums.isEmpty {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Button {
-                                withAnimation(motionAnimation(.easeInOut(duration: 0.16))) {
-                                    isSubforumsExpanded.toggle()
-                                }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(
-                                        systemName: isSubforumsExpanded
-                                            ? "chevron.down"
-                                            : "chevron.right"
-                                    )
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 12)
-
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "square.grid.3x3")
-                                            .foregroundStyle(theme.accentColor)
-                                        Text("子版面")
-                                    }
-                                    .font(.headline)
-                                    Text("\(model.browsing.subforums.count)")
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("已显示 \(includedSubforumCount)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("topic-list-subforums-toggle")
-
-                            if isSubforumsExpanded {
-                                HStack {
-                                    Text("勾选后在当前话题列表中显示该子版面的话题")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
-                                        model.browsing.setAllSubforumsIncluded(!allSubforumsIncluded)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .font(.caption)
-                                }
-
-                                LazyVGrid(
-                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
-                                    alignment: .leading,
-                                    spacing: 8
-                                ) {
-                                    ForEach(model.browsing.subforums) { forum in
-                                        SubforumTile(
-                                            forum: forum,
-                                            isIncluded: model.browsing.includedSubforumIDs.contains(forum.id)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 8)
-                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
-                            dimensions[.leading] + 8
-                        }
-                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
-                            dimensions[.trailing] - 8
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
+                    subforumSection
                 }
 
                 if showsTopicListSkeleton {
@@ -1353,12 +1317,18 @@ struct TopicListView: View {
                         Task { await model.favorite.toggleFavorite(forum) }
                     } label: {
                         Label(
-                            model.isActiveForumFavorite ? "取消收藏" : "收藏版面",
+                            model.isActiveForumFavorite
+                                ? "取消收藏"
+                                : siteDescriptor.favoriteForumActionTitle,
                             systemImage: model.isActiveForumFavorite ? "star.fill" : "star"
                         )
                     }
                     .labelStyle(.iconOnly)
-                    .help(model.isActiveForumFavorite ? "取消收藏当前版面" : "收藏当前版面")
+                    .help(
+                        model.isActiveForumFavorite
+                            ? "取消收藏当前版面"
+                            : siteDescriptor.favoriteForumActionTitle
+                    )
                     .disabled(model.browsing.currentForum == nil)
                     .accessibilityIdentifier("forum-favorite")
                     }
@@ -1411,6 +1381,7 @@ struct TopicListView: View {
             isSubforumsExpanded = false
             forumSearchQuery = ""
             forumSearchKind = .topicSubject
+            forumSearchFilters = .none
             model.clearForumSearch()
         }
         .ignoresSafeArea(.container, edges: .top)
@@ -1434,10 +1405,95 @@ struct TopicListView: View {
             kinds: siteDescriptor.currentForumSearchKinds,
             query: $forumSearchQuery,
             kind: $forumSearchKind,
+            filters: $forumSearchFilters,
             isSearching: model.isSearchingForum,
+            history: model.searchHistory,
             search: performForumSearch,
             clear: clear
         )
+    }
+
+    /// 子版面那一格（V2EX 上装的是首页分类聚合了哪几个节点）。
+    ///
+    /// 抽成属性而不是留在 `body` 里：这个 `body` 已经顶到类型检查器的上限，
+    /// 再往里加一层就崩成一句「无法在合理时间内完成类型检查」。同一个文件里
+    /// 那条搜索栏的注释记着同一件事。
+    @ViewBuilder
+    private var subforumSection: some View {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                withAnimation(motionAnimation(.easeInOut(duration: 0.16))) {
+                                    isSubforumsExpanded.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(
+                                        systemName: isSubforumsExpanded
+                                            ? "chevron.down"
+                                            : "chevron.right"
+                                    )
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 12)
+
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "square.grid.3x3")
+                                            .foregroundStyle(theme.accentColor)
+                                        // 按站点的说法叫。V2EX 的节点是平的，
+                                        // 那一格装的是「这个分类聚合了哪几个节点」。
+                                        Text(siteDescriptor.subforumSectionTitle)
+                                    }
+                                    .font(.headline)
+                                    Text("\(model.browsing.subforums.count)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("已显示 \(includedSubforumCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("topic-list-subforums-toggle")
+
+                            if isSubforumsExpanded {
+                                HStack {
+                                    Text(siteDescriptor.subforumSelectionHint)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button(allSubforumsIncluded ? "全部隐藏" : "全部显示") {
+                                        model.browsing.setAllSubforumsIncluded(!allSubforumsIncluded)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption)
+                                }
+
+                                LazyVGrid(
+                                    columns: [GridItem(.adaptive(minimum: 220), spacing: 8)],
+                                    alignment: .leading,
+                                    spacing: 8
+                                ) {
+                                    ForEach(model.browsing.subforums) { forum in
+                                        SubforumTile(
+                                            forum: forum,
+                                            isIncluded: model.browsing.includedSubforumIDs.contains(forum.id)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .alignmentGuide(.listRowSeparatorLeading) { dimensions in
+                            dimensions[.leading] + 8
+                        }
+                        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+                            dimensions[.trailing] - 8
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 10))
     }
 
     private var topicListHeader: some View {
@@ -1581,7 +1637,8 @@ struct TopicListView: View {
         guard let request = ForumSearchRequest(
             query: forumSearchQuery,
             kind: forumSearchKind,
-            forumID: forumID
+            forumID: forumID,
+            filters: forumSearchFilters
         ) else {
             return
         }

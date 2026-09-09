@@ -5,6 +5,7 @@ struct GlobalForumSearchView: View {
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @State private var query = ""
     @State private var kind = ForumSearchKind.topicSubject
+    @State private var filters = ForumSearchFilters.none
 
     var body: some View {
         List {
@@ -21,7 +22,9 @@ struct GlobalForumSearchView: View {
                 kinds: availableKinds,
                 query: $query,
                 kind: $kind,
+                filters: $filters,
                 isSearching: model.isSearchingForum,
+                history: model.searchHistory,
                 search: performSearch
             )
             searchContent
@@ -123,7 +126,7 @@ struct GlobalForumSearchView: View {
 
     private func performSearch() {
         guard canSearch,
-              let request = ForumSearchRequest(query: query, kind: kind) else {
+              let request = ForumSearchRequest(query: query, kind: kind, filters: filters) else {
             return
         }
         Task { await model.searchForum(request) }

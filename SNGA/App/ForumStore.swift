@@ -217,8 +217,24 @@ final class ForumStore {
         }
     }
 
+    /// 上一个账号留下的版面，别拿去问新账号的站点。
+    ///
+    /// 挡在发请求**之前**，不是发完再丢结果：那一次请求本来就不该发出去，而且
+    /// 对方多半会答一张「没有这个版面」的正常页面，解析出来是一句
+    /// 「论坛页面结构已变化」—— 既不对，也没法照着做。
+    ///
+    /// 不出声：用户没点任何东西，这只是切账号时残留的一次触发。留在运行日志里就够了。
+    private func skipForeignForum(_ forumID: ForumID) async {
+        isRefreshingTopics = false
+        await RuntimeLogger.shared.log(
+            category: "forum",
+            "跳过上一个站点残留的版面请求：\(forumID.id)"
+        )
+    }
+
     func loadTopics(forumID: ForumID, reset: Bool) async {
         guard let service = session.requireService("打开版面") else { return }
+        guard session.belongsToActiveSite(forumID) else { return await skipForeignForum(forumID) }
         let requestAccountID = service.accountID
         let ticket = topicListRequests.begin()
         isRefreshingTopics = true
@@ -246,6 +262,7 @@ final class ForumStore {
 
     func loadTopicPage(forumID: ForumID, page: Int) async {
         guard let service = session.requireService("刷新版面") else { return }
+        guard session.belongsToActiveSite(forumID) else { return await skipForeignForum(forumID) }
         let requestAccountID = service.accountID
         let ticket = topicListRequests.begin()
         isRefreshingTopics = true

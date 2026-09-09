@@ -33,20 +33,45 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     static let subforums = ForumCapabilities(rawValue: 1 << 4)
     /// 可以收藏版面。NodeSeek 只能收藏话题。
     static let forumFavorites = ForumCapabilities(rawValue: 1 << 9)
+    /// 可以收藏话题。
+    ///
+    /// 和 `forumFavorites` 是两件事，而且不是「至少有一样」的关系 —— 有的站点
+    /// 两样都有（NGA），有的只有话题（NodeSeek），有的两样都还没接上（V2EX
+    /// 的收藏是登录后才画出来的链接，写法还没验过）。侧栏那个「收藏」入口
+    /// 和楼层上的星标都看这一位：关着就整个不画，而不是点了再报「不支持」。
+    static let topicFavorites = ForumCapabilities(rawValue: 1 << 13)
     /// 话题收藏支持分文件夹。V2EX 和 NodeSeek 都是平铺一个列表。
     static let topicFavoriteFolders = ForumCapabilities(rawValue: 1 << 5)
-    /// 站内私信。
+    /// 站内私信：能收发一对一的消息。
     static let privateMessages = ForumCapabilities(rawValue: 1 << 6)
+    /// 提醒：别人回复你、提到你时站点给的通知。
+    ///
+    /// 和私信分开两位，因为真有站点只有其中一样 —— V2EX 只有提醒，没有私信。
+    /// 侧栏那个「论坛消息」入口两者有其一就画，而「回复私信」那个按钮是按
+    /// 消息本身的种类画的，不看这两位。
+    static let notifications = ForumCapabilities(rawValue: 1 << 15)
     /// 全站搜索。
     static let globalSearch = ForumCapabilities(rawValue: 1 << 7)
     /// 按用户查看其发布的话题与回复。
     static let userActivities = ForumCapabilities(rawValue: 1 << 8)
     /// 匿名话题与匿名楼层。
     static let anonymousPosts = ForumCapabilities(rawValue: 1 << 10)
+    /// 楼层上报得出作者的 IP 属地。
+    ///
+    /// 这一位挡的是**请求**，不是控件。属地画不画本来就看 `Post.authorInfo` 有没有值，
+    /// 用不着问；但那份值取不到时，界面会逐楼去拉一次作者资料补 —— NGA 的
+    /// `ipLoc` 偶尔缺，那一下是值得的。
+    ///
+    /// 另外两个站不是「偶尔缺」，是根本没有：NodeSeek 的资料里没有属地这一项，
+    /// 拉多少次都是空；V2EX 的 `location` 是会员自己填的一行字（「cn」），
+    /// 不是 IP 属地，拿它冒充反而是错的。而代价按楼层数算 —— V2EX 一页 100 层，
+    /// 一开帖就是上百次请求排在同一个连接上，后面所有请求都得等它们走完。
+    static let postAuthorLocation = ForumCapabilities(rawValue: 1 << 14)
 
     static let all: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
-        .subforums, .forumFavorites, .topicFavoriteFolders, .privateMessages,
-        .globalSearch, .userActivities, .anonymousPosts
+        .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
+        .privateMessages, .notifications, .globalSearch, .userActivities,
+        .anonymousPosts, .postAuthorLocation
     ]
 }
