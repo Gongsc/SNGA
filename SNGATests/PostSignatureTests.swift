@@ -187,7 +187,7 @@ final class PostSignatureTests: XCTestCase {
             "UBB 应该已经渲染成 HTML：\(signature.html)"
         )
         XCTAssertTrue(
-            signature.html.contains("font-size:12px"),
+            signature.html.contains("font-size:var(--snga-font-small)"),
             "签名的样式表没进文档，回退到 WebView 时它会和正文一样大"
         )
         XCTAssertEqual(

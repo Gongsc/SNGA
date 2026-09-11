@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PostRatingView: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let rating: TopicRating
     let scores: [String: Int]
 
@@ -20,7 +21,7 @@ struct PostRatingView: View {
                 }
             }
         }
-        .font(.callout)
+        .font(fonts.threadContent.callout)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))

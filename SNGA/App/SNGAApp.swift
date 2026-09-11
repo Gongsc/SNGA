@@ -544,6 +544,18 @@ struct SNGAApp: App {
     private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(FontArea.sidebar.familyKey) private var sidebarFontFamily = ""
+    @AppStorage(FontArea.sidebar.sizeKey)
+    private var sidebarFontSize = FontArea.sidebar.defaultSize
+    @AppStorage(FontArea.topicList.familyKey) private var topicListFontFamily = ""
+    @AppStorage(FontArea.topicList.sizeKey)
+    private var topicListFontSize = FontArea.topicList.defaultSize
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
+    @AppStorage(FontArea.postAuthor.familyKey) private var postAuthorFontFamily = ""
+    @AppStorage(FontArea.postAuthor.sizeKey)
+    private var postAuthorFontSize = FontArea.postAuthor.defaultSize
     @State private var model: AppModel
     private let container: ModelContainer
 
@@ -551,6 +563,33 @@ struct SNGAApp: App {
         AppTheme.resolve(selectedThemeRaw).resolved(
             customBackgroundHex: customBackgroundHex,
             customAccentHex: customAccentHex
+        )
+    }
+
+    /// 字体和主题一样从这里一次注入。三段各读一对 `@AppStorage`，视图按自己
+    /// 所在的那一段取 —— 不让每一行话题自己去读一遍设置。
+    private var selectedFonts: ResolvedAppFonts {
+        ResolvedAppFonts(
+            sidebar: ScopedFontSet(
+                area: .sidebar,
+                familyName: sidebarFontFamily,
+                size: sidebarFontSize
+            ),
+            topicList: ScopedFontSet(
+                area: .topicList,
+                familyName: topicListFontFamily,
+                size: topicListFontSize
+            ),
+            threadContent: ScopedFontSet(
+                area: .threadContent,
+                familyName: threadContentFontFamily,
+                size: threadContentFontSize
+            ),
+            postAuthor: ScopedFontSet(
+                area: .postAuthor,
+                familyName: postAuthorFontFamily,
+                size: postAuthorFontSize
+            )
         )
     }
 
@@ -605,6 +644,7 @@ struct SNGAApp: App {
                 .environment(model)
                 .environment(model.toolbox)
                 .environment(\.sngaTheme, selectedTheme)
+                .environment(\.sngaFonts, selectedFonts)
                 .modelContainer(container)
                 .preferredColorScheme(selectedTheme.preferredColorScheme)
                 .tint(selectedTheme.accentColor)

@@ -30,12 +30,23 @@ enum PostDocument {
         "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; " +
         "font-src 'none'; media-src https:"
 
+    /// 楼层正文的字号、签名的字号、正文的字体家族。
+    ///
+    /// 和主题变量一样，这三条的**整句**都是替换标记（见
+    /// `ScopedFontSet.applying(to:)`），所以初值写在这里而不是直接写进样式表 ——
+    /// 两处各写一遍，改了其中一处就再也替换不上，而且不会报错。
+    static let webFontSizeDeclaration = "--snga-font-size:14px"
+    static let webSmallFontSizeDeclaration = "--snga-font-small:12px"
+    static let webFontFamilyFallback = "-apple-system,BlinkMacSystemFont,sans-serif"
+    static let webFontFamilyDeclaration = "--snga-font-family:\(webFontFamilyFallback)"
+
     /// 各站都要的那一份。
     ///
     /// `:root` 里那几个变量名和默认值不能随便改 —— `ResolvedAppTheme.applying(to:)`
-    /// 是按这几个字符串做替换来上主题的，改了名字主题就静默失效。
+    /// 和 `ScopedFontSet.applying(to:)` 都是按这几个字符串做替换来上主题和字体的，
+    /// 改了名字两者都会静默失效。
     static let baseStyleSheet = """
-    :root{color-scheme:light dark;--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-quote-rail:color-mix(in srgb,CanvasText 42%,transparent);--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
+    :root{color-scheme:light dark;\(webFontSizeDeclaration);\(webSmallFontSizeDeclaration);\(webFontFamilyDeclaration);--snga-accent:#b06d00;--snga-highlight:#d59b3a;--snga-quote-rail:color-mix(in srgb,CanvasText 42%,transparent);--snga-smile-backdrop-system:transparent;--snga-smile-backdrop:var(--snga-smile-backdrop-system)}@media(prefers-color-scheme:dark){:root{--snga-smile-backdrop-system:rgba(255,255,255,.88)}}html,body{width:100%;max-width:100%;overflow-x:hidden;overflow-y:hidden}body{font-size:var(--snga-font-size);font-family:var(--snga-font-family);margin:0;color:CanvasText;background:transparent;overflow-wrap:anywhere;line-height:1.55}
     #snga-post-content{display:flow-root;width:100%;max-width:100%;min-height:1px}#snga-post-content>:first-child{margin-top:0}#snga-post-content>:last-child:not(blockquote){margin-bottom:0}p{margin:6px 0}
     img{max-width:100%;height:auto;vertical-align:middle}table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto}td,th{min-width:0;border:1px solid color-mix(in srgb,CanvasText 20%,transparent);padding:6px;vertical-align:top;overflow-wrap:anywhere}
     ul,ol{margin:8px 0;padding-left:1.6em}li{margin:4px 0}hr{height:1px;margin:12px 0;border:0;background:color-mix(in srgb,CanvasText 22%,transparent)}
@@ -51,15 +62,15 @@ enum PostDocument {
     /// 的两份实现：同一份签名可能走原生、也可能因为一张表格回退到 WebView，两条路
     /// 画出来的大小和轻重必须一致，否则同一个人的签名在相邻两层楼里长得不一样。
     static let signatureStyleSheet = """
-    body{font-size:12px;color:color-mix(in srgb,CanvasText 62%,transparent)}p{margin:4px 0}img{max-height:240px}
+    body{font-size:var(--snga-font-small);color:color-mix(in srgb,CanvasText 62%,transparent)}p{margin:4px 0}img{max-height:240px}
     """
 
     /// NodeSeek 的正文是 Markdown 渲染出来的 HTML，要的东西和 UBB 那套完全不同：
     /// 没有表情、没有颜色标签，但有代码块、行内代码和表格。
     static let markdownStyleSheet = """
     pre{margin:8px 0;padding:10px 12px;border-radius:7px;background:color-mix(in srgb,CanvasText 8%,transparent);overflow-x:auto}
-    pre code{display:block;padding:0;background:none;font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace}
-    code{padding:1px 5px;border-radius:4px;background:color-mix(in srgb,CanvasText 10%,transparent);font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+    pre code{display:block;padding:0;background:none;font-size:calc(var(--snga-font-size) - 1.5px);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    code{padding:1px 5px;border-radius:4px;background:color-mix(in srgb,CanvasText 10%,transparent);font-size:calc(var(--snga-font-size) - 1.5px);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
     h1,h2,h3,h4,h5,h6{margin:14px 0 8px;line-height:1.3}h1{font-size:1.5em}h2{font-size:1.3em}h3{font-size:1.15em}h4,h5,h6{font-size:1em}
     th{background:color-mix(in srgb,CanvasText 7%,transparent);font-weight:650;text-align:left}
     del{opacity:.7}

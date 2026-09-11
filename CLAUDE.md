@@ -118,6 +118,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 ## 界面约束
 
 - **颜色一律走主题**（`@Environment(\.sngaTheme)` 拿 `ResolvedAppTheme`）：卡片和面板底色 `surfaceColor`、磁贴和边栏行 `fillColor` / `hoverFillColor`、描边 `separatorColor`、控件描边 `controlBorderColor`、强调 `accentColor` / `accentSoftColor`、文字 `foregroundColor` / `secondaryForegroundColor` / `tertiaryForegroundColor`。**别拿 `.background.secondary` 这类系统材质当卡片底** —— 应用有六套主题，午夜蓝和 NGA 暖金下它和周围对不上。`.tint` 可以用：`RootView` 已经把环境色设成了主题强调色。错误红、成功绿这种语义色不跟主题走（见 `SettingsView` 的连接状态）。
+- **这四处的文字走字体设置**（`@Environment(\.sngaFonts)` 拿 `ResolvedAppFonts`，再按 `.sidebar` / `.topicList` / `.threadContent` / `.postAuthor` 取）：侧栏的行、话题列表的行、楼层正文与楼层号、楼层头上那一栏（作者、级别、声望、发帖时间）。写 `fonts.topicList.caption` 而不是 `.caption` —— 语义档位照旧，只是整段按用户调的字号缩放（`ScopedFontSet` 抄了一张 macOS 的档位点数表，`FontSettingsTests` 对着 AppKit 校它）。**只罩文字，别罩控件**：`.font` 铺在装着输入框和选择器的容器上，会把控件一起缩掉。**套着 `frame(height:)` 的那一栏，框也要跟着算**（`PostAuthorHeaderLayout`）—— 写死的行高会把字裁掉一截，看上去像是根本没生效。网页楼层那一侧走 `PostDocument` 里 `--snga-font-size` / `--snga-font-small` / `--snga-font-family` 三个变量的字符串替换，和主题同一条路 —— 那三条的**整句**都是标记，改一个字符就静默失效。四段之外（设置面板、小工具、消息）不跟着变，是有意的。
 - **`.regularMaterial` 只留给真正浮在内容之上的层**：底部动作栏、悬浮胶囊、登录遮罩、下拉面板。它要的是「透出底下的东西」，铺在内容里的块用主题色。
 - **主题色的用法有对比度测试**（`SNGATests/ThemeContrastTests.swift`）：新配色或新用法先过它，别只在自己那套主题下看着顺眼。
 - **排版尺寸收进视图自己的 `private enum Metrics`**，别散在 `body` 里。同一个东西在两处各写一个数，就会在两个页面上长得不一样 —— `ForumSearchBar` 的注释记着那次：两条本该一样的搜索栏，间距、边距、选择器宽度四处都差着几点。

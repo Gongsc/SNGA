@@ -60,6 +60,7 @@
 		4A001FD0F1762C51AB89C9DD /* SessionIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6817FFD7353256F7177C155E /* SessionIsolationTests.swift */; };
 		4B2A6686585FCC183A735602 /* GlobalForumSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECFA0205717BA56C67014605 /* GlobalForumSearchView.swift */; };
 		4B70C1064735E245DA6BBD41 /* WebViewUserAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4EC820DA482FA8957DA8A5 /* WebViewUserAgent.swift */; };
+		4B951E6FBA47ADF68F208AE1 /* FontSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5A0F9DF55B0A44E3EFDAC3 /* FontSettings.swift */; };
 		4D0941A6BDB089378BC44CC6 /* TopicRatingEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADEF7A599A975F59C182B61A /* TopicRatingEditorView.swift */; };
 		4EE53088DD1E342E4362C921 /* v2ex-member-topics-hidden.html in Resources */ = {isa = PBXBuildFile; fileRef = A11247C49AB7B56B9B5E8ED7 /* v2ex-member-topics-hidden.html */; };
 		4EE76C24A0373B77AFF272C0 /* NodeSeekNetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2AEC1CB932996BC4AB0827 /* NodeSeekNetworkClient.swift */; };
@@ -138,6 +139,7 @@
 		B64581DE2F860FFC5D231F98 /* PostSignatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 187A78ADD9AA29B2E9235651 /* PostSignatureTests.swift */; };
 		B67C7B7D4B04E72B20253C93 /* PostContentBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CC7C1AE50020FE2E32DA135 /* PostContentBuilderTests.swift */; };
 		B701D0C4C9C34666045F6A2C /* LocalSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466D1A08627F701CED9F37E9 /* LocalSessionStore.swift */; };
+		B71370B23F739C0E3A48945F /* FontSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 146DE8DE9A2DF68C9BA3CC98 /* FontSettingsTests.swift */; };
 		B7ED7DE2FB6903434B59890A /* ForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F28E6EC3AF398C4F536780 /* ForumService.swift */; };
 		BB6637F2401D16C87335AC86 /* ForumIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40AB79D13D930F294866FB6 /* ForumIdentityTests.swift */; };
 		BC47A76D9A01B30CB144A57F /* LegacyStoreBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84856451E805FCC4DE1D5A4B /* LegacyStoreBackfillTests.swift */; };
@@ -226,6 +228,7 @@
 		0857E19CE33E743B3071A816 /* NodeSeekForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekForumService.swift; sourceTree = "<group>"; };
 		0C4291C78C08F3D77640FF18 /* V2EXInternalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXInternalLink.swift; sourceTree = "<group>"; };
 		0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentDiagnostics.swift; sourceTree = "<group>"; };
+		146DE8DE9A2DF68C9BA3CC98 /* FontSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontSettingsTests.swift; sourceTree = "<group>"; };
 		1576244424FCF5AD27A70A45 /* SearchHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchHistoryTests.swift; sourceTree = "<group>"; };
 		1651E18DEBA97612EDEDD172 /* AIProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProfileStore.swift; sourceTree = "<group>"; };
 		187A78ADD9AA29B2E9235651 /* PostSignatureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostSignatureTests.swift; sourceTree = "<group>"; };
@@ -409,6 +412,7 @@
 		FAD1FFDA48D04E87858BB25B /* V2EXEndpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXEndpointTests.swift; sourceTree = "<group>"; };
 		FB8FEE91C0EC0108EF26B493 /* SNGAApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SNGAApp.swift; sourceTree = "<group>"; };
 		FD4192272BC81733549F41E4 /* V2EXLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXLiveTests.swift; sourceTree = "<group>"; };
+		FE5A0F9DF55B0A44E3EFDAC3 /* FontSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FontSettings.swift; sourceTree = "<group>"; };
 		FFE9C0E4443C0531394B0374 /* ForumID+NGA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ForumID+NGA.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -432,6 +436,7 @@
 				56BF648EE4A2EC4050DC77E4 /* AppModel.swift */,
 				53569497661BA95D730D632C /* AppSession.swift */,
 				3180FEA94D1F725A0242698D /* FavoriteStore.swift */,
+				FE5A0F9DF55B0A44E3EFDAC3 /* FontSettings.swift */,
 				5563DC9E0A09F3C8F42BA7D5 /* ForumStore.swift */,
 				C595E939887CE5215A4959D7 /* MessageStore.swift */,
 				68CE63CCBDAE8C39CF3822F2 /* RequestSlot.swift */,
@@ -672,6 +677,7 @@
 				8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */,
 				2123F7022B0D2433039D7D1B /* FavoriteAndCheckInTests.swift */,
 				69FB74E7713A8B572E8F283E /* FavoriteStoreFolderlessTests.swift */,
+				146DE8DE9A2DF68C9BA3CC98 /* FontSettingsTests.swift */,
 				F40AB79D13D930F294866FB6 /* ForumIdentityTests.swift */,
 				53F9438A0CC6185C7B028239 /* ForumSearchTests.swift */,
 				2EB1E6EBF89005A786C462A2 /* ForumSiteTests.swift */,
@@ -892,6 +898,7 @@
 				29651C2C2540E04E34C99D11 /* EmoticonPicker.swift in Sources */,
 				D0A27031E2C58EF65C3F0AD6 /* FavoriteStore.swift in Sources */,
 				8D338F95FC6EF51852F96B70 /* FavoriteSyncEngine.swift in Sources */,
+				4B951E6FBA47ADF68F208AE1 /* FontSettings.swift in Sources */,
 				F4059492B76C341CED2B6710 /* ForumCapabilities.swift in Sources */,
 				212C8C43C0153799F941136D /* ForumEmoticon.swift in Sources */,
 				1BE059CE6B0DD6A518122831 /* ForumID+NGA.swift in Sources */,
@@ -1002,6 +1009,7 @@
 				BDAEE253CAF0C6B01A52E046 /* EmoticonImageStoreTests.swift in Sources */,
 				FFFF97EC746D6EEAAD8075A2 /* FavoriteAndCheckInTests.swift in Sources */,
 				DBE60C1388311AF6AD16456D /* FavoriteStoreFolderlessTests.swift in Sources */,
+				B71370B23F739C0E3A48945F /* FontSettingsTests.swift in Sources */,
 				BB6637F2401D16C87335AC86 /* ForumIdentityTests.swift in Sources */,
 				2B527AAC590E9D6EF7E2C82C /* ForumSearchTests.swift in Sources */,
 				89DEACFB4C13307021BC7370 /* ForumSiteTests.swift in Sources */,

@@ -316,6 +316,7 @@ struct PostWebView: NSViewRepresentable {
 
     var html: String
     var theme: ResolvedAppTheme
+    var fonts: ScopedFontSet
     var imageFreeMode: Bool
     var cacheKey: String?
     @Binding var contentHeight: CGFloat
@@ -439,11 +440,12 @@ struct PostWebView: NSViewRepresentable {
     fileprivate static func render(
         html: String,
         theme: ResolvedAppTheme,
+        fonts: ScopedFontSet,
         imageFreeMode: Bool,
         baseURL: URL
     ) -> String {
         PostImagePolicy.applying(
-            to: theme.applying(to: html),
+            to: fonts.applying(to: theme.applying(to: html)),
             hidesRemoteImages: imageFreeMode,
             baseURL: baseURL
         )
@@ -516,6 +518,7 @@ struct PostWebView: NSViewRepresentable {
         private struct RenderCache {
             let source: String
             let theme: ResolvedAppTheme
+            let fonts: ScopedFontSet
             let imageFreeMode: Bool
             /// 换站点就要重渲染 —— 相对地址是按它解析的。
             let baseURL: URL
@@ -531,6 +534,7 @@ struct PostWebView: NSViewRepresentable {
             if let renderCache,
                renderCache.source == view.html,
                renderCache.theme == view.theme,
+               renderCache.fonts == view.fonts,
                renderCache.imageFreeMode == view.imageFreeMode,
                renderCache.baseURL == view.siteDescriptor.baseURL {
                 return renderCache.output
@@ -538,12 +542,14 @@ struct PostWebView: NSViewRepresentable {
             let output = PostWebView.render(
                 html: view.html,
                 theme: view.theme,
+                fonts: view.fonts,
                 imageFreeMode: view.imageFreeMode,
                 baseURL: view.siteDescriptor.baseURL
             )
             renderCache = RenderCache(
                 source: view.html,
                 theme: view.theme,
+                fonts: view.fonts,
                 imageFreeMode: view.imageFreeMode,
                 baseURL: view.siteDescriptor.baseURL,
                 output: output
@@ -869,6 +875,7 @@ struct PostBodyView: View {
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     var html: String
     /// 可原生渲染的正文。为 nil 时回退到 `WKWebView`。
@@ -876,7 +883,8 @@ struct PostBodyView: View {
     /// 排版档位。签名档小一号，正文用默认的 `.body`。
     ///
     /// 只对原生分支有效：回退到 `WKWebView` 时大小由文档自己的样式表决定，那份
-    /// 样式在清洗阶段就压进 HTML 里了（见 `PostDocument.signatureStyleSheet`）。
+    /// 样式在清洗阶段就压进 HTML 里了（见 `PostDocument.signatureStyleSheet`）——
+    /// 用户调过的字号和字体在渲染时替换进那份样式表，两条路仍然一样大。
     var emphasis: PostParagraphEmphasis = .body
     var cacheKey: String? = nil
     var loadOrder: Int? = nil
@@ -927,6 +935,7 @@ struct PostBodyView: View {
             content: content,
             imageFreeMode: imageFreeMode,
             emphasis: emphasis,
+            fonts: fonts.threadContent,
             onOpenLink: { url in
                 if let destination = siteDescriptor.internalDestination(for: url) {
                     onOpenInternalLink(destination)
@@ -947,6 +956,7 @@ struct PostBodyView: View {
                 PostWebView(
                     html: html,
                     theme: theme,
+                    fonts: fonts.threadContent,
                     imageFreeMode: imageFreeMode,
                     cacheKey: cacheKey,
                     contentHeight: $height,

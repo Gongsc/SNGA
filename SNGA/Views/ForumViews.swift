@@ -1831,6 +1831,7 @@ struct TopicInteractiveRow: View {
 
 private struct TopicRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let topic: Topic
 
     var body: some View {
@@ -1839,7 +1840,7 @@ private struct TopicRow: View {
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")
-                        .font(.caption2.weight(.medium))
+                        .font(fonts.topicList.font(.caption2, weight: .medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1847,7 +1848,7 @@ private struct TopicRow: View {
                         .background(theme.accentSoftColor, in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
-                        .font(.caption2.weight(.medium))
+                        .font(fonts.topicList.font(.caption2, weight: .medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1869,7 +1870,7 @@ private struct TopicRow: View {
                             Text(value)
                         }
                     }
-                    .font(.caption)
+                    .font(fonts.topicList.caption)
                     .foregroundStyle(theme.accentColor)
                     .help(badge.title)
                     .accessibilityElement(children: .ignore)
@@ -1879,7 +1880,7 @@ private struct TopicRow: View {
                     )
                 }
                 Text(topic.subject)
-                    .font(.body.weight(topic.isPinned ? .semibold : .regular))
+                    .font(fonts.topicList.font(.body, weight: topic.isPinned ? .semibold : .regular))
                     .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
                     .lineLimit(3)
             }
@@ -1915,9 +1916,12 @@ private struct TopicRow: View {
                     .fixedSize()
                 }
             }
-            .font(.caption)
+            .font(fonts.topicList.caption)
             .foregroundStyle(.secondary)
         }
+        // 作者、回复数、日期那一行以外的文字（锁定图标、镜像标签）落在这里，
+        // 跟着话题列表那一档走。
+        .font(fonts.topicList.body)
         .padding(.vertical, 4)
     }
 }

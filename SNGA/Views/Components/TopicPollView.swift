@@ -3,6 +3,7 @@ import SwiftUI
 struct TopicPollView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let poll: TopicPoll
 
     @State private var selection: Set<String> = []
@@ -11,15 +12,14 @@ struct TopicPollView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("话题投票", systemImage: "chart.bar.doc.horizontal")
-                .font(.headline)
+                .font(fonts.threadContent.headline)
                 .foregroundStyle(theme.accentColor)
 
             ForEach(poll.groups) { group in
                 VStack(alignment: .leading, spacing: 6) {
                     if let title = group.title {
                         Text(title)
-                            .font(.subheadline)
-                            .bold()
+                            .font(fonts.threadContent.font(.subheadline, weight: .bold))
                     }
 
                     ForEach(group.options) { option in
@@ -49,7 +49,7 @@ struct TopicPollView: View {
                                         Spacer()
                                         if showsResults {
                                             Text("\(option.voteCount) 票")
-                                                .font(.caption.monospacedDigit())
+                                                .font(fonts.threadContent.caption.monospacedDigit())
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
@@ -87,11 +87,11 @@ struct TopicPollView: View {
 
             if !showsResults {
                 Label(hiddenResultsMessage, systemImage: "eye.slash")
-                    .font(.callout)
+                    .font(fonts.threadContent.callout)
                     .foregroundStyle(.secondary)
             } else {
                 Text("\(poll.participantCount) 人参与 · 共 \(poll.totalVoteCount) 票")
-                    .font(.callout.monospacedDigit())
+                    .font(fonts.threadContent.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
 
@@ -110,7 +110,7 @@ struct TopicPollView: View {
                         )
                     }
                 }
-                .font(.caption)
+                .font(fonts.threadContent.caption)
                 .foregroundStyle(.secondary)
 
                 Spacer()

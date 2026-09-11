@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
 
@@ -102,6 +103,7 @@ struct SidebarView: View {
                 Section("最近访问") {
                     if model.browsing.recentForums.isEmpty {
                         Text("暂无最近访问")
+                            .font(fonts.sidebar.body)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.browsing.recentForums) { forum in
@@ -114,6 +116,7 @@ struct SidebarView: View {
                 Section(siteDescriptor.forumFavoritesTitle) {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
+                            .font(fonts.sidebar.body)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.favorite.favorites, id: \.forum.id) { favorite in
@@ -139,7 +142,7 @@ struct SidebarView: View {
                                             )
                                     } else if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
                                         Image(systemName: "arrow.triangle.2.circlepath")
-                                            .font(.caption)
+                                            .font(fonts.sidebar.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -221,7 +224,7 @@ struct SidebarView: View {
                     Spacer()
                     if badge > 0 {
                         Text("\(badge)")
-                            .font(.caption.monospacedDigit())
+                            .font(fonts.sidebar.caption.monospacedDigit())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             // 底色和字色取自同一个主题，别一个跟 `.tint`
@@ -231,7 +234,7 @@ struct SidebarView: View {
                     }
                     if let attentionLabel {
                         Text(attentionLabel)
-                            .font(.caption2.weight(.medium))
+                            .font(fonts.sidebar.font(.caption2, weight: .medium))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(theme.accentColor, in: Capsule())
@@ -281,6 +284,7 @@ private struct SidebarForumIcon: View {
 
 private struct SidebarAccountButton: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaFonts) private var fonts
     let account: AccountSummary
     @State private var showsRemoveConfirmation = false
 
@@ -309,7 +313,7 @@ private struct SidebarAccountButton: View {
                         }
                         if account.sessionState != .valid {
                             Text(account.sessionState.title)
-                                .font(.caption2)
+                                .font(fonts.sidebar.caption2)
                                 .foregroundStyle(.red)
                         }
                     }
@@ -353,6 +357,7 @@ private struct SidebarAccountButton: View {
 
 private struct SidebarInteractiveRow<Content: View>: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isSelected: Bool
     @ViewBuilder let content: Content
@@ -360,6 +365,10 @@ private struct SidebarInteractiveRow<Content: View>: View {
 
     var body: some View {
         content
+            // 侧栏的字号落在这一层：行里只有标签和小徽章，没有输入框也没有
+            // 选择器，罩一层 `.font` 不会顺手把控件也缩掉。徽章那几处自己写了
+            // 更小的档位，会盖过这一句。
+            .font(fonts.sidebar.body)
             .padding(.horizontal, 7)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)

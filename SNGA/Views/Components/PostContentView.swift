@@ -11,6 +11,9 @@ struct PostContentView: View {
     var imageFreeMode = false
     /// 整块内容的排版档位。签名档比正文小一号，其余一律 `.body`。
     var emphasis: PostParagraphEmphasis = .body
+    /// 「话题内容」那一档的字体设置。由调用方给而不是在这里读环境：这个视图
+    /// 只画楼层正文，但读环境会让它看起来像是能画任何地方的内容。
+    var fonts: ScopedFontSet = .default(for: .threadContent)
     var onOpenLink: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
@@ -19,6 +22,7 @@ struct PostContentView: View {
                 blocks: content.blocks,
                 imageFreeMode: imageFreeMode,
                 emphasis: emphasis,
+                fonts: fonts,
                 onOpenLink: onOpenLink
             )
         }
@@ -31,6 +35,7 @@ private struct PostBlockListView: View {
     let blocks: [PostBlock]
     let imageFreeMode: Bool
     var emphasis: PostParagraphEmphasis = .body
+    let fonts: ScopedFontSet
     let onOpenLink: @MainActor (URL) -> Void
 
     var body: some View {
@@ -40,6 +45,7 @@ private struct PostBlockListView: View {
                 PostParagraphView(
                     paragraph: paragraph,
                     emphasis: emphasis,
+                    fonts: fonts,
                     onOpenLink: onOpenLink
                 )
             case let .quote(nested):
@@ -57,6 +63,7 @@ private struct PostBlockListView: View {
                 PostParagraphView(
                     paragraph: attribution,
                     emphasis: .quoteAttribution,
+                    fonts: fonts,
                     onOpenLink: onOpenLink
                 )
             }
@@ -64,6 +71,7 @@ private struct PostBlockListView: View {
                 blocks: split.body,
                 imageFreeMode: imageFreeMode,
                 emphasis: emphasis,
+                fonts: fonts,
                 onOpenLink: onOpenLink
             )
         }
@@ -182,6 +190,7 @@ private struct PostParagraphView: View {
     @Environment(\.sngaTheme) private var theme
     let paragraph: PostParagraph
     var emphasis: PostParagraphEmphasis = .body
+    let fonts: ScopedFontSet
     let onOpenLink: @MainActor (URL) -> Void
 
     var body: some View {
@@ -198,6 +207,7 @@ private struct PostParagraphView: View {
             paragraph: paragraph,
             theme: theme,
             emphasis: emphasis,
+            fonts: fonts,
             images: loaded,
             onOpenLink: onOpenLink
         )
@@ -218,6 +228,7 @@ private struct PostParagraphText: NSViewRepresentable {
     let paragraph: PostParagraph
     let theme: ResolvedAppTheme
     let emphasis: PostParagraphEmphasis
+    let fonts: ScopedFontSet
     let images: [URL: NSImage]
     let onOpenLink: @MainActor (URL) -> Void
 
@@ -279,6 +290,7 @@ private struct PostParagraphText: NSViewRepresentable {
             paragraph: paragraph,
             theme: theme,
             emphasis: emphasis,
+            fonts: fonts,
             loadedEmoticons: Set(images.keys)
         )
         guard coordinator.contentKey != key else { return }
@@ -288,6 +300,7 @@ private struct PostParagraphText: NSViewRepresentable {
                 for: paragraph,
                 theme: theme,
                 emphasis: emphasis,
+                fonts: fonts,
                 images: images
             )
         )
@@ -298,6 +311,7 @@ private struct PostParagraphText: NSViewRepresentable {
             let paragraph: PostParagraph
             let theme: ResolvedAppTheme
             let emphasis: PostParagraphEmphasis
+            let fonts: ScopedFontSet
             let loadedEmoticons: Set<URL>
         }
 
@@ -446,7 +460,6 @@ final class PostParagraphTextView: NSTextView {
 
 /// 把段落片段翻译成 `NSAttributedString`。
 private enum PostParagraphAttributedText {
-    private static let baseFontSize: CGFloat = 14
     /// 和 SwiftUI 版本的 `.lineSpacing(2)` 保持一致。
     private static let lineSpacing: CGFloat = 2
 
@@ -454,6 +467,7 @@ private enum PostParagraphAttributedText {
         for paragraph: PostParagraph,
         theme: ResolvedAppTheme,
         emphasis: PostParagraphEmphasis = .body,
+        fonts: ScopedFontSet,
         images: [URL: NSImage]
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
@@ -466,7 +480,8 @@ private enum PostParagraphAttributedText {
                         attributes: attributes(
                             for: style,
                             theme: theme,
-                            emphasis: emphasis
+                            emphasis: emphasis,
+                            fonts: fonts
                         )
                     )
                 )
@@ -476,7 +491,9 @@ private enum PostParagraphAttributedText {
                     result.append(NSAttributedString(string: " "))
                     continue
                 }
-                result.append(attachment(for: image, emphasis: emphasis))
+                result.append(
+                    attachment(for: image, emphasis: emphasis, fonts: fonts)
+                )
             }
         }
         result.addAttribute(
@@ -490,10 +507,11 @@ private enum PostParagraphAttributedText {
     private static func attributes(
         for style: PostTextStyle,
         theme: ResolvedAppTheme,
-        emphasis: PostParagraphEmphasis
+        emphasis: PostParagraphEmphasis,
+        fonts: ScopedFontSet
     ) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
-            .font: font(for: style, emphasis: emphasis)
+            .font: font(for: style, emphasis: emphasis, fonts: fonts)
         ]
         if let link = style.link {
             attributes[.link] = link
@@ -519,28 +537,32 @@ private enum PostParagraphAttributedText {
 
     private static func font(
         for style: PostTextStyle,
-        emphasis: PostParagraphEmphasis
+        emphasis: PostParagraphEmphasis,
+        fonts: ScopedFontSet
     ) -> NSFont {
-        let size = fontSize(for: emphasis) * sizeScale(style)
+        let size = fontSize(for: emphasis, fonts: fonts) * sizeScale(style)
         // 抬头本身整段就是 `[b]`，照着加粗只会让它比被引正文还抢眼。
         let weight: NSFont.Weight = emphasis != .quoteAttribution && style.isBold
             ? .bold
             : .regular
         var font = style.isMonospaced
-            ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-            : NSFont.systemFont(ofSize: size, weight: weight)
+            ? fonts.monospacedNSFont(ofSize: size, weight: weight)
+            : fonts.nsFont(ofSize: size, weight: weight)
         if style.isItalic {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
         }
         return font
     }
 
-    private static func fontSize(for emphasis: PostParagraphEmphasis) -> CGFloat {
+    private static func fontSize(
+        for emphasis: PostParagraphEmphasis,
+        fonts: ScopedFontSet
+    ) -> CGFloat {
         switch emphasis {
-        case .body: baseFontSize
-        // 和 `PostDocument.signatureStyleSheet` 里的 12px 是同一个数：同一份签名
-        // 在原生和 WebView 两条路上得一样大。
-        case .quoteAttribution, .signature: 12
+        case .body: fonts.postBodySize
+        // 和 `PostDocument.signatureStyleSheet` 里那个 `--snga-font-small` 是同一个
+        // 数：同一份签名在原生和 WebView 两条路上得一样大。
+        case .quoteAttribution, .signature: fonts.postSmallSize
         }
     }
 
@@ -552,11 +574,12 @@ private enum PostParagraphAttributedText {
     /// 表情按 `vertical-align:middle` 对齐，和楼层样式表里的表现一致。
     private static func attachment(
         for image: NSImage,
-        emphasis: PostParagraphEmphasis
+        emphasis: PostParagraphEmphasis,
+        fonts: ScopedFontSet
     ) -> NSAttributedString {
         let attachment = NSTextAttachment()
         attachment.image = image
-        let font = NSFont.systemFont(ofSize: fontSize(for: emphasis))
+        let font = fonts.nsFont(ofSize: fontSize(for: emphasis, fonts: fonts))
         attachment.bounds = CGRect(
             x: 0,
             y: (font.xHeight - image.size.height) / 2,

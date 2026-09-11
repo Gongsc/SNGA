@@ -1017,6 +1017,52 @@ final class SNGAUITests: XCTestCase {
         automaticInstance.click()
     }
 
+    /// 外观里的字体分三段，每段一个字体选择器加一个字号步进器，底下跟着预览。
+    ///
+    /// 只验控件在不在、复位按钮的可用状态对不对。字号怎么缩放、网页那侧怎么替换
+    /// 在 `FontSettingsTests` 里，那些不需要点着界面验；而拿步进器去点，测的是
+    /// XCUITest 认不认得 `NSStepper` 的箭头，不是这个功能。
+    func testAppearanceSettingsExposeFontControlsForEachArea() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        for area in ["sidebar", "topicList", "threadContent", "postAuthor"] {
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-family-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了字体选择器"
+            )
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-size-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了字号步进器"
+            )
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-preview-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了预览"
+            )
+        }
+
+        // 一切都是默认值时没有东西可复位。
+        let reset = mainWindow.descendants(matching: .any)["appearance-font-reset"]
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+        XCTAssertFalse(reset.isEnabled, "默认档下「恢复默认字体」该是灰的")
+    }
+
     /// 边栏左下角的入口和 ⌘, 走的是同一条路。
     func testSidebarSettingsButtonOpensSettings() {
         continueAfterFailure = false

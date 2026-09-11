@@ -680,7 +680,14 @@ extension NodeSeekParserTests {
         let html = try firstPostHTML()
 
         XCTAssertTrue(html.hasPrefix("<!doctype html>"), "正文不是完整文档")
-        XCTAssertTrue(html.contains("font:14px -apple-system"), "没有带上正文字体")
+        XCTAssertTrue(
+            html.contains(PostDocument.webFontSizeDeclaration),
+            "没有带上正文字号"
+        )
+        XCTAssertTrue(
+            html.contains("font-family:var(--snga-font-family)"),
+            "正文没有读字体变量，字体设置换不动它"
+        )
         XCTAssertTrue(html.contains("color:CanvasText"), "文字颜色没跟着系统走")
         XCTAssertTrue(html.contains("background:transparent"), "底色该透出宿主视图")
     }
@@ -692,6 +699,9 @@ extension NodeSeekParserTests {
         XCTAssertTrue(html.contains("color-scheme:light dark"))
         XCTAssertTrue(html.contains("--snga-accent:"))
         XCTAssertTrue(html.contains("--snga-quote-rail:"))
+        // 字体设置走同一条替换路径，记号也在同一个 `:root` 里。
+        XCTAssertTrue(html.contains(PostDocument.webFontSizeDeclaration))
+        XCTAssertTrue(html.contains(PostDocument.webFontFamilyDeclaration))
 
         // 真的换一次主题：记号对得上，值就该被换掉。
         let themed = AppTheme.midnight.resolved().applying(to: html)

@@ -33,6 +33,9 @@ struct SettingsMenuView: View {
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
@@ -94,9 +97,15 @@ struct SettingsMenuView: View {
         switch section {
         case .appearance:
             let selected = AppTheme.resolve(selectedThemeRaw)
-            return selected == .custom
+            let themeTitle = selected == .custom
                 ? "自定义 · 强调色 \(customAccentHex.uppercased())"
                 : selected.displayName
+            // 三档只报正文那一档：副标题只有一行，三个字体名字加三个字号
+            // 拼进去必然被中间截断，剩下的信息还不如不写。
+            let family = FontSettings.normalizedFamily(threadContentFontFamily)
+            let fontTitle = family.isEmpty ? "系统字体" : family
+            let size = Int(FontSettings.normalizedSize(threadContentFontSize))
+            return "\(themeTitle) · 正文 \(fontTitle) \(size) 点"
         case .browsing:
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
             let historyCount = SearchHistorySettings.normalizedMaximumCount(
@@ -239,11 +248,36 @@ struct SettingsDetailView: View {
 // MARK: - 面板
 
 private struct SettingsAppearancePane: View {
+    @Environment(\.sngaTheme) private var theme
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
     @AppStorage(AppTheme.customBackgroundKey)
     private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    // 三段字体各一对。键是拼出来的（`FontArea.familyKey`），但存取仍旧一处一个
+    // 属性 —— `@AppStorage` 的键要在初始化时定死，动态取键就得给每一段再套一层
+    // 子视图，而那一层除了转发什么都不做。
+    @AppStorage(FontArea.sidebar.familyKey) private var sidebarFontFamily = ""
+    @AppStorage(FontArea.sidebar.sizeKey)
+    private var sidebarFontSize = FontArea.sidebar.defaultSize
+    @AppStorage(FontArea.topicList.familyKey) private var topicListFontFamily = ""
+    @AppStorage(FontArea.topicList.sizeKey)
+    private var topicListFontSize = FontArea.topicList.defaultSize
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
+    @AppStorage(FontArea.postAuthor.familyKey) private var postAuthorFontFamily = ""
+    @AppStorage(FontArea.postAuthor.sizeKey)
+    private var postAuthorFontSize = FontArea.postAuthor.defaultSize
+
+    private enum Metrics {
+        /// 选择器给死宽度：字体名字从「宋体-简」到「Helvetica Neue」差着一倍，
+        /// 贴着内容会让三行的字号步进器各起各的头。
+        static let familyPickerWidth: CGFloat = 210
+        /// 步进器的读数也给死宽度。当前范围里都是两位数，看不出区别 —— 但宽度
+        /// 一旦跟着内容走，改一次范围就会让三行的箭头各站各的位置。
+        static let sizeValueWidth: CGFloat = 46
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -292,6 +326,150 @@ private struct SettingsAppearancePane: View {
                     }
                 }
             }
+
+            fontCard
+            fontPreviewCard
+        }
+    }
+
+    /// 三段字体的设置。
+    ///
+    /// 用 `Grid` 而不是三组 `LabeledContent`：后者每一行各管各的，标签宽度对不齐，
+    /// 三个选择器会各起各的头。
+    private var fontCard: some View {
+        SettingsCard(label: "字体") {
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
+                ForEach(FontArea.allCases) { area in
+                    GridRow(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(area.title)
+                            Text(area.detail)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondaryForegroundColor)
+                        }
+
+                        Picker("字体", selection: familyBinding(for: area)) {
+                            Text("系统字体").tag(FontSettings.systemFamilyName)
+                            Divider()
+                            ForEach(FontSettings.availableFamilies, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: Metrics.familyPickerWidth)
+                        .accessibilityLabel("\(area.title)字体")
+                        .accessibilityIdentifier("appearance-font-family-\(area.rawValue)")
+
+                        Stepper(
+                            value: sizeBinding(for: area),
+                            in: FontSettings.allowedSizeRange,
+                            step: 1
+                        ) {
+                            Text("\(Int(sizeBinding(for: area).wrappedValue)) 点")
+                                .monospacedDigit()
+                                .frame(width: Metrics.sizeValueWidth, alignment: .leading)
+                        }
+                        .accessibilityLabel("\(area.title)字号")
+                        .accessibilityIdentifier("appearance-font-size-\(area.rawValue)")
+                    }
+                }
+            }
+
+            Text("只改这三处的文字。按钮、输入框和选择器仍按系统尺寸 —— 它们的大小归 macOS 管，跟着字号缩会把整块面板挤变形。")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryForegroundColor)
+
+            HStack {
+                Spacer()
+                Button("恢复默认字体") {
+                    for area in FontArea.allCases {
+                        familyBinding(for: area).wrappedValue = FontSettings.systemFamilyName
+                        sizeBinding(for: area).wrappedValue = area.defaultSize
+                    }
+                }
+                .disabled(resolvedFonts.isDefault)
+                .accessibilityIdentifier("appearance-font-reset")
+            }
+        }
+    }
+
+    /// 改完当场能看见。三段的正文和小字各画一行 —— 小字（徽章、作者、楼层号）
+    /// 跟着同一个比例缩放，只看正文那一行是看不出来的。
+    private var fontPreviewCard: some View {
+        SettingsCard(label: "预览") {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(FontArea.allCases) { area in
+                    let set = resolvedFonts[area]
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label(area.title, systemImage: area.systemImage)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryForegroundColor)
+                        Text(area.sampleText)
+                            .font(set.body)
+                            .lineLimit(1)
+                        Text(area.sampleDetail)
+                            .font(set.caption)
+                            .foregroundStyle(theme.secondaryForegroundColor)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("appearance-font-preview-\(area.rawValue)")
+                }
+            }
+        }
+    }
+
+    private var resolvedFonts: ResolvedAppFonts {
+        ResolvedAppFonts(
+            sidebar: ScopedFontSet(
+                area: .sidebar,
+                familyName: FontSettings.normalizedFamily(sidebarFontFamily),
+                size: sidebarFontSize
+            ),
+            topicList: ScopedFontSet(
+                area: .topicList,
+                familyName: FontSettings.normalizedFamily(topicListFontFamily),
+                size: topicListFontSize
+            ),
+            threadContent: ScopedFontSet(
+                area: .threadContent,
+                familyName: FontSettings.normalizedFamily(threadContentFontFamily),
+                size: threadContentFontSize
+            ),
+            postAuthor: ScopedFontSet(
+                area: .postAuthor,
+                familyName: FontSettings.normalizedFamily(postAuthorFontFamily),
+                size: postAuthorFontSize
+            )
+        )
+    }
+
+    /// 取值时过一道 `normalizedFamily`：选过的字体可能已经被卸载了，直接把存下来
+    /// 的名字交给选择器，它会显示成一个谁也选不中的空行。
+    private func familyBinding(for area: FontArea) -> Binding<String> {
+        let stored = storedFamilyBinding(for: area)
+        return Binding(
+            get: { FontSettings.normalizedFamily(stored.wrappedValue) },
+            set: { stored.wrappedValue = $0 }
+        )
+    }
+
+    private func storedFamilyBinding(for area: FontArea) -> Binding<String> {
+        switch area {
+        case .sidebar: $sidebarFontFamily
+        case .topicList: $topicListFontFamily
+        case .threadContent: $threadContentFontFamily
+        case .postAuthor: $postAuthorFontFamily
+        }
+    }
+
+    private func sizeBinding(for area: FontArea) -> Binding<Double> {
+        switch area {
+        case .sidebar: $sidebarFontSize
+        case .topicList: $topicListFontSize
+        case .threadContent: $threadContentFontSize
+        case .postAuthor: $postAuthorFontSize
         }
     }
 

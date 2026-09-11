@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
@@ -96,6 +97,12 @@ struct RootView: View {
         }
         .onChange(of: columnVisibility) {
             clearToolbarFocus()
+        }
+        .onChange(of: fonts) {
+            // 缓存里那些数字和存活的 WKWebView 都是按旧字号排出来的版。留着的话，
+            // 改完字号回到话题，整页楼层会先按旧高度落位再跳一次。
+            PostWebViewCache.shared.removeAll()
+            PostContentHeightCache.shared.removeAll()
         }
         .onAppear {
             clearToolbarFocus()
