@@ -46,15 +46,61 @@ enum KeywordFilterAction: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
+/// 拿话题的哪一面去比。
+///
+/// 两档的比法**不一样**，这不是疏忽：
+/// - **标题**按子串比。「显卡」该命中「出二手显卡一张」，否则这一档没什么用。
+/// - **作者**按整个名字比。屏蔽的是某一个人，不是一类名字 —— 按子串比的话，
+///   屏蔽「ab」会连坐「abc」「cab」，被误伤的人还不知道自己怎么消失的。
+///   代价是「名字里带 bot 的全屏蔽」做不到，但那件事远比误伤一个人少见。
+enum KeywordFilterScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case subject
+    case author
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .subject: "标题"
+        case .author: "作者"
+        }
+    }
+
+    /// 输入框里那句提示。两档要写的东西不一样：标题是词，作者要写全名。
+    var prompt: String {
+        switch self {
+        case .subject: "关键字，用逗号隔开"
+        case .author: "作者全名，用逗号隔开"
+        }
+    }
+}
+
+/// 命中了什么。界面上要把它说出来 —— 「含关键字」和「作者是谁」是两句话，
+/// 混成一句，用户就看不出该去改哪一条规则。
+struct KeywordFilterMatch: Equatable, Sendable {
+    var keyword: String
+    var scope: KeywordFilterScope
+
+    var description: String {
+        switch scope {
+        case .subject: "含关键字「\(keyword)」"
+        case .author: "作者「\(keyword)」"
+        }
+    }
+}
+
 /// 一条关键字规则。
 ///
 /// 一条规则里可以并列多个词（`keywords` 用逗号分隔），它们之间是「或」的关系 ——
 /// 「显卡,矿卡,4090」是同一件事的三种叫法，分成三条规则就要配三次颜色、改三次档位。
+/// 作者那一档同理：一条规则里可以并列几个人。
 struct KeywordFilterRule: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     /// 用户输入的原文，原样存。拆词是读的时候做的事 ——
     /// 存拆好的数组，用户再打开设置就看不到自己当初写的那一行了。
     var keywords: String
+    /// 拿话题的哪一面去比。
+    var scope: KeywordFilterScope
     var action: KeywordFilterAction
     /// 只有 `.highlight` 用得上。换档位时不清掉它，改回高亮时颜色还在。
     var colorHex: String
@@ -63,15 +109,32 @@ struct KeywordFilterRule: Identifiable, Codable, Hashable, Sendable {
     init(
         id: UUID = UUID(),
         keywords: String = "",
+        scope: KeywordFilterScope = .subject,
         action: KeywordFilterAction = .highlight,
         colorHex: String = KeywordFilterSettings.defaultHighlightHex,
         isEnabled: Bool = true
     ) {
         self.id = id
         self.keywords = keywords
+        self.scope = scope
         self.action = action
         self.colorHex = colorHex
         self.isEnabled = isEnabled
+    }
+
+    /// 2.0.0 存下来的规则里没有 `scope` —— 那时只能按标题过滤。
+    ///
+    /// 缺了就当标题，而不是让整条规则解不出来。合成的 `Decodable` 遇到缺字段会
+    /// 整条抛错，而 `KeywordFilterSettings.decode` 抛错就返回空数组：升级一次，
+    /// 用户攒的词全没了。这个自定义构造器只为这一件事存在。
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        keywords = try container.decode(String.self, forKey: .keywords)
+        action = try container.decode(KeywordFilterAction.self, forKey: .action)
+        colorHex = try container.decode(String.self, forKey: .colorHex)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        scope = try container.decodeIfPresent(KeywordFilterScope.self, forKey: .scope) ?? .subject
     }
 
     /// 拆开之后真正参与匹配的词。
@@ -88,16 +151,30 @@ struct KeywordFilterRule: Identifiable, Codable, Hashable, Sendable {
 
     /// 这条规则此刻有没有用。没写词的规则（刚点「添加」那一条）不参与匹配。
     var isActive: Bool { isEnabled && !matchWords.isEmpty }
+
+    /// 这条规则命中了没有。命中哪个词也一并带出来 —— 界面上要说得出是哪条规则
+    /// 收走了它，用户才改得了。
+    func match(subject: String, author: String) -> KeywordFilterMatch? {
+        let haystack = scope == .subject ? subject : author
+        guard !haystack.isEmpty else { return nil }
+        let hit = matchWords.first { word in
+            switch scope {
+            case .subject: haystack.keywordFilterContains(word)
+            case .author: haystack.keywordFilterEquals(word)
+            }
+        }
+        return hit.map { KeywordFilterMatch(keyword: $0, scope: scope) }
+    }
 }
 
 /// 一条话题在过滤器下的去向。
 enum KeywordFilterVerdict: Equatable, Sendable {
     case show
-    /// 命中的词一并带出来，界面上要把它说出来 —— 光变个底色，用户看不出是
+    /// 命中了什么一并带出来，界面上要把它说出来 —— 光变个底色，用户看不出是
     /// 哪条规则干的，也就无从修改。
-    case highlight(colorHex: String, keyword: String)
-    case fold(keyword: String)
-    case hide(keyword: String)
+    case highlight(colorHex: String, match: KeywordFilterMatch)
+    case fold(match: KeywordFilterMatch)
+    case hide(match: KeywordFilterMatch)
 }
 
 /// 解析好的一整套规则。和字体、主题一样从应用顶上一次注入。
@@ -122,52 +199,60 @@ struct ResolvedKeywordFilter: Equatable, Sendable {
         isEnabled && rules.contains(where: \.isActive)
     }
 
-    /// 这条标题该怎么显示。
+    /// 这条话题该怎么显示。
     ///
     /// 命中多条规则时，先比档位（隐藏 > 折叠 > 高亮），同档位里取**排在前面**的
     /// 那一条 —— 颜色只能有一个，取第一条至少是用户在设置里能看见的顺序。
-    func verdict(forSubject subject: String) -> KeywordFilterVerdict {
-        guard isEnabled, !subject.isEmpty else { return .show }
-        var winner: (rule: KeywordFilterRule, keyword: String)?
+    /// 标题规则和作者规则在这里一视同仁地比，不分先后。
+    func verdict(forSubject subject: String, author: String = "") -> KeywordFilterVerdict {
+        guard isEnabled else { return .show }
+        var winner: (rule: KeywordFilterRule, match: KeywordFilterMatch)?
         for rule in rules where rule.isActive {
-            guard let keyword = rule.matchWords.first(where: { subject.keywordFilterContains($0) })
-            else { continue }
+            guard let match = rule.match(subject: subject, author: author) else { continue }
             if let current = winner,
                rule.action.precedence <= current.rule.action.precedence {
                 continue
             }
-            winner = (rule, keyword)
+            winner = (rule, match)
         }
         guard let winner else { return .show }
         switch winner.rule.action {
         case .highlight:
-            return .highlight(colorHex: winner.rule.colorHex, keyword: winner.keyword)
+            return .highlight(colorHex: winner.rule.colorHex, match: winner.match)
         case .fold:
-            return .fold(keyword: winner.keyword)
+            return .fold(match: winner.match)
         case .hide:
-            return .hide(keyword: winner.keyword)
+            return .hide(match: winner.match)
         }
     }
 }
 
 private extension String {
-    /// 关键字匹配用的「包含」。
-    ///
-    /// 三个选项都是为了让用户少写几条规则：大小写不敏感（VPS / vps），变音符号
-    /// 不敏感（café / cafe），全半角不敏感（ＡＩ / AI —— 中文输入法下打出全角
-    /// 字母是常事，而标题党尤其爱用）。
+    /// 标题那一档用的「含有」。
     ///
     /// 明确传 `locale: nil` 而不是走 `localizedStandardContains`：过滤结果不该
     /// 随系统语言变，测试也就能断言得死。
     func keywordFilterContains(_ keyword: String) -> Bool {
-        range(
-            of: keyword,
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+        range(of: keyword, options: keywordFilterOptions, range: nil, locale: nil) != nil
+    }
+
+    /// 作者那一档用的「就是这个人」。宽松程度和上面一致（大小写、全半角、变音符号），
+    /// 只是比的是整个名字，不是其中一段。
+    func keywordFilterEquals(_ keyword: String) -> Bool {
+        compare(
+            keyword,
+            options: keywordFilterOptions,
             range: nil,
             locale: nil
-        ) != nil
+        ) == .orderedSame
     }
 }
+
+/// 大小写不敏感（VPS / vps）、变音符号不敏感（café / cafe）、全半角不敏感
+/// （ＡＰＩ / API —— 中文输入法下打出全角字母是常事，标题党尤其爱用）。
+private let keywordFilterOptions: String.CompareOptions = [
+    .caseInsensitive, .diacriticInsensitive, .widthInsensitive
+]
 
 /// 规则存在哪儿、怎么编解码。
 ///

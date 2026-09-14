@@ -1,9 +1,9 @@
 import XCTest
 @testable import SNGA
 
-/// 关键字过滤的三件事：词怎么拆、命中怎么判、规则怎么存。
+/// 关键字过滤的四件事：词怎么拆、命中怎么判、作者那一档怎么比、规则怎么存。
 ///
-/// 判定这一层刻意做成了纯函数（`ResolvedKeywordFilter.verdict(forSubject:)`），
+/// 判定这一层刻意做成了纯函数（`ResolvedKeywordFilter.verdict(forSubject:author:)`），
 /// 就是为了能在这里断言死 —— 界面那一侧只负责按结论画，不再自己判一遍。
 final class KeywordFilterTests: XCTestCase {
 
@@ -49,7 +49,7 @@ final class KeywordFilterTests: XCTestCase {
         let filter = ResolvedKeywordFilter(rules: [
             KeywordFilterRule(keywords: "带货", action: .hide)
         ])
-        XCTAssertEqual(filter.verdict(forSubject: "【带货】这个真的好用"), .hide(keyword: "带货"))
+        XCTAssertEqual(filter.verdict(forSubject: "【带货】这个真的好用"), .hide(match: .subject("带货")))
         XCTAssertEqual(filter.verdict(forSubject: "今天天气不错"), .show)
     }
 
@@ -58,9 +58,9 @@ final class KeywordFilterTests: XCTestCase {
         let filter = ResolvedKeywordFilter(rules: [
             KeywordFilterRule(keywords: "vps,cafe", action: .hide)
         ])
-        XCTAssertEqual(filter.verdict(forSubject: "便宜 VPS 推荐"), .hide(keyword: "vps"))
-        XCTAssertEqual(filter.verdict(forSubject: "便宜 ＶＰＳ 推荐"), .hide(keyword: "vps"))
-        XCTAssertEqual(filter.verdict(forSubject: "Café 里写代码"), .hide(keyword: "cafe"))
+        XCTAssertEqual(filter.verdict(forSubject: "便宜 VPS 推荐"), .hide(match: .subject("vps")))
+        XCTAssertEqual(filter.verdict(forSubject: "便宜 ＶＰＳ 推荐"), .hide(match: .subject("vps")))
+        XCTAssertEqual(filter.verdict(forSubject: "Café 里写代码"), .hide(match: .subject("cafe")))
     }
 
     /// 档位有高下：设了隐藏的人显然比设了高亮的人更不想看见它。
@@ -73,15 +73,15 @@ final class KeywordFilterTests: XCTestCase {
 
         XCTAssertEqual(
             ResolvedKeywordFilter(rules: [highlight, fold, hide]).verdict(forSubject: subject),
-            .hide(keyword: "代购")
+            .hide(match: .subject("代购"))
         )
         XCTAssertEqual(
             ResolvedKeywordFilter(rules: [hide, fold, highlight]).verdict(forSubject: subject),
-            .hide(keyword: "代购")
+            .hide(match: .subject("代购"))
         )
         XCTAssertEqual(
             ResolvedKeywordFilter(rules: [highlight, fold]).verdict(forSubject: subject),
-            .fold(keyword: "二手")
+            .fold(match: .subject("二手"))
         )
     }
 
@@ -94,7 +94,7 @@ final class KeywordFilterTests: XCTestCase {
         ])
         XCTAssertEqual(
             filter.verdict(forSubject: "二手显卡出"),
-            .highlight(colorHex: "#FFF3B0", keyword: "显卡")
+            .highlight(colorHex: "#FFF3B0", match: .subject("显卡"))
         )
     }
 
@@ -127,14 +127,111 @@ final class KeywordFilterTests: XCTestCase {
         XCTAssertEqual(filter.verdict(forSubject: ""), .show)
     }
 
+    // MARK: - 作者那一档
+
+    /// 屏蔽某个人：作者名整个对上才算。
+    func testAuthorRuleMatchesTheWholeName() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "某位用户", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(
+            filter.verdict(forSubject: "随便一条标题", author: "某位用户"),
+            .hide(match: .author("某位用户"))
+        )
+        XCTAssertEqual(filter.verdict(forSubject: "随便一条标题", author: "另一位用户"), .show)
+    }
+
+    /// 作者**不**按子串比。屏蔽「ab」不该连坐「abc」——
+    /// 被误伤的人不会知道自己在谁的列表里消失了。
+    func testAuthorRuleDoesNotMatchBySubstring() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "ab", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "ab"), .hide(match: .author("ab")))
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "abc"), .show)
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "cab"), .show)
+    }
+
+    /// 名字的宽松程度和标题一致：大小写、全半角、变音符号都不敏感。
+    /// 站点各处对同一个名字的大小写并不总是一致。
+    func testAuthorRuleIgnoresCaseWidthAndDiacritics() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "Livid", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "livid"), .hide(match: .author("Livid")))
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "ＬＩＶＩＤ"), .hide(match: .author("Livid")))
+    }
+
+    /// 一条作者规则里可以并列几个人。
+    func testOneAuthorRuleCanListSeveralPeople() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "甲,乙，丙", scope: .author, action: .fold)
+        ])
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "乙"), .fold(match: .author("乙")))
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: "丁"), .show)
+    }
+
+    /// 两档各比各的：标题规则不该因为作者叫这个名字而命中，反过来也一样。
+    /// 这一条挡的是「把两边拼成一个字符串去搜」那种写法。
+    func testTheTwoScopesDoNotLeakIntoEachOther() {
+        let subjectRule = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "带货", action: .hide)
+        ])
+        XCTAssertEqual(subjectRule.verdict(forSubject: "今天天气不错", author: "带货"), .show)
+
+        let authorRule = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "带货", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(authorRule.verdict(forSubject: "【带货】这个真的好用", author: "路人"), .show)
+    }
+
+    /// 作者为空的话题（站点没给出作者）不该被任何作者规则命中。
+    func testAnEmptyAuthorMatchesNoAuthorRule() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "某位用户", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(filter.verdict(forSubject: "标题", author: ""), .show)
+    }
+
+    /// 标题为空、作者命中时照样算数。老的实现在标题为空时直接短路返回 `.show`，
+    /// 加了作者档之后那条短路就是个漏判。
+    func testAnEmptySubjectStillLetsAuthorRulesRun() {
+        let filter = ResolvedKeywordFilter(rules: [
+            KeywordFilterRule(keywords: "某位用户", scope: .author, action: .hide)
+        ])
+        XCTAssertEqual(filter.verdict(forSubject: "", author: "某位用户"), .hide(match: .author("某位用户")))
+    }
+
     // MARK: - 规则怎么存
 
     func testRulesSurviveAnEncodeDecodeRoundTrip() {
         let rules = [
             KeywordFilterRule(keywords: "显卡,矿卡", action: .highlight, colorHex: "#C5E3FF"),
+            KeywordFilterRule(keywords: "某人", scope: .author, action: .fold),
             KeywordFilterRule(keywords: "带货", action: .hide, isEnabled: false)
         ]
         XCTAssertEqual(KeywordFilterSettings.decode(KeywordFilterSettings.encode(rules)), rules)
+    }
+
+    /// 2.0.0 存下来的规则里没有 `scope` —— 那个版本只能按标题过滤。
+    ///
+    /// 缺了这一项要当成「按标题」，而不是让整条规则解不出来：`decode` 解不出来
+    /// 就返回空数组，那意味着升级一次，用户攒的词全没了。这条用例对着一段
+    /// 真正的 2.0.0 格式跑。
+    func testRulesSavedBeforeTheAuthorScopeStillLoadAsSubjectRules() throws {
+        let legacyJSON = """
+        [{"action":"hide","colorHex":"#FFF3B0","id":"E5C9D9E4-6C4B-4E2E-9E3F-3F2A1B0C9D8E",        "isEnabled":true,"keywords":"带货,广告"}]
+        """
+        let rules = KeywordFilterSettings.decode(legacyJSON)
+        XCTAssertEqual(rules.count, 1)
+        let rule = try XCTUnwrap(rules.first)
+        XCTAssertEqual(rule.scope, .subject)
+        XCTAssertEqual(rule.keywords, "带货,广告")
+        XCTAssertEqual(rule.action, .hide)
+        XCTAssertEqual(
+            ResolvedKeywordFilter(rules: rules).verdict(forSubject: "【带货】这个真的好用"),
+            .hide(match: .subject("带货"))
+        )
     }
 
     /// 存的是一行 JSON，解不出来就当没有规则。
@@ -167,5 +264,15 @@ final class KeywordFilterTests: XCTestCase {
         for hex in hexes {
             XCTAssertNotNil(ThemeRGB(hex: hex), "备选色 \(hex) 不是一个认得出的颜色")
         }
+    }
+}
+
+private extension KeywordFilterMatch {
+    static func subject(_ keyword: String) -> KeywordFilterMatch {
+        KeywordFilterMatch(keyword: keyword, scope: .subject)
+    }
+
+    static func author(_ keyword: String) -> KeywordFilterMatch {
+        KeywordFilterMatch(keyword: keyword, scope: .author)
     }
 }

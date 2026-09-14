@@ -311,11 +311,12 @@ final class SNGAUITests: XCTestCase {
         XCTAssertFalse(app.buttons["reply-private-message"].exists)
     }
 
-    /// 关键字过滤在话题列表上的两档：折叠和隐藏。
+    /// 关键字过滤在话题列表上的两档：折叠和隐藏，顺带把两种匹配范围都走一遍。
     ///
-    /// 规则由 `--uitesting-keyword-filter` 灌进去（「SNGA」折叠、「多账号」隐藏），
-    /// 正对上种子里那两条话题。高亮那一档不在这里验 —— 它只改一片底色，
-    /// XCUITest 看不见颜色，判定本身由 `KeywordFilterTests` 盯着。
+    /// 规则由 `--uitesting-keyword-filter` 灌进去：标题含「SNGA」的折叠，
+    /// 楼主是「另一位用户」的隐藏 —— 正对上种子里那两条话题。高亮那一档不在
+    /// 这里验，它只改一片底色，XCUITest 看不见颜色；判定本身由
+    /// `KeywordFilterTests` 盯着。
     func testKeywordFilterFoldsAndHidesTopicsInTheForumList() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -335,7 +336,7 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(foldedRow.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["topic-9001"].exists)
 
-        // 「话题二：多账号与收藏测试」命中隐藏档：一行都不画，只在列表末尾记一笔。
+        // 「话题二」的楼主命中作者规则，走隐藏档：一行都不画，只在列表末尾记一笔。
         XCTAssertFalse(app.buttons["topic-9002"].exists)
         XCTAssertTrue(
             app.descendants(matching: .any)["topic-list-keyword-hidden-notice"]

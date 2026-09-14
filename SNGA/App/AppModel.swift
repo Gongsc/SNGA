@@ -925,6 +925,7 @@ final class AppModel {
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
         // 关键字过滤要在列表上验：折叠成一行、点开、以及末尾那条「隐藏了几条」。
+        // 两档范围各配一条 —— 标题那条折叠「话题一」，作者那条隐藏「话题二」的楼主。
         // 规则从这里灌，不让 UI 测试去敲设置面板 —— 那一步要往输入框里打中文，
         // 而 `typeText` 打出乱码是这套件里最常见的偶发失败。
         //
@@ -935,7 +936,7 @@ final class AppModel {
             .contains("--uitesting-keyword-filter")
             ? KeywordFilterSettings.encode([
                 KeywordFilterRule(keywords: "SNGA", action: .fold),
-                KeywordFilterRule(keywords: "多账号", action: .hide)
+                KeywordFilterRule(keywords: "另一位用户", scope: .author, action: .hide)
             ])
             : ""
         UserDefaults.standard.set(true, forKey: KeywordFilterSettings.enabledKey)

@@ -617,10 +617,12 @@ private struct SettingsKeywordFilterPane: View {
     /// 试打一条标题，看看现有规则会把它怎么样。关键字过滤最常见的毛病是误伤，
     /// 而误伤只有在列表里少了东西之后才会被发现 —— 这里让它当场就能验。
     @State private var trialSubject = ""
+    @State private var trialAuthor = ""
 
     private enum Metrics {
-        /// 档位选择器给死宽度：三档的标题都是两个字，但选择器自带的箭头和
+        /// 范围和档位两个选择器都给死宽度：标题都是两个字，但选择器自带的箭头和
         /// 内边距会让它贴着内容变形，行与行之间对不齐。
+        static let scopePickerWidth: CGFloat = 82
         static let actionPickerWidth: CGFloat = 92
         /// 颜色那一格的宽度。非高亮档不画取色盘，但格子留着 ——
         /// 换个档位整行的列宽跟着跳，比留一块空白难看得多。
@@ -639,7 +641,7 @@ private struct SettingsKeywordFilterPane: View {
                 .toggleStyle(.switch)
                 .accessibilityIdentifier("keyword-filter-enabled")
 
-                Text("按话题标题里的词高亮、折叠或隐藏。关掉之后规则原样留着，只是不起作用。")
+                Text("按话题标题里的词、或者发帖人是谁，把话题高亮、折叠或隐藏。关掉之后规则原样留着，只是不起作用。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -671,12 +673,18 @@ private struct SettingsKeywordFilterPane: View {
                                 .labelsHidden()
                                 .help(rule.isEnabled ? "这条规则生效中" : "这条规则已停用")
 
-                            TextField(
-                                "关键字，用逗号隔开",
-                                text: $rule.keywords
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("关键字")
+                            Picker("比哪一面", selection: $rule.scope) {
+                                ForEach(KeywordFilterScope.allCases) { scope in
+                                    Text(scope.title).tag(scope)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: Metrics.scopePickerWidth)
+                            .help(rule.scope == .subject ? "在话题标题里找" : "比发帖人的名字")
+
+                            TextField(rule.scope.prompt, text: $rule.keywords)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel(rule.scope.title)
 
                             Picker("命中后怎么办", selection: $rule.action) {
                                 ForEach(KeywordFilterAction.allCases) { action in
@@ -728,18 +736,41 @@ private struct SettingsKeywordFilterPane: View {
                 }
             }
 
+            Text("标题按「含有」比，作者按「就是这个人」比 —— 屏蔽的是某一个人，按片段比会连坐名字相近的人。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Text("同一条话题命中多条规则时，隐藏盖过折叠，折叠盖过高亮；同一档里以排在前面的那条为准。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
 
-    /// 试一条标题。
+    /// 试一条话题。标题和作者分两格，因为规则也是按这两面分的 ——
+    /// 只给一个输入框的话，作者那一档根本试不出来。
     private var trialCard: some View {
-        SettingsCard(label: "试一条标题") {
-            TextField("粘一条话题标题进来看看", text: $trialSubject)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("keyword-filter-trial-subject")
+        SettingsCard(label: "试一条话题") {
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: Metrics.columnSpacing,
+                verticalSpacing: Metrics.rowSpacing
+            ) {
+                GridRow {
+                    Text("标题")
+                        .gridColumnAlignment(.trailing)
+                    TextField("粘一条话题标题进来看看", text: $trialSubject)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("keyword-filter-trial-subject")
+                }
+                GridRow {
+                    Text("作者")
+                        .gridColumnAlignment(.trailing)
+                    TextField("发帖人的名字", text: $trialAuthor)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("keyword-filter-trial-author")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
                 Image(systemName: trialSymbol)
@@ -755,11 +786,15 @@ private struct SettingsKeywordFilterPane: View {
 
     private var trialVerdict: KeywordFilterVerdict {
         ResolvedKeywordFilter(isEnabled: isEnabled, rules: rules)
-            .verdict(forSubject: trialSubject)
+            .verdict(forSubject: trialSubject, author: trialAuthor)
+    }
+
+    private var trialIsEmpty: Bool {
+        trialSubject.isEmpty && trialAuthor.isEmpty
     }
 
     private var trialIsFiltered: Bool {
-        !trialSubject.isEmpty && trialVerdict != .show
+        !trialIsEmpty && trialVerdict != .show
     }
 
     private var trialSymbol: String {
@@ -772,16 +807,16 @@ private struct SettingsKeywordFilterPane: View {
     }
 
     private var trialDescription: String {
-        guard !trialSubject.isEmpty else { return "输入后这里会说它会被怎么处理。" }
+        guard !trialIsEmpty else { return "填任意一格，这里会说它会被怎么处理。" }
         switch trialVerdict {
         case .show:
             return "没有规则命中，照常显示。"
-        case .highlight(_, let keyword):
-            return "命中「\(keyword)」，会在列表里高亮。"
-        case .fold(let keyword):
-            return "命中「\(keyword)」，会被折叠成一行。"
-        case .hide(let keyword):
-            return "命中「\(keyword)」，不会出现在列表里。"
+        case .highlight(_, let match):
+            return "\(match.description)，会在列表里高亮。"
+        case .fold(let match):
+            return "\(match.description)，会被折叠成一行。"
+        case .hide(let match):
+            return "\(match.description)，不会出现在列表里。"
         }
     }
 

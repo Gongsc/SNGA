@@ -1595,12 +1595,12 @@ struct TopicListView: View {
         let result = keywordFilteredTopics(topics)
         ForEach(result.visible) { entry in
             switch entry.verdict {
-            case .fold(let keyword) where !expandedFoldedTopicIDs.contains(entry.id):
-                foldedTopicRow(entry.topic, keyword: keyword)
-            case .highlight(let colorHex, let keyword):
+            case .fold(let match) where !expandedFoldedTopicIDs.contains(entry.id):
+                foldedTopicRow(entry.topic, match: match)
+            case .highlight(let colorHex, let match):
                 topicRow(
                     entry.topic,
-                    highlight: TopicKeywordHighlight(colorHex: colorHex, keyword: keyword)
+                    highlight: TopicKeywordHighlight(colorHex: colorHex, match: match)
                 )
             default:
                 topicRow(entry.topic)
@@ -1620,7 +1620,10 @@ struct TopicListView: View {
         var visible: [KeywordFilteredTopic] = []
         var hiddenCount = 0
         for topic in topics {
-            let verdict = keywordFilter.verdict(forSubject: topic.subject)
+            let verdict = keywordFilter.verdict(
+                forSubject: topic.subject,
+                author: topic.author
+            )
             if case .hide = verdict {
                 hiddenCount += 1
                 continue
@@ -1632,15 +1635,15 @@ struct TopicListView: View {
 
     /// 被折叠的那一行。点一下就换回完整的话题行。
     ///
-    /// 把命中的词写出来，是因为折叠这一档的意思是「多半不想看」而不是「一定不想看」：
+    /// 把命中的东西写出来，是因为折叠这一档的意思是「多半不想看」而不是「一定不想看」：
     /// 用户得看得出是哪条规则收走了它，才判断得了这一下值不值得点开。
-    private func foldedTopicRow(_ topic: Topic, keyword: String) -> some View {
+    private func foldedTopicRow(_ topic: Topic, match: KeywordFilterMatch) -> some View {
         Button {
             expandedFoldedTopicIDs.insert(topic.id)
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: KeywordFilterAction.fold.systemImage)
-                Text("已折叠 · 含关键字「\(keyword)」")
+                Text("已折叠 · \(match.description)")
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text("显示")
@@ -1654,9 +1657,9 @@ struct TopicListView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .help("关键字过滤把这条折叠了：命中「\(keyword)」")
+        .help("关键字过滤把这条折叠了：\(match.description)")
         .forumTopicListRow()
-        .accessibilityLabel("已折叠的话题，含关键字 \(keyword)，点按显示")
+        .accessibilityLabel("已折叠的话题，\(match.description)，点按显示")
         .accessibilityIdentifier("topic-folded-\(topic.id.rawValue)")
     }
 
@@ -1926,7 +1929,7 @@ enum TopicRowMetrics {
 /// 关键字过滤给一行话题的高亮。
 struct TopicKeywordHighlight: Equatable {
     var colorHex: String
-    var keyword: String
+    var match: KeywordFilterMatch
 
     var color: Color {
         ThemeRGB(
@@ -1959,7 +1962,7 @@ struct TopicInteractiveRow: View {
         // 才知道该去改哪一条规则。没命中的行不挂 tooltip —— 空的 `help` 在
         // AppKit 那边会弹出一个什么都没有的小框。
         if let keywordHighlight {
-            row.help("关键字过滤高亮：命中「\(keywordHighlight.keyword)」")
+            row.help("关键字过滤高亮：\(keywordHighlight.match.description)")
         } else {
             row
         }
