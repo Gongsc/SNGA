@@ -541,6 +541,7 @@ private struct SettingsBrowsingPane: View {
     @Environment(AppModel.self) private var model
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
+    @AppStorage(BrowsingSettings.dimsGatedTopicsKey) private var dimsGatedTopics = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(SearchHistorySettings.maximumCountKey)
@@ -569,6 +570,23 @@ private struct SettingsBrowsingPane: View {
                 .accessibilityIdentifier("browsing-post-signature")
 
                 Text("楼层末尾用一条分割线隔开作者的签名。没写签名的作者不占位置。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Toggle(isOn: $dimsGatedTopics) {
+                    Text("等级不够看的话题画成灰的")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("browsing-dims-gated-topics")
+
+                Text("列表里标着「等级 N 可见」而你还没到那一级的话题，整行淡下去，只留那把锁是亮的 —— 和「读过」不一样，读过只淡标题。点开仍然可以，站点会告诉你还差什么。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("只有站点报得出等级时才生效，目前是 NodeSeek。自己的等级还没取到时一律不画 —— 宁可不画，也不能把本来看得了的帖子画成看不了的。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

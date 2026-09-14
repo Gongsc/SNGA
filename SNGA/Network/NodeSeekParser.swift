@@ -119,6 +119,7 @@ struct NodeSeekParser: Sendable {
         // 图标旁边要不要写字：站点自己写了的就跟着写。置顶和推荐阅读它只画图标，
         // 等级限制和只读它是画了字的 —— 那些字就是这个标记的全部信息。
         var value: String?
+        var requiredLevel: Int?
         if !attribute.isEmpty {
             // title 属性存在时，元素本身通常只有一个图标，没有文字。
             title = attribute
@@ -129,6 +130,9 @@ struct NodeSeekParser: Sendable {
             let isLevel = text.allSatisfy(\.isNumber)
             title = isLevel ? "等级 \(text) 可见" : text
             value = text
+            // 认出是等级门槛就把数字留下来：列表那边要拿它和自己的等级比大小，
+            // 不该再从这串展示文字里倒推一次。
+            if isLevel { requiredLevel = Int(text) }
         } else if !text.isEmpty {
             title = text
             value = text
@@ -138,7 +142,8 @@ struct NodeSeekParser: Sendable {
         return TopicBadge(
             title: title,
             value: value,
-            systemImage: systemImage(icon: icon, in: element)
+            systemImage: systemImage(icon: icon, in: element),
+            requiredLevel: requiredLevel
         )
     }
 
@@ -825,6 +830,7 @@ struct NodeSeekParser: Sendable {
             // 站点管这个叫「等级」，界面上就是一个数字，不加 Lv. 前缀 ——
             // 它的资料页显示的是「等级 1」。
             userGroup: number("rank").map(String.init),
+            level: number("rank"),
             registeredAt: (detail["created_at"] as? String).flatMap(Self.date(fromISO8601:)),
             // 站点分开报主题帖和评论，nPost 只是主题帖。
             postCount: number("nPost"),

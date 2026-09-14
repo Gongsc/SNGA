@@ -891,7 +891,8 @@ struct FavoritesView: View {
                                 } label: {
                                     TopicRow(
                                         topic: topic,
-                                        isVisited: model.dimsVisitedTopic(topic.id)
+                                        isVisited: model.dimsVisitedTopic(topic.id),
+                                        levelGate: model.levelGate(for: topic)
                                     )
                                     .contentShape(.rect)
                                 }
@@ -1582,7 +1583,8 @@ struct TopicListView: View {
                 topic: topic,
                 isSelected: model.thread.selectedTopicID == topic.id,
                 keywordHighlight: highlight,
-                isVisited: model.dimsVisitedTopic(topic.id)
+                isVisited: model.dimsVisitedTopic(topic.id),
+                levelGate: model.levelGate(for: topic)
             )
         }
         .buttonStyle(.plain)
@@ -1960,6 +1962,8 @@ struct TopicInteractiveRow: View {
     var keywordHighlight: TopicKeywordHighlight?
     /// 这条话题打开过。标题跟着淡下去，和浏览器里访问过的链接一个意思。
     var isVisited = false
+    /// 等级不够看。整行淡，锁不淡。
+    var levelGate: TopicLevelGate?
     @State private var isHovered = false
 
     @ViewBuilder
@@ -1975,7 +1979,7 @@ struct TopicInteractiveRow: View {
     }
 
     private var row: some View {
-        TopicRow(topic: topic, isVisited: isVisited)
+        TopicRow(topic: topic, isVisited: isVisited, levelGate: levelGate)
             .padding(.horizontal, TopicRowMetrics.horizontalPadding)
             .padding(.vertical, TopicRowMetrics.verticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2008,12 +2012,31 @@ struct TopicInteractiveRow: View {
     }
 }
 
+/// 够不着时才挂那句提示。
+///
+/// 写成 `ViewModifier` 而不是在 `body` 里分叉：`TopicRow` 的 `body` 已经是
+/// 这个文件里最长的一段，再套一层 `if` 会把类型检查器推过头（同一个文件里
+/// 那条搜索栏的注释记着这件事）。
+private struct LevelGateHelp: ViewModifier {
+    let gate: TopicLevelGate?
+
+    func body(content: Content) -> some View {
+        if let gate {
+            content.help(gate.description)
+        } else {
+            content
+        }
+    }
+}
+
 private struct TopicRow: View {
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
     let topic: Topic
     /// 打开过的话题，标题淡一档。
     var isVisited = false
+    /// 等级不够看的话题。整行淡下去，只有那把锁不淡。
+    var levelGate: TopicLevelGate?
 
     private enum Metrics {
         /// 读过的标题留多少。
@@ -2025,6 +2048,18 @@ private struct TopicRow: View {
         /// 0.55 是「一眼看得出淡了、又还读得出来」的位置：再低到 0.4，午夜蓝
         /// 主题下的正文色压在背景上就只剩三点几比一，够不着 AA。
         static let visitedSubjectOpacity: Double = 0.55
+
+        /// 等级不够的那一行留多少。
+        ///
+        /// 和「读过」有意用两种形状，而不是两个深浅相近的灰 —— 光靠淡到什么程度
+        /// 区分，一屏扫过去根本分不出来：
+        /// - **读过**：只有标题淡，作者、回复数、日期照常。「读过了，但它还在。」
+        /// - **等级不够**：整行都淡，**唯独那把锁保持强调色**。一行灰里只有一处
+        ///   亮着，亮的正好是「为什么」。
+        ///
+        /// 再配一句悬停提示说还差几级 —— 光靠颜色说事，读屏的人和分不清深浅的人
+        /// 都接不到。
+        static let levelGateOpacity: Double = 0.5
     }
 
     var body: some View {
@@ -2065,6 +2100,8 @@ private struct TopicRow: View {
                     }
                     .font(fonts.topicList.caption)
                     .foregroundStyle(theme.accentColor)
+                    // 别的标记跟着整行淡；等级那把锁不淡 —— 它是这一行为什么灰的答案。
+                    .opacity(badge.requiredLevel == nil ? contentOpacity : 1)
                     .help(badge.title)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(badge.title)
@@ -2075,6 +2112,7 @@ private struct TopicRow: View {
                 Text(topic.subject)
                     .font(fonts.topicList.font(.body, weight: topic.isPinned ? .semibold : .regular))
                     .foregroundStyle(subjectColor)
+                    .opacity(contentOpacity)
                     .lineLimit(3)
             }
             HStack {
@@ -2111,15 +2149,27 @@ private struct TopicRow: View {
             }
             .font(fonts.topicList.caption)
             .foregroundStyle(.secondary)
+            .opacity(contentOpacity)
         }
         // 作者、回复数、日期那一行以外的文字（锁定图标、镜像标签）落在这里，
         // 跟着话题列表那一档走。
         .font(fonts.topicList.body)
         .padding(.vertical, 4)
+        // 只在真的够不着时挂提示。空的 `help` 在 AppKit 那边会弹出一个什么都没有
+        // 的小框，而这一行是话题列表里最常被指针扫过的东西。
+        .modifier(LevelGateHelp(gate: levelGate))
+    }
+
+    /// 除了那把锁之外，这一行的东西留多少。
+    private var contentOpacity: Double {
+        levelGate == nil ? 1 : Metrics.levelGateOpacity
     }
 
     private var subjectColor: Color {
         let base = topic.subjectColor?.displayColor ?? Color.primary
+        // 等级不够时不再叠一层「读过」的淡：两层乘起来是 0.27，标题就真的读不出了。
+        // 而且这一行整个都淡了，标题再单独淡一次也说不出任何多余的意思。
+        guard levelGate == nil else { return base }
         return isVisited ? base.opacity(Metrics.visitedSubjectOpacity) : base
     }
 }

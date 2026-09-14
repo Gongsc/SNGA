@@ -11,6 +11,14 @@ enum BrowsingSettings {
     /// 站点（NGA）本来就没有额外请求，而要按作者去问资料接口的站点（NodeSeek）
     /// 也不会因为一个看不见的东西去多问一次。
     static let postSignatureKey = "browsing.showsPostSignature"
+    /// 等级不够看的话题在列表里画成灰的。
+    static let dimsGatedTopicsKey = "browsing.dimsGatedTopics"
+
+    static var dimsGatedTopics: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: dimsGatedTopicsKey) != nil else { return true }
+        return defaults.bool(forKey: dimsGatedTopicsKey)
+    }
 
     static var showsPostSignature: Bool {
         let defaults = UserDefaults.standard

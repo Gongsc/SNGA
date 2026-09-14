@@ -210,6 +210,20 @@ final class AppModel {
         TopicHistorySettings.dimsVisitedTopics && topicHistory.hasVisited(topicID)
     }
 
+    /// 这条话题要求的等级超过了自己现在的等级吗？超过了就把门槛和现状一起带出来。
+    ///
+    /// 自己的等级还没取到时一律返回 nil：宁可不画这层灰，也不能把读者本来点得开的
+    /// 帖子画成点不开的。站点报不出等级（NGA、V2EX 都没有这个概念）时同理。
+    func levelGate(for topic: Topic) -> TopicLevelGate? {
+        guard BrowsingSettings.dimsGatedTopics,
+              let current = session.activeAccountLevel else {
+            return nil
+        }
+        let required = topic.badges.compactMap(\.requiredLevel).max()
+        guard let required, required > current else { return nil }
+        return TopicLevelGate(required: required, current: current)
+    }
+
     var isCurrentTopicFavorite: Bool {
         guard let topic = thread.currentTopic else { return false }
         return topic.isFavorite || favorite.favoriteTopicIDs.contains(topic.id)
@@ -461,6 +475,12 @@ final class AppModel {
             }
             if profile.avatarURL == nil {
                 profile.avatarURL = resolvedAvatarURL
+            }
+            // 顺手记下自己的等级。单独发一次请求只为这一个数不值当 —— 应用一启动
+            // 停的就是自己的用户中心，这一趟本来就会走。看别人的资料时不记。
+            if let level = profile.level,
+               session.accounts.first(where: { $0.id == requestAccountID })?.siteUserID == uid {
+                session.setLevel(level, for: requestAccountID)
             }
             if session.activeAccountID == requestAccountID,
                ticket.isCurrent,

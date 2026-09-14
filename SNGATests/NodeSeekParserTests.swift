@@ -247,10 +247,15 @@ extension NodeSeekParserTests {
     }
 
     /// 等级就是个数字。站点的资料页写的是「等级 1」，不是「Lv.1」。
+    ///
+    /// 两份都要：`userGroup` 是画在资料页上的那串字，`level` 是拿去和
+    /// 「等级 N 可见」比大小的值。只留前者的话，列表那边就得把展示文字再转回
+    /// 数字 —— 站点哪天在数字前面加个「Lv.」，那层灰会静静地不再拦任何东西。
     func testTheLevelIsCarriedAsAPlainNumber() throws {
         let profile = try profileFixture()
 
         XCTAssertEqual(profile.userGroup, "4")
+        XCTAssertEqual(profile.level, 4)
     }
 
     /// 站点分开报主题帖和评论，两个都要带出来。
@@ -1635,6 +1640,9 @@ extension NodeSeekParserTests {
 
         XCTAssertEqual(badge.title, "等级 1 可见")
         XCTAssertEqual(badge.systemImage, "lock.fill")
+        // 那个数字还要留成能比大小的值：列表拿它和自己的等级比，决定这一行画不画灰。
+        // 让界面回头从「等级 1 可见」这串字里倒推，站点改个措辞就静静地不再拦任何东西。
+        XCTAssertEqual(badge.requiredLevel, 1)
     }
 
     /// 只读是文字标记，说明就在元素的文字里。
@@ -1683,6 +1691,9 @@ extension NodeSeekParserTests {
         )
 
         XCTAssertEqual(topic.badges.map(\.title), ["仅作者可见"])
+        // 不是数字就没有门槛可比。硬塞一个 0 进去，这一行会被当成「谁都看得了」，
+        // 而它恰恰是谁都看不了的那种。
+        XCTAssertNil(topic.badges.first?.requiredLevel)
     }
 }
 

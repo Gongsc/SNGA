@@ -18,7 +18,8 @@ struct ForumSearchResultsRows: View {
                     TopicInteractiveRow(
                         topic: topic,
                         isSelected: model.thread.selectedTopicID == topic.id,
-                        isVisited: model.dimsVisitedTopic(topic.id)
+                        isVisited: model.dimsVisitedTopic(topic.id),
+                        levelGate: model.levelGate(for: topic)
                     )
                 }
                 .buttonStyle(.plain)
