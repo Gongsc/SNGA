@@ -49,12 +49,13 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 ### 状态层
 
-`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和七个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`ToolboxStore`。
+`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和八个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`TopicHistoryStore`（读过的话题）、`ToolboxStore`。
 
 - `AppSession`（[SNGA/App/AppSession.swift](SNGA/App/AppSession.swift)）是各 store 的唯一依赖：给「当前账号的服务」「出错怎么呈现」「加载指示」三件事。store 不反手持有 `AppModel`；跨领域的事（收藏状态变化要更新话题列表）用闭包在 `AppModel.init` 里对接。
 - 错误呈现只有 `AppSession.present(_:)` 一道门。取消（`CancellationError` 和 `URLError.cancelled` 两种形态都要认）在这里拦掉，展示时冠上站名。
 - `RequestSlot`（[SNGA/App/RequestSlot.swift](SNGA/App/RequestSlot.swift)）是「最新者胜出」闸门：翻页、切版面、切账号时旧请求先发后至不能覆盖新结果。新起一类异步请求就配一个 slot。
 - **切账号时，界面上还挂着上一个站的版面。** 按版面编号触发的 `.task(id:)` 会拿它去问新账号的服务 —— V2EX 收到一个 NGA 的 `-7`，答一张「节点未找到」的正常页面，用户看到「论坛页面结构已变化」。`AppSession.belongsToActiveSite(_:)` 挡在 `ForumStore` 发请求**之前**：`ForumID` 本来就带着站点，判断只是没人做过。新加按 `ForumID` 发的请求，记得也过这一道。
+- `TopicHistoryStore`（[SNGA/App/TopicHistoryStore.swift](SNGA/App/TopicHistoryStore.swift)）一张表供着两件事：侧栏的「浏览历史」和列表里「读过的变灰」—— 它们本来就是同一个事实。它也是唯一一个**不重新查库**的 store：默认五百条上限，而写入发生在每次打开话题（用户正等着页面出来），所以内存里留一份列表加一个编号集合，写库只写变动的那一行。
 - `ToolboxStore` 是唯一不吃 `AppSession` 的 store —— 资讯小工具不认账号也不认论坛，一个账号没有时也能用，它的网络故障不能显示成论坛的错误。
 
 ### 正文管线

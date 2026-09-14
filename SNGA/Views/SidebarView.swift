@@ -87,6 +87,8 @@ struct SidebarView: View {
                             selection: .favorites
                         )
                     }
+                    // 历史全在本地，跟站点支不支持什么没关系 —— 三个站一样画。
+                    sidebarButton("浏览历史", systemImage: "clock", selection: .topicHistory)
                     // 两样有其一就画：这个入口是「论坛消息」，私信和提醒都算。
                     // V2EX 只有提醒，NGA 和 NodeSeek 两样都有。
                     if model.session.supports(.notifications)
@@ -208,6 +210,8 @@ struct SidebarView: View {
                 model.clearForumSearch()
             case .aiProfiles:
                 model.aiProfiles.selectMostRecentIfNeeded()
+            case .topicHistory:
+                model.topicHistory.reload()
             case .favorites, .toolbox, .settings, .addAccount:
                 break
             case let .userCenter(uid):

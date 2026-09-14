@@ -151,6 +151,8 @@ struct RootView: View {
             "搜索"
         case .favorites:
             "收藏夹"
+        case .topicHistory:
+            "浏览历史"
         case .addAccount:
             "添加账号"
         case .toolbox:
@@ -330,6 +332,8 @@ private struct ContentColumnView: View {
                 GlobalForumSearchView()
             case .favorites:
                 FavoritesView()
+            case .topicHistory:
+                TopicHistoryView()
             case .addAccount:
                 AddAccountView()
             case .toolbox:

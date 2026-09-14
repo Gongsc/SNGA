@@ -349,6 +349,50 @@ final class SNGAUITests: XCTestCase {
         XCTAssertFalse(foldedRow.exists)
     }
 
+    /// 浏览历史：读过的话题记进去、搜得到、删得掉。
+    ///
+    /// 「读过的变灰」不在这里验 —— 它只把标题的颜色压掉一档，XCUITest 看不见颜色；
+    /// 那一条由 `TopicHistoryTests` 盯着（记下了就灰、删掉了就不灰）。
+    func testBrowsingHistoryRecordsSearchesAndForgetsTopics() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+        XCTAssertTrue(app.buttons["回复话题"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(app.buttons["浏览历史"].waitForExistence(timeout: 5))
+        app.buttons["浏览历史"].firstMatch.click()
+
+        // 记在「打开」那一刻，所以刚看过的那条已经在里面了。
+        let visitRow = app.descendants(matching: .any)["topic-history-9001"]
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        // 搜的是标题和作者。搜一个对不上的词，那一条就该退场。
+        let searchField = app.textFields["topic-history-search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.click()
+        searchField.typeText("SNGA")
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        searchField.typeText("-nothing-here")
+        XCTAssertFalse(visitRow.waitForExistence(timeout: 2))
+
+        // 清掉搜索词，行回来；删掉之后就真的没了。
+        searchField.doubleClick()
+        searchField.typeKey("a", modifierFlags: .command)
+        searchField.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        app.buttons["topic-history-remove-9001"].click()
+        XCTAssertFalse(visitRow.waitForExistence(timeout: 2))
+    }
+
     func testTopicPaginationAndShareActions() {
         continueAfterFailure = false
         let app = XCUIApplication()

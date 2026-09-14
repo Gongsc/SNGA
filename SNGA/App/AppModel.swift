@@ -55,6 +55,8 @@ final class AppModel {
     /// 搜索历史。搜索本身留在 AppModel（它牵着导航和结果页），历史只是一份
     /// 按账号存的关键词，单独收在这里。
     let searchHistory: SearchHistoryStore
+    /// 浏览历史。同时供着侧栏那个面板和话题列表里「读过的变灰」。
+    let topicHistory: TopicHistoryStore
     /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
     let toolbox = ToolboxStore()
 
@@ -84,6 +86,7 @@ final class AppModel {
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
         searchHistory = SearchHistoryStore(session: session)
+        topicHistory = TopicHistoryStore(session: session)
         aiProfiles = AIProfileStore(
             context: session.context,
             session: session,
@@ -118,6 +121,11 @@ final class AppModel {
             if let index = browsing.topics.firstIndex(where: { $0.id == topicID }) {
                 browsing.topics[index].isFavorite = isFavorite
             }
+        }
+        // 打开话题就记一笔浏览历史。话题域不反过来持有历史域 —— 它只管「有人开始
+        // 读这条了」，至于要不要记、记多久是历史域自己的事。
+        thread.onTopicOpen { [weak topicHistory] topic in
+            topicHistory?.record(topic)
         }
         // 侧栏选择是导航状态，留在 AppModel；消息域只需要判断用户是否还停在该信箱。
         messaging.provideSelectionCheck { [weak self] folder in
@@ -194,6 +202,14 @@ final class AppModel {
         browsing.currentForum?.pinnedTopicID
     }
 
+    /// 这条话题该不该画成读过的样子。
+    ///
+    /// 设置里的「变灰」开关挡在这里，而不是挡在历史域里：历史照记不误，
+    /// 只是列表上不体现 —— 关掉变灰的人是嫌列表花，不是不想要历史。
+    func dimsVisitedTopic(_ topicID: TopicID) -> Bool {
+        TopicHistorySettings.dimsVisitedTopics && topicHistory.hasVisited(topicID)
+    }
+
     var isCurrentTopicFavorite: Bool {
         guard let topic = thread.currentTopic else { return false }
         return topic.isFavorite || favorite.favoriteTopicIDs.contains(topic.id)
@@ -227,6 +243,7 @@ final class AppModel {
         if let activeAccount = session.activeAccount {
             browsing.loadRecentForums()
             searchHistory.reload()
+            topicHistory.reload()
             sidebarSelection = .userCenter(activeAccount.siteUserID)
             currentProfile = Profile(
                 uid: activeAccount.siteUserID,
@@ -289,6 +306,7 @@ final class AppModel {
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
                 searchHistory.reload()
+                topicHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -323,6 +341,7 @@ final class AppModel {
             clearVisibleContent()
             browsing.loadRecentForums()
             searchHistory.reload()
+            topicHistory.reload()
             if let activeAccount = session.activeAccount {
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
@@ -367,6 +386,7 @@ final class AppModel {
                 .filter { $0.accountIDString == accountID.description }
                 .forEach(session.context.delete)
             searchHistory.removeAll(accountID: accountID)
+            topicHistory.removeAll(accountID: accountID)
             try await session.sessionStore.remove(accountID: accountID)
             session.setService(nil, for: accountID)
             try session.context.save()
@@ -375,6 +395,7 @@ final class AppModel {
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
                 searchHistory.reload()
+                topicHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -763,6 +784,8 @@ final class AppModel {
                 )
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
+        // 历史全在本地，⌘R 就是重读一遍库 —— 顺便把过期和超额的行清掉。
+        case .topicHistory: topicHistory.reload()
         case .aiProfiles: break
         case .toolbox: toolbox.refresh()
         // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
@@ -941,6 +964,18 @@ final class AppModel {
             : ""
         UserDefaults.standard.set(true, forKey: KeywordFilterSettings.enabledKey)
         UserDefaults.standard.set(keywordFilterRules, forKey: KeywordFilterSettings.rulesKey)
+        // 浏览历史那几档也按默认值摆好：用户自己关掉过历史的话，
+        // UI 测试里点开话题后历史面板会是空的，而那不是被测的行为。
+        UserDefaults.standard.set(true, forKey: TopicHistorySettings.enabledKey)
+        UserDefaults.standard.set(true, forKey: TopicHistorySettings.dimsVisitedKey)
+        UserDefaults.standard.set(
+            TopicHistorySettings.defaultMaximumCount,
+            forKey: TopicHistorySettings.maximumCountKey
+        )
+        UserDefaults.standard.set(
+            TopicHistorySettings.defaultRetentionDays,
+            forKey: TopicHistorySettings.retentionDaysKey
+        )
         let accountA = AccountRecord(site: .nga, siteUserID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(site: .nga, siteUserID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)

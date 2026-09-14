@@ -627,6 +627,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case appearance
     case browsing
     case keywordFilter
+    case topicHistory
     case ai
     case toolbox
     case background
@@ -640,6 +641,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .appearance: "外观"
         case .browsing: "浏览"
         case .keywordFilter: "关键字过滤"
+        case .topicHistory: "浏览历史"
         case .ai: "AI"
         case .toolbox: "小工具"
         case .background: "后台行为"
@@ -653,6 +655,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .appearance: "paintpalette"
         case .browsing: "photo.on.rectangle"
         case .keywordFilter: "line.3.horizontal.decrease.circle"
+        case .topicHistory: "clock"
         case .ai: "sparkles"
         case .toolbox: "wrench.and.screwdriver"
         case .background: "clock.arrow.circlepath"
@@ -671,6 +674,7 @@ enum SidebarSelection: Hashable, Sendable {
     case directory
     case search
     case favorites
+    case topicHistory
     case messages(MessageFolder)
     case toolbox
     case settings

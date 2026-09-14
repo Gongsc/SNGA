@@ -44,6 +44,12 @@ struct SettingsMenuView: View {
     private var searchHistoryMaximumCount = SearchHistorySettings.defaultMaximumCount
     @AppStorage(KeywordFilterSettings.enabledKey) private var keywordFilterEnabled = true
     @AppStorage(KeywordFilterSettings.rulesKey) private var keywordFilterRulesJSON = ""
+    @AppStorage(TopicHistorySettings.enabledKey) private var topicHistoryEnabled = true
+    @AppStorage(TopicHistorySettings.dimsVisitedKey) private var dimsVisitedTopics = true
+    @AppStorage(TopicHistorySettings.maximumCountKey)
+    private var topicHistoryMaximumCount = TopicHistorySettings.defaultMaximumCount
+    @AppStorage(TopicHistorySettings.retentionDaysKey)
+    private var topicHistoryRetentionDays = TopicHistorySettings.defaultRetentionDays
     @AppStorage(ToolboxInstanceSettings.selectionKey)
     private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
@@ -67,7 +73,7 @@ struct SettingsMenuView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                Text("外观、浏览行为、关键字过滤、AI、小工具、日志与关于")
+                Text("外观、浏览行为、关键字过滤、浏览历史、AI、小工具、日志与关于")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
@@ -127,6 +133,11 @@ struct SettingsMenuView: View {
                 return count > 0 ? "\(action.title) \(count)" : nil
             }
             return counts.joined(separator: " · ")
+        case .topicHistory:
+            guard topicHistoryEnabled else { return "不记录" }
+            let count = TopicHistorySettings.normalizedMaximumCount(topicHistoryMaximumCount)
+            let days = TopicHistorySettings.normalizedRetentionDays(topicHistoryRetentionDays)
+            return "\(count) 条 · \(days) 天 · 读过变灰\(dimsVisitedTopics ? "已开" : "已关")"
         case .ai:
             guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -239,6 +250,7 @@ struct SettingsDetailView: View {
                 case .appearance: SettingsAppearancePane()
                 case .browsing: SettingsBrowsingPane()
                 case .keywordFilter: SettingsKeywordFilterPane()
+                case .topicHistory: SettingsTopicHistoryPane()
                 case .ai: SettingsAIPane()
                 case .toolbox: SettingsToolboxPane()
                 case .background: SettingsBackgroundPane()
@@ -602,6 +614,121 @@ private struct SettingsBrowsingPane: View {
                 .disabled(model.searchHistory.entries.isEmpty)
                 .accessibilityIdentifier("search-history-clear-all")
             }
+        }
+    }
+}
+
+/// 浏览历史。
+///
+/// 「记不记」和「变不变灰」是两个开关，因为它们是两件事：一个是留不留记录，
+/// 一个是列表上体不体现。嫌列表花的人不必为此把历史也一起关掉。
+private struct SettingsTopicHistoryPane: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    @AppStorage(TopicHistorySettings.enabledKey) private var isEnabled = true
+    @AppStorage(TopicHistorySettings.dimsVisitedKey) private var dimsVisitedTopics = true
+    @AppStorage(TopicHistorySettings.maximumCountKey)
+    private var maximumCount = TopicHistorySettings.defaultMaximumCount
+    @AppStorage(TopicHistorySettings.retentionDaysKey)
+    private var retentionDays = TopicHistorySettings.defaultRetentionDays
+    @State private var showsClearConfirmation = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $isEnabled) {
+                    Text("记录浏览历史")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("topic-history-enabled")
+                .onChange(of: isEnabled) { _, isEnabled in
+                    model.topicHistory.applyEnabledChange(isEnabled)
+                }
+
+                Text("打开过的话题记在侧栏的「浏览历史」里，按天分组。关掉之后不再记录，**已经记下的也会全部删掉** —— 所有账号的都删。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Toggle(isOn: $dimsVisitedTopics) {
+                    Text("读过的话题在列表里变灰")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-dims-visited")
+
+                Text("和浏览器里访问过的链接一个意思：标题淡一档，站点自己给标题上的颜色保留。版面列表、搜索结果和收藏夹都算。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !isEnabled {
+                    Text("需要先打开「记录浏览历史」—— 不记录就无从知道哪些读过。")
+                        .font(.caption)
+                        .foregroundStyle(theme.tertiaryForegroundColor)
+                }
+            }
+
+            SettingsCard {
+                Stepper(
+                    value: $maximumCount,
+                    in: TopicHistorySettings.maximumCountRange,
+                    step: TopicHistorySettings.maximumCountStep
+                ) {
+                    Text("每个账号最多保留：\(maximumCount) 条")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-maximum-count")
+                .onChange(of: maximumCount) { _, maximumCount in
+                    model.topicHistory.updateMaximumCount(maximumCount)
+                }
+
+                Stepper(
+                    value: $retentionDays,
+                    in: TopicHistorySettings.retentionDaysRange
+                ) {
+                    Text("保留天数：\(retentionDays) 天")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-retention-days")
+                .onChange(of: retentionDays) { _, retentionDays in
+                    model.topicHistory.updateRetentionDays(retentionDays)
+                }
+
+                Text("上限是按账号算的，不是所有账号合起来 —— 否则常用的那个账号会把别的账号的历史挤光。调小会立刻删掉多出来的记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("到期和超额的记录一并不再变灰：一个月前读过的帖子会重新显示成没读过。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Button("清空当前账号的浏览历史") {
+                    showsClearConfirmation = true
+                }
+                .disabled(model.topicHistory.entries.isEmpty)
+                .accessibilityIdentifier("topic-history-clear-all")
+
+                Text("只清当前账号。别的账号读过什么不受影响。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .confirmationDialog(
+            "清空浏览历史？",
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清空", role: .destructive) { model.topicHistory.clear() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前账号读过的 \(model.topicHistory.entries.count) 条记录会被删掉，列表里的话题也不再显示成读过。")
         }
     }
 }

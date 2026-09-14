@@ -889,8 +889,11 @@ struct FavoritesView: View {
                                 Button {
                                     Task { await model.openTopic(topic) }
                                 } label: {
-                                    TopicRow(topic: topic)
-                                        .contentShape(.rect)
+                                    TopicRow(
+                                        topic: topic,
+                                        isVisited: model.dimsVisitedTopic(topic.id)
+                                    )
+                                    .contentShape(.rect)
                                 }
                                 .buttonStyle(.plain)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1578,7 +1581,8 @@ struct TopicListView: View {
             TopicInteractiveRow(
                 topic: topic,
                 isSelected: model.thread.selectedTopicID == topic.id,
-                keywordHighlight: highlight
+                keywordHighlight: highlight,
+                isVisited: model.dimsVisitedTopic(topic.id)
             )
         }
         .buttonStyle(.plain)
@@ -1954,6 +1958,8 @@ struct TopicInteractiveRow: View {
     let isSelected: Bool
     /// 关键字过滤命中之后的底色。搜索结果和收藏夹那几条路不传。
     var keywordHighlight: TopicKeywordHighlight?
+    /// 这条话题打开过。标题跟着淡下去，和浏览器里访问过的链接一个意思。
+    var isVisited = false
     @State private var isHovered = false
 
     @ViewBuilder
@@ -1969,7 +1975,7 @@ struct TopicInteractiveRow: View {
     }
 
     private var row: some View {
-        TopicRow(topic: topic)
+        TopicRow(topic: topic, isVisited: isVisited)
             .padding(.horizontal, TopicRowMetrics.horizontalPadding)
             .padding(.vertical, TopicRowMetrics.verticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2006,6 +2012,20 @@ private struct TopicRow: View {
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
     let topic: Topic
+    /// 打开过的话题，标题淡一档。
+    var isVisited = false
+
+    private enum Metrics {
+        /// 读过的标题留多少。
+        ///
+        /// 压的是**原本那个颜色的透明度**，不是换成一支固定的灰：站点自己给标题
+        /// 上过色的（NGA 的红标、绿标）换成灰就把那条信息抹掉了，而六套主题下
+        /// 各有各的前景色，写死一支灰总有一两套看不出深浅。
+        ///
+        /// 0.55 是「一眼看得出淡了、又还读得出来」的位置：再低到 0.4，午夜蓝
+        /// 主题下的正文色压在背景上就只剩三点几比一，够不着 AA。
+        static let visitedSubjectOpacity: Double = 0.55
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -2054,7 +2074,7 @@ private struct TopicRow: View {
                 }
                 Text(topic.subject)
                     .font(fonts.topicList.font(.body, weight: topic.isPinned ? .semibold : .regular))
-                    .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
+                    .foregroundStyle(subjectColor)
                     .lineLimit(3)
             }
             HStack {
@@ -2096,6 +2116,11 @@ private struct TopicRow: View {
         // 跟着话题列表那一档走。
         .font(fonts.topicList.body)
         .padding(.vertical, 4)
+    }
+
+    private var subjectColor: Color {
+        let base = topic.subjectColor?.displayColor ?? Color.primary
+        return isVisited ? base.opacity(Metrics.visitedSubjectOpacity) : base
     }
 }
 

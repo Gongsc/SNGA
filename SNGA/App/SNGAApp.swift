@@ -626,6 +626,7 @@ struct SNGAApp: App {
             SubforumPreferenceRecord.self,
             RecentForumRecord.self,
             SearchHistoryRecord.self,
+            TopicVisitRecord.self,
             AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
