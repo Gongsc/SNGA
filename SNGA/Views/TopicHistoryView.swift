@@ -15,7 +15,6 @@ struct TopicHistoryView: View {
     private enum Metrics {
         static let rowHorizontalPadding: CGFloat = 8
         static let rowVerticalPadding: CGFloat = 3
-        static let searchFieldWidth: CGFloat = 220
         static let emptyStateMinimumHeight: CGFloat = 220
     }
 
@@ -60,18 +59,21 @@ struct TopicHistoryView: View {
 
     // MARK: - 顶上那一栏
 
+    /// 搜索和清空。
+    ///
+    /// 这里**不写模块名**：窗口工具栏上已经有一个「浏览历史」了（`RootView` 的
+    /// `browserModuleTitle`），再写一遍就是上下两行同样大小的同一个词。别的模块
+    /// 也都不在自己的面板里重复这个标题。
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Text("浏览历史")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-
-            Spacer(minLength: 12)
-
-            // 定宽：跟着内容走的话，历史从空到满的那一刻搜索框会自己变一次宽。
+            // 铺满剩下的宽度，和底下那些行落在同一条竖线上。
+            //
+            // 「控件给死宽度」那一条管的是宽度跟着**内容**走的控件（选择器的标题
+            // 长短差一倍，旁边的输入框就跟着变形）。这个输入框的宽度跟着容器走，
+            // 历史从空到满、搜到搜不到，它都不动。
             TextField("搜索标题或作者", text: $query)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: Metrics.searchFieldWidth)
+                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("topic-history-search")
 
             Button {
@@ -151,7 +153,7 @@ struct TopicHistoryView: View {
         } actions: {
             if !TopicHistorySettings.isEnabled {
                 Button("前往设置") {
-                    model.openSettings(section: .browsing)
+                    model.openSettings(section: .topicHistory)
                 }
                 .buttonStyle(.borderedProminent)
             }
