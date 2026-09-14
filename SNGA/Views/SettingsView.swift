@@ -42,6 +42,8 @@ struct SettingsMenuView: View {
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(SearchHistorySettings.maximumCountKey)
     private var searchHistoryMaximumCount = SearchHistorySettings.defaultMaximumCount
+    @AppStorage(KeywordFilterSettings.enabledKey) private var keywordFilterEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var keywordFilterRulesJSON = ""
     @AppStorage(ToolboxInstanceSettings.selectionKey)
     private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
@@ -65,7 +67,7 @@ struct SettingsMenuView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                Text("外观、浏览行为、AI、小工具、日志与关于")
+                Text("外观、浏览行为、关键字过滤、AI、小工具、日志与关于")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
@@ -115,6 +117,16 @@ struct SettingsMenuView: View {
                 + " · 签名\(showsPostSignature ? "已开" : "已关")"
                 + " · 最近访问 \(count) 条"
                 + " · 搜索历史 \(historyCount) 条"
+        case .keywordFilter:
+            let rules = KeywordFilterSettings.decode(keywordFilterRulesJSON)
+            let activeRules = rules.filter(\.isActive)
+            guard !activeRules.isEmpty else { return "未设置关键字" }
+            guard keywordFilterEnabled else { return "已关闭 · 留着 \(activeRules.count) 条规则" }
+            let counts = KeywordFilterAction.allCases.compactMap { action -> String? in
+                let count = activeRules.filter { $0.action == action }.count
+                return count > 0 ? "\(action.title) \(count)" : nil
+            }
+            return counts.joined(separator: " · ")
         case .ai:
             guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,6 +238,7 @@ struct SettingsDetailView: View {
                 switch section {
                 case .appearance: SettingsAppearancePane()
                 case .browsing: SettingsBrowsingPane()
+                case .keywordFilter: SettingsKeywordFilterPane()
                 case .ai: SettingsAIPane()
                 case .toolbox: SettingsToolboxPane()
                 case .background: SettingsBackgroundPane()
@@ -508,14 +521,7 @@ private struct SettingsAppearancePane: View {
     }
 
     private func colorHex(_ color: Color, fallback: String) -> String {
-        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
-            return fallback
-        }
-        return ThemeRGB(
-            red: converted.redComponent,
-            green: converted.greenComponent,
-            blue: converted.blueComponent
-        ).hex
+        ThemeRGB(color)?.hex ?? fallback
     }
 }
 
@@ -597,6 +603,234 @@ private struct SettingsBrowsingPane: View {
                 .accessibilityIdentifier("search-history-clear-all")
             }
         }
+    }
+}
+
+/// 关键字过滤。
+///
+/// 一条规则一行：开关、词、档位、颜色、删除。用 `Grid` 而不是一列 `HStack`，
+/// 是因为每一行的词长短不一 —— 各管各的话，档位选择器会在每一行落在不同的位置。
+private struct SettingsKeywordFilterPane: View {
+    @Environment(\.sngaTheme) private var theme
+    @AppStorage(KeywordFilterSettings.enabledKey) private var isEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var rulesJSON = ""
+    /// 试打一条标题，看看现有规则会把它怎么样。关键字过滤最常见的毛病是误伤，
+    /// 而误伤只有在列表里少了东西之后才会被发现 —— 这里让它当场就能验。
+    @State private var trialSubject = ""
+
+    private enum Metrics {
+        /// 档位选择器给死宽度：三档的标题都是两个字，但选择器自带的箭头和
+        /// 内边距会让它贴着内容变形，行与行之间对不齐。
+        static let actionPickerWidth: CGFloat = 92
+        /// 颜色那一格的宽度。非高亮档不画取色盘，但格子留着 ——
+        /// 换个档位整行的列宽跟着跳，比留一块空白难看得多。
+        static let colorColumnWidth: CGFloat = 44
+        static let rowSpacing: CGFloat = 8
+        static let columnSpacing: CGFloat = 10
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $isEnabled) {
+                    Text("启用关键字过滤")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("keyword-filter-enabled")
+
+                Text("按话题标题里的词高亮、折叠或隐藏。关掉之后规则原样留着，只是不起作用。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("只作用于版面的话题列表。搜索结果和收藏夹不过滤 —— 那两处是你自己点名要看的东西。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            rulesCard
+            trialCard
+        }
+    }
+
+    private var rulesCard: some View {
+        SettingsCard(label: "规则") {
+            if rules.isEmpty {
+                Text("还没有规则。一条规则里可以并列多个词，用逗号隔开，命中任意一个就算。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Grid(
+                    alignment: .leading,
+                    horizontalSpacing: Metrics.columnSpacing,
+                    verticalSpacing: Metrics.rowSpacing
+                ) {
+                    ForEach(ruleBindings) { $rule in
+                        GridRow {
+                            Toggle("启用规则", isOn: $rule.isEnabled)
+                                .labelsHidden()
+                                .help(rule.isEnabled ? "这条规则生效中" : "这条规则已停用")
+
+                            TextField(
+                                "关键字，用逗号隔开",
+                                text: $rule.keywords
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("关键字")
+
+                            Picker("命中后怎么办", selection: $rule.action) {
+                                ForEach(KeywordFilterAction.allCases) { action in
+                                    Text(action.title).tag(action)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: Metrics.actionPickerWidth)
+
+                            Group {
+                                if rule.action == .highlight {
+                                    ColorPicker(
+                                        "高亮底色",
+                                        selection: color(for: $rule),
+                                        supportsOpacity: false
+                                    )
+                                    .labelsHidden()
+                                    .help("高亮底色")
+                                }
+                            }
+                            .frame(width: Metrics.colorColumnWidth, alignment: .leading)
+
+                            Button {
+                                remove(rule.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("删除这条规则")
+                            .accessibilityLabel("删除规则")
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("keyword-filter-rules")
+            }
+
+            HStack {
+                Button("添加规则", action: addRule)
+                    .disabled(rules.count >= KeywordFilterSettings.maximumRuleCount)
+                    .accessibilityIdentifier("keyword-filter-add-rule")
+
+                Spacer()
+
+                if !rules.isEmpty {
+                    Text("\(rules.count) / \(KeywordFilterSettings.maximumRuleCount)")
+                        .font(.caption)
+                        .foregroundStyle(theme.tertiaryForegroundColor)
+                }
+            }
+
+            Text("同一条话题命中多条规则时，隐藏盖过折叠，折叠盖过高亮；同一档里以排在前面的那条为准。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 试一条标题。
+    private var trialCard: some View {
+        SettingsCard(label: "试一条标题") {
+            TextField("粘一条话题标题进来看看", text: $trialSubject)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("keyword-filter-trial-subject")
+
+            HStack(spacing: 6) {
+                Image(systemName: trialSymbol)
+                Text(trialDescription)
+            }
+            .font(.caption)
+            .foregroundStyle(trialIsFiltered ? theme.accentColor : theme.secondaryForegroundColor)
+            .accessibilityIdentifier("keyword-filter-trial-result")
+        }
+    }
+
+    // MARK: - 试一条标题的结果
+
+    private var trialVerdict: KeywordFilterVerdict {
+        ResolvedKeywordFilter(isEnabled: isEnabled, rules: rules)
+            .verdict(forSubject: trialSubject)
+    }
+
+    private var trialIsFiltered: Bool {
+        !trialSubject.isEmpty && trialVerdict != .show
+    }
+
+    private var trialSymbol: String {
+        switch trialVerdict {
+        case .show: "checkmark.circle"
+        case .highlight: KeywordFilterAction.highlight.systemImage
+        case .fold: KeywordFilterAction.fold.systemImage
+        case .hide: KeywordFilterAction.hide.systemImage
+        }
+    }
+
+    private var trialDescription: String {
+        guard !trialSubject.isEmpty else { return "输入后这里会说它会被怎么处理。" }
+        switch trialVerdict {
+        case .show:
+            return "没有规则命中，照常显示。"
+        case .highlight(_, let keyword):
+            return "命中「\(keyword)」，会在列表里高亮。"
+        case .fold(let keyword):
+            return "命中「\(keyword)」，会被折叠成一行。"
+        case .hide(let keyword):
+            return "命中「\(keyword)」，不会出现在列表里。"
+        }
+    }
+
+    // MARK: - 规则的读写
+
+    /// 规则存成一行 JSON，这里每次读都解一遍。
+    ///
+    /// 没有搬进 `@State` 缓存：那样就有两份真相，改完之后得自己往回同步，
+    /// 而这个面板一共也就几十条规则，解析的代价比同步的风险小得多。
+    private var rules: [KeywordFilterRule] {
+        KeywordFilterSettings.decode(rulesJSON)
+    }
+
+    private var ruleBindings: Binding<[KeywordFilterRule]> {
+        Binding(
+            get: { KeywordFilterSettings.decode(rulesJSON) },
+            set: { rulesJSON = KeywordFilterSettings.encode($0) }
+        )
+    }
+
+    private func color(for rule: Binding<KeywordFilterRule>) -> Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: rule.wrappedValue.colorHex,
+                    fallback: ThemeRGB(hex: KeywordFilterSettings.defaultHighlightHex)!
+                )!.color
+            },
+            set: {
+                rule.wrappedValue.colorHex =
+                    ThemeRGB($0)?.hex ?? KeywordFilterSettings.defaultHighlightHex
+            }
+        )
+    }
+
+    /// 新规则的颜色按已有条数轮着取，而不是一律给默认的那支淡黄 ——
+    /// 几条规则同色的话，高亮就只剩「这行被标了」，说不出是被哪条标的。
+    private func addRule() {
+        var updated = rules
+        guard updated.count < KeywordFilterSettings.maximumRuleCount else { return }
+        let palette = KeywordFilterSettings.presetHighlightHexes
+        updated.append(
+            KeywordFilterRule(colorHex: palette[updated.count % palette.count])
+        )
+        rulesJSON = KeywordFilterSettings.encode(updated)
+    }
+
+    private func remove(_ id: KeywordFilterRule.ID) {
+        rulesJSON = KeywordFilterSettings.encode(rules.filter { $0.id != id })
     }
 }
 

@@ -924,6 +924,22 @@ final class AppModel {
         )
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
+        // 关键字过滤要在列表上验：折叠成一行、点开、以及末尾那条「隐藏了几条」。
+        // 规则从这里灌，不让 UI 测试去敲设置面板 —— 那一步要往输入框里打中文，
+        // 而 `typeText` 打出乱码是这套件里最常见的偶发失败。
+        //
+        // 没给开关时把规则清空，而不是原样留着：`--uitesting` 只换掉数据库，
+        // UserDefaults 仍然是真的 —— 留一条隐藏规则在那儿，用户下次打开真应用
+        // 会发现版面里少了几条帖子，还找不到是谁干的。
+        let keywordFilterRules = ProcessInfo.processInfo.arguments
+            .contains("--uitesting-keyword-filter")
+            ? KeywordFilterSettings.encode([
+                KeywordFilterRule(keywords: "SNGA", action: .fold),
+                KeywordFilterRule(keywords: "多账号", action: .hide)
+            ])
+            : ""
+        UserDefaults.standard.set(true, forKey: KeywordFilterSettings.enabledKey)
+        UserDefaults.standard.set(keywordFilterRules, forKey: KeywordFilterSettings.rulesKey)
         let accountA = AccountRecord(site: .nga, siteUserID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(site: .nga, siteUserID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)

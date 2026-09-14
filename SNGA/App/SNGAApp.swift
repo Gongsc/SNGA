@@ -435,6 +435,20 @@ struct ThemeRGB: Equatable, Sendable {
         Color(red: red, green: green, blue: blue)
     }
 
+    /// 从 `ColorPicker` 拿回来的颜色。
+    ///
+    /// 必须先转 sRGB 再读分量：取色盘给的可能是任意色彩空间的 `NSColor`
+    /// （显示器 P3 是默认），直接问 `redComponent` 会抛异常。转不过去的
+    /// （图案色、目录色）返回 nil，交给调用方回落到自己的默认值。
+    init?(_ color: Color) {
+        guard let converted = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        self.init(
+            red: converted.redComponent,
+            green: converted.greenComponent,
+            blue: converted.blueComponent
+        )
+    }
+
     var hex: String {
         String(
             format: "#%02X%02X%02X",
@@ -556,6 +570,8 @@ struct SNGAApp: App {
     @AppStorage(FontArea.postAuthor.familyKey) private var postAuthorFontFamily = ""
     @AppStorage(FontArea.postAuthor.sizeKey)
     private var postAuthorFontSize = FontArea.postAuthor.defaultSize
+    @AppStorage(KeywordFilterSettings.enabledKey) private var keywordFilterEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var keywordFilterRulesJSON = ""
     @State private var model: AppModel
     private let container: ModelContainer
 
@@ -590,6 +606,15 @@ struct SNGAApp: App {
                 familyName: postAuthorFontFamily,
                 size: postAuthorFontSize
             )
+        )
+    }
+
+    /// 关键字过滤也从这里一次注入，理由和字体一样：话题列表一屏几十行，
+    /// 让每一行自己去读一遍设置就是几十次 JSON 解码。
+    private var selectedKeywordFilter: ResolvedKeywordFilter {
+        ResolvedKeywordFilter(
+            isEnabled: keywordFilterEnabled,
+            rules: KeywordFilterSettings.decode(keywordFilterRulesJSON)
         )
     }
 
@@ -645,6 +670,7 @@ struct SNGAApp: App {
                 .environment(model.toolbox)
                 .environment(\.sngaTheme, selectedTheme)
                 .environment(\.sngaFonts, selectedFonts)
+                .environment(\.sngaKeywordFilter, selectedKeywordFilter)
                 .modelContainer(container)
                 .preferredColorScheme(selectedTheme.preferredColorScheme)
                 .tint(selectedTheme.accentColor)
