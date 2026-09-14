@@ -176,6 +176,7 @@ private struct WindowImagePreview: View {
     let onError: @MainActor (String) -> Void
     let dismiss: () -> Void
     @State private var image: NSImage?
+    @State private var svgData: Data?
     @State private var imageData: Data?
     @State private var didFail = false
     @State private var zoomScale: CGFloat = 1
@@ -192,7 +193,25 @@ private struct WindowImagePreview: View {
                 .accessibilityLabel("关闭图片预览")
 
                 Group {
-                    if let image {
+                    if let svgData {
+                        // 矢量图交给 WebKit：`NSImage` 画出来是一团糊，
+                        // 原因写在 `SVGImage` 上。
+                        SVGImageView(data: svgData, baseURL: url)
+                            .frame(
+                                maxWidth: max(120, proxy.size.width - 80),
+                                maxHeight: max(120, proxy.size.height - 80)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .shadow(color: .black.opacity(0.5), radius: 20)
+                            .contextMenu {
+                                PostImageContextMenu(
+                                    url: url,
+                                    data: imageData,
+                                    onError: onError
+                                )
+                            }
+                            .accessibilityLabel("矢量图预览")
+                    } else if let image {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
@@ -258,11 +277,16 @@ private struct WindowImagePreview: View {
                     Spacer()
                 }
 
-                MouseWheelZoomMonitor { delta in
-                    zoom(withScrollDelta: delta)
+                // 矢量图那条路不装这个监听：它会把滚轮事件整个吃掉，而 WebKit
+                // 自己的滚动和捏合缩放正是那边要用的东西 —— 一份比窗口高的报告，
+                // 滚不动就只看得见开头几行。
+                if svgData == nil {
+                    MouseWheelZoomMonitor { delta in
+                        zoom(withScrollDelta: delta)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
             }
         }
         .task(id: url) {
@@ -270,11 +294,13 @@ private struct WindowImagePreview: View {
         }
         .onExitCommand(perform: dismiss)
         .accessibilityLabel("图片预览")
-        .accessibilityValue("缩放 \(Int((zoomScale * 100).rounded()))%")
+        // 矢量图的缩放归 WebKit 管，这里报不出它此刻是多少。
+        .accessibilityValue(svgData == nil ? "缩放 \(Int((zoomScale * 100).rounded()))%" : "")
     }
 
     private func loadImage() async {
         image = nil
+        svgData = nil
         imageData = nil
         didFail = false
         zoomScale = 1
@@ -283,8 +309,17 @@ private struct WindowImagePreview: View {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard !Task.isCancelled,
                   let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode),
-                  let decodedImage = NSImage(data: data) else {
+                  (200..<300).contains(response.statusCode) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            // SVG 要先认出来再分路。认反了的话 `NSImage` 也会「成功」——
+            // 它解得出那份 SVG，只是解出来是一张 74×46 点的画布。
+            if SVGImage.isSVG(data: data, mimeType: response.mimeType, url: url) {
+                imageData = data
+                svgData = data
+                return
+            }
+            guard let decodedImage = NSImage(data: data) else {
                 throw URLError(.cannotDecodeContentData)
             }
             imageData = data

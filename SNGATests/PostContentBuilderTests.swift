@@ -201,6 +201,22 @@ final class PostContentBuilderTests: XCTestCase {
         )
     }
 
+    /// 矢量图必须回退：原生那条路走 ImageIO，而 ImageIO 不认 SVG，
+    /// 留在原生分支的结果是楼层里那张图一直停在占位框上，看着像图挂了。
+    /// NodeSeek 上到处贴的 IP 体检报告就是这种图。
+    func testVectorImageFallsBackToWebView() {
+        XCTAssertNil(
+            nativeContent(for: "[img]https://report.check.place/ip/1L7P98BVF.svg[/img]")
+        )
+        XCTAssertNil(
+            nativeContent(for: "[img]https://example.com/a.svgz[/img]")
+        )
+        // 后缀大小写不该改变结论。
+        XCTAssertNil(
+            nativeContent(for: "[img]https://example.com/A.SVG[/img]")
+        )
+    }
+
     /// 图片被链接包着时，点击行为由 `WKWebView` 的导航拦截决定，原生分支还原不了。
     func testLinkedImageFallsBackToWebView() {
         XCTAssertNil(

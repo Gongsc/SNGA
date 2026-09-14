@@ -293,6 +293,17 @@ enum PostContentBuilder {
     /// 动图的原生分支只能解出静止的第一帧，这类图片整层交回 `WKWebView`。
     private static let animatableImageExtensions: Set<String> = ["gif", "webp", "apng"]
 
+    /// 矢量图这一层根本解不出来，同样整层交回 `WKWebView`。
+    ///
+    /// 原生那条路走的是 ImageIO，而 ImageIO **不认 SVG**：`CGImageSourceCreateWithData`
+    /// 之后连 `CGImageSourceGetType` 都是 nil，于是 `PostImageStore` 只能返回 nil，
+    /// 楼层里那张图一直停在占位框上 —— 看上去像是图挂了。
+    ///
+    /// 换成在这里认输，整层退回网页视图，WebKit 就把它画对了。这正是这个类型
+    /// 一贯的做法：还原不了的节点宁可整层回退，不要悄悄少画一块内容。
+    /// NodeSeek 上到处贴的 IP 体检报告就是这种图。
+    private static let vectorImageExtensions: Set<String> = ["svg", "svgz"]
+
     /// 一张可以原生渲染的正文配图。
     private static func image(of element: Element) -> PostImage? {
         guard let source = try? element.attr("src"), !source.isEmpty,
@@ -300,7 +311,9 @@ enum PostContentBuilder {
               ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             return nil
         }
-        guard !animatableImageExtensions.contains(url.pathExtension.lowercased()) else {
+        let pathExtension = url.pathExtension.lowercased()
+        guard !animatableImageExtensions.contains(pathExtension),
+              !vectorImageExtensions.contains(pathExtension) else {
             return nil
         }
         // 带样式类的图片来自 `[style]`，它的定位和尺寸由生成的样式表决定，
