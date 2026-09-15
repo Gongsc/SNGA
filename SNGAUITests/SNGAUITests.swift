@@ -230,7 +230,7 @@ final class SNGAUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertEqual(app.windows.count, 1)
-        XCTAssertTrue(mainWindow.staticTexts["版本 1.9.0（1）"].exists)
+        XCTAssertTrue(mainWindow.staticTexts["版本 2.0.0（1）"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
