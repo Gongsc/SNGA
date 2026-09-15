@@ -197,13 +197,29 @@ actor NGAForumService: ForumService {
             // 楼层元数据里的处罚标记优先，正文自带的 `[lessernuke]` 兜底。
             post.punishment = post.punishment ?? sanitized.punishment
             // 解析阶段放进来的还是 UBB 原文，见 `NGAParser.post(from:)`。
-            post.signature = post.signature.map { signature(ubb: $0.html) }
+            if let raw = post.signature {
+                post.signature = signature(ubb: raw.html)
+            }
             return post
         }
-        result.posts = result.posts.map {
-            sanitizing($0, topicRating: $0.floor == 0 ? result.topic.rating : nil)
+        // 这两段本来是 `map { sanitizing($0, ...) }`，Swift 6.4（Xcode 27）的区域隔离
+        // 会把它判成数据竞争：局部函数捕获的 `sanitize` / `renderedSignatures` 是不可
+        // 发送的，一旦在**闭包字面量**里引用这个局部函数，捕获的那个盒子就算被「发送」
+        // 进闭包了，于是第二次引用变成「已经送走了还在用」。`map` 的闭包既不逃逸也不
+        // 并发，调用全在 actor 上串行发生，这是个误报 —— 实测 `map(sanitizing)` 这种
+        // 直接引用不报、闭包字面量包一层就报。for 循环彻底绕开闭包，顺带省掉两次
+        // 数组重建。
+        let topicRating = result.topic.rating
+        for index in result.posts.indices {
+            let floor = result.posts[index].floor
+            result.posts[index] = sanitizing(
+                result.posts[index],
+                topicRating: floor == 0 ? topicRating : nil
+            )
         }
-        result.hotReplies = result.hotReplies.map { sanitizing($0, topicRating: nil) }
+        for index in result.hotReplies.indices {
+            result.hotReplies[index] = sanitizing(result.hotReplies[index], topicRating: nil)
+        }
         return result
     }
 
