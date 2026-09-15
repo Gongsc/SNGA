@@ -12,11 +12,13 @@ SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发）�
 xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
-跑全部测试（单元 + UI，`SNGA` scheme 两个 target 都在）：
+跑全部测试（单元 + UI，`SNGA` scheme 两个 target 都在）。**凡是会跑到 UI 测试的命令，签名参数换成 ad-hoc，不能用 `CODE_SIGNING_ALLOWED=NO`**，原因见下面那条：
 
 ```bash
-xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO test
+xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER="" OTHER_CODE_SIGN_FLAGS="--timestamp=none" test
 ```
+
+**macOS 27 起，UI 测试不能再用 `CODE_SIGNING_ALLOWED=NO`。** 那个开关是把 codesign 这一步整个跳过，`.app` 里只剩链接器生成的 ad-hoc 签名、没有 `_CodeSignature` 封签（`codesign --verify` 报「code has no resources but signature indicates they must be present」）。macOS 26 还容得下，macOS 27 会在握手之前就把测试运行器 SIGKILL 掉，报「Early unexpected exit, operation never finished bootstrapping — Test crashed with signal kill before establishing connection」，一条用例都跑不到。上面那组参数是真的走一遍 ad-hoc 签名（身份就是一个减号），**不碰钥匙串、不弹密码框**，和 `release.yml` 里归档用的是同一组。构建和只跑单元测试仍可以用 `CODE_SIGNING_ALLOWED=NO`。
 
 只跑单元测试 / 单个类 / 单条用例，加 `-only-testing:`：
 
@@ -76,7 +78,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 
 会话 cookie 按账号存成独立文件（0600，`LocalSessionStore`），不进 SwiftData。AI API Key 同样存成 0600 文件（`LocalAIKeyStore`）。运行日志的脱敏名单从 `ForumSite.allCases` 的 descriptor 推导，加站点自动纳入，别写死。
 
-**不要使用 macOS 钥匙串。** 产品代码和本地命令都不用：它会弹出要求输入登录密码的系统对话框（本地构建每次签名不同，应用访问自己的钥匙串项也会被问），自动化里没人能替它填。密钥一律落成沙盒内的 0600 文件。本地 `xcodebuild` 一律带 `CODE_SIGNING_ALLOWED=NO`；不要跑 `security`，也不要用真实身份 `codesign`。CI 同样不用：`release.yml` 里的证书导入和公证已整个删掉，产物固定是 ad-hoc 签名。（`codesign --verify` / `-d` 只读磁盘上的签名，不查身份，可以用。）
+**不要使用 macOS 钥匙串。** 产品代码和本地命令都不用：它会弹出要求输入登录密码的系统对话框（本地构建每次签名不同，应用访问自己的钥匙串项也会被问），自动化里没人能替它填。密钥一律落成沙盒内的 0600 文件。本地 `xcodebuild` 带 `CODE_SIGNING_ALLOWED=NO`（跑 UI 测试时改成 ad-hoc 签名，见「常用命令」——ad-hoc 同样不碰钥匙串）；不要跑 `security`，也不要用真实身份 `codesign`。CI 同样不用：`release.yml` 里的证书导入和公证已整个删掉，产物固定是 ad-hoc 签名。（`codesign --verify` / `-d` 只读磁盘上的签名，不查身份，可以用。）
 
 ## 加一个新站点
 
