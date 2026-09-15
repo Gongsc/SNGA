@@ -167,28 +167,34 @@ struct SidebarView: View {
 
     /// 设置入口固定在边栏底部，不跟着列表滚 —— 收藏版面再多也压不掉它。
     /// 未登录时上面那几个区整块不显示，这一块照样在。
+    ///
+    /// 这一条要和另外两栏的 `BottomActionBar` 一样高，三栏底下的横线才在一条线上。
+    /// 那边是 6 + 26 + 6 = 38 点，分隔线用 overlay 叠在顶上、不占高度。这边的行自带
+    /// 6 + 6 的内边距（默认字号下连标签一共 28 点），所以外面只留 5 点、分隔线同样叠
+    /// 上去，才凑成 5 + 28 + 5 = 38。原先分隔线在 `VStack` 里实打实占一行、外面又留了
+    /// 6 点，一共 41 点 —— 实测就是高出 3 点，横线比旁边两条抬了一截。
+    /// 横向仍是 6 点：那是和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
     private var settingsFooter: some View {
-        VStack(spacing: 0) {
+        Button {
+            model.openSettings()
+        } label: {
+            SidebarInteractiveRow(
+                isSelected: model.sidebarSelection == .settings
+            ) {
+                Label("设置", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar-settings-button")
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(theme.backgroundColor)
+        .overlay(alignment: .top) {
             Rectangle()
                 .fill(theme.separatorColor)
                 .frame(height: 1)
-
-            Button {
-                model.openSettings()
-            } label: {
-                SidebarInteractiveRow(
-                    isSelected: model.sidebarSelection == .settings
-                ) {
-                    Label("设置", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("sidebar-settings-button")
-            // 和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
-            .padding(6)
         }
-        .background(theme.backgroundColor)
     }
 
     @ViewBuilder
