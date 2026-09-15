@@ -28,8 +28,10 @@ struct ForumSearchBar: View {
         /// 上下留白。
         ///
         /// 比左右松一点：这一行离内容栏顶上的工具栏很近，收得太紧时按钮会贴到
-        /// 工具栏和拖拽条交界的那个角上。
-        static let verticalPadding: CGFloat = 12
+        /// 工具栏和拖拽条交界的那个角上。原先是 12，标题和这条栏之间空得过分 ——
+        /// 工具栏自己已经占掉三十多点。实测 8 那点余量还在，和
+        /// `ContentColumnHeaderMetrics.verticalPadding` 取同一个数。
+        static let verticalPadding: CGFloat = 8
         /// 档位选择器的最小宽度。
         ///
         /// 给一个固定值而不是让它贴着内容：换档位时标题长短不一（「用户」和

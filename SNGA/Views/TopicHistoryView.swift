@@ -42,7 +42,7 @@ struct TopicHistoryView: View {
         }
         .background(theme.backgroundColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .safeAreaInset(edge: .top, spacing: 0) { toolbar }
+        .contentColumnHeader { toolbar }
         .task { model.topicHistory.reload() }
         .confirmationDialog(
             "清空浏览历史？",
@@ -71,10 +71,11 @@ struct TopicHistoryView: View {
             // 「控件给死宽度」那一条管的是宽度跟着**内容**走的控件（选择器的标题
             // 长短差一倍，旁边的输入框就跟着变形）。这个输入框的宽度跟着容器走，
             // 历史从空到满、搜到搜不到，它都不动。
-            TextField("搜索标题或作者", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: .infinity)
-                .accessibilityIdentifier("topic-history-search")
+            ContentColumnFilterField(
+                prompt: "搜索标题或作者",
+                accessibilityIdentifier: "topic-history-search",
+                text: $query
+            )
 
             Button {
                 showsClearConfirmation = true
@@ -86,9 +87,6 @@ struct TopicHistoryView: View {
             .disabled(model.topicHistory.entries.isEmpty)
             .accessibilityIdentifier("topic-history-clear")
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
     }
 
     // MARK: - 行

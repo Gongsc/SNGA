@@ -68,6 +68,7 @@ struct MessageListView: View {
         }
         .background(theme.backgroundColor)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .contentColumnHeader()
         .navigationTitle(folder == .notifications ? "论坛消息" : folder.title)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {

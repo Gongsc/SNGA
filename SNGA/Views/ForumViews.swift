@@ -43,6 +43,7 @@ struct UserCenterView: View {
         // 未登录时这里是 ContentUnavailableView，本身不撑满可用高度，
         // 底部工具栏就会贴在它下方而不是面板底部。与全部版面、消息列表保持一致。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentColumnHeader()
         .navigationTitle("用户中心")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -582,11 +583,7 @@ struct ForumDirectoryView: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            directorySearchField
-
-            Divider()
-
+        Group {
             Group {
                 if model.browsing.forums.isEmpty && !model.session.isLoading {
                     ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
@@ -650,6 +647,7 @@ struct ForumDirectoryView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .contentColumnHeader { directorySearchField }
         .navigationTitle("全部版面")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -673,40 +671,27 @@ struct ForumDirectoryView: View {
     }
 
     private var directorySearchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+        HStack(spacing: 10) {
+            ContentColumnFilterField(
+                prompt: "搜索版面名称或 ID",
+                accessibilityIdentifier: "directory-search-field",
+                text: $searchText
+            )
 
-            TextField("搜索版面名称或 ID", text: $searchText)
-                .textFieldStyle(.plain)
-                .accessibilityIdentifier("directory-search-field")
-
+            // 清除还是留一颗按钮，摆在框外和浏览历史的「清空」同一个位置 ——
+            // 原先它是塞在自绘输入框里的小叉，换成系统输入框就没那个位置了。
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    Label("清除搜索", systemImage: "xmark.circle")
                 }
-                .buttonStyle(.plain)
+                .labelStyle(.iconOnly)
                 .help("清除搜索")
                 .accessibilityLabel("清除搜索")
                 .accessibilityIdentifier("directory-search-clear")
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(
-            theme.surfaceColor,
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.controlBorderColor, lineWidth: 1)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
     }
 
     private var trimmedSearchText: String {
