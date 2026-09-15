@@ -290,6 +290,9 @@ struct ForumSearchBar: View {
                 RoundedRectangle(cornerRadius: Metrics.filterCornerRadius)
                     .stroke(theme.separatorColor)
             }
+            // 和上面那块历史面板同一个道理：不声明成容器的话，这个名字会把
+            // `-filter-author` / `-filter-sort` 那几个全盖成 `-filters`。
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("\(identifierPrefix)-filters")
         }
     }
@@ -476,6 +479,12 @@ struct ForumSearchBar: View {
                 RoundedRectangle(cornerRadius: Metrics.historyCornerRadius)
                     .strokeBorder(.separator)
             )
+            // `children: .contain` 是这里的关键，不是装饰：`accessibilityIdentifier`
+            // 贴在容器上并不是给容器起名，而是把名字发给底下每一个元素，而且它最后
+            // 才生效，于是每一行和每颗删除按钮自己的标识符全被这一个盖掉 ——
+            // 面板找得到，里面的东西一个也找不到。声明成「容器，孩子各算各的」之后，
+            // 这个名字才真的只落在面板上。同样的坑在浏览历史那边踩过一次。
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("\(identifierPrefix)-history")
         }
     }
