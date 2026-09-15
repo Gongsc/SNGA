@@ -54,7 +54,6 @@ struct TopicHistoryView: View {
         } message: {
             Text("当前账号读过的 \(model.topicHistory.entries.count) 条记录会被删掉，列表里的话题也不再显示成读过。其他账号的历史不受影响。")
         }
-        .accessibilityIdentifier("topic-history")
     }
 
     // MARK: - 顶上那一栏
@@ -119,6 +118,7 @@ struct TopicHistoryView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("topic-history-\(visit.id.rawValue)")
 
             Button {
                 model.topicHistory.remove(visit.id)
@@ -134,7 +134,6 @@ struct TopicHistoryView: View {
         .padding(.vertical, Metrics.rowVerticalPadding)
         .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 6))
         .listRowBackground(Color.clear)
-        .accessibilityIdentifier("topic-history-\(visit.id.rawValue)")
     }
 
     // MARK: - 空的时候
