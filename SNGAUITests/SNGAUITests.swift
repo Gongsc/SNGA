@@ -172,7 +172,16 @@ final class SNGAUITests: XCTestCase {
 
         let signature = mainWindow.descendants(matching: .any)["post-signature-1"]
         XCTAssertTrue(signature.waitForExistence(timeout: 5))
-        XCTAssertTrue(mainWindow.staticTexts["测试签名"].exists)
+
+        // 签名那行字要从 `value` 上找，不能写成 `staticTexts["测试签名"]` —— 那种下标
+        // 匹配的是标识符和 label，而 SwiftUI 的 `Text` 把内容放在 `value` 里，于是
+        // 那句断言从写下的那天起就没匹配上过。整行是「测试签名 —— 这一行来自签名档」
+        // （见 `DebugForumService`），`[b]` 只影响其中一段、并不拆成两个元素，所以用
+        // `CONTAINS` 盯前半段。范围收在签名元素之内，免得哪天正文里也出现这几个字。
+        let signatureText = signature.descendants(matching: .staticText)
+            .matching(NSPredicate(format: "value CONTAINS %@", "测试签名"))
+            .firstMatch
+        XCTAssertTrue(signatureText.waitForExistence(timeout: 5))
 
         // 排在作者那一行下面：签名是楼层的末尾，不是抬头的一部分。
         let authorName = mainWindow.descendants(matching: .any)["post-author-name-1"]
