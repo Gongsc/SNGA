@@ -659,7 +659,19 @@ struct SNGAApp: App {
                             "--uitesting-ai-connection-failure"
                         )
                     ),
-                    aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key")
+                    aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key"),
+                    // 查更新在 UI 测试里不能真去问 GitHub：断网和限流都会让用例莫名其妙
+                    // 地红。`--uitesting-update-available` 换成「有新版本」那一支。
+                    updateChecker: DebugUpdateChecker(
+                        result: ProcessInfo.processInfo.arguments.contains(
+                            "--uitesting-update-available"
+                        )
+                            ? .updateAvailable(AppRelease(
+                                version: "99.0.0",
+                                pageURL: GitHubReleaseUpdateChecker.repositoryURL
+                            ))
+                            : .upToDate
+                    )
                 ))
             } else {
                 _model = State(initialValue: AppModel(container: container))

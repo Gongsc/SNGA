@@ -59,6 +59,9 @@ final class AppModel {
     let topicHistory: TopicHistoryStore
     /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
     let toolbox = ToolboxStore()
+    /// 查更新问的是 GitHub，和账号、论坛都没关系；它的网络故障也不能报成论坛的错误，
+    /// 所以不走 `AppSession.present(_:)`，由「关于」面板自己就地显示。
+    let updateChecker: any UpdateChecking
 
     private var activeService: (any ForumService)? { session.activeService }
 
@@ -69,8 +72,10 @@ final class AppModel {
         aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
         aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
-        aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared
+        aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared,
+        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker()
     ) {
+        self.updateChecker = updateChecker
         let session = AppSession(
             container: container,
             sessionStore: sessionStore,

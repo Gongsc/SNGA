@@ -236,6 +236,66 @@ final class SNGAUITests: XCTestCase {
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
     }
 
+    /// 「关于」里的检查更新：查得动，并且把两种结果分别说清楚。
+    ///
+    /// 走 `DebugUpdateChecker`，不打 GitHub —— 真去问的话，断网和匿名接口每小时
+    /// 六十次的限流都会让这条用例莫名其妙地红。
+    func testCheckingForUpdatesReportsBeingUpToDate() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        openAboutSection(in: mainWindow)
+
+        let check = mainWindow.descendants(matching: .any)["about-check-update"]
+        XCTAssertTrue(check.waitForExistence(timeout: 5))
+        check.click()
+
+        let status = mainWindow.descendants(matching: .any)["about-update-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.staticTexts["当前已是最新版本"].waitForExistence(timeout: 5))
+    }
+
+    func testCheckingForUpdatesNamesTheNewVersion() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-update-available"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        openAboutSection(in: mainWindow)
+
+        let check = mainWindow.descendants(matching: .any)["about-check-update"]
+        XCTAssertTrue(check.waitForExistence(timeout: 5))
+        check.click()
+
+        // 版本号要真出现在那句话里，不能只说「有更新」。
+        XCTAssertTrue(
+            mainWindow.staticTexts["发现新版本 99.0.0，可在 GitHub 下载"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    private func openAboutSection(in mainWindow: XCUIElement) {
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+        let about = mainWindow.descendants(matching: .any)["settings-section-about"]
+        XCTAssertTrue(about.waitForExistence(timeout: 5))
+        if !about.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        about.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-about"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
     /// 手动用例：对着 NGA 的线上登录页跑，确认官方页面还是那个结构，
     /// 并且页面用 `alert()` 报的校验错误会弹成原生对话框。
     ///
