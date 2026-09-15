@@ -841,6 +841,22 @@ private struct ThreadTitleText: NSViewRepresentable {
     let text: String
     let fonts: ScopedFontSet
 
+    /// 专门用来量尺寸的那一支，永远不进视图树。
+    ///
+    /// **量尺寸不能碰屏幕上那一支。** `preferredMaxLayoutWidth` 是影响
+    /// `intrinsicContentSize` 的属性，赋值会顺手 `setNeedsUpdateConstraints`；而
+    /// SwiftUI 调 `sizeThatFits` 的时机正落在 AppKit 更新窗口约束的那一轮里。
+    /// macOS 26 容得下这次重入，macOS 27 会从
+    /// `-[NSWindow _postWindowNeedsUpdateConstraints]` 抛异常，AppKit 再把它变成
+    /// `_crashOnException:` —— 表现是一打开话题就整个应用退出，崩溃栈里全是 AppKit，
+    /// 一帧自己的代码都没有。量在一支游离的实例上，这次失效就传不到窗口。
+    @MainActor
+    final class Coordinator {
+        let measuring = NSTextField(wrappingLabelWithString: "")
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField(wrappingLabelWithString: text)
         configure(textField)
@@ -857,11 +873,14 @@ private struct ThreadTitleText: NSViewRepresentable {
         nsView textField: NSTextField,
         context: Context
     ) -> CGSize? {
+        let measuring = context.coordinator.measuring
+        measuring.stringValue = text
+        configure(measuring)
         guard let width = proposal.width else {
-            return textField.fittingSize
+            return measuring.fittingSize
         }
-        textField.preferredMaxLayoutWidth = width
-        let size = textField.sizeThatFits(
+        measuring.preferredMaxLayoutWidth = width
+        let size = measuring.sizeThatFits(
             NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         )
         return CGSize(width: width, height: ceil(size.height))
