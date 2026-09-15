@@ -15,6 +15,20 @@ struct RootView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
                 .background(theme.backgroundColor)
+                // 边栏右缘这条线得自己画。macOS 26 之前它是系统画的：边栏那一列铺的是
+                // 带材质的背板，右缘那道 hairline 属于背板自己。而这里为了主题色，
+                // 整列盖了一层不透明底色，等于把背板连同那道边一起盖掉了 ——
+                // macOS 27 上实测，边栏和内容栏之间一个像素的过渡都没有，而内容栏和
+                // 详情栏之间那条（普通的 NSSplitView 分隔线，不依附背板）照样在。
+                // 要连着工具栏那一段一起画：边栏这一列的安全区是从工具栏下面才开始的，
+                // 不声明忽略的话线只画到 y=52 点以下，顶上缺一截 —— 而系统给内容栏和
+                // 详情栏之间画的那条是通到窗口顶的。
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(theme.separatorColor)
+                        .frame(width: 1)
+                        .ignoresSafeArea(.container, edges: .top)
+                }
         } content: {
             ContentColumnView(
                 reservesSidebarToggleSpace: columnVisibility == .doubleColumn
