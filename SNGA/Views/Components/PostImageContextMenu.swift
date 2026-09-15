@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 图片的右键菜单。
 ///
@@ -36,17 +37,48 @@ struct PostImageContextMenu: View {
     // MARK: - 操作
 
     private func copyImage() {
+        if let data, SVGImage.isSVG(data: data, mimeType: nil, url: url) {
+            copySVG(data)
+            return
+        }
         if let image {
             copy(image)
             return
         }
         Task {
-            guard let data = await PostImageStore.shared.originalData(for: url),
-                  let downloaded = NSImage(data: data) else {
+            guard let data = await PostImageStore.shared.originalData(for: url) else {
+                onError(Self.unavailableMessage)
+                return
+            }
+            if SVGImage.isSVG(data: data, mimeType: nil, url: url) {
+                copySVG(data)
+                return
+            }
+            guard let downloaded = NSImage(data: data) else {
                 onError(Self.unavailableMessage)
                 return
             }
             copy(downloaded)
+        }
+    }
+
+    /// 矢量图复制的是它自己那份源码，不是一张位图。
+    ///
+    /// 交给 `NSImage` 会把根元素上的 `ch` / `em` 当成点数，解出一张几十点见方的
+    /// 画布（见 `SVGImage` 上那段），粘出去就是一团糊。认得 SVG 的应用拿到的是
+    /// 矢量，不认的至少拿到一份看得懂的源码 —— 两样都比那团糊强。
+    private func copySVG(_ data: Data) {
+        NSPasteboard.general.clearContents()
+        let wroteVector = NSPasteboard.general.setData(
+            data,
+            forType: NSPasteboard.PasteboardType(UTType.svg.identifier)
+        )
+        let wroteSource = String(data: data, encoding: .utf8).map {
+            NSPasteboard.general.setString($0, forType: .string)
+        } ?? false
+        guard wroteVector || wroteSource else {
+            onError("系统剪贴板暂时无法写入图片。")
+            return
         }
     }
 

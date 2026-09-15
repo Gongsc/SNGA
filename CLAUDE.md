@@ -12,11 +12,13 @@ SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发）�
 xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
-跑全部测试（单元 + UI，`SNGA` scheme 两个 target 都在）：
+跑全部测试（单元 + UI，`SNGA` scheme 两个 target 都在）。**凡是会跑到 UI 测试的命令，签名参数换成 ad-hoc，不能用 `CODE_SIGNING_ALLOWED=NO`**，原因见下面那条：
 
 ```bash
-xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO test
+xcodebuild -project SNGA.xcodeproj -scheme SNGA -configuration Debug -derivedDataPath .build/DerivedData CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" PROVISIONING_PROFILE_SPECIFIER="" OTHER_CODE_SIGN_FLAGS="--timestamp=none" test
 ```
+
+**macOS 27 起，UI 测试不能再用 `CODE_SIGNING_ALLOWED=NO`。** 那个开关是把 codesign 这一步整个跳过，`.app` 里只剩链接器生成的 ad-hoc 签名、没有 `_CodeSignature` 封签（`codesign --verify` 报「code has no resources but signature indicates they must be present」）。macOS 26 还容得下，macOS 27 会在握手之前就把测试运行器 SIGKILL 掉，报「Early unexpected exit, operation never finished bootstrapping — Test crashed with signal kill before establishing connection」，一条用例都跑不到。上面那组参数是真的走一遍 ad-hoc 签名（身份就是一个减号），**不碰钥匙串、不弹密码框**，和 `release.yml` 里归档用的是同一组。构建和只跑单元测试仍可以用 `CODE_SIGNING_ALLOWED=NO`。
 
 只跑单元测试 / 单个类 / 单条用例，加 `-only-testing:`：
 
@@ -49,12 +51,13 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 ### 状态层
 
-`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和七个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`ToolboxStore`。
+`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和八个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`TopicHistoryStore`（读过的话题）、`ToolboxStore`。
 
 - `AppSession`（[SNGA/App/AppSession.swift](SNGA/App/AppSession.swift)）是各 store 的唯一依赖：给「当前账号的服务」「出错怎么呈现」「加载指示」三件事。store 不反手持有 `AppModel`；跨领域的事（收藏状态变化要更新话题列表）用闭包在 `AppModel.init` 里对接。
 - 错误呈现只有 `AppSession.present(_:)` 一道门。取消（`CancellationError` 和 `URLError.cancelled` 两种形态都要认）在这里拦掉，展示时冠上站名。
 - `RequestSlot`（[SNGA/App/RequestSlot.swift](SNGA/App/RequestSlot.swift)）是「最新者胜出」闸门：翻页、切版面、切账号时旧请求先发后至不能覆盖新结果。新起一类异步请求就配一个 slot。
 - **切账号时，界面上还挂着上一个站的版面。** 按版面编号触发的 `.task(id:)` 会拿它去问新账号的服务 —— V2EX 收到一个 NGA 的 `-7`，答一张「节点未找到」的正常页面，用户看到「论坛页面结构已变化」。`AppSession.belongsToActiveSite(_:)` 挡在 `ForumStore` 发请求**之前**：`ForumID` 本来就带着站点，判断只是没人做过。新加按 `ForumID` 发的请求，记得也过这一道。
+- `TopicHistoryStore`（[SNGA/App/TopicHistoryStore.swift](SNGA/App/TopicHistoryStore.swift)）一张表供着两件事：侧栏的「浏览历史」和列表里「读过的变灰」—— 它们本来就是同一个事实。它也是唯一一个**不重新查库**的 store：默认五百条上限，而写入发生在每次打开话题（用户正等着页面出来），所以内存里留一份列表加一个编号集合，写库只写变动的那一行。
 - `ToolboxStore` 是唯一不吃 `AppSession` 的 store —— 资讯小工具不认账号也不认论坛，一个账号没有时也能用，它的网络故障不能显示成论坛的错误。
 
 ### 正文管线
@@ -75,7 +78,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 
 会话 cookie 按账号存成独立文件（0600，`LocalSessionStore`），不进 SwiftData。AI API Key 同样存成 0600 文件（`LocalAIKeyStore`）。运行日志的脱敏名单从 `ForumSite.allCases` 的 descriptor 推导，加站点自动纳入，别写死。
 
-**不要使用 macOS 钥匙串。** 产品代码和本地命令都不用：它会弹出要求输入登录密码的系统对话框（本地构建每次签名不同，应用访问自己的钥匙串项也会被问），自动化里没人能替它填。密钥一律落成沙盒内的 0600 文件。本地 `xcodebuild` 一律带 `CODE_SIGNING_ALLOWED=NO`；不要跑 `security`，也不要用真实身份 `codesign`。CI 同样不用：`release.yml` 里的证书导入和公证已整个删掉，产物固定是 ad-hoc 签名。（`codesign --verify` / `-d` 只读磁盘上的签名，不查身份，可以用。）
+**不要使用 macOS 钥匙串。** 产品代码和本地命令都不用：它会弹出要求输入登录密码的系统对话框（本地构建每次签名不同，应用访问自己的钥匙串项也会被问），自动化里没人能替它填。密钥一律落成沙盒内的 0600 文件。本地 `xcodebuild` 带 `CODE_SIGNING_ALLOWED=NO`（跑 UI 测试时改成 ad-hoc 签名，见「常用命令」——ad-hoc 同样不碰钥匙串）；不要跑 `security`，也不要用真实身份 `codesign`。CI 同样不用：`release.yml` 里的证书导入和公证已整个删掉，产物固定是 ad-hoc 签名。（`codesign --verify` / `-d` 只读磁盘上的签名，不查身份，可以用。）
 
 ## 加一个新站点
 
@@ -90,7 +93,9 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - 全是 XCTest，没有 swift-testing。解析器测试一律**对着真实抓取的脱敏夹具**跑，先有夹具再写解析器；`RecordingHTTPTransport` 用来断言发出去的请求体。
 - **方法名不以 `test` 开头的是手动用例**，XCTest 发现不了（如 `NodeSeekLiveTests.manualLive*`、`SNGAUITests.manualOfficialLogin*`）。它们打线上站点或依赖 XCUITest 查不进的 `NSAlert`，慢且会随对方改版而红。怀疑站点改版时才临时把名字改回 `test` 前缀单独跑。环境变量传不进 UI 测试运行器，这是唯一可行的排除方式。
 - UI 测试靠 launch arguments 驱动：`--uitesting`（内存库 + `DebugForumService` 假数据）、`--uitesting-seed`（灌种子数据）、`--uitesting-no-folders` / `--uitesting-one-way-vote`（模拟缺能力的站点）等。`DebugForumService` 的 `capabilities` 可注入，用来验「站点缺某个能力时会怎样」而不必等真适配器写出来。
-- **UI 套件 27 条、单次约 7 分半（算上构建 8 分钟），大约每 4 次有 1 次偶发失败**（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先）。跑一次、如实报告、继续干活，不要为偶发失败反复重跑。连续同一处失败才值得查，且只做一步判据：把改动 `checkout HEAD` 原样跑一次，分清「是我改的」还是「环境如此」，然后停下来汇报，而不是一轮轮加诊断。
+- **UI 套件 34 条，单次约十分钟（算上构建更久）。跑一次、如实报告、继续干活，不要为一次失败反复重跑。** 确实有偶发失败这一类（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先），但**别拿「偶发」当默认解释** —— 2026-09-15 这一天，套件里当时红着的每一条查到底都是真 bug：标识符被容器盖掉、版本号断言停在 1.9.0、签名那条去 `label` 上找一个只存在于 `value` 的字符串。三条都不是时序，都是写下那天起就没对过，而且在 macOS 27 把测试运行器直接杀掉的那段时间里根本没人看得见。
+- **判一条失败是不是偶发，只看一步：同一条单独再跑两三次。** 真偶发会时红时绿；稳定红的就是 bug，接着查，别再重跑。要分「是我改的」还是「本来就这样」，把改动 `checkout HEAD` 原样跑一次 —— 但注意这一招在编译不过的时候用不了（macOS 27 刚升上来那次就是），那种情况下改动范围本身就是判据。查因优先看无障碍树（`XCUIElement.debugDescription` 落到文件里慢慢读），它直接说明元素到底叫什么、值在哪个属性上，比一轮轮加断言快得多。
+- **断言一行字用 `value`，不是 `label`。** SwiftUI 的 `Text` 把内容放在 `value` 上，`staticTexts["某某"]` 这种下标匹配的是标识符和 label，永远匹配不上；写成 `.matching(NSPredicate(format: "value CONTAINS %@", …))`，并把范围收在所属元素之内。
 - **需要登录态才能摸清的接口，写探针脚本交给用户在浏览器控制台跑**（`Design/probe-nodeseek-*.js`），不要拿凭据自己发请求。探针只打印字段名、类型、条数，绝不打印值。会话凭据不进对话。
 - **不往真实论坛发测试回复** —— 那是替用户发内容。写请求的验证靠假传输层断言「取校验字段 → 提交一次 → 确认结果」。
 - 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。所以断言「站点没有某功能」时，判据得比「匿名访问被转走」更硬 —— V2EX「自己没有主题全文搜索」这一条是读站点自己的 `combo.js` 得出的（搜索框只有节点、用户、谷歌、SoV2EX 四档），不是靠那次 302。
@@ -118,6 +123,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 ## 界面约束
 
 - **颜色一律走主题**（`@Environment(\.sngaTheme)` 拿 `ResolvedAppTheme`）：卡片和面板底色 `surfaceColor`、磁贴和边栏行 `fillColor` / `hoverFillColor`、描边 `separatorColor`、控件描边 `controlBorderColor`、强调 `accentColor` / `accentSoftColor`、文字 `foregroundColor` / `secondaryForegroundColor` / `tertiaryForegroundColor`。**别拿 `.background.secondary` 这类系统材质当卡片底** —— 应用有六套主题，午夜蓝和 NGA 暖金下它和周围对不上。`.tint` 可以用：`RootView` 已经把环境色设成了主题强调色。错误红、成功绿这种语义色不跟主题走（见 `SettingsView` 的连接状态）。
+- **这四处的文字走字体设置**（`@Environment(\.sngaFonts)` 拿 `ResolvedAppFonts`，再按 `.sidebar` / `.topicList` / `.threadContent` / `.postAuthor` 取）：侧栏的行、话题列表的行、楼层正文与楼层号、楼层头上那一栏（作者、级别、声望、发帖时间）。写 `fonts.topicList.caption` 而不是 `.caption` —— 语义档位照旧，只是整段按用户调的字号缩放（`ScopedFontSet` 抄了一张 macOS 的档位点数表，`FontSettingsTests` 对着 AppKit 校它）。**只罩文字，别罩控件**：`.font` 铺在装着输入框和选择器的容器上，会把控件一起缩掉。**套着 `frame(height:)` 的那一栏，框也要跟着算**（`PostAuthorHeaderLayout`）—— 写死的行高会把字裁掉一截，看上去像是根本没生效。网页楼层那一侧走 `PostDocument` 里 `--snga-font-size` / `--snga-font-small` / `--snga-font-family` 三个变量的字符串替换，和主题同一条路 —— 那三条的**整句**都是标记，改一个字符就静默失效。四段之外（设置面板、小工具、消息）不跟着变，是有意的。
 - **`.regularMaterial` 只留给真正浮在内容之上的层**：底部动作栏、悬浮胶囊、登录遮罩、下拉面板。它要的是「透出底下的东西」，铺在内容里的块用主题色。
 - **主题色的用法有对比度测试**（`SNGATests/ThemeContrastTests.swift`）：新配色或新用法先过它，别只在自己那套主题下看着顺眼。
 - **排版尺寸收进视图自己的 `private enum Metrics`**，别散在 `body` 里。同一个东西在两处各写一个数，就会在两个页面上长得不一样 —— `ForumSearchBar` 的注释记着那次：两条本该一样的搜索栏，间距、边距、选择器宽度四处都差着几点。
@@ -125,6 +131,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - **控件给死宽度，别让它贴着内容**。内容一变宽度就跳 —— 档位选择器的标题长短差一倍，贴着内容会让旁边的输入框跟着变形。
 - **`.controlSize` 管控件大小，`.font` 管文字大小。** 拿 `.font(.caption)` 罩住整块面板来「让它小一点」，会把里面的输入框和选择器一起缩掉。
 - **每个可交互控件配 `accessibilityIdentifier`**，前缀由调用方给（`ForumSearchBar` 的 `identifierPrefix` 就是这么用的）—— UI 测试只认得它。
+- **标识符贴在控件本身上，绝不贴在包着若干控件的布局容器上。** `accessibilityIdentifier` 挂在 `VStack` / `HStack` / `Group` 这类布局容器上并不是给容器起名 —— 它会把这个名字发给底下**每一个**元素，而且外层修饰符最后生效，于是孩子们各自的标识符被**全部盖掉**。挂在本身就是一个无障碍元素的东西上（`ScrollView`、`Button`、`TextField`）才是给它自己起名，`settings-detail-<section>` 一直没出事就是因为它贴在 `ScrollView` 上。真要给一整块面板起名，先 `.accessibilityElement(children: .contain)` 声明成容器，再给标识符。这一条踩过三处（浏览历史的面板和行、搜索历史下拉、搜索筛选面板），症状是 UI 测试说「找不到」而界面上明明画着 —— 所以怀疑标识符时先 dump 无障碍树，别改测试。
 - **不支持就不画。** 这一条在能力位那一节，界面这边的落法是：站点收不下的控件根本不出现，而不是画出来等用户点了再报错。名字也按站点自己的说法给（`ForumSiteDescriptor` 里那一串 `xxxTitle`）。
 - **结果来自站外时要在界面上说出来。** 写在跟着内容走的那一行，别塞进定宽控件的标题里 —— 「主题正文（SoV2EX）」在档位选择器里会截断成「主题正文（SoV2…」，反而谁也看不见。
 

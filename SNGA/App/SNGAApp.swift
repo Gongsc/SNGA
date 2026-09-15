@@ -11,6 +11,14 @@ enum BrowsingSettings {
     /// 站点（NGA）本来就没有额外请求，而要按作者去问资料接口的站点（NodeSeek）
     /// 也不会因为一个看不见的东西去多问一次。
     static let postSignatureKey = "browsing.showsPostSignature"
+    /// 等级不够看的话题在列表里画成灰的。
+    static let dimsGatedTopicsKey = "browsing.dimsGatedTopics"
+
+    static var dimsGatedTopics: Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: dimsGatedTopicsKey) != nil else { return true }
+        return defaults.bool(forKey: dimsGatedTopicsKey)
+    }
 
     static var showsPostSignature: Bool {
         let defaults = UserDefaults.standard
@@ -435,6 +443,20 @@ struct ThemeRGB: Equatable, Sendable {
         Color(red: red, green: green, blue: blue)
     }
 
+    /// 从 `ColorPicker` 拿回来的颜色。
+    ///
+    /// 必须先转 sRGB 再读分量：取色盘给的可能是任意色彩空间的 `NSColor`
+    /// （显示器 P3 是默认），直接问 `redComponent` 会抛异常。转不过去的
+    /// （图案色、目录色）返回 nil，交给调用方回落到自己的默认值。
+    init?(_ color: Color) {
+        guard let converted = NSColor(color).usingColorSpace(.sRGB) else { return nil }
+        self.init(
+            red: converted.redComponent,
+            green: converted.greenComponent,
+            blue: converted.blueComponent
+        )
+    }
+
     var hex: String {
         String(
             format: "#%02X%02X%02X",
@@ -544,6 +566,20 @@ struct SNGAApp: App {
     private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(FontArea.sidebar.familyKey) private var sidebarFontFamily = ""
+    @AppStorage(FontArea.sidebar.sizeKey)
+    private var sidebarFontSize = FontArea.sidebar.defaultSize
+    @AppStorage(FontArea.topicList.familyKey) private var topicListFontFamily = ""
+    @AppStorage(FontArea.topicList.sizeKey)
+    private var topicListFontSize = FontArea.topicList.defaultSize
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
+    @AppStorage(FontArea.postAuthor.familyKey) private var postAuthorFontFamily = ""
+    @AppStorage(FontArea.postAuthor.sizeKey)
+    private var postAuthorFontSize = FontArea.postAuthor.defaultSize
+    @AppStorage(KeywordFilterSettings.enabledKey) private var keywordFilterEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var keywordFilterRulesJSON = ""
     @State private var model: AppModel
     private let container: ModelContainer
 
@@ -551,6 +587,42 @@ struct SNGAApp: App {
         AppTheme.resolve(selectedThemeRaw).resolved(
             customBackgroundHex: customBackgroundHex,
             customAccentHex: customAccentHex
+        )
+    }
+
+    /// 字体和主题一样从这里一次注入。三段各读一对 `@AppStorage`，视图按自己
+    /// 所在的那一段取 —— 不让每一行话题自己去读一遍设置。
+    private var selectedFonts: ResolvedAppFonts {
+        ResolvedAppFonts(
+            sidebar: ScopedFontSet(
+                area: .sidebar,
+                familyName: sidebarFontFamily,
+                size: sidebarFontSize
+            ),
+            topicList: ScopedFontSet(
+                area: .topicList,
+                familyName: topicListFontFamily,
+                size: topicListFontSize
+            ),
+            threadContent: ScopedFontSet(
+                area: .threadContent,
+                familyName: threadContentFontFamily,
+                size: threadContentFontSize
+            ),
+            postAuthor: ScopedFontSet(
+                area: .postAuthor,
+                familyName: postAuthorFontFamily,
+                size: postAuthorFontSize
+            )
+        )
+    }
+
+    /// 关键字过滤也从这里一次注入，理由和字体一样：话题列表一屏几十行，
+    /// 让每一行自己去读一遍设置就是几十次 JSON 解码。
+    private var selectedKeywordFilter: ResolvedKeywordFilter {
+        ResolvedKeywordFilter(
+            isEnabled: keywordFilterEnabled,
+            rules: KeywordFilterSettings.decode(keywordFilterRulesJSON)
         )
     }
 
@@ -562,6 +634,7 @@ struct SNGAApp: App {
             SubforumPreferenceRecord.self,
             RecentForumRecord.self,
             SearchHistoryRecord.self,
+            TopicVisitRecord.self,
             AIProfileSummaryRecord.self
         ])
         let configuration = ModelConfiguration(
@@ -586,7 +659,19 @@ struct SNGAApp: App {
                             "--uitesting-ai-connection-failure"
                         )
                     ),
-                    aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key")
+                    aiKeyStore: InMemoryAIKeyStore(apiKey: "ui-test-key"),
+                    // 查更新在 UI 测试里不能真去问 GitHub：断网和限流都会让用例莫名其妙
+                    // 地红。`--uitesting-update-available` 换成「有新版本」那一支。
+                    updateChecker: DebugUpdateChecker(
+                        result: ProcessInfo.processInfo.arguments.contains(
+                            "--uitesting-update-available"
+                        )
+                            ? .updateAvailable(AppRelease(
+                                version: "99.0.0",
+                                pageURL: GitHubReleaseUpdateChecker.repositoryURL
+                            ))
+                            : .upToDate
+                    )
                 ))
             } else {
                 _model = State(initialValue: AppModel(container: container))
@@ -605,6 +690,8 @@ struct SNGAApp: App {
                 .environment(model)
                 .environment(model.toolbox)
                 .environment(\.sngaTheme, selectedTheme)
+                .environment(\.sngaFonts, selectedFonts)
+                .environment(\.sngaKeywordFilter, selectedKeywordFilter)
                 .modelContainer(container)
                 .preferredColorScheme(selectedTheme.preferredColorScheme)
                 .tint(selectedTheme.accentColor)

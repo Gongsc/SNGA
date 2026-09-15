@@ -6,6 +6,7 @@ import SwiftUI
 /// 才展开。这里保留同样的默认折叠语义：正文视图在折叠时根本不会实例化，被处罚的
 /// 楼层因而也不会白白占一个 `WKWebView`。
 struct PostPunishmentNotice<Content: View>: View {
+    @Environment(\.sngaFonts) private var fonts
     let punishment: PostPunishment
     @ViewBuilder var content: () -> Content
 
@@ -27,7 +28,7 @@ struct PostPunishmentNotice<Content: View>: View {
                         .imageScale(.small)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .font(.callout)
+                .font(fonts.threadContent.callout)
                 .foregroundStyle(tint)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)

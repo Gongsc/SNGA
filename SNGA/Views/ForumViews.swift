@@ -43,6 +43,7 @@ struct UserCenterView: View {
         // 未登录时这里是 ContentUnavailableView，本身不撑满可用高度，
         // 底部工具栏就会贴在它下方而不是面板底部。与全部版面、消息列表保持一致。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentColumnHeader()
         .navigationTitle("用户中心")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -582,11 +583,7 @@ struct ForumDirectoryView: View {
     @State private var searchText = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            directorySearchField
-
-            Divider()
-
+        Group {
             Group {
                 if model.browsing.forums.isEmpty && !model.session.isLoading {
                     ContentUnavailableView("没有可用版面", systemImage: "square.grid.2x2")
@@ -650,6 +647,7 @@ struct ForumDirectoryView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .contentColumnHeader { directorySearchField }
         .navigationTitle("全部版面")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
@@ -673,40 +671,27 @@ struct ForumDirectoryView: View {
     }
 
     private var directorySearchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+        HStack(spacing: 10) {
+            ContentColumnFilterField(
+                prompt: "搜索版面名称或 ID",
+                accessibilityIdentifier: "directory-search-field",
+                text: $searchText
+            )
 
-            TextField("搜索版面名称或 ID", text: $searchText)
-                .textFieldStyle(.plain)
-                .accessibilityIdentifier("directory-search-field")
-
+            // 清除还是留一颗按钮，摆在框外和浏览历史的「清空」同一个位置 ——
+            // 原先它是塞在自绘输入框里的小叉，换成系统输入框就没那个位置了。
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    Label("清除搜索", systemImage: "xmark.circle")
                 }
-                .buttonStyle(.plain)
+                .labelStyle(.iconOnly)
                 .help("清除搜索")
                 .accessibilityLabel("清除搜索")
                 .accessibilityIdentifier("directory-search-clear")
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(
-            theme.surfaceColor,
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(theme.controlBorderColor, lineWidth: 1)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
     }
 
     private var trimmedSearchText: String {
@@ -889,8 +874,12 @@ struct FavoritesView: View {
                                 Button {
                                     Task { await model.openTopic(topic) }
                                 } label: {
-                                    TopicRow(topic: topic)
-                                        .contentShape(.rect)
+                                    TopicRow(
+                                        topic: topic,
+                                        isVisited: model.dimsVisitedTopic(topic.id),
+                                        levelGate: model.levelGate(for: topic)
+                                    )
+                                    .contentShape(.rect)
                                 }
                                 .buttonStyle(.plain)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1198,7 +1187,9 @@ private struct FavoriteFolderEditorSheet: View {
 struct TopicListView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
+    @Environment(\.sngaKeywordFilter) private var keywordFilter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let forumID: ForumID
     var reservesSidebarToggleSpace = false
@@ -1206,6 +1197,11 @@ struct TopicListView: View {
     @State private var forumSearchQuery = ""
     @State private var forumSearchKind = ForumSearchKind.topicSubject
     @State private var forumSearchFilters = ForumSearchFilters.none
+    /// 被关键字规则折叠、又被用户点开的那几条。
+    ///
+    /// 只活在这个版面这一次浏览里：换版面就清空。展开是「这条我想看一眼」，
+    /// 不是「这条以后都别折叠」—— 后者该去改规则，而不是让界面攒一份影子名单。
+    @State private var expandedFoldedTopicIDs: Set<TopicID> = []
     private let topAnchor = "topic-list-top"
     private let hiddenSidebarTitleClearance: CGFloat = 140
 
@@ -1232,10 +1228,10 @@ struct TopicListView: View {
                 } else if model.isCurrentForumSearchActive {
                     currentForumSearchRows
                 } else if model.browsing.subforums.isEmpty {
-                    topicRows(model.browsing.displayedTopics)
+                    filteredTopicRows(model.browsing.displayedTopics)
                 } else {
                     topicListHeader
-                    topicRows(model.browsing.displayedTopics)
+                    filteredTopicRows(model.browsing.displayedTopics)
                 }
             }
             .listStyle(.plain)
@@ -1382,6 +1378,7 @@ struct TopicListView: View {
             forumSearchQuery = ""
             forumSearchKind = .topicSubject
             forumSearchFilters = .none
+            expandedFoldedTopicIDs.removeAll()
             model.clearForumSearch()
         }
         .ignoresSafeArea(.container, edges: .top)
@@ -1556,18 +1553,128 @@ struct TopicListView: View {
     @ViewBuilder
     private func topicRows(_ topics: [Topic]) -> some View {
         ForEach(topics) { topic in
-            Button {
-                Task { await model.openTopic(topic) }
-            } label: {
-                TopicInteractiveRow(
-                    topic: topic,
-                    isSelected: model.thread.selectedTopicID == topic.id
-                )
-            }
-            .buttonStyle(.plain)
-            .forumTopicListRow()
-            .accessibilityIdentifier("topic-\(topic.id.rawValue)")
+            topicRow(topic)
         }
+    }
+
+    private func topicRow(
+        _ topic: Topic,
+        highlight: TopicKeywordHighlight? = nil
+    ) -> some View {
+        Button {
+            Task { await model.openTopic(topic) }
+        } label: {
+            TopicInteractiveRow(
+                topic: topic,
+                isSelected: model.thread.selectedTopicID == topic.id,
+                keywordHighlight: highlight,
+                isVisited: model.dimsVisitedTopic(topic.id),
+                levelGate: model.levelGate(for: topic)
+            )
+        }
+        .buttonStyle(.plain)
+        .forumTopicListRow()
+        .accessibilityIdentifier("topic-\(topic.id.rawValue)")
+    }
+
+    /// 过了一遍关键字规则的话题行。
+    ///
+    /// 只有版面话题列表走这条路，搜索结果走上面那条原样的 —— 用户自己打了字
+    /// 去搜的东西，再替他藏掉几条是说不过去的：他会以为站点上就没有。
+    @ViewBuilder
+    private func filteredTopicRows(_ topics: [Topic]) -> some View {
+        let result = keywordFilteredTopics(topics)
+        ForEach(result.visible) { entry in
+            switch entry.verdict {
+            case .fold(let match) where !expandedFoldedTopicIDs.contains(entry.id):
+                foldedTopicRow(entry.topic, match: match)
+            case .highlight(let colorHex, let match):
+                topicRow(
+                    entry.topic,
+                    highlight: TopicKeywordHighlight(colorHex: colorHex, match: match)
+                )
+            default:
+                topicRow(entry.topic)
+            }
+        }
+        if result.hiddenCount > 0 {
+            hiddenTopicsNoticeRow(count: result.hiddenCount)
+        }
+    }
+
+    private func keywordFilteredTopics(
+        _ topics: [Topic]
+    ) -> (visible: [KeywordFilteredTopic], hiddenCount: Int) {
+        guard keywordFilter.isActive else {
+            return (topics.map { KeywordFilteredTopic(topic: $0, verdict: .show) }, 0)
+        }
+        var visible: [KeywordFilteredTopic] = []
+        var hiddenCount = 0
+        for topic in topics {
+            let verdict = keywordFilter.verdict(
+                forSubject: topic.subject,
+                author: topic.author
+            )
+            if case .hide = verdict {
+                hiddenCount += 1
+                continue
+            }
+            visible.append(KeywordFilteredTopic(topic: topic, verdict: verdict))
+        }
+        return (visible, hiddenCount)
+    }
+
+    /// 被折叠的那一行。点一下就换回完整的话题行。
+    ///
+    /// 把命中的东西写出来，是因为折叠这一档的意思是「多半不想看」而不是「一定不想看」：
+    /// 用户得看得出是哪条规则收走了它，才判断得了这一下值不值得点开。
+    private func foldedTopicRow(_ topic: Topic, match: KeywordFilterMatch) -> some View {
+        Button {
+            expandedFoldedTopicIDs.insert(topic.id)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: KeywordFilterAction.fold.systemImage)
+                Text("已折叠 · \(match.description)")
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("显示")
+                    .foregroundStyle(theme.accentColor)
+            }
+            .font(fonts.topicList.caption)
+            .foregroundStyle(theme.secondaryForegroundColor)
+            .padding(.horizontal, TopicRowMetrics.horizontalPadding)
+            .padding(.vertical, TopicRowMetrics.foldedVerticalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help("关键字过滤把这条折叠了：\(match.description)")
+        .forumTopicListRow()
+        .accessibilityLabel("已折叠的话题，\(match.description)，点按显示")
+        .accessibilityIdentifier("topic-folded-\(topic.id.rawValue)")
+    }
+
+    /// 列表末尾那一笔「藏了几条」。
+    ///
+    /// 隐藏档不留任何痕迹的话，一个冷清的版面和一个被自己的规则清空的版面在
+    /// 界面上长得一样 —— 到时候用户会以为是应用没抓到数据。
+    private func hiddenTopicsNoticeRow(count: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: KeywordFilterAction.hide.systemImage)
+            Text("关键字过滤隐藏了 \(count) 条话题")
+            Spacer(minLength: 8)
+            Button("过滤设置") {
+                model.openSettings(section: .keywordFilter)
+            }
+            .buttonStyle(.link)
+        }
+        .font(fonts.topicList.caption)
+        .foregroundStyle(theme.tertiaryForegroundColor)
+        .padding(.horizontal, TopicRowMetrics.horizontalPadding)
+        .padding(.vertical, TopicRowMetrics.foldedVerticalPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .forumTopicListRow()
+        .accessibilityIdentifier("topic-list-keyword-hidden-notice")
     }
 
     @ViewBuilder
@@ -1796,21 +1903,74 @@ private struct SubforumTile: View {
     }
 }
 
+/// 话题行的几个尺寸。
+///
+/// 拎出来是因为折叠行和「隐藏了几条」那一行要和正常的话题行落在同一条竖线上。
+/// 同一个数在三处各写一遍，就会在某次调整之后变成三个数 —— `ForumSearchBar`
+/// 那次就是这么来的。
+enum TopicRowMetrics {
+    static let horizontalPadding: CGFloat = 8
+    static let verticalPadding: CGFloat = 3
+    static let cornerRadius: CGFloat = 7
+    /// 折叠行和隐藏计数那一行比正常行矮：它们本来就是「这里有东西被收走了」的
+    /// 一条注记，占到和话题一样高就成了另一种噪音。
+    static let foldedVerticalPadding: CGFloat = 6
+}
+
+/// 关键字过滤给一行话题的高亮。
+struct TopicKeywordHighlight: Equatable {
+    var colorHex: String
+    var match: KeywordFilterMatch
+
+    var color: Color {
+        ThemeRGB(
+            hex: colorHex,
+            fallback: ThemeRGB(hex: KeywordFilterSettings.defaultHighlightHex)!
+        )!.color
+    }
+}
+
+/// 一条话题连同关键字过滤给它的去向。
+private struct KeywordFilteredTopic: Identifiable {
+    let topic: Topic
+    let verdict: KeywordFilterVerdict
+
+    var id: TopicID { topic.id }
+}
+
 struct TopicInteractiveRow: View {
     @Environment(\.sngaTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let topic: Topic
     let isSelected: Bool
+    /// 关键字过滤命中之后的底色。搜索结果和收藏夹那几条路不传。
+    var keywordHighlight: TopicKeywordHighlight?
+    /// 这条话题打开过。标题跟着淡下去，和浏览器里访问过的链接一个意思。
+    var isVisited = false
+    /// 等级不够看。整行淡，锁不淡。
+    var levelGate: TopicLevelGate?
     @State private var isHovered = false
 
+    @ViewBuilder
     var body: some View {
-        TopicRow(topic: topic)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+        // 高亮只是一片底色，说不出自己是哪来的；悬停时把命中的词说出来，用户
+        // 才知道该去改哪一条规则。没命中的行不挂 tooltip —— 空的 `help` 在
+        // AppKit 那边会弹出一个什么都没有的小框。
+        if let keywordHighlight {
+            row.help("关键字过滤高亮：\(keywordHighlight.match.description)")
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
+        TopicRow(topic: topic, isVisited: isVisited, levelGate: levelGate)
+            .padding(.horizontal, TopicRowMetrics.horizontalPadding)
+            .padding(.vertical, TopicRowMetrics.verticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
             .background {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: TopicRowMetrics.cornerRadius, style: .continuous)
                     .fill(backgroundColor)
             }
             .onHover { isHovered = $0 }
@@ -1822,6 +1982,14 @@ struct TopicInteractiveRow: View {
         if isSelected {
             return theme.accentColor.opacity(0.18)
         }
+        if let keywordHighlight {
+            // 悬停时加深同一种颜色，而不是换成 `hoverFillColor`：换色会让「这一行
+            // 被标出来了」在指针经过的那一下消失，正好是用户去点它的那一下。
+            //
+            // 压到两成多才铺上去，是因为这颜色是用户挑的，可能是任何一支纯色。
+            // 原样铺满会把标题的对比度推到主题管不着的地方去。
+            return keywordHighlight.color.opacity(isHovered ? 0.42 : 0.26)
+        }
         if isHovered {
             return theme.hoverFillColor
         }
@@ -1829,9 +1997,55 @@ struct TopicInteractiveRow: View {
     }
 }
 
+/// 够不着时才挂那句提示。
+///
+/// 写成 `ViewModifier` 而不是在 `body` 里分叉：`TopicRow` 的 `body` 已经是
+/// 这个文件里最长的一段，再套一层 `if` 会把类型检查器推过头（同一个文件里
+/// 那条搜索栏的注释记着这件事）。
+private struct LevelGateHelp: ViewModifier {
+    let gate: TopicLevelGate?
+
+    func body(content: Content) -> some View {
+        if let gate {
+            content.help(gate.description)
+        } else {
+            content
+        }
+    }
+}
+
 private struct TopicRow: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let topic: Topic
+    /// 打开过的话题，标题淡一档。
+    var isVisited = false
+    /// 等级不够看的话题。整行淡下去，只有那把锁不淡。
+    var levelGate: TopicLevelGate?
+
+    private enum Metrics {
+        /// 读过的标题留多少。
+        ///
+        /// 压的是**原本那个颜色的透明度**，不是换成一支固定的灰：站点自己给标题
+        /// 上过色的（NGA 的红标、绿标）换成灰就把那条信息抹掉了，而六套主题下
+        /// 各有各的前景色，写死一支灰总有一两套看不出深浅。
+        ///
+        /// 0.55 是「一眼看得出淡了、又还读得出来」的位置：再低到 0.4，午夜蓝
+        /// 主题下的正文色压在背景上就只剩三点几比一，够不着 AA。
+        static let visitedSubjectOpacity: Double = 0.55
+
+        /// 等级不够的那一行留多少。
+        ///
+        /// 和「读过」有意用两种形状，而不是两个深浅相近的灰 —— 光靠淡到什么程度
+        /// 区分，一屏扫过去根本分不出来：
+        /// - **读过**：只有标题淡，作者、回复数、日期照常。「读过了，但它还在。」
+        /// - **等级不够**：整行都淡，**唯独那把锁保持强调色**。一行灰里只有一处
+        ///   亮着，亮的正好是「为什么」。
+        ///
+        /// 再配一句悬停提示说还差几级 —— 光靠颜色说事，读屏的人和分不清深浅的人
+        /// 都接不到。
+        static let levelGateOpacity: Double = 0.5
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1839,7 +2053,7 @@ private struct TopicRow: View {
                 if topic.isLocked { Image(systemName: "lock.fill").foregroundStyle(.secondary) }
                 if topic.mirroredForumID != nil {
                     Label("版面镜像", systemImage: "arrow.triangle.branch")
-                        .font(.caption2.weight(.medium))
+                        .font(fonts.topicList.font(.caption2, weight: .medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1847,7 +2061,7 @@ private struct TopicRow: View {
                         .background(theme.accentSoftColor, in: Capsule())
                 } else if let sourceForumName = topic.sourceForumName, !sourceForumName.isEmpty {
                     Text(sourceForumName)
-                        .font(.caption2.weight(.medium))
+                        .font(fonts.topicList.font(.caption2, weight: .medium))
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -1869,8 +2083,10 @@ private struct TopicRow: View {
                             Text(value)
                         }
                     }
-                    .font(.caption)
+                    .font(fonts.topicList.caption)
                     .foregroundStyle(theme.accentColor)
+                    // 别的标记跟着整行淡；等级那把锁不淡 —— 它是这一行为什么灰的答案。
+                    .opacity(badge.requiredLevel == nil ? contentOpacity : 1)
                     .help(badge.title)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(badge.title)
@@ -1879,8 +2095,9 @@ private struct TopicRow: View {
                     )
                 }
                 Text(topic.subject)
-                    .font(.body.weight(topic.isPinned ? .semibold : .regular))
-                    .foregroundStyle(topic.subjectColor?.displayColor ?? Color.primary)
+                    .font(fonts.topicList.font(.body, weight: topic.isPinned ? .semibold : .regular))
+                    .foregroundStyle(subjectColor)
+                    .opacity(contentOpacity)
                     .lineLimit(3)
             }
             HStack {
@@ -1915,10 +2132,30 @@ private struct TopicRow: View {
                     .fixedSize()
                 }
             }
-            .font(.caption)
+            .font(fonts.topicList.caption)
             .foregroundStyle(.secondary)
+            .opacity(contentOpacity)
         }
+        // 作者、回复数、日期那一行以外的文字（锁定图标、镜像标签）落在这里，
+        // 跟着话题列表那一档走。
+        .font(fonts.topicList.body)
         .padding(.vertical, 4)
+        // 只在真的够不着时挂提示。空的 `help` 在 AppKit 那边会弹出一个什么都没有
+        // 的小框，而这一行是话题列表里最常被指针扫过的东西。
+        .modifier(LevelGateHelp(gate: levelGate))
+    }
+
+    /// 除了那把锁之外，这一行的东西留多少。
+    private var contentOpacity: Double {
+        levelGate == nil ? 1 : Metrics.levelGateOpacity
+    }
+
+    private var subjectColor: Color {
+        let base = topic.subjectColor?.displayColor ?? Color.primary
+        // 等级不够时不再叠一层「读过」的淡：两层乘起来是 0.27，标题就真的读不出了。
+        // 而且这一行整个都淡了，标题再单独淡一次也说不出任何多余的意思。
+        guard levelGate == nil else { return base }
+        return isVisited ? base.opacity(Metrics.visitedSubjectOpacity) : base
     }
 }
 

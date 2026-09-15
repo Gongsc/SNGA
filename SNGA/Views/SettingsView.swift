@@ -33,12 +33,23 @@ struct SettingsMenuView: View {
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(SearchHistorySettings.maximumCountKey)
     private var searchHistoryMaximumCount = SearchHistorySettings.defaultMaximumCount
+    @AppStorage(KeywordFilterSettings.enabledKey) private var keywordFilterEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var keywordFilterRulesJSON = ""
+    @AppStorage(TopicHistorySettings.enabledKey) private var topicHistoryEnabled = true
+    @AppStorage(TopicHistorySettings.dimsVisitedKey) private var dimsVisitedTopics = true
+    @AppStorage(TopicHistorySettings.maximumCountKey)
+    private var topicHistoryMaximumCount = TopicHistorySettings.defaultMaximumCount
+    @AppStorage(TopicHistorySettings.retentionDaysKey)
+    private var topicHistoryRetentionDays = TopicHistorySettings.defaultRetentionDays
     @AppStorage(ToolboxInstanceSettings.selectionKey)
     private var toolboxInstanceSelectionRaw = ToolboxInstanceChoice.automatic.rawValue
     @AppStorage(ToolboxInstanceSettings.customBaseURLKey)
@@ -62,7 +73,7 @@ struct SettingsMenuView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                Text("外观、浏览行为、AI、小工具、日志与关于")
+                Text("外观、浏览行为、关键字过滤、浏览历史、AI、小工具、日志与关于")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
@@ -94,9 +105,15 @@ struct SettingsMenuView: View {
         switch section {
         case .appearance:
             let selected = AppTheme.resolve(selectedThemeRaw)
-            return selected == .custom
+            let themeTitle = selected == .custom
                 ? "自定义 · 强调色 \(customAccentHex.uppercased())"
                 : selected.displayName
+            // 三档只报正文那一档：副标题只有一行，三个字体名字加三个字号
+            // 拼进去必然被中间截断，剩下的信息还不如不写。
+            let family = FontSettings.normalizedFamily(threadContentFontFamily)
+            let fontTitle = family.isEmpty ? "系统字体" : family
+            let size = Int(FontSettings.normalizedSize(threadContentFontSize))
+            return "\(themeTitle) · 正文 \(fontTitle) \(size) 点"
         case .browsing:
             let count = RecentForumSettings.normalizedMaximumCount(recentForumMaximumCount)
             let historyCount = SearchHistorySettings.normalizedMaximumCount(
@@ -106,6 +123,21 @@ struct SettingsMenuView: View {
                 + " · 签名\(showsPostSignature ? "已开" : "已关")"
                 + " · 最近访问 \(count) 条"
                 + " · 搜索历史 \(historyCount) 条"
+        case .keywordFilter:
+            let rules = KeywordFilterSettings.decode(keywordFilterRulesJSON)
+            let activeRules = rules.filter(\.isActive)
+            guard !activeRules.isEmpty else { return "未设置关键字" }
+            guard keywordFilterEnabled else { return "已关闭 · 留着 \(activeRules.count) 条规则" }
+            let counts = KeywordFilterAction.allCases.compactMap { action -> String? in
+                let count = activeRules.filter { $0.action == action }.count
+                return count > 0 ? "\(action.title) \(count)" : nil
+            }
+            return counts.joined(separator: " · ")
+        case .topicHistory:
+            guard topicHistoryEnabled else { return "不记录" }
+            let count = TopicHistorySettings.normalizedMaximumCount(topicHistoryMaximumCount)
+            let days = TopicHistorySettings.normalizedRetentionDays(topicHistoryRetentionDays)
+            return "\(count) 条 · \(days) 天 · 读过变灰\(dimsVisitedTopics ? "已开" : "已关")"
         case .ai:
             guard aiEnabled else { return "已关闭" }
             let model = aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -217,6 +249,8 @@ struct SettingsDetailView: View {
                 switch section {
                 case .appearance: SettingsAppearancePane()
                 case .browsing: SettingsBrowsingPane()
+                case .keywordFilter: SettingsKeywordFilterPane()
+                case .topicHistory: SettingsTopicHistoryPane()
                 case .ai: SettingsAIPane()
                 case .toolbox: SettingsToolboxPane()
                 case .background: SettingsBackgroundPane()
@@ -239,11 +273,36 @@ struct SettingsDetailView: View {
 // MARK: - 面板
 
 private struct SettingsAppearancePane: View {
+    @Environment(\.sngaTheme) private var theme
     @AppStorage(AppTheme.storageKey) private var selectedThemeRaw = AppTheme.system.rawValue
     @AppStorage(AppTheme.customBackgroundKey)
     private var customBackgroundHex = AppTheme.defaultCustomBackgroundHex
     @AppStorage(AppTheme.customAccentKey)
     private var customAccentHex = AppTheme.defaultCustomAccentHex
+    // 三段字体各一对。键是拼出来的（`FontArea.familyKey`），但存取仍旧一处一个
+    // 属性 —— `@AppStorage` 的键要在初始化时定死，动态取键就得给每一段再套一层
+    // 子视图，而那一层除了转发什么都不做。
+    @AppStorage(FontArea.sidebar.familyKey) private var sidebarFontFamily = ""
+    @AppStorage(FontArea.sidebar.sizeKey)
+    private var sidebarFontSize = FontArea.sidebar.defaultSize
+    @AppStorage(FontArea.topicList.familyKey) private var topicListFontFamily = ""
+    @AppStorage(FontArea.topicList.sizeKey)
+    private var topicListFontSize = FontArea.topicList.defaultSize
+    @AppStorage(FontArea.threadContent.familyKey) private var threadContentFontFamily = ""
+    @AppStorage(FontArea.threadContent.sizeKey)
+    private var threadContentFontSize = FontArea.threadContent.defaultSize
+    @AppStorage(FontArea.postAuthor.familyKey) private var postAuthorFontFamily = ""
+    @AppStorage(FontArea.postAuthor.sizeKey)
+    private var postAuthorFontSize = FontArea.postAuthor.defaultSize
+
+    private enum Metrics {
+        /// 选择器给死宽度：字体名字从「宋体-简」到「Helvetica Neue」差着一倍，
+        /// 贴着内容会让三行的字号步进器各起各的头。
+        static let familyPickerWidth: CGFloat = 210
+        /// 步进器的读数也给死宽度。当前范围里都是两位数，看不出区别 —— 但宽度
+        /// 一旦跟着内容走，改一次范围就会让三行的箭头各站各的位置。
+        static let sizeValueWidth: CGFloat = 46
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -292,6 +351,150 @@ private struct SettingsAppearancePane: View {
                     }
                 }
             }
+
+            fontCard
+            fontPreviewCard
+        }
+    }
+
+    /// 三段字体的设置。
+    ///
+    /// 用 `Grid` 而不是三组 `LabeledContent`：后者每一行各管各的，标签宽度对不齐，
+    /// 三个选择器会各起各的头。
+    private var fontCard: some View {
+        SettingsCard(label: "字体") {
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
+                ForEach(FontArea.allCases) { area in
+                    GridRow(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(area.title)
+                            Text(area.detail)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondaryForegroundColor)
+                        }
+
+                        Picker("字体", selection: familyBinding(for: area)) {
+                            Text("系统字体").tag(FontSettings.systemFamilyName)
+                            Divider()
+                            ForEach(FontSettings.availableFamilies, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: Metrics.familyPickerWidth)
+                        .accessibilityLabel("\(area.title)字体")
+                        .accessibilityIdentifier("appearance-font-family-\(area.rawValue)")
+
+                        Stepper(
+                            value: sizeBinding(for: area),
+                            in: FontSettings.allowedSizeRange,
+                            step: 1
+                        ) {
+                            Text("\(Int(sizeBinding(for: area).wrappedValue)) 点")
+                                .monospacedDigit()
+                                .frame(width: Metrics.sizeValueWidth, alignment: .leading)
+                        }
+                        .accessibilityLabel("\(area.title)字号")
+                        .accessibilityIdentifier("appearance-font-size-\(area.rawValue)")
+                    }
+                }
+            }
+
+            Text("只改这三处的文字。按钮、输入框和选择器仍按系统尺寸 —— 它们的大小归 macOS 管，跟着字号缩会把整块面板挤变形。")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryForegroundColor)
+
+            HStack {
+                Spacer()
+                Button("恢复默认字体") {
+                    for area in FontArea.allCases {
+                        familyBinding(for: area).wrappedValue = FontSettings.systemFamilyName
+                        sizeBinding(for: area).wrappedValue = area.defaultSize
+                    }
+                }
+                .disabled(resolvedFonts.isDefault)
+                .accessibilityIdentifier("appearance-font-reset")
+            }
+        }
+    }
+
+    /// 改完当场能看见。三段的正文和小字各画一行 —— 小字（徽章、作者、楼层号）
+    /// 跟着同一个比例缩放，只看正文那一行是看不出来的。
+    private var fontPreviewCard: some View {
+        SettingsCard(label: "预览") {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(FontArea.allCases) { area in
+                    let set = resolvedFonts[area]
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label(area.title, systemImage: area.systemImage)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.secondaryForegroundColor)
+                        Text(area.sampleText)
+                            .font(set.body)
+                            .lineLimit(1)
+                        Text(area.sampleDetail)
+                            .font(set.caption)
+                            .foregroundStyle(theme.secondaryForegroundColor)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("appearance-font-preview-\(area.rawValue)")
+                }
+            }
+        }
+    }
+
+    private var resolvedFonts: ResolvedAppFonts {
+        ResolvedAppFonts(
+            sidebar: ScopedFontSet(
+                area: .sidebar,
+                familyName: FontSettings.normalizedFamily(sidebarFontFamily),
+                size: sidebarFontSize
+            ),
+            topicList: ScopedFontSet(
+                area: .topicList,
+                familyName: FontSettings.normalizedFamily(topicListFontFamily),
+                size: topicListFontSize
+            ),
+            threadContent: ScopedFontSet(
+                area: .threadContent,
+                familyName: FontSettings.normalizedFamily(threadContentFontFamily),
+                size: threadContentFontSize
+            ),
+            postAuthor: ScopedFontSet(
+                area: .postAuthor,
+                familyName: FontSettings.normalizedFamily(postAuthorFontFamily),
+                size: postAuthorFontSize
+            )
+        )
+    }
+
+    /// 取值时过一道 `normalizedFamily`：选过的字体可能已经被卸载了，直接把存下来
+    /// 的名字交给选择器，它会显示成一个谁也选不中的空行。
+    private func familyBinding(for area: FontArea) -> Binding<String> {
+        let stored = storedFamilyBinding(for: area)
+        return Binding(
+            get: { FontSettings.normalizedFamily(stored.wrappedValue) },
+            set: { stored.wrappedValue = $0 }
+        )
+    }
+
+    private func storedFamilyBinding(for area: FontArea) -> Binding<String> {
+        switch area {
+        case .sidebar: $sidebarFontFamily
+        case .topicList: $topicListFontFamily
+        case .threadContent: $threadContentFontFamily
+        case .postAuthor: $postAuthorFontFamily
+        }
+    }
+
+    private func sizeBinding(for area: FontArea) -> Binding<Double> {
+        switch area {
+        case .sidebar: $sidebarFontSize
+        case .topicList: $topicListFontSize
+        case .threadContent: $threadContentFontSize
+        case .postAuthor: $postAuthorFontSize
         }
     }
 
@@ -330,14 +533,7 @@ private struct SettingsAppearancePane: View {
     }
 
     private func colorHex(_ color: Color, fallback: String) -> String {
-        guard let converted = NSColor(color).usingColorSpace(.sRGB) else {
-            return fallback
-        }
-        return ThemeRGB(
-            red: converted.redComponent,
-            green: converted.greenComponent,
-            blue: converted.blueComponent
-        ).hex
+        ThemeRGB(color)?.hex ?? fallback
     }
 }
 
@@ -345,6 +541,7 @@ private struct SettingsBrowsingPane: View {
     @Environment(AppModel.self) private var model
     @AppStorage(BrowsingSettings.imageFreeModeKey) private var imageFreeMode = false
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsPostSignature = true
+    @AppStorage(BrowsingSettings.dimsGatedTopicsKey) private var dimsGatedTopics = true
     @AppStorage(RecentForumSettings.maximumCountKey)
     private var recentForumMaximumCount = RecentForumSettings.defaultMaximumCount
     @AppStorage(SearchHistorySettings.maximumCountKey)
@@ -373,6 +570,23 @@ private struct SettingsBrowsingPane: View {
                 .accessibilityIdentifier("browsing-post-signature")
 
                 Text("楼层末尾用一条分割线隔开作者的签名。没写签名的作者不占位置。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Toggle(isOn: $dimsGatedTopics) {
+                    Text("等级不够看的话题画成灰的")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("browsing-dims-gated-topics")
+
+                Text("列表里标着「等级 N 可见」而你还没到那一级的话题，整行淡下去，只留那把锁是亮的 —— 和「读过」不一样，读过只淡标题。点开仍然可以，站点会告诉你还差什么。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("只有站点报得出等级时才生效，目前是 NodeSeek。自己的等级还没取到时一律不画 —— 宁可不画，也不能把本来看得了的帖子画成看不了的。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -419,6 +633,384 @@ private struct SettingsBrowsingPane: View {
                 .accessibilityIdentifier("search-history-clear-all")
             }
         }
+    }
+}
+
+/// 浏览历史。
+///
+/// 「记不记」和「变不变灰」是两个开关，因为它们是两件事：一个是留不留记录，
+/// 一个是列表上体不体现。嫌列表花的人不必为此把历史也一起关掉。
+private struct SettingsTopicHistoryPane: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.sngaTheme) private var theme
+    @AppStorage(TopicHistorySettings.enabledKey) private var isEnabled = true
+    @AppStorage(TopicHistorySettings.dimsVisitedKey) private var dimsVisitedTopics = true
+    @AppStorage(TopicHistorySettings.maximumCountKey)
+    private var maximumCount = TopicHistorySettings.defaultMaximumCount
+    @AppStorage(TopicHistorySettings.retentionDaysKey)
+    private var retentionDays = TopicHistorySettings.defaultRetentionDays
+    @State private var showsClearConfirmation = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $isEnabled) {
+                    Text("记录浏览历史")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("topic-history-enabled")
+                .onChange(of: isEnabled) { _, isEnabled in
+                    model.topicHistory.applyEnabledChange(isEnabled)
+                }
+
+                Text("打开过的话题记在侧栏的「浏览历史」里，按天分组。关掉之后不再记录，**已经记下的也会全部删掉** —— 所有账号的都删。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Toggle(isOn: $dimsVisitedTopics) {
+                    Text("读过的话题在列表里变灰")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-dims-visited")
+
+                Text("和浏览器里访问过的链接一个意思：标题淡一档，站点自己给标题上的颜色保留。版面列表、搜索结果和收藏夹都算。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !isEnabled {
+                    Text("需要先打开「记录浏览历史」—— 不记录就无从知道哪些读过。")
+                        .font(.caption)
+                        .foregroundStyle(theme.tertiaryForegroundColor)
+                }
+            }
+
+            SettingsCard {
+                Stepper(
+                    value: $maximumCount,
+                    in: TopicHistorySettings.maximumCountRange,
+                    step: TopicHistorySettings.maximumCountStep
+                ) {
+                    Text("每个账号最多保留：\(maximumCount) 条")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-maximum-count")
+                .onChange(of: maximumCount) { _, maximumCount in
+                    model.topicHistory.updateMaximumCount(maximumCount)
+                }
+
+                Stepper(
+                    value: $retentionDays,
+                    in: TopicHistorySettings.retentionDaysRange
+                ) {
+                    Text("保留天数：\(retentionDays) 天")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(!isEnabled)
+                .accessibilityIdentifier("topic-history-retention-days")
+                .onChange(of: retentionDays) { _, retentionDays in
+                    model.topicHistory.updateRetentionDays(retentionDays)
+                }
+
+                Text("上限是按账号算的，不是所有账号合起来 —— 否则常用的那个账号会把别的账号的历史挤光。调小会立刻删掉多出来的记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("到期和超额的记录一并不再变灰：一个月前读过的帖子会重新显示成没读过。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard {
+                Button("清空当前账号的浏览历史") {
+                    showsClearConfirmation = true
+                }
+                .disabled(model.topicHistory.entries.isEmpty)
+                .accessibilityIdentifier("topic-history-clear-all")
+
+                Text("只清当前账号。别的账号读过什么不受影响。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .confirmationDialog(
+            "清空浏览历史？",
+            isPresented: $showsClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清空", role: .destructive) { model.topicHistory.clear() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前账号读过的 \(model.topicHistory.entries.count) 条记录会被删掉，列表里的话题也不再显示成读过。")
+        }
+    }
+}
+
+/// 关键字过滤。
+///
+/// 一条规则一行：开关、词、档位、颜色、删除。用 `Grid` 而不是一列 `HStack`，
+/// 是因为每一行的词长短不一 —— 各管各的话，档位选择器会在每一行落在不同的位置。
+private struct SettingsKeywordFilterPane: View {
+    @Environment(\.sngaTheme) private var theme
+    @AppStorage(KeywordFilterSettings.enabledKey) private var isEnabled = true
+    @AppStorage(KeywordFilterSettings.rulesKey) private var rulesJSON = ""
+    /// 试打一条标题，看看现有规则会把它怎么样。关键字过滤最常见的毛病是误伤，
+    /// 而误伤只有在列表里少了东西之后才会被发现 —— 这里让它当场就能验。
+    @State private var trialSubject = ""
+    @State private var trialAuthor = ""
+
+    private enum Metrics {
+        /// 范围和档位两个选择器都给死宽度：标题都是两个字，但选择器自带的箭头和
+        /// 内边距会让它贴着内容变形，行与行之间对不齐。
+        static let scopePickerWidth: CGFloat = 82
+        static let actionPickerWidth: CGFloat = 92
+        /// 颜色那一格的宽度。非高亮档不画取色盘，但格子留着 ——
+        /// 换个档位整行的列宽跟着跳，比留一块空白难看得多。
+        static let colorColumnWidth: CGFloat = 44
+        static let rowSpacing: CGFloat = 8
+        static let columnSpacing: CGFloat = 10
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsCard {
+                Toggle(isOn: $isEnabled) {
+                    Text("启用关键字过滤")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("keyword-filter-enabled")
+
+                Text("按话题标题里的词、或者发帖人是谁，把话题高亮、折叠或隐藏。关掉之后规则原样留着，只是不起作用。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("只作用于版面的话题列表。搜索结果和收藏夹不过滤 —— 那两处是你自己点名要看的东西。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            rulesCard
+            trialCard
+        }
+    }
+
+    private var rulesCard: some View {
+        SettingsCard(label: "规则") {
+            if rules.isEmpty {
+                Text("还没有规则。一条规则里可以并列多个词，用逗号隔开，命中任意一个就算。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Grid(
+                    alignment: .leading,
+                    horizontalSpacing: Metrics.columnSpacing,
+                    verticalSpacing: Metrics.rowSpacing
+                ) {
+                    ForEach(ruleBindings) { $rule in
+                        GridRow {
+                            Toggle("启用规则", isOn: $rule.isEnabled)
+                                .labelsHidden()
+                                .help(rule.isEnabled ? "这条规则生效中" : "这条规则已停用")
+
+                            Picker("比哪一面", selection: $rule.scope) {
+                                ForEach(KeywordFilterScope.allCases) { scope in
+                                    Text(scope.title).tag(scope)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: Metrics.scopePickerWidth)
+                            .help(rule.scope == .subject ? "在话题标题里找" : "比发帖人的名字")
+
+                            TextField(rule.scope.prompt, text: $rule.keywords)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel(rule.scope.title)
+
+                            Picker("命中后怎么办", selection: $rule.action) {
+                                ForEach(KeywordFilterAction.allCases) { action in
+                                    Text(action.title).tag(action)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: Metrics.actionPickerWidth)
+
+                            Group {
+                                if rule.action == .highlight {
+                                    ColorPicker(
+                                        "高亮底色",
+                                        selection: color(for: $rule),
+                                        supportsOpacity: false
+                                    )
+                                    .labelsHidden()
+                                    .help("高亮底色")
+                                }
+                            }
+                            .frame(width: Metrics.colorColumnWidth, alignment: .leading)
+
+                            Button {
+                                remove(rule.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("删除这条规则")
+                            .accessibilityLabel("删除规则")
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("keyword-filter-rules")
+            }
+
+            HStack {
+                Button("添加规则", action: addRule)
+                    .disabled(rules.count >= KeywordFilterSettings.maximumRuleCount)
+                    .accessibilityIdentifier("keyword-filter-add-rule")
+
+                Spacer()
+
+                if !rules.isEmpty {
+                    Text("\(rules.count) / \(KeywordFilterSettings.maximumRuleCount)")
+                        .font(.caption)
+                        .foregroundStyle(theme.tertiaryForegroundColor)
+                }
+            }
+
+            Text("标题按「含有」比，作者按「就是这个人」比 —— 屏蔽的是某一个人，按片段比会连坐名字相近的人。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("同一条话题命中多条规则时，隐藏盖过折叠，折叠盖过高亮；同一档里以排在前面的那条为准。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 试一条话题。标题和作者分两格，因为规则也是按这两面分的 ——
+    /// 只给一个输入框的话，作者那一档根本试不出来。
+    private var trialCard: some View {
+        SettingsCard(label: "试一条话题") {
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: Metrics.columnSpacing,
+                verticalSpacing: Metrics.rowSpacing
+            ) {
+                GridRow {
+                    Text("标题")
+                        .gridColumnAlignment(.trailing)
+                    TextField("粘一条话题标题进来看看", text: $trialSubject)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("keyword-filter-trial-subject")
+                }
+                GridRow {
+                    Text("作者")
+                        .gridColumnAlignment(.trailing)
+                    TextField("发帖人的名字", text: $trialAuthor)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("keyword-filter-trial-author")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 6) {
+                Image(systemName: trialSymbol)
+                Text(trialDescription)
+            }
+            .font(.caption)
+            .foregroundStyle(trialIsFiltered ? theme.accentColor : theme.secondaryForegroundColor)
+            .accessibilityIdentifier("keyword-filter-trial-result")
+        }
+    }
+
+    // MARK: - 试一条标题的结果
+
+    private var trialVerdict: KeywordFilterVerdict {
+        ResolvedKeywordFilter(isEnabled: isEnabled, rules: rules)
+            .verdict(forSubject: trialSubject, author: trialAuthor)
+    }
+
+    private var trialIsEmpty: Bool {
+        trialSubject.isEmpty && trialAuthor.isEmpty
+    }
+
+    private var trialIsFiltered: Bool {
+        !trialIsEmpty && trialVerdict != .show
+    }
+
+    private var trialSymbol: String {
+        switch trialVerdict {
+        case .show: "checkmark.circle"
+        case .highlight: KeywordFilterAction.highlight.systemImage
+        case .fold: KeywordFilterAction.fold.systemImage
+        case .hide: KeywordFilterAction.hide.systemImage
+        }
+    }
+
+    private var trialDescription: String {
+        guard !trialIsEmpty else { return "填任意一格，这里会说它会被怎么处理。" }
+        switch trialVerdict {
+        case .show:
+            return "没有规则命中，照常显示。"
+        case .highlight(_, let match):
+            return "\(match.description)，会在列表里高亮。"
+        case .fold(let match):
+            return "\(match.description)，会被折叠成一行。"
+        case .hide(let match):
+            return "\(match.description)，不会出现在列表里。"
+        }
+    }
+
+    // MARK: - 规则的读写
+
+    /// 规则存成一行 JSON，这里每次读都解一遍。
+    ///
+    /// 没有搬进 `@State` 缓存：那样就有两份真相，改完之后得自己往回同步，
+    /// 而这个面板一共也就几十条规则，解析的代价比同步的风险小得多。
+    private var rules: [KeywordFilterRule] {
+        KeywordFilterSettings.decode(rulesJSON)
+    }
+
+    private var ruleBindings: Binding<[KeywordFilterRule]> {
+        Binding(
+            get: { KeywordFilterSettings.decode(rulesJSON) },
+            set: { rulesJSON = KeywordFilterSettings.encode($0) }
+        )
+    }
+
+    private func color(for rule: Binding<KeywordFilterRule>) -> Binding<Color> {
+        Binding(
+            get: {
+                ThemeRGB(
+                    hex: rule.wrappedValue.colorHex,
+                    fallback: ThemeRGB(hex: KeywordFilterSettings.defaultHighlightHex)!
+                )!.color
+            },
+            set: {
+                rule.wrappedValue.colorHex =
+                    ThemeRGB($0)?.hex ?? KeywordFilterSettings.defaultHighlightHex
+            }
+        )
+    }
+
+    /// 新规则的颜色按已有条数轮着取，而不是一律给默认的那支淡黄 ——
+    /// 几条规则同色的话，高亮就只剩「这行被标了」，说不出是被哪条标的。
+    private func addRule() {
+        var updated = rules
+        guard updated.count < KeywordFilterSettings.maximumRuleCount else { return }
+        let palette = KeywordFilterSettings.presetHighlightHexes
+        updated.append(
+            KeywordFilterRule(colorHex: palette[updated.count % palette.count])
+        )
+        rulesJSON = KeywordFilterSettings.encode(updated)
+    }
+
+    private func remove(_ id: KeywordFilterRule.ID) {
+        rulesJSON = KeywordFilterSettings.encode(rules.filter { $0.id != id })
     }
 }
 

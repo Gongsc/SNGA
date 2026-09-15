@@ -43,6 +43,21 @@ final class SymbolNameTests: XCTestCase {
     }
 
     /// V2EX 只有一种表态，它不在 `NodeSeekReaction` 里。
+    /// 关键字过滤的三档。这三个名字在设置面板、折叠行和列表末尾那条计数上
+    /// 各画一次，画空了的话「这条被折叠了」就只剩一行没头没尾的小字。
+    func testEveryKeywordFilterActionIconExists() {
+        for action in KeywordFilterAction.allCases {
+            assertExists(action.systemImage, "关键字过滤的「\(action.title)」")
+        }
+    }
+
+    /// 设置里每一栏的图标。加一栏时最容易漏的也是这个。
+    func testEverySettingsSectionIconExists() {
+        for section in SettingsSection.allCases {
+            assertExists(section.systemImage, "设置里的「\(section.title)」")
+        }
+    }
+
     func testTheV2EXThankIconExists() {
         assertExists(
             V2EXParser.thankReaction(count: nil, isChosen: false).systemImage,

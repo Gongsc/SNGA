@@ -645,6 +645,7 @@ private struct TopicLinkActionsPopover: View {
 
 private struct ThreadTitleHeader: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let topic: Topic
     let previousTitle: String?
     let isNavigationEnabled: Bool
@@ -666,10 +667,10 @@ private struct ThreadTitleHeader: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 if topic.isAnonymous {
                     AnonymousBadge(scale: .medium)
-                        .font(.title2)
+                        .font(fonts.threadContent.title2)
                         .accessibilityIdentifier("thread-topic-anonymous")
                 }
-                ThreadTitleText(text: normalizedTitle)
+                ThreadTitleText(text: normalizedTitle, fonts: fonts.threadContent)
                     .accessibilityLabel(normalizedTitle)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("thread-topic-title")
@@ -838,6 +839,23 @@ private struct AITopicSummaryCard: View {
 
 private struct ThreadTitleText: NSViewRepresentable {
     let text: String
+    let fonts: ScopedFontSet
+
+    /// 专门用来量尺寸的那一支，永远不进视图树。
+    ///
+    /// **量尺寸不能碰屏幕上那一支。** `preferredMaxLayoutWidth` 是影响
+    /// `intrinsicContentSize` 的属性，赋值会顺手 `setNeedsUpdateConstraints`；而
+    /// SwiftUI 调 `sizeThatFits` 的时机正落在 AppKit 更新窗口约束的那一轮里。
+    /// macOS 26 容得下这次重入，macOS 27 会从
+    /// `-[NSWindow _postWindowNeedsUpdateConstraints]` 抛异常，AppKit 再把它变成
+    /// `_crashOnException:` —— 表现是一打开话题就整个应用退出，崩溃栈里全是 AppKit，
+    /// 一帧自己的代码都没有。量在一支游离的实例上，这次失效就传不到窗口。
+    @MainActor
+    final class Coordinator {
+        let measuring = NSTextField(wrappingLabelWithString: "")
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField(wrappingLabelWithString: text)
@@ -855,19 +873,22 @@ private struct ThreadTitleText: NSViewRepresentable {
         nsView textField: NSTextField,
         context: Context
     ) -> CGSize? {
+        let measuring = context.coordinator.measuring
+        measuring.stringValue = text
+        configure(measuring)
         guard let width = proposal.width else {
-            return textField.fittingSize
+            return measuring.fittingSize
         }
-        textField.preferredMaxLayoutWidth = width
-        let size = textField.sizeThatFits(
+        measuring.preferredMaxLayoutWidth = width
+        let size = measuring.sizeThatFits(
             NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         )
         return CGSize(width: width, height: ceil(size.height))
     }
 
     private func configure(_ textField: NSTextField) {
-        textField.font = .systemFont(
-            ofSize: NSFont.preferredFont(forTextStyle: .title2).pointSize,
+        textField.font = fonts.nsFont(
+            ofSize: fonts.pointSize(for: .title2),
             weight: .bold
         )
         textField.textColor = .labelColor
@@ -924,6 +945,7 @@ private struct AnimatedThreadBackButton: View {
 struct PostRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @AppStorage(BrowsingSettings.postSignatureKey) private var showsSignature = true
     let post: Post
     let topicRating: TopicRating?
@@ -980,17 +1002,17 @@ struct PostRow: View {
                                 .hour(.twoDigits(amPM: .omitted))
                                 .minute(.twoDigits)
                         )
-                        .font(.caption)
+                        .font(fonts.postAuthor.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: true, vertical: false)
                         .frame(
-                            height: PostAuthorHeaderLayout.rowHeight,
+                            height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor),
                             alignment: .leading
                         )
                         .accessibilityIdentifier("post-author-date-\(post.id.rawValue)")
                     } else {
                         Color.clear
-                            .frame(height: PostAuthorHeaderLayout.rowHeight)
+                            .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
                             .accessibilityHidden(true)
                     }
                 }
@@ -1003,14 +1025,14 @@ struct PostRow: View {
                 HStack(spacing: 8) {
                     if post.isPinnedPost {
                         Image(systemName: "pin.fill")
-                            .font(.caption2)
+                            .font(fonts.threadContent.caption2)
                             .foregroundStyle(theme.accentColor)
                             .help("楼主置顶的回复")
                             .accessibilityLabel("置顶回复")
                             .accessibilityIdentifier("post-pinned-\(post.id.rawValue)")
                     }
                     Text(floorLabel)
-                        .font(.caption.monospacedDigit())
+                        .font(fonts.threadContent.caption.monospacedDigit())
                         .foregroundStyle(
                             showsHotStyling ? theme.hotReplyColor : theme.secondaryForegroundColor
                         )
@@ -1018,7 +1040,7 @@ struct PostRow: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                 }
-                .frame(height: PostAuthorHeaderLayout.rowHeight)
+                .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
             }
             if let punishment = post.punishment {
                 PostPunishmentNotice(punishment: punishment) {
@@ -1053,14 +1075,14 @@ struct PostRow: View {
             HStack(spacing: 12) {
                 Label(postDevice.title, systemImage: deviceSystemImage)
                     .labelStyle(.iconOnly)
-                    .font(.caption)
+                    .font(fonts.threadContent.caption)
                     .foregroundStyle(.secondary)
                     .help("发自 \(postDevice.title)")
                     .accessibilityLabel("发自 \(postDevice.title)")
                     .accessibilityIdentifier("post-device-\(post.id.rawValue)")
                 if let latestEdit = post.edits.last {
                     Label(editLabel(latestEdit), systemImage: "pencil")
-                        .font(.caption)
+                        .font(fonts.threadContent.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         // 改动不止一次时，网页版会把每一条并排列出；这里只显示最近
@@ -1163,14 +1185,17 @@ struct PostRow: View {
     private var authorNameLabel: some View {
         HStack(spacing: 4) {
             Text(authorDisplayName)
-                .fontWeight(.semibold)
+                .font(fonts.postAuthor.font(.body, weight: .semibold))
                 .fixedSize(horizontal: true, vertical: false)
             if post.isAnonymous {
                 AnonymousBadge()
                     .accessibilityIdentifier("post-author-anonymous-\(post.id.rawValue)")
             }
         }
-        .frame(height: PostAuthorHeaderLayout.rowHeight, alignment: .leading)
+        .frame(
+            height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor),
+            alignment: .leading
+        )
     }
 
     private var authorAvatar: some View {
@@ -1185,8 +1210,8 @@ struct PostRow: View {
                 .padding(2)
         }
         .frame(
-            width: PostAuthorHeaderLayout.avatarSize,
-            height: PostAuthorHeaderLayout.avatarSize
+            width: PostAuthorHeaderLayout.avatarSize(for: fonts.postAuthor),
+            height: PostAuthorHeaderLayout.avatarSize(for: fonts.postAuthor)
         )
         .clipShape(.circle)
     }
@@ -1248,7 +1273,7 @@ struct PostRow: View {
             Task { await model.thread.vote(on: post.id, direction: direction) }
         } label: {
             Label("\(count)", systemImage: systemImage)
-                .font(.caption.monospacedDigit())
+                .font(fonts.threadContent.caption.monospacedDigit())
                 .foregroundStyle(isSelected ? theme.accentColor : Color.secondary)
         }
         .buttonStyle(.borderless)
@@ -1296,13 +1321,33 @@ private struct PostSignatureView: View {
     }
 }
 
-private enum PostAuthorHeaderLayout {
-    static let rowHeight: CGFloat = 20
+/// 楼层头上那一栏的排版尺寸。
+///
+/// 三个数都跟着「用户信息」那一档的字号走。写死 20 点是不行的：这一栏的每一行
+/// 都套着一个 `frame(height:)`（两行信息加起来正好是头像的高，三者才对得齐），
+/// 字号调大之后框不跟着长，级别和声望就各被裁掉一截 —— 字确实变大了，只是看
+/// 不全。
+///
+/// 头像仍旧由行高推出来，两行信息和它仍然上下对齐 —— 这条等式由
+/// `FontSettingsTests` 盯着，它一旦不成立，头像和名字就会错开半行。
+enum PostAuthorHeaderLayout {
+    private static let baseRowHeight: CGFloat = 20
+
+    static func rowHeight(for fonts: ScopedFontSet) -> CGFloat {
+        (baseRowHeight * fonts.scale).rounded()
+    }
+
+    /// 行距不跟着缩放：它是两行之间的呼吸，不是字。跟着放大只会在头像旁边
+    /// 撑出一条空带。
     static let rowSpacing: CGFloat = 3
-    static let avatarSize = rowHeight * 2 + rowSpacing
+
+    static func avatarSize(for fonts: ScopedFontSet) -> CGFloat {
+        rowHeight(for: fonts) * 2 + rowSpacing
+    }
 }
 
 private struct PostAuthorInfoView: View {
+    @Environment(\.sngaFonts) private var fonts
     let info: PostAuthorInfo
     let postID: PostID
 
@@ -1338,10 +1383,10 @@ private struct PostAuthorInfoView: View {
                         detail("用户组", value: userGroup, identifier: "group")
                     }
                 }
-                .frame(height: PostAuthorHeaderLayout.rowHeight)
+                .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
             }
             .scrollIndicators(.hidden)
-            .frame(height: PostAuthorHeaderLayout.rowHeight)
+            .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
             HStack(alignment: .center, spacing: 20) {
                 if let location = info.location {
                     detail("IP 属地", value: location, identifier: "location")
@@ -1350,8 +1395,7 @@ private struct PostAuthorInfoView: View {
                 if !info.medals.isEmpty {
                     HStack(alignment: .center, spacing: 6) {
                         Text("徽章:")
-                            .font(.caption)
-                            .fontWeight(.semibold)
+                            .font(fonts.postAuthor.font(.caption, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("post-author-medals-\(postID.rawValue)")
                         ScrollView(.horizontal) {
@@ -1362,7 +1406,7 @@ private struct PostAuthorInfoView: View {
                             }
                         }
                         .scrollIndicators(.hidden)
-                        .frame(height: PostAuthorHeaderLayout.rowHeight)
+                        .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
                     }
                 }
                 if info.location == nil, info.medals.isEmpty {
@@ -1370,7 +1414,7 @@ private struct PostAuthorInfoView: View {
                         .accessibilityHidden(true)
                 }
             }
-            .frame(height: PostAuthorHeaderLayout.rowHeight)
+            .frame(height: PostAuthorHeaderLayout.rowHeight(for: fonts.postAuthor))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -1387,12 +1431,12 @@ private struct PostAuthorInfoView: View {
     private func detail(_ title: String, value: String, identifier: String) -> some View {
         HStack(spacing: 4) {
             Text("\(title):")
-                .fontWeight(.semibold)
+                .font(fonts.postAuthor.font(.caption, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(value)
                 .textSelection(.enabled)
         }
-        .font(.caption)
+        .font(fonts.postAuthor.caption)
         .lineLimit(1)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("post-author-\(identifier)-\(postID.rawValue)")
@@ -1408,7 +1452,12 @@ private struct PostAuthorInfoView: View {
             Image(systemName: "seal")
                 .foregroundStyle(.secondary)
         }
-        .frame(width: 18, height: 18)
+        // 徽章跟着这一栏的字缩放：行高是按字号算的，图片写死 18 点的话，
+        // 字调小之后是图片把行撑开，调大之后是一排小图钉在一条空行里。
+        .frame(
+            width: (18 * fonts.postAuthor.scale).rounded(),
+            height: (18 * fonts.postAuthor.scale).rounded()
+        )
         .help(medal.detail.map { "\(medal.name)：\($0)" } ?? medal.name)
         .accessibilityLabel(medal.name)
     }
@@ -1416,6 +1465,7 @@ private struct PostAuthorInfoView: View {
 
 struct HotRepliesSection: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let posts: [Post]
     let topicRating: TopicRating?
     var loadOrderOffset = 0
@@ -1427,7 +1477,7 @@ struct HotRepliesSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("热点回复", systemImage: "flame.fill")
-                .font(.headline)
+                .font(fonts.threadContent.headline)
                 .foregroundStyle(theme.accentColor)
                 .padding(.horizontal, 2)
 
@@ -2068,6 +2118,7 @@ private struct UBBResourcePopover: View {
 private struct PostReactionBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let post: Post
 
     @State private var pending: PostReaction?
@@ -2127,7 +2178,7 @@ private struct PostReactionBar: View {
 
     private func countLabel(systemImage: String, count: Int?, isChosen: Bool) -> some View {
         Label("\(count ?? 0)", systemImage: systemImage)
-            .font(.caption.monospacedDigit())
+            .font(fonts.threadContent.caption.monospacedDigit())
             .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
     }
 

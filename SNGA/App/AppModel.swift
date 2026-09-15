@@ -55,8 +55,13 @@ final class AppModel {
     /// 搜索历史。搜索本身留在 AppModel（它牵着导航和结果页），历史只是一份
     /// 按账号存的关键词，单独收在这里。
     let searchHistory: SearchHistoryStore
+    /// 浏览历史。同时供着侧栏那个面板和话题列表里「读过的变灰」。
+    let topicHistory: TopicHistoryStore
     /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
     let toolbox = ToolboxStore()
+    /// 查更新问的是 GitHub，和账号、论坛都没关系；它的网络故障也不能报成论坛的错误，
+    /// 所以不走 `AppSession.present(_:)`，由「关于」面板自己就地显示。
+    let updateChecker: any UpdateChecking
 
     private var activeService: (any ForumService)? { session.activeService }
 
@@ -67,8 +72,10 @@ final class AppModel {
         aiSummarizer: any AIProfileSummarizing = OpenAICompatibleClient(),
         aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
-        aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared
+        aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared,
+        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker()
     ) {
+        self.updateChecker = updateChecker
         let session = AppSession(
             container: container,
             sessionStore: sessionStore,
@@ -84,6 +91,7 @@ final class AppModel {
         favorite = FavoriteStore(session: session)
         browsing = ForumStore(session: session)
         searchHistory = SearchHistoryStore(session: session)
+        topicHistory = TopicHistoryStore(session: session)
         aiProfiles = AIProfileStore(
             context: session.context,
             session: session,
@@ -118,6 +126,11 @@ final class AppModel {
             if let index = browsing.topics.firstIndex(where: { $0.id == topicID }) {
                 browsing.topics[index].isFavorite = isFavorite
             }
+        }
+        // 打开话题就记一笔浏览历史。话题域不反过来持有历史域 —— 它只管「有人开始
+        // 读这条了」，至于要不要记、记多久是历史域自己的事。
+        thread.onTopicOpen { [weak topicHistory] topic in
+            topicHistory?.record(topic)
         }
         // 侧栏选择是导航状态，留在 AppModel；消息域只需要判断用户是否还停在该信箱。
         messaging.provideSelectionCheck { [weak self] folder in
@@ -194,6 +207,28 @@ final class AppModel {
         browsing.currentForum?.pinnedTopicID
     }
 
+    /// 这条话题该不该画成读过的样子。
+    ///
+    /// 设置里的「变灰」开关挡在这里，而不是挡在历史域里：历史照记不误，
+    /// 只是列表上不体现 —— 关掉变灰的人是嫌列表花，不是不想要历史。
+    func dimsVisitedTopic(_ topicID: TopicID) -> Bool {
+        TopicHistorySettings.dimsVisitedTopics && topicHistory.hasVisited(topicID)
+    }
+
+    /// 这条话题要求的等级超过了自己现在的等级吗？超过了就把门槛和现状一起带出来。
+    ///
+    /// 自己的等级还没取到时一律返回 nil：宁可不画这层灰，也不能把读者本来点得开的
+    /// 帖子画成点不开的。站点报不出等级（NGA、V2EX 都没有这个概念）时同理。
+    func levelGate(for topic: Topic) -> TopicLevelGate? {
+        guard BrowsingSettings.dimsGatedTopics,
+              let current = session.activeAccountLevel else {
+            return nil
+        }
+        let required = topic.badges.compactMap(\.requiredLevel).max()
+        guard let required, required > current else { return nil }
+        return TopicLevelGate(required: required, current: current)
+    }
+
     var isCurrentTopicFavorite: Bool {
         guard let topic = thread.currentTopic else { return false }
         return topic.isFavorite || favorite.favoriteTopicIDs.contains(topic.id)
@@ -227,6 +262,7 @@ final class AppModel {
         if let activeAccount = session.activeAccount {
             browsing.loadRecentForums()
             searchHistory.reload()
+            topicHistory.reload()
             sidebarSelection = .userCenter(activeAccount.siteUserID)
             currentProfile = Profile(
                 uid: activeAccount.siteUserID,
@@ -289,6 +325,7 @@ final class AppModel {
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
                 searchHistory.reload()
+                topicHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -323,6 +360,7 @@ final class AppModel {
             clearVisibleContent()
             browsing.loadRecentForums()
             searchHistory.reload()
+            topicHistory.reload()
             if let activeAccount = session.activeAccount {
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
@@ -367,6 +405,7 @@ final class AppModel {
                 .filter { $0.accountIDString == accountID.description }
                 .forEach(session.context.delete)
             searchHistory.removeAll(accountID: accountID)
+            topicHistory.removeAll(accountID: accountID)
             try await session.sessionStore.remove(accountID: accountID)
             session.setService(nil, for: accountID)
             try session.context.save()
@@ -375,6 +414,7 @@ final class AppModel {
             if let activeAccount = session.activeAccount {
                 browsing.loadRecentForums()
                 searchHistory.reload()
+                topicHistory.reload()
                 sidebarSelection = .userCenter(activeAccount.siteUserID)
                 currentProfile = Profile(
                     uid: activeAccount.siteUserID,
@@ -440,6 +480,12 @@ final class AppModel {
             }
             if profile.avatarURL == nil {
                 profile.avatarURL = resolvedAvatarURL
+            }
+            // 顺手记下自己的等级。单独发一次请求只为这一个数不值当 —— 应用一启动
+            // 停的就是自己的用户中心，这一趟本来就会走。看别人的资料时不记。
+            if let level = profile.level,
+               session.accounts.first(where: { $0.id == requestAccountID })?.siteUserID == uid {
+                session.setLevel(level, for: requestAccountID)
             }
             if session.activeAccountID == requestAccountID,
                ticket.isCurrent,
@@ -763,6 +809,8 @@ final class AppModel {
                 )
             }
         case .favorites: await favorite.loadFavoriteTopics(page: favorite.favoriteTopicPage)
+        // 历史全在本地，⌘R 就是重读一遍库 —— 顺便把过期和超额的行清掉。
+        case .topicHistory: topicHistory.reload()
         case .aiProfiles: break
         case .toolbox: toolbox.refresh()
         // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
@@ -924,6 +972,35 @@ final class AppModel {
         )
         UserDefaults.standard.set(false, forKey: AISettings.topicSummaryAllPagesKey)
         UserDefaults.standard.set(AISettings.defaultHistoryLimit, forKey: AISettings.historyLimitKey)
+        // 关键字过滤要在列表上验：折叠成一行、点开、以及末尾那条「隐藏了几条」。
+        // 两档范围各配一条 —— 标题那条折叠「话题一」，作者那条隐藏「话题二」的楼主。
+        // 规则从这里灌，不让 UI 测试去敲设置面板 —— 那一步要往输入框里打中文，
+        // 而 `typeText` 打出乱码是这套件里最常见的偶发失败。
+        //
+        // 没给开关时把规则清空，而不是原样留着：`--uitesting` 只换掉数据库，
+        // UserDefaults 仍然是真的 —— 留一条隐藏规则在那儿，用户下次打开真应用
+        // 会发现版面里少了几条帖子，还找不到是谁干的。
+        let keywordFilterRules = ProcessInfo.processInfo.arguments
+            .contains("--uitesting-keyword-filter")
+            ? KeywordFilterSettings.encode([
+                KeywordFilterRule(keywords: "SNGA", action: .fold),
+                KeywordFilterRule(keywords: "另一位用户", scope: .author, action: .hide)
+            ])
+            : ""
+        UserDefaults.standard.set(true, forKey: KeywordFilterSettings.enabledKey)
+        UserDefaults.standard.set(keywordFilterRules, forKey: KeywordFilterSettings.rulesKey)
+        // 浏览历史那几档也按默认值摆好：用户自己关掉过历史的话，
+        // UI 测试里点开话题后历史面板会是空的，而那不是被测的行为。
+        UserDefaults.standard.set(true, forKey: TopicHistorySettings.enabledKey)
+        UserDefaults.standard.set(true, forKey: TopicHistorySettings.dimsVisitedKey)
+        UserDefaults.standard.set(
+            TopicHistorySettings.defaultMaximumCount,
+            forKey: TopicHistorySettings.maximumCountKey
+        )
+        UserDefaults.standard.set(
+            TopicHistorySettings.defaultRetentionDays,
+            forKey: TopicHistorySettings.retentionDaysKey
+        )
         let accountA = AccountRecord(site: .nga, siteUserID: 10001, displayName: "测试账号 A", isCurrent: true)
         let accountB = AccountRecord(site: .nga, siteUserID: 10002, displayName: "测试账号 B")
         session.context.insert(accountA)

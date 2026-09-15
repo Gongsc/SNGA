@@ -3,6 +3,7 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @Environment(\.forumSiteDescriptor) private var siteDescriptor
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
 
@@ -86,6 +87,8 @@ struct SidebarView: View {
                             selection: .favorites
                         )
                     }
+                    // 历史全在本地，跟站点支不支持什么没关系 —— 三个站一样画。
+                    sidebarButton("浏览历史", systemImage: "clock", selection: .topicHistory)
                     // 两样有其一就画：这个入口是「论坛消息」，私信和提醒都算。
                     // V2EX 只有提醒，NGA 和 NodeSeek 两样都有。
                     if model.session.supports(.notifications)
@@ -102,6 +105,7 @@ struct SidebarView: View {
                 Section("最近访问") {
                     if model.browsing.recentForums.isEmpty {
                         Text("暂无最近访问")
+                            .font(fonts.sidebar.body)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.browsing.recentForums) { forum in
@@ -114,6 +118,7 @@ struct SidebarView: View {
                 Section(siteDescriptor.forumFavoritesTitle) {
                     if model.favorite.favorites.isEmpty {
                         Text("暂无收藏")
+                            .font(fonts.sidebar.body)
                             .foregroundStyle(.secondary)
                     }
                     ForEach(model.favorite.favorites, id: \.forum.id) { favorite in
@@ -139,7 +144,7 @@ struct SidebarView: View {
                                             )
                                     } else if favorite.state == .pendingAdd || favorite.state == .pendingRemove {
                                         Image(systemName: "arrow.triangle.2.circlepath")
-                                            .font(.caption)
+                                            .font(fonts.sidebar.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -162,28 +167,34 @@ struct SidebarView: View {
 
     /// 设置入口固定在边栏底部，不跟着列表滚 —— 收藏版面再多也压不掉它。
     /// 未登录时上面那几个区整块不显示，这一块照样在。
+    ///
+    /// 这一条要和另外两栏的 `BottomActionBar` 一样高，三栏底下的横线才在一条线上。
+    /// 那边是 6 + 26 + 6 = 38 点，分隔线用 overlay 叠在顶上、不占高度。这边的行自带
+    /// 6 + 6 的内边距（默认字号下连标签一共 28 点），所以外面只留 5 点、分隔线同样叠
+    /// 上去，才凑成 5 + 28 + 5 = 38。原先分隔线在 `VStack` 里实打实占一行、外面又留了
+    /// 6 点，一共 41 点 —— 实测就是高出 3 点，横线比旁边两条抬了一截。
+    /// 横向仍是 6 点：那是和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
     private var settingsFooter: some View {
-        VStack(spacing: 0) {
+        Button {
+            model.openSettings()
+        } label: {
+            SidebarInteractiveRow(
+                isSelected: model.sidebarSelection == .settings
+            ) {
+                Label("设置", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar-settings-button")
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(theme.backgroundColor)
+        .overlay(alignment: .top) {
             Rectangle()
                 .fill(theme.separatorColor)
                 .frame(height: 1)
-
-            Button {
-                model.openSettings()
-            } label: {
-                SidebarInteractiveRow(
-                    isSelected: model.sidebarSelection == .settings
-                ) {
-                    Label("设置", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("sidebar-settings-button")
-            // 和 `sidebarListRow()` 的 leading/trailing 对齐，图标竖排成一列。
-            .padding(6)
         }
-        .background(theme.backgroundColor)
     }
 
     @ViewBuilder
@@ -205,6 +216,8 @@ struct SidebarView: View {
                 model.clearForumSearch()
             case .aiProfiles:
                 model.aiProfiles.selectMostRecentIfNeeded()
+            case .topicHistory:
+                model.topicHistory.reload()
             case .favorites, .toolbox, .settings, .addAccount:
                 break
             case let .userCenter(uid):
@@ -221,7 +234,7 @@ struct SidebarView: View {
                     Spacer()
                     if badge > 0 {
                         Text("\(badge)")
-                            .font(.caption.monospacedDigit())
+                            .font(fonts.sidebar.caption.monospacedDigit())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             // 底色和字色取自同一个主题，别一个跟 `.tint`
@@ -231,7 +244,7 @@ struct SidebarView: View {
                     }
                     if let attentionLabel {
                         Text(attentionLabel)
-                            .font(.caption2.weight(.medium))
+                            .font(fonts.sidebar.font(.caption2, weight: .medium))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(theme.accentColor, in: Capsule())
@@ -281,6 +294,7 @@ private struct SidebarForumIcon: View {
 
 private struct SidebarAccountButton: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.sngaFonts) private var fonts
     let account: AccountSummary
     @State private var showsRemoveConfirmation = false
 
@@ -309,7 +323,7 @@ private struct SidebarAccountButton: View {
                         }
                         if account.sessionState != .valid {
                             Text(account.sessionState.title)
-                                .font(.caption2)
+                                .font(fonts.sidebar.caption2)
                                 .foregroundStyle(.red)
                         }
                     }
@@ -353,6 +367,7 @@ private struct SidebarAccountButton: View {
 
 private struct SidebarInteractiveRow<Content: View>: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isSelected: Bool
     @ViewBuilder let content: Content
@@ -360,6 +375,10 @@ private struct SidebarInteractiveRow<Content: View>: View {
 
     var body: some View {
         content
+            // 侧栏的字号落在这一层：行里只有标签和小徽章，没有输入框也没有
+            // 选择器，罩一层 `.font` 不会顺手把控件也缩掉。徽章那几处自己写了
+            // 更小的档位，会盖过这一句。
+            .font(fonts.sidebar.body)
             .padding(.horizontal, 7)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)

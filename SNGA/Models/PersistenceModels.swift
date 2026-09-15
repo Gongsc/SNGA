@@ -328,3 +328,79 @@ final class SearchHistoryRecord {
         "\(accountID.description):\(query)"
     }
 }
+
+/// 读过的一条话题。
+///
+/// 一张表同时供着两件事：列表里「读过的变灰」和侧栏那个「浏览历史」。它们本来
+/// 就是同一个事实 —— 灰掉的就是历史里有的那些，浏览器几十年来也是这么做的。
+/// 拆成两张表（一份只存 id 的已读集合，一份带标题的历史）能让已读集合存得更久，
+/// 但代价是用户要理解两个上限、两处清空，而「我明明刚看过它，怎么不是灰的」
+/// 这种疑问会从「历史满了」变成一件更难解释的事。
+///
+/// 主键和别的表一样以 `accountIDString` 打头，于是天然按账号、按站点隔离 ——
+/// 这一条对话题尤其要紧：`TopicID` 只是个 `Int64`，两个站上撞号是迟早的事。
+@Model
+final class TopicVisitRecord {
+    @Attribute(.unique) var id: String
+    var accountIDString: String
+    var topicID: Int64
+    /// 话题所属版面。回头从历史里点开它时要靠这个还原出一个 `Topic`。
+    var forumSiteRaw: String = ForumSite.nga.rawValue
+    var forumKey: String = ""
+    var subject: String
+    var author: String
+    var authorUID: Int64?
+    /// 存下当时的回复数：`ThreadStore.open` 拿它预估总页数，少了它从历史点进去
+    /// 的话题会先画成一页、再跳成十几页。
+    var replyCount: Int = 0
+    var lastVisitedAt: Date
+
+    init(accountID: AccountID, topic: Topic, lastVisitedAt: Date = .now) {
+        self.id = Self.recordID(accountID: accountID, topicID: topic.id)
+        self.accountIDString = accountID.description
+        self.topicID = topic.id.rawValue
+        self.forumSiteRaw = topic.forumID.site.rawValue
+        self.forumKey = topic.forumID.key
+        self.subject = topic.subject
+        self.author = topic.author
+        self.authorUID = topic.authorUID
+        self.replyCount = topic.replyCount
+        self.lastVisitedAt = lastVisitedAt
+    }
+
+    /// 再读一次同一条话题：把时间往前挪，顺便补齐当初可能没有的信息。
+    ///
+    /// 从私信或用户动态点进去的话题带的是占位版面和空作者（那两处给不出）。
+    /// 后来在版面列表里又点了同一条，这里就该把真的版面和作者补上，而不是
+    /// 守着第一次那份残缺的记录。
+    func update(topic: Topic, visitedAt: Date = .now) {
+        if topic.forumID != .placeholder(site: topic.forumID.site) {
+            forumSiteRaw = topic.forumID.site.rawValue
+            forumKey = topic.forumID.key
+        }
+        if !topic.subject.isEmpty { subject = topic.subject }
+        if !topic.author.isEmpty { author = topic.author }
+        if let authorUID = topic.authorUID { self.authorUID = authorUID }
+        if topic.replyCount > 0 { replyCount = topic.replyCount }
+        lastVisitedAt = visitedAt
+    }
+
+    var forumIdentifier: ForumID {
+        ForumID(storedSite: forumSiteRaw, key: forumKey, legacyNGAValue: 0)
+    }
+
+    var topic: Topic {
+        Topic(
+            id: TopicID(rawValue: topicID),
+            forumID: forumIdentifier,
+            subject: subject,
+            author: author,
+            authorUID: authorUID,
+            replyCount: replyCount
+        )
+    }
+
+    static func recordID(accountID: AccountID, topicID: TopicID) -> String {
+        "\(accountID.description):\(topicID.rawValue)"
+    }
+}

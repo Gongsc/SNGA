@@ -172,7 +172,16 @@ final class SNGAUITests: XCTestCase {
 
         let signature = mainWindow.descendants(matching: .any)["post-signature-1"]
         XCTAssertTrue(signature.waitForExistence(timeout: 5))
-        XCTAssertTrue(mainWindow.staticTexts["测试签名"].exists)
+
+        // 签名那行字要从 `value` 上找，不能写成 `staticTexts["测试签名"]` —— 那种下标
+        // 匹配的是标识符和 label，而 SwiftUI 的 `Text` 把内容放在 `value` 里，于是
+        // 那句断言从写下的那天起就没匹配上过。整行是「测试签名 —— 这一行来自签名档」
+        // （见 `DebugForumService`），`[b]` 只影响其中一段、并不拆成两个元素，所以用
+        // `CONTAINS` 盯前半段。范围收在签名元素之内，免得哪天正文里也出现这几个字。
+        let signatureText = signature.descendants(matching: .staticText)
+            .matching(NSPredicate(format: "value CONTAINS %@", "测试签名"))
+            .firstMatch
+        XCTAssertTrue(signatureText.waitForExistence(timeout: 5))
 
         // 排在作者那一行下面：签名是楼层的末尾，不是抬头的一部分。
         let authorName = mainWindow.descendants(matching: .any)["post-author-name-1"]
@@ -230,10 +239,70 @@ final class SNGAUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertEqual(app.windows.count, 1)
-        XCTAssertTrue(mainWindow.staticTexts["版本 1.9.0（1）"].exists)
+        XCTAssertTrue(mainWindow.staticTexts["版本 2.0.0（1）"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
+    }
+
+    /// 「关于」里的检查更新：查得动，并且把两种结果分别说清楚。
+    ///
+    /// 走 `DebugUpdateChecker`，不打 GitHub —— 真去问的话，断网和匿名接口每小时
+    /// 六十次的限流都会让这条用例莫名其妙地红。
+    func testCheckingForUpdatesReportsBeingUpToDate() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        openAboutSection(in: mainWindow)
+
+        let check = mainWindow.descendants(matching: .any)["about-check-update"]
+        XCTAssertTrue(check.waitForExistence(timeout: 5))
+        check.click()
+
+        let status = mainWindow.descendants(matching: .any)["about-update-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(mainWindow.staticTexts["当前已是最新版本"].waitForExistence(timeout: 5))
+    }
+
+    func testCheckingForUpdatesNamesTheNewVersion() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-update-available"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        openAboutSection(in: mainWindow)
+
+        let check = mainWindow.descendants(matching: .any)["about-check-update"]
+        XCTAssertTrue(check.waitForExistence(timeout: 5))
+        check.click()
+
+        // 版本号要真出现在那句话里，不能只说「有更新」。
+        XCTAssertTrue(
+            mainWindow.staticTexts["发现新版本 99.0.0，可在 GitHub 下载"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    private func openAboutSection(in mainWindow: XCUIElement) {
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+        let about = mainWindow.descendants(matching: .any)["settings-section-about"]
+        XCTAssertTrue(about.waitForExistence(timeout: 5))
+        if !about.isHittable {
+            mainWindow.scrollViews["settings-menu-scroll"].swipeUp()
+        }
+        about.click()
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-about"]
+                .waitForExistence(timeout: 5)
+        )
     }
 
     /// 手动用例：对着 NGA 的线上登录页跑，确认官方页面还是那个结构，
@@ -309,6 +378,88 @@ final class SNGAUITests: XCTestCase {
         app.buttons["favorite-forum--7"].click()
         XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["reply-private-message"].exists)
+    }
+
+    /// 关键字过滤在话题列表上的两档：折叠和隐藏，顺带把两种匹配范围都走一遍。
+    ///
+    /// 规则由 `--uitesting-keyword-filter` 灌进去：标题含「SNGA」的折叠，
+    /// 楼主是「另一位用户」的隐藏 —— 正对上种子里那两条话题。高亮那一档不在
+    /// 这里验，它只改一片底色，XCUITest 看不见颜色；判定本身由
+    /// `KeywordFilterTests` 盯着。
+    func testKeywordFilterFoldsAndHidesTopicsInTheForumList() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--uitesting",
+            "--uitesting-seed",
+            "--uitesting-keyword-filter"
+        ]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+
+        // 「话题一：欢迎使用 SNGA」命中折叠档：原来那一行不在了，位置上是一条折叠行。
+        let foldedRow = app.buttons["topic-folded-9001"]
+        XCTAssertTrue(foldedRow.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["topic-9001"].exists)
+
+        // 「话题二」的楼主命中作者规则，走隐藏档：一行都不画，只在列表末尾记一笔。
+        XCTAssertFalse(app.buttons["topic-9002"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topic-list-keyword-hidden-notice"]
+                .waitForExistence(timeout: 5)
+        )
+
+        // 折叠是「多半不想看」，不是「不给看」：点一下就换回完整的话题行。
+        foldedRow.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        XCTAssertFalse(foldedRow.exists)
+    }
+
+    /// 浏览历史：读过的话题记进去、搜得到、删得掉。
+    ///
+    /// 「读过的变灰」不在这里验 —— 它只把标题的颜色压掉一档，XCUITest 看不见颜色；
+    /// 那一条由 `TopicHistoryTests` 盯着（记下了就灰、删掉了就不灰）。
+    func testBrowsingHistoryRecordsSearchesAndForgetsTopics() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 5))
+        app.buttons["topic-9001"].click()
+        XCTAssertTrue(app.buttons["回复话题"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(app.buttons["浏览历史"].waitForExistence(timeout: 5))
+        app.buttons["浏览历史"].firstMatch.click()
+
+        // 记在「打开」那一刻，所以刚看过的那条已经在里面了。
+        let visitRow = app.descendants(matching: .any)["topic-history-9001"]
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        // 搜的是标题和作者。搜一个对不上的词，那一条就该退场。
+        let searchField = app.textFields["topic-history-search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.click()
+        searchField.typeText("SNGA")
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        searchField.typeText("-nothing-here")
+        XCTAssertFalse(visitRow.waitForExistence(timeout: 2))
+
+        // 清掉搜索词，行回来；删掉之后就真的没了。
+        searchField.doubleClick()
+        searchField.typeKey("a", modifierFlags: .command)
+        searchField.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(visitRow.waitForExistence(timeout: 5))
+
+        app.buttons["topic-history-remove-9001"].click()
+        XCTAssertFalse(visitRow.waitForExistence(timeout: 2))
     }
 
     func testTopicPaginationAndShareActions() {
@@ -1015,6 +1166,52 @@ final class SNGAUITests: XCTestCase {
         let automaticInstance = app.menuItems["自动选择（推荐）"]
         XCTAssertTrue(automaticInstance.waitForExistence(timeout: 5))
         automaticInstance.click()
+    }
+
+    /// 外观里的字体分三段，每段一个字体选择器加一个字号步进器，底下跟着预览。
+    ///
+    /// 只验控件在不在、复位按钮的可用状态对不对。字号怎么缩放、网页那侧怎么替换
+    /// 在 `FontSettingsTests` 里，那些不需要点着界面验；而拿步进器去点，测的是
+    /// XCUITest 认不认得 `NSStepper` 的箭头，不是这个功能。
+    func testAppearanceSettingsExposeFontControlsForEachArea() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let settingsButton = mainWindow.descendants(matching: .any)["sidebar-settings-button"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["settings-detail-appearance"]
+                .waitForExistence(timeout: 5)
+        )
+
+        for area in ["sidebar", "topicList", "threadContent", "postAuthor"] {
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-family-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了字体选择器"
+            )
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-size-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了字号步进器"
+            )
+            XCTAssertTrue(
+                mainWindow.descendants(matching: .any)["appearance-font-preview-\(area)"]
+                    .waitForExistence(timeout: 5),
+                "\(area) 少了预览"
+            )
+        }
+
+        // 一切都是默认值时没有东西可复位。
+        let reset = mainWindow.descendants(matching: .any)["appearance-font-reset"]
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+        XCTAssertFalse(reset.isEnabled, "默认档下「恢复默认字体」该是灰的")
     }
 
     /// 边栏左下角的入口和 ⌘, 走的是同一条路。

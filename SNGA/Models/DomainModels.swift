@@ -454,6 +454,12 @@ struct Profile: Hashable, Codable, Sendable {
     var displayName: String
     var avatarURL: URL?
     var userGroup: String? = nil
+    /// 用户等级，一个能比大小的数。
+    ///
+    /// 和 `userGroup` 分开：那一栏是**显示**用的，各站写法不一（NGA 是「用户组」
+    /// 的名字，NodeSeek 正好是个数字）。这里要的是能拿去和「等级 N 可见」比的值，
+    /// 站点报不出就留空 —— 拿一个猜的数去比，会把能看的帖子画成看不了的。
+    var level: Int? = nil
     var title: String? = nil
     var honor: String? = nil
     var registeredAt: Date? = nil
@@ -513,8 +519,25 @@ struct TopicBadge: Identifiable, Hashable, Codable, Sendable {
     var value: String? = nil
     /// 画哪个图标。认不出来的标记用一个中性的。
     var systemImage: String = "tag"
+    /// 这是一条「等级 N 可见」的标记，N 是多少。
+    ///
+    /// 解析时就定下来，而不是让界面回头去认 `systemImage == "lock.fill"` 再把
+    /// `value` 转成数字：那两样都是给人看的，站点换个图标或者在数字后面加个字，
+    /// 界面那边会安安静静地不再拦任何东西。
+    var requiredLevel: Int? = nil
 
     var id: String { title }
+}
+
+/// 这条话题的等级门槛高过了自己。
+///
+/// 带着两个数一起走，是因为界面上要说的是「差多少」而不只是「进不去」——
+/// 「等级 3 可见，你现在是 1」比一片灰色多告诉读者一件事：还差两级。
+struct TopicLevelGate: Equatable, Hashable, Sendable {
+    var required: Int
+    var current: Int
+
+    var description: String { "等级 \(required) 可见，你现在是等级 \(current)" }
 }
 
 /// 楼层上的一种表态。
@@ -626,6 +649,8 @@ struct LoginCapture: Sendable {
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case appearance
     case browsing
+    case keywordFilter
+    case topicHistory
     case ai
     case toolbox
     case background
@@ -638,6 +663,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .appearance: "外观"
         case .browsing: "浏览"
+        case .keywordFilter: "关键字过滤"
+        case .topicHistory: "浏览历史"
         case .ai: "AI"
         case .toolbox: "小工具"
         case .background: "后台行为"
@@ -650,6 +677,8 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         switch self {
         case .appearance: "paintpalette"
         case .browsing: "photo.on.rectangle"
+        case .keywordFilter: "line.3.horizontal.decrease.circle"
+        case .topicHistory: "clock"
         case .ai: "sparkles"
         case .toolbox: "wrench.and.screwdriver"
         case .background: "clock.arrow.circlepath"
@@ -668,6 +697,7 @@ enum SidebarSelection: Hashable, Sendable {
     case directory
     case search
     case favorites
+    case topicHistory
     case messages(MessageFolder)
     case toolbox
     case settings

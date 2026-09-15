@@ -2,13 +2,14 @@ import SwiftUI
 
 struct TopicRatingView: View {
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     let rating: TopicRating
     var startReply: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("话题评分", systemImage: "star.square.on.square")
-                .font(.headline)
+                .font(fonts.threadContent.headline)
                 .foregroundStyle(theme.accentColor)
 
             ForEach(rating.dimensions) { dimension in
@@ -20,9 +21,9 @@ struct TopicRatingView: View {
                             dimension.averageScore,
                             format: .number.precision(.fractionLength(0...2))
                         )
-                        .font(.headline.monospacedDigit())
+                        .font(fonts.threadContent.headline.monospacedDigit())
                         Text("/ \(rating.maximumScore)")
-                            .font(.callout.monospacedDigit())
+                            .font(fonts.threadContent.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
 
@@ -56,7 +57,7 @@ struct TopicRatingView: View {
                         )
                     }
                 }
-                .font(.callout)
+                .font(fonts.threadContent.callout)
                 .foregroundStyle(.secondary)
 
                 Spacer()

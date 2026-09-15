@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
     @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
@@ -14,6 +15,20 @@ struct RootView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 210, ideal: 245)
                 .background(theme.backgroundColor)
+                // 边栏右缘这条线得自己画。macOS 26 之前它是系统画的：边栏那一列铺的是
+                // 带材质的背板，右缘那道 hairline 属于背板自己。而这里为了主题色，
+                // 整列盖了一层不透明底色，等于把背板连同那道边一起盖掉了 ——
+                // macOS 27 上实测，边栏和内容栏之间一个像素的过渡都没有，而内容栏和
+                // 详情栏之间那条（普通的 NSSplitView 分隔线，不依附背板）照样在。
+                // 要连着工具栏那一段一起画：边栏这一列的安全区是从工具栏下面才开始的，
+                // 不声明忽略的话线只画到 y=52 点以下，顶上缺一截 —— 而系统给内容栏和
+                // 详情栏之间画的那条是通到窗口顶的。
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(theme.separatorColor)
+                        .frame(width: 1)
+                        .ignoresSafeArea(.container, edges: .top)
+                }
         } content: {
             ContentColumnView(
                 reservesSidebarToggleSpace: columnVisibility == .doubleColumn
@@ -97,6 +112,12 @@ struct RootView: View {
         .onChange(of: columnVisibility) {
             clearToolbarFocus()
         }
+        .onChange(of: fonts) {
+            // 缓存里那些数字和存活的 WKWebView 都是按旧字号排出来的版。留着的话，
+            // 改完字号回到话题，整页楼层会先按旧高度落位再跳一次。
+            PostWebViewCache.shared.removeAll()
+            PostContentHeightCache.shared.removeAll()
+        }
         .onAppear {
             clearToolbarFocus()
         }
@@ -144,6 +165,8 @@ struct RootView: View {
             "搜索"
         case .favorites:
             "收藏夹"
+        case .topicHistory:
+            "浏览历史"
         case .addAccount:
             "添加账号"
         case .toolbox:
@@ -167,6 +190,7 @@ private struct WindowImagePreview: View {
     let onError: @MainActor (String) -> Void
     let dismiss: () -> Void
     @State private var image: NSImage?
+    @State private var svgData: Data?
     @State private var imageData: Data?
     @State private var didFail = false
     @State private var zoomScale: CGFloat = 1
@@ -183,7 +207,25 @@ private struct WindowImagePreview: View {
                 .accessibilityLabel("关闭图片预览")
 
                 Group {
-                    if let image {
+                    if let svgData {
+                        // 矢量图交给 WebKit：`NSImage` 画出来是一团糊，
+                        // 原因写在 `SVGImage` 上。
+                        SVGImageView(data: svgData, baseURL: url)
+                            .frame(
+                                maxWidth: max(120, proxy.size.width - 80),
+                                maxHeight: max(120, proxy.size.height - 80)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .shadow(color: .black.opacity(0.5), radius: 20)
+                            .contextMenu {
+                                PostImageContextMenu(
+                                    url: url,
+                                    data: imageData,
+                                    onError: onError
+                                )
+                            }
+                            .accessibilityLabel("矢量图预览")
+                    } else if let image {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
@@ -249,11 +291,16 @@ private struct WindowImagePreview: View {
                     Spacer()
                 }
 
-                MouseWheelZoomMonitor { delta in
-                    zoom(withScrollDelta: delta)
+                // 矢量图那条路不装这个监听：它会把滚轮事件整个吃掉，而 WebKit
+                // 自己的滚动和捏合缩放正是那边要用的东西 —— 一份比窗口高的报告，
+                // 滚不动就只看得见开头几行。
+                if svgData == nil {
+                    MouseWheelZoomMonitor { delta in
+                        zoom(withScrollDelta: delta)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
             }
         }
         .task(id: url) {
@@ -261,11 +308,13 @@ private struct WindowImagePreview: View {
         }
         .onExitCommand(perform: dismiss)
         .accessibilityLabel("图片预览")
-        .accessibilityValue("缩放 \(Int((zoomScale * 100).rounded()))%")
+        // 矢量图的缩放归 WebKit 管，这里报不出它此刻是多少。
+        .accessibilityValue(svgData == nil ? "缩放 \(Int((zoomScale * 100).rounded()))%" : "")
     }
 
     private func loadImage() async {
         image = nil
+        svgData = nil
         imageData = nil
         didFail = false
         zoomScale = 1
@@ -274,8 +323,17 @@ private struct WindowImagePreview: View {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard !Task.isCancelled,
                   let response = response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode),
-                  let decodedImage = NSImage(data: data) else {
+                  (200..<300).contains(response.statusCode) else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            // SVG 要先认出来再分路。认反了的话 `NSImage` 也会「成功」——
+            // 它解得出那份 SVG，只是解出来是一张 74×46 点的画布。
+            if SVGImage.isSVG(data: data, mimeType: response.mimeType, url: url) {
+                imageData = data
+                svgData = data
+                return
+            }
+            guard let decodedImage = NSImage(data: data) else {
                 throw URLError(.cannotDecodeContentData)
             }
             imageData = data
@@ -323,6 +381,8 @@ private struct ContentColumnView: View {
                 GlobalForumSearchView()
             case .favorites:
                 FavoritesView()
+            case .topicHistory:
+                TopicHistoryView()
             case .addAccount:
                 AddAccountView()
             case .toolbox:

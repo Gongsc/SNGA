@@ -22,6 +22,14 @@ final class AppSession {
     var statusMessage: String?
     var statusMessageIsError = false
 
+    /// 各账号自己的等级。
+    ///
+    /// 按账号存而不是只留「当前这个」，理由和签到状态一样：来回切账号时不必
+    /// 每次重新问一遍，而站点等级本来也不会在一次会话里变。
+    ///
+    /// 取不到就是没有。**没有时一律不拦** —— 拿一个猜的数去和「等级 N 可见」比，
+    /// 会把读者本来看得了的帖子画成看不了的，那比不画这层灰糟得多。
+    private(set) var accountLevels: [AccountID: Int] = [:]
     private(set) var checkInStatuses: [AccountID: DailyCheckInStatus] = [:]
     private(set) var queryingCheckInAccountIDs: Set<AccountID> = []
     private(set) var activeAccountCheckInStatus: DailyCheckInStatus = .failed(
@@ -52,6 +60,16 @@ final class AppSession {
 
     var activeAccount: AccountSummary? {
         accounts.first { $0.id == activeAccountID }
+    }
+
+    /// 当前账号的等级。资料还没取到时是 nil。
+    var activeAccountLevel: Int? {
+        guard let activeAccountID else { return nil }
+        return accountLevels[activeAccountID]
+    }
+
+    func setLevel(_ level: Int, for accountID: AccountID) {
+        accountLevels[accountID] = level
     }
 
     var activeService: (any ForumService)? {

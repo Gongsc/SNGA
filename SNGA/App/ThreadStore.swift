@@ -78,6 +78,7 @@ final class ThreadStore {
     @ObservationIgnored private let aiSummarizer: any AITopicSummarizing
     @ObservationIgnored private let aiKeyStore: any AIKeyStore
     @ObservationIgnored private var isTopicFavorite: (TopicID) -> Bool = { _ in false }
+    @ObservationIgnored private var topicDidOpen: (Topic) -> Void = { _ in }
     @ObservationIgnored private let threadRequests = RequestSlot()
     @ObservationIgnored private var threadNavigationPath: [ThreadNavigationSnapshot] = []
     @ObservationIgnored private var postAuthorLocationCache: [PostAuthorLocationKey: CachedPostAuthorLocation] = [:]
@@ -107,6 +108,15 @@ final class ThreadStore {
 
     func provideFavoriteLookup(_ lookup: @escaping (TopicID) -> Bool) {
         isTopicFavorite = lookup
+    }
+
+    /// 有人打开了一条话题。浏览历史靠它记账。
+    ///
+    /// 挂在这里而不是 `AppModel.openTopic`：帖子正文里的站内链接走的是
+    /// `beginLinkedTopicNavigation`，根本不经过那个入口 —— 顺着链接读了半天的
+    /// 那几条话题会一条都不进历史。真正「开始读这条」的地方只有这个 store。
+    func onTopicOpen(_ handler: @escaping (Topic) -> Void) {
+        topicDidOpen = handler
     }
 
     private func merged<T: Identifiable>(
@@ -231,6 +241,7 @@ final class ThreadStore {
 
     /// 展示一个话题。版面相关的处理（镜像版面跳转）留在 AppModel 协调。
     func open(_ topic: Topic) async {
+        topicDidOpen(topic)
         clearAISummary()
         resetThreadNavigationHistory()
         selectedTopicID = topic.id
@@ -286,6 +297,7 @@ final class ThreadStore {
             totalPages: totalPages,
             showsOnlyTopicAuthor: isShowingOnlyTopicAuthor
         ))
+        topicDidOpen(destination.topic)
         clearAISummary()
         threadRequests.invalidate()
         var loadedTopic = destination.topic
