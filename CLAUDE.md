@@ -93,7 +93,9 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - 全是 XCTest，没有 swift-testing。解析器测试一律**对着真实抓取的脱敏夹具**跑，先有夹具再写解析器；`RecordingHTTPTransport` 用来断言发出去的请求体。
 - **方法名不以 `test` 开头的是手动用例**，XCTest 发现不了（如 `NodeSeekLiveTests.manualLive*`、`SNGAUITests.manualOfficialLogin*`）。它们打线上站点或依赖 XCUITest 查不进的 `NSAlert`，慢且会随对方改版而红。怀疑站点改版时才临时把名字改回 `test` 前缀单独跑。环境变量传不进 UI 测试运行器，这是唯一可行的排除方式。
 - UI 测试靠 launch arguments 驱动：`--uitesting`（内存库 + `DebugForumService` 假数据）、`--uitesting-seed`（灌种子数据）、`--uitesting-no-folders` / `--uitesting-one-way-vote`（模拟缺能力的站点）等。`DebugForumService` 的 `capabilities` 可注入，用来验「站点缺某个能力时会怎样」而不必等真适配器写出来。
-- **UI 套件 27 条、单次约 7 分半（算上构建 8 分钟），大约每 4 次有 1 次偶发失败**（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先）。跑一次、如实报告、继续干活，不要为偶发失败反复重跑。连续同一处失败才值得查，且只做一步判据：把改动 `checkout HEAD` 原样跑一次，分清「是我改的」还是「环境如此」，然后停下来汇报，而不是一轮轮加诊断。
+- **UI 套件 34 条，单次约十分钟（算上构建更久）。跑一次、如实报告、继续干活，不要为一次失败反复重跑。** 确实有偶发失败这一类（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先），但**别拿「偶发」当默认解释** —— 2026-09-15 这一天，套件里当时红着的每一条查到底都是真 bug：标识符被容器盖掉、版本号断言停在 1.9.0、签名那条去 `label` 上找一个只存在于 `value` 的字符串。三条都不是时序，都是写下那天起就没对过，而且在 macOS 27 把测试运行器直接杀掉的那段时间里根本没人看得见。
+- **判一条失败是不是偶发，只看一步：同一条单独再跑两三次。** 真偶发会时红时绿；稳定红的就是 bug，接着查，别再重跑。要分「是我改的」还是「本来就这样」，把改动 `checkout HEAD` 原样跑一次 —— 但注意这一招在编译不过的时候用不了（macOS 27 刚升上来那次就是），那种情况下改动范围本身就是判据。查因优先看无障碍树（`XCUIElement.debugDescription` 落到文件里慢慢读），它直接说明元素到底叫什么、值在哪个属性上，比一轮轮加断言快得多。
+- **断言一行字用 `value`，不是 `label`。** SwiftUI 的 `Text` 把内容放在 `value` 上，`staticTexts["某某"]` 这种下标匹配的是标识符和 label，永远匹配不上；写成 `.matching(NSPredicate(format: "value CONTAINS %@", …))`，并把范围收在所属元素之内。
 - **需要登录态才能摸清的接口，写探针脚本交给用户在浏览器控制台跑**（`Design/probe-nodeseek-*.js`），不要拿凭据自己发请求。探针只打印字段名、类型、条数，绝不打印值。会话凭据不进对话。
 - **不往真实论坛发测试回复** —— 那是替用户发内容。写请求的验证靠假传输层断言「取校验字段 → 提交一次 → 确认结果」。
 - 匿名请求测不出登录才有的功能。这个坑在 NodeSeek 上踩过两次（先误判「没有站内搜索」，后误判 csrf），结论都写在 [Design/SiteProbe-NodeSeek.md](Design/SiteProbe-NodeSeek.md) 里。所以断言「站点没有某功能」时，判据得比「匿名访问被转走」更硬 —— V2EX「自己没有主题全文搜索」这一条是读站点自己的 `combo.js` 得出的（搜索框只有节点、用户、谷歌、SoV2EX 四档），不是靠那次 302。
@@ -129,6 +131,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - **控件给死宽度，别让它贴着内容**。内容一变宽度就跳 —— 档位选择器的标题长短差一倍，贴着内容会让旁边的输入框跟着变形。
 - **`.controlSize` 管控件大小，`.font` 管文字大小。** 拿 `.font(.caption)` 罩住整块面板来「让它小一点」，会把里面的输入框和选择器一起缩掉。
 - **每个可交互控件配 `accessibilityIdentifier`**，前缀由调用方给（`ForumSearchBar` 的 `identifierPrefix` 就是这么用的）—— UI 测试只认得它。
+- **标识符贴在控件本身上，绝不贴在包着若干控件的布局容器上。** `accessibilityIdentifier` 挂在 `VStack` / `HStack` / `Group` 这类布局容器上并不是给容器起名 —— 它会把这个名字发给底下**每一个**元素，而且外层修饰符最后生效，于是孩子们各自的标识符被**全部盖掉**。挂在本身就是一个无障碍元素的东西上（`ScrollView`、`Button`、`TextField`）才是给它自己起名，`settings-detail-<section>` 一直没出事就是因为它贴在 `ScrollView` 上。真要给一整块面板起名，先 `.accessibilityElement(children: .contain)` 声明成容器，再给标识符。这一条踩过三处（浏览历史的面板和行、搜索历史下拉、搜索筛选面板），症状是 UI 测试说「找不到」而界面上明明画着 —— 所以怀疑标识符时先 dump 无障碍树，别改测试。
 - **不支持就不画。** 这一条在能力位那一节，界面这边的落法是：站点收不下的控件根本不出现，而不是画出来等用户点了再报错。名字也按站点自己的说法给（`ForumSiteDescriptor` 里那一串 `xxxTitle`）。
 - **结果来自站外时要在界面上说出来。** 写在跟着内容走的那一行，别塞进定宽控件的标题里 —— 「主题正文（SoV2EX）」在档位选择器里会截断成「主题正文（SoV2…」，反而谁也看不见。
 
