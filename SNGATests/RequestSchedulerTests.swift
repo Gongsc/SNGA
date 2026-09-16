@@ -119,7 +119,7 @@ final class RequestSchedulerTests: XCTestCase {
 
         await scheduler.release(observing: response(status: 429))
 
-        let cooling = await scheduler.isCoolingDown
+        let cooling = await scheduler.isCoolingDown()
         XCTAssertTrue(cooling)
         let allowed = try await scheduler.acquire(priority: .userInitiated)
         XCTAssertFalse(allowed, "冷却里还放行，等于把封锁续期")
@@ -134,7 +134,7 @@ final class RequestSchedulerTests: XCTestCase {
 
         await scheduler.release(observing: response(status: 403))
 
-        let cooling = await scheduler.isCoolingDown
+        let cooling = await scheduler.isCoolingDown()
         XCTAssertFalse(cooling)
         let allowed = try await scheduler.acquire(priority: .userInitiated)
         XCTAssertTrue(allowed)
@@ -169,10 +169,33 @@ final class RequestSchedulerTests: XCTestCase {
             observing: response(status: 503, retryAfter: "1")
         )
 
-        let cooling = await scheduler.isCoolingDown
+        let cooling = await scheduler.isCoolingDown()
         XCTAssertTrue(cooling)
         let allowed = try await scheduler.acquire(priority: .userInitiated)
         XCTAssertFalse(allowed)
+    }
+
+    /// **冷却按主机分开。**
+    ///
+    /// 队列和节奏共用（那管的是我们自己往外发多快），冷却不能共用：V2EX 的主题
+    /// 搜索接的是 SoV2EX，一个站外的第三方。它回一句 429 就把 V2EX 也停掉的话，
+    /// 用户只是想翻个页，看到的却是「请求过于频繁」。
+    func testACooldownOnOneHostDoesNotStopAnother() async throws {
+        let scheduler = makeScheduler()
+        let held = try await scheduler.acquire(priority: .userInitiated, host: "sov2ex.com")
+        XCTAssertTrue(held)
+
+        await scheduler.release(observing: response(status: 429), host: "sov2ex.com")
+
+        let thirdPartyCooling = await scheduler.isCoolingDown(host: "sov2ex.com")
+        XCTAssertTrue(thirdPartyCooling)
+        let siteCooling = await scheduler.isCoolingDown(host: "www.v2ex.com")
+        XCTAssertFalse(siteCooling, "第三方被限流，把站点本身也停掉了")
+
+        let allowed = try await scheduler.acquire(priority: .userInitiated, host: "www.v2ex.com")
+        XCTAssertTrue(allowed)
+        let refused = try await scheduler.acquire(priority: .userInitiated, host: "sov2ex.com")
+        XCTAssertFalse(refused)
     }
 
     /// 取消一个排队中的请求，队伍不该就此卡住。
@@ -246,6 +269,12 @@ final class RequestSchedulerTests: XCTestCase {
         let second = try await transport.data(for: request)
         XCTAssertEqual(second.1.statusCode, 429)
         XCTAssertEqual(base.requests.count, 1, "冷却里那一发不该真的出门")
+
+        // 另一台主机不受牵连。
+        _ = try await transport.data(
+            for: URLRequest(url: URL(string: "https://elsewhere.example/a")!)
+        )
+        XCTAssertEqual(base.requests.count, 2)
     }
 
     /// 抛出去的那一发也要交还时隙，否则几次超时就把闸门锁死了。

@@ -80,7 +80,12 @@ actor RequestScheduler {
 
     private var inFlight = 0
     private var nextStartAt: ContinuousClock.Instant?
-    private var coolingUntil: ContinuousClock.Instant?
+    /// **按主机记**，不是整个闸门一个。
+    ///
+    /// 队列和节奏是共用的（那管的是我们自己往外发多快），冷却却不能共用：
+    /// V2EX 的主题搜索接的是 SoV2EX，一个站外的第三方。它回一句 429，不该让用户
+    /// 连 V2EX 本身都读不了 —— 那会显示成「请求过于频繁」，而他明明只是想翻页。
+    private var coolingUntil: [String: ContinuousClock.Instant] = [:]
     private var waiting: [Waiter] = []
     private var nextSequence: UInt64 = 0
     private var wakeTask: Task<Void, Never>?
@@ -93,8 +98,8 @@ actor RequestScheduler {
     ///
     /// 返回 `false` 表示站点刚说过别发了，这一发不该出门 —— 而不是在这儿睡满冷却。
     /// 睡满意味着用户点一下、转两分钟圈；把话直说，他至少知道发生了什么。
-    func acquire(priority: RequestPriority) async throws -> Bool {
-        if let coolingUntil, clock.now < coolingUntil { return false }
+    func acquire(priority: RequestPriority, host: String? = nil) async throws -> Bool {
+        if isCoolingDown(host: host) { return false }
         let sequence = nextSequence
         nextSequence &+= 1
         try await withTaskCancellationHandler {
@@ -126,9 +131,9 @@ actor RequestScheduler {
     /// 合成一个方法而不是 `release()` 加一个 `note...()`：两件事必须成对发生，
     /// 拆开就有人只写一半。`response` 为 nil 表示这一发是抛出去的（超时、断网），
     /// 那种失败不是限流。
-    func release(observing response: HTTPURLResponse?) {
+    func release(observing response: HTTPURLResponse?, host: String? = nil) {
         inFlight -= 1
-        if let response { noteIfThrottled(response) }
+        if let response { noteIfThrottled(response, host: host) }
         pump()
     }
 
@@ -136,10 +141,15 @@ actor RequestScheduler {
     /// 否则「用户那一下插了队」可能只是因为后台那几个还没到。
     var waitingCountForTesting: Int { waiting.count }
 
-    /// 站点当前是不是在冷却里。给测试和诊断用。
-    var isCoolingDown: Bool {
-        guard let coolingUntil else { return false }
-        return clock.now < coolingUntil
+    /// 这个主机当前是不是在冷却里。给测试和诊断用。
+    func isCoolingDown(host: String? = nil) -> Bool {
+        guard let until = coolingUntil[Self.key(for: host)] else { return false }
+        return clock.now < until
+    }
+
+    /// 认不出主机的请求（没有 URL）归到同一个桶里。这种请求本来也发不出去。
+    private static func key(for host: String?) -> String {
+        host?.lowercased() ?? ""
     }
 
     /// 只认 429 和 503，**不认 403**。
@@ -148,11 +158,11 @@ actor RequestScheduler {
     /// `/api/vote/*` 少了 `x-dynamic-sign` 就是 403，那是我们自己的 bug；别处的 403
     /// 多半是这个账号没权限或会话掉了。把它算成限流，会因为一个账号的会话过期，
     /// 把同一站点上另一个账号也停掉六十秒。
-    private func noteIfThrottled(_ response: HTTPURLResponse) {
+    private func noteIfThrottled(_ response: HTTPURLResponse, host: String?) {
         guard response.statusCode == 429 || response.statusCode == 503 else { return }
         let requested = Self.retryAfter(response.value(forHTTPHeaderField: "Retry-After"))
         let delay = max(Self.minimumCooldown, requested ?? .zero)
-        coolingUntil = clock.now.advanced(by: delay)
+        coolingUntil[Self.key(for: host)] = clock.now.advanced(by: delay)
     }
 
     /// `Retry-After` 有两种写法：秒数，或者一个 HTTP 日期。两种都认。
@@ -237,7 +247,8 @@ struct ScheduledTransport: HTTPTransport {
     }
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        guard try await scheduler.acquire(priority: RequestPriority.current) else {
+        let host = request.url?.host()
+        guard try await scheduler.acquire(priority: RequestPriority.current, host: host) else {
             // 冷却中就地答一个 429，而不是自己造一种新错误。
             //
             // 这不是在伪造站点的答复 —— 站点刚刚**就是**这么说的，这里只是替它把
@@ -247,10 +258,10 @@ struct ScheduledTransport: HTTPTransport {
         }
         do {
             let result = try await base.data(for: request)
-            await scheduler.release(observing: result.1)
+            await scheduler.release(observing: result.1, host: host)
             return result
         } catch {
-            await scheduler.release(observing: nil)
+            await scheduler.release(observing: nil, host: host)
             throw error
         }
     }

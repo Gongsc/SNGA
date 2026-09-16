@@ -59,9 +59,10 @@ actor V2EXNetworkClient {
     /// 会话是用户的，没有理由让它离开 v2ex.com。
     ///
     /// 单独开一个方法而不是在 `send` 里判域名：判域名是一句可以被后来的人删掉的
-    /// 条件，而这里是「这条路本来就不碰 jar」。限流仍然共用，两边都不该被打太快。
+    /// 条件，而这里是「这条路本来就不碰 jar」。发送节奏仍和 V2EX 共用（两边都不该
+    /// 被打太快），但**冷却按主机分开** —— 第三方回一句 429，不该让用户连 V2EX
+    /// 本身都读不了。见 `RequestScheduler.coolingUntil`。
     func getThirdParty(_ url: URL) async throws -> Data {
-
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 25
@@ -102,7 +103,6 @@ actor V2EXNetworkClient {
         asJSON: Bool,
         referer: URL?
     ) async throws -> Data {
-
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = form == nil ? 25 : 40
