@@ -155,6 +155,15 @@ enum NodeSeekEndpoint {
     /// 投一票。请求体的形状还没验证过。
     static let voteForItem = url("/api/vote/voteforitem")
 
+    /// 站点黑名单。
+    ///
+    /// 三个地址，**两个方向的参数不一样**：加是按名字（`block_member_name`），
+    /// 删是按编号（`block_member_id`）。看着像是接口写歪了，但它就是这样，
+    /// 所以调用方两样都得有。
+    static let blockList = url("/api/block-list/list")
+    static let addBlock = url("/api/block-list/add")
+    static let removeBlock = url("/api/block-list/del")
+
     static let unreadCount = url("/api/notification/unread-count")
     static func messageThread(uid: Int64) -> URL { url("/api/notification/message/with/\(uid)") }
     static let sendMessage = url("/api/notification/message/send")

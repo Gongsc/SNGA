@@ -108,6 +108,15 @@ protocol ForumService: Sendable {
     func deleteTopicFavoriteFolder(folderID: String) async throws
     func checkInStatus() async throws -> CheckInStatistics
     func checkIn() async throws -> CheckInResult
+    /// 当前账号在站点侧屏蔽了哪些人。
+    func blockedUserIDs() async throws -> Set<Int64>
+    /// 屏蔽或解除屏蔽某个人。
+    ///
+    /// **编号和名字两样都要。** 不是冗余：NodeSeek 加进黑名单用的是
+    /// `block_member_name`，移出用的是 `block_member_id` —— 一个方向按名字，另一个
+    /// 按编号。只传一样就总有一个方向做不成，而这种不对称是站点的，不是我们能
+    /// 在抽象层抹平的。
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws
 }
 
 extension ForumService {
@@ -131,6 +140,16 @@ extension ForumService {
 
     func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws {
         throw ForumServiceError.unsupported("\(site.displayName) 不支持收藏版面")
+    }
+
+    /// 不支持站点黑名单的站点不必写这两个。界面按 `.userBlocking` 决定画不画，
+    /// 正常路径走不到这里；走到了说明有个调用点漏了门控。
+    func blockedUserIDs() async throws -> Set<Int64> {
+        throw ForumServiceError.unsupported("\(site.displayName) 没有站点黑名单")
+    }
+
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws {
+        throw ForumServiceError.unsupported("\(site.displayName) 没有站点黑名单")
     }
 
     /// 已读同步的默认实现什么都不做，**不抛 `.unsupported`**。

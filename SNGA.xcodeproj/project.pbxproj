@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0064929E81070EAC85876E80 /* SVGImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8EF01BE7227FB8B172B060 /* SVGImageView.swift */; };
 		0246EC521B336CF50CC0FCD7 /* NGAParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */; };
+		04593442441765134F06CF6E /* NodeSeekBlockListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D779BA7A11E46F7877EF6731 /* NodeSeekBlockListTests.swift */; };
 		07E8FA15B33EB0FDDED065C9 /* Base64TextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A48527CB8851C9B9561BC300 /* Base64TextTests.swift */; };
 		098F7E6F5B717E09187671D3 /* NodeSeekEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DFAC06F83AB61162157AD01 /* NodeSeekEndpoint.swift */; };
 		0A5517D3BA2909B5CC2AAD1B /* SVGImageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A014CF7D4BEB2E64300ADC3D /* SVGImageTests.swift */; };
@@ -415,6 +416,7 @@
 		D0402B275762A28040084F66 /* V2EXParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXParserTests.swift; sourceTree = "<group>"; };
 		D3B57BC737D643FDBD7E54C5 /* ThemePaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePaletteTests.swift; sourceTree = "<group>"; };
 		D600785A24730BB564A5EBB7 /* ForumSearchBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSearchBar.swift; sourceTree = "<group>"; };
+		D779BA7A11E46F7877EF6731 /* NodeSeekBlockListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekBlockListTests.swift; sourceTree = "<group>"; };
 		D8ABA11C8776D23DB7E9B344 /* NGAParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAParser.swift; sourceTree = "<group>"; };
 		D92C014C3D8A3473B7341EC7 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NGAParserTests.swift; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 				21D8D9BD0E28EF1DFDFC1EDC /* LegacyStoreMigrationTests.swift */,
 				F354393C9451574BD8078C88 /* MarkdownRendererTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
+				D779BA7A11E46F7877EF6731 /* NodeSeekBlockListTests.swift */,
 				AC15679961D96C111EEE4127 /* NodeSeekEndpointTests.swift */,
 				1DD3F7C8C560E02FF50F2764 /* NodeSeekLiveTests.swift */,
 				9A7CBB26141FA3CAE97268E1 /* NodeSeekParserTests.swift */,
@@ -1071,6 +1074,7 @@
 				783A1A3511B715C849A5B8AA /* LegacyStoreMigrationTests.swift in Sources */,
 				AA3BE3111F7AAC8FD770149F /* MarkdownRendererTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
+				04593442441765134F06CF6E /* NodeSeekBlockListTests.swift in Sources */,
 				D48FF2CB3F855F0ACF6EED1E /* NodeSeekEndpointTests.swift in Sources */,
 				6229E89369BE91EBFACAC0C8 /* NodeSeekLiveTests.swift in Sources */,
 				1EC573D18B62BFC7FDAAF6DE /* NodeSeekParserTests.swift in Sources */,

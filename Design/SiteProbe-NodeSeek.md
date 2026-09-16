@@ -241,6 +241,22 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 - `/api/notification/message/send` — **收件人字段是 camelCase 的 `receiverUid`**，
   而这套接口其余字段都是 snake_case（实测 2026-07-26，从站点自身的 `notification.js` 读出）
 
+### 黑名单
+
+- `GET /api/block-list/list` → `{success:true, data:[{block_member_id, block_member_name}]}`
+- `POST /api/block-list/add` → `{"block_member_name": "名字"}`
+- `POST /api/block-list/del` → `{"block_member_id": 编号}`
+
+**两个方向的参数不一样**：加按名字，删按编号。看着像接口写歪了，但它就是这样，
+所以调用方两样都得有（`ForumService.updateUserBlock` 因此同时收 uid 和 name）。
+读接口本机验过；两个写接口的字段名出处是 `rirh/nodeseek-plus` 的 `blocklist.ts`
+（GPL-3.0），它注明来自[原作者公开插件代码](https://www.5yyx.com/?p=662)，
+那边也只用模拟接口验过，**没有对真账号操作过**。
+
+`success` 不为真、或者 `data` 不是数组，一律当查询失败抛错，**不返回空集合** ——
+「你没屏蔽任何人」和「不知道」在界面上会长成同一个样子，而后者下点「屏蔽」
+可能正好是在解除。
+
 ### 账号与签到
 
 - `/api/account/getInfo/{uid}?readme=1` — 不加 `readme=1` 时响应里没有个人简介

@@ -1070,6 +1070,25 @@ struct NodeSeekParser: Sendable {
         }
     }
 
+    /// 站点黑名单。
+    ///
+    /// **空列表和查询失败要分开。** 两者都「一个人都没有」，但含义正相反：前者是
+    /// 「你没屏蔽任何人」，后者是「不知道」。混作一谈，界面就会在查询失败之后把
+    /// 每个人的按钮都画成「屏蔽」—— 而其中可能正有一个已经被屏蔽了的人，点下去
+    /// 等于在他身上做了一次反向操作。所以 `success` 不为真、或者 `data` 不是数组，
+    /// 一律抛错，不返回空集合。
+    func blockedUserIDs(json data: Data) throws -> Set<Int64> {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取黑名单")
+        }
+        try Self.rejectBulkGate(root)
+        guard (root["success"] as? NSNumber)?.boolValue == true,
+              let rows = root["data"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("黑名单查询失败")
+        }
+        return Set(rows.compactMap { ($0["block_member_id"] as? NSNumber)?.int64Value })
+    }
+
     /// 收藏的话题。
     ///
     /// 响应只有编号、标题和一个 `rank`，没有作者、回复数、时间，也没有所属分类 ——

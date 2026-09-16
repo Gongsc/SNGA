@@ -549,6 +549,15 @@ actor DebugForumService: ForumService {
         return .success(message: "签到成功")
     }
 
+    /// 假数据里先屏蔽着一个人：这样 UI 测试两个方向都验得到，不必先造一次屏蔽。
+    private var blocked: Set<Int64> = [20002]
+
+    func blockedUserIDs() async throws -> Set<Int64> { blocked }
+
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws {
+        if isBlocked { blocked.insert(uid) } else { blocked.remove(uid) }
+    }
+
     func debugCheckInRequestCount() -> Int { checkInRequestCount }
     func debugCheckInStatusRequestCount() -> Int { checkInStatusRequestCount }
 }

@@ -266,14 +266,18 @@ final class ForumSiteTests: XCTestCase {
 
     // MARK: - 能力集
 
-    /// 加了新能力却忘了并进 `.all`，NGA 会悄悄少掉一个功能。
-    /// 这里按位盯住：`.all` 必须是所有已声明位的全集。
+    /// `.all` 必须是所有已声明位的全集，一位不多一位不少。
+    ///
+    /// 这条原来的理由是「忘了并进 `.all`，NGA 会悄悄少掉一个功能」—— 那时 NGA 就是
+    /// `.all`。现在 NGA 一条条写着自己的，`.all` 只给假服务用，理由跟着变了：
+    /// 假服务是「什么都支持」的那一个，UI 测试靠它验「能力在的时候画什么」，
+    /// 漏一位就等于有一块界面从来没被测过。
     func testAllContainsEveryDeclaredCapability() {
         let declared: [ForumCapabilities] = [
             .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
             .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
             .privateMessages, .notifications, .globalSearch, .userActivities,
-            .anonymousPosts, .postAuthorLocation
+            .anonymousPosts, .postAuthorLocation, .userBlocking
         ]
         for capability in declared {
             XCTAssertTrue(ForumCapabilities.all.contains(capability))
@@ -285,9 +289,12 @@ final class ForumSiteTests: XCTestCase {
         )
     }
 
-    /// 阶段 1 的验收标准：NGA 声明全集，所以门控不该让界面少任何东西。
+    /// 能力全开的时候，门控不该让界面少任何东西。
+    ///
+    /// 这里用的是假服务（它默认 `.all`），不是真的 NGA —— 原先的名字说是 NGA，
+    /// 那时两者恰好一样，现在不一样了。
     @MainActor
-    func testNGADeclaresEveryCapabilitySoNothingGetsHidden() throws {
+    func testAFullyCapableSiteHasNothingHidden() throws {
         let session = try Self.makeSession(withServiceFor: AccountID())
 
         XCTAssertEqual(session.activeCapabilities, .all)
@@ -296,6 +303,25 @@ final class ForumSiteTests: XCTestCase {
             .globalSearch, .forumFavorites, .quotePost
         ] {
             XCTAssertTrue(session.supports(capability))
+        }
+    }
+
+    /// 真适配器**不准**用 `.all`。
+    ///
+    /// `.all` 的含义是「以后新加的任何一位我都支持」，而新加一位的时候适配器多半
+    /// 还没写。NGA 就这么栽过一次：`.userBlocking` 一进 `.all`，它的用户中心立刻
+    /// 画出一个屏蔽按钮，点下去才答「NGA 没有站点黑名单」。
+    func testNoRealAdapterClaimsTheWholeSet() {
+        let services: [any ForumService] = [
+            NGAForumService(accountID: AccountID(), cookies: []),
+            NodeSeekForumService(accountID: AccountID(), cookies: [], userAgent: "probe"),
+            V2EXForumService(accountID: AccountID(), cookies: [], userAgent: "probe")
+        ]
+        for service in services {
+            XCTAssertNotEqual(
+                service.capabilities, .all,
+                "\(service.site.rawValue) 写的是 .all —— 以后加的位会自动替它认下"
+            )
         }
     }
 

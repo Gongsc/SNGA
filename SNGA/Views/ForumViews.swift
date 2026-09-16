@@ -48,6 +48,7 @@ struct UserCenterView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BottomActionBar {
                 HStack {
+                    blockToggle
                     Spacer()
                     Button {
                         guard let targetUID else { return }
@@ -72,6 +73,60 @@ struct UserCenterView: View {
             if let targetUID {
                 await model.ensureUserCenterLoaded(uid: targetUID)
             }
+        }
+        .task(id: blockToggleSubject?.uid) {
+            guard blockToggleSubject != nil else { return }
+            await model.loadBlockedUsers()
+        }
+    }
+
+    /// 屏蔽谁。看自己的资料时、或者站点没有这回事时，是 nil —— 那两种情况下
+    /// 这个按钮整个不画，而不是画出来再禁用。
+    private var blockToggleSubject: (uid: Int64, name: String)? {
+        guard model.session.supports(.userBlocking),
+              !model.isDisplayingActiveAccount,
+              let profile, profile.uid > 0,
+              !profile.displayName.isEmpty else {
+            return nil
+        }
+        return (profile.uid, profile.displayName)
+    }
+
+    /// 站点侧的屏蔽开关。
+    ///
+    /// 名单还没查到（`isBlocked` 为 nil）时画的是「重试」而不是「屏蔽」：不知道
+    /// 他现在是什么状态，就不能拿一个猜的状态去标按钮 —— 点下去可能正好做反。
+    @ViewBuilder
+    private var blockToggle: some View {
+        if let subject = blockToggleSubject {
+            let state = model.isBlocked(uid: subject.uid)
+            let isPending = model.pendingBlockUID == subject.uid
+            let title = state.map { siteDescriptor.userBlockActionTitle(isBlocked: $0) }
+                ?? "重试查询黑名单"
+            Button {
+                Task {
+                    guard let state else {
+                        await model.loadBlockedUsers(force: true)
+                        return
+                    }
+                    await model.setBlocked(!state, uid: subject.uid, name: subject.name)
+                }
+            } label: {
+                Label(
+                    title,
+                    systemImage: state == true ? "person.crop.circle.badge.checkmark"
+                        : state == false ? "person.crop.circle.badge.xmark"
+                        : "arrow.clockwise"
+                )
+            }
+            .labelStyle(.iconOnly)
+            .help(
+                state == nil
+                    ? "黑名单没查到，点一下重试"
+                    : "\(title) \(subject.name)"
+            )
+            .disabled(isPending || model.pendingBlockUID != nil)
+            .accessibilityIdentifier("user-center-block-toggle")
         }
     }
 

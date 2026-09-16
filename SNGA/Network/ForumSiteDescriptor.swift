@@ -119,6 +119,18 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 站点黑名单那两个动作在这个站叫什么。
+    ///
+    /// 各站叫法不一样是常事（版面/节点、N 币/鸡腿），所以这一句也走这里。目前只有
+    /// NodeSeek 点亮了 `.userBlocking`，另外两个填的是它们**假如**有的时候会用的
+    /// 说法 —— 真接上时按站点自己的页面核一遍，别照抄。
+    func userBlockActionTitle(isBlocked: Bool) -> String {
+        switch site {
+        case .nga, .nodeseek, .v2ex:
+            isBlocked ? "解除屏蔽" : "屏蔽"
+        }
+    }
+
     /// 往这个站发请求的节奏。
     ///
     /// 间隔那个数是从各客户端原来的 `throttle()` 搬过来的，没有改 —— 它们是各站

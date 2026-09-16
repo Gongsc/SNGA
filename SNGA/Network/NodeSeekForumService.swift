@@ -29,7 +29,8 @@ actor NodeSeekForumService: ForumService {
     /// 逐个去拉作者资料，拉回来一个空值，什么都填不上 —— 纯赔。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost, .poll,
-        .privateMessages, .notifications, .userActivities, .globalSearch
+        .privateMessages, .notifications, .userActivities, .globalSearch,
+        .userBlocking
     ]
 
     private let client: NodeSeekNetworkClient
@@ -371,6 +372,33 @@ actor NodeSeekForumService: ForumService {
             throw ForumServiceError.unexpectedPage("这段会话读不出内容")
         }
         return message
+    }
+
+    func blockedUserIDs() async throws -> Set<Int64> {
+        try parser.blockedUserIDs(json: await client.get(NodeSeekEndpoint.blockList))
+    }
+
+    /// 屏蔽或解除屏蔽。
+    ///
+    /// 两个方向的请求体**装的不是同一样东西**：加进去传名字，移出来传编号。照抄，
+    /// 别为了对称两边都传编号 —— 那一边会静静地什么也不做。
+    ///
+    /// 名字空着就不发。按名字加人的接口收到一个空串，最好的结果是报错，最坏的
+    /// 结果是屏蔽了某个名字为空的账号。
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBlocked, trimmed.isEmpty {
+            throw ForumServiceError.unsupported("不知道对方的用户名，无法屏蔽")
+        }
+        try parser.confirmWrite(
+            json: await client.postJSON(
+                isBlocked ? NodeSeekEndpoint.addBlock : NodeSeekEndpoint.removeBlock,
+                body: isBlocked
+                    ? ["block_member_name": trimmed]
+                    : ["block_member_id": uid]
+            ),
+            what: isBlocked ? "屏蔽" : "解除屏蔽"
+        )
     }
 
     /// 把这几条通知在站点那边标成已读。

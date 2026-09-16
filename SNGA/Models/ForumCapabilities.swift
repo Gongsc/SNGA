@@ -68,10 +68,23 @@ struct ForumCapabilities: OptionSet, Sendable, Hashable {
     /// 一开帖就是上百次请求排在同一个连接上，后面所有请求都得等它们走完。
     static let postAuthorLocation = ForumCapabilities(rawValue: 1 << 14)
 
+    /// 站点侧的黑名单：能把某个人加进去，之后站点自己就不再把他的内容发过来。
+    ///
+    /// 和设置里那套关键词过滤（`KeywordFilter` 的「作者」那一档）是两件事，不是一件事
+    /// 的两种实现：本地过滤是拿到内容之后不画，屏蔽是内容根本不来 —— 翻页不再为他
+    /// 浪费额度，而且换一台设备也跟着走。两样都留着，因为它们的诉求本来就不同：
+    /// 本地过滤不必登录、随手可改、只影响自己这台机器。
+    static let userBlocking = ForumCapabilities(rawValue: 1 << 16)
+
+    /// 全都支持。
+    ///
+    /// **只给假服务用。** 真适配器一条条写出来 —— 用 `.all` 等于说「以后新加的
+    /// 任何一位我都支持」，而新加一位的时候适配器通常还没写。NGA 在这上面栽过一次：
+    /// 加 `.userBlocking` 的那天，它的用户中心立刻画出一个按钮，点下去才说不支持。
     static let all: ForumCapabilities = [
         .checkIn, .postVote, .postDownvote, .quotePost, .topicRating, .poll,
         .subforums, .forumFavorites, .topicFavorites, .topicFavoriteFolders,
         .privateMessages, .notifications, .globalSearch, .userActivities,
-        .anonymousPosts, .postAuthorLocation
+        .anonymousPosts, .postAuthorLocation, .userBlocking
     ]
 }
