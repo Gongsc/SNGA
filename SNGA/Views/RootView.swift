@@ -171,6 +171,8 @@ struct RootView: View {
             "添加账号"
         case .toolbox:
             "小工具"
+        case .topicMonitor:
+            "新帖监控"
         case .settings:
             "设置"
         case .forum:
@@ -387,6 +389,8 @@ private struct ContentColumnView: View {
                 AddAccountView()
             case .toolbox:
                 ToolboxMenuView()
+            case .topicMonitor:
+                TopicMonitorView()
             case .settings:
                 SettingsMenuView()
             case let .forum(forumID):

@@ -1536,6 +1536,85 @@ final class SNGAUITests: XCTestCase {
         return !element.exists
     }
 
+    // MARK: - 新帖监控
+
+    /// 监控读的是匿名订阅，所以它在账号门槛**外面** —— 一个账号都没有时也该画出来。
+    /// `--uitesting` 不带 `--uitesting-seed`，就是没有账号的那种状态。
+    func testTopicMonitorIsReachableWithoutAnAccount() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        let entry = mainWindow.descendants(matching: .any)["sidebar-topic-monitor-button"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.click()
+
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["topic-monitor-configure"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            mainWindow.descendants(matching: .any)["topic-monitor-empty-configure"]
+                .waitForExistence(timeout: 5),
+            "还没有规则时该请用户去设一条，而不是摆一张空列表"
+        )
+    }
+
+    /// 没有规则时，「开始监控」和「立即检查」都该是灰的 —— 一个没有规则的监控
+    /// 按下去什么也不会发生。
+    func testMonitorControlsStayDisabledUntilThereAreRules() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        mainWindow.descendants(matching: .any)["sidebar-topic-monitor-button"].click()
+
+        let toggle = mainWindow.descendants(matching: .any)["topic-monitor-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(toggle.isEnabled)
+
+        let checkNow = mainWindow.descendants(matching: .any)["topic-monitor-check-now"]
+        XCTAssertTrue(checkNow.waitForExistence(timeout: 5))
+        XCTAssertFalse(checkNow.isEnabled)
+    }
+
+    /// 写坏的正则要当场说出来。
+    ///
+    /// 这一条盯的是一个不说话就查不出来的毛病：一条编译不过的规则和一条永远匹配
+    /// 不上的规则，在结果列表上长得一模一样，用户会以为「就是没有新帖」。
+    ///
+    /// 故意只打 ASCII —— 中文 `typeText` 在这套里打出过乱码。
+    func testAnUnparsableRuleIsCalledOutInTheSheet() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting"]
+        app.launch()
+        ensureMainWindow(in: app)
+        let mainWindow = app.windows.firstMatch
+
+        mainWindow.descendants(matching: .any)["sidebar-topic-monitor-button"].click()
+        let configure = mainWindow.descendants(matching: .any)["topic-monitor-configure"]
+        XCTAssertTrue(configure.waitForExistence(timeout: 5))
+        configure.click()
+
+        let editor = app.descendants(matching: .any)["topic-monitor-rules-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.click()
+        editor.typeText("vmiss\n(unclosed")
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topic-monitor-invalid-rules"]
+                .waitForExistence(timeout: 5),
+            "写坏的那一行没有被指出来"
+        )
+    }
+
     private func ensureMainWindow(in app: XCUIApplication) {
         guard !app.windows.firstMatch.waitForExistence(timeout: 2) else { return }
         let fileMenu = app.menuBars.menuBarItems["File"]

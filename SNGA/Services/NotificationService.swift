@@ -122,6 +122,26 @@ actor NotificationService {
         )
         try? await UNUserNotificationCenter.current().add(request)
     }
+
+    /// 监控到一条新帖。
+    ///
+    /// 标题里带上命中的那条规则，因为用户多半配了好几条 —— 只说「监控到新帖」，
+    /// 他还得打开面板才知道是哪一条在响。
+    func notifyTopicMonitor(hit: TopicMonitorHit) async {
+        await requestAuthorizationIfNeeded()
+        let content = UNMutableNotificationContent()
+        content.title = "SNGA · 新帖监控"
+        content.subtitle = hit.ruleSource
+        content.body = hit.title
+        content.sound = .default
+        content.userInfo = ["topicMonitorHitID": String(hit.id)]
+        let request = UNNotificationRequest(
+            identifier: "topic-monitor:\(hit.id)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(request)
+    }
 }
 
 extension Notification.Name {

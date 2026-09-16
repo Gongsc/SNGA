@@ -671,6 +671,13 @@ struct SNGAApp: App {
                                 pageURL: GitHubReleaseUpdateChecker.repositoryURL
                             ))
                             : .upToDate
+                    ),
+                    // 监控在 UI 测试里既不能真去问 rss.nodeseek.com（断网和对方
+                    // 改版都会让用例莫名其妙地红），也不能写用户真实的偏好设置 ——
+                    // 规则和已收录的结果都存在 UserDefaults 里。两样都换掉。
+                    topicMonitor: TopicMonitorStore(
+                        feed: TopicMonitorFeed(transport: DebugRSSTransport()),
+                        defaults: .uiTestingVolatile
                     )
                 ))
             } else {

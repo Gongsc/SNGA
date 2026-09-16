@@ -60,6 +60,16 @@ struct SidebarView: View {
             // 小工具读的是 60s 开放接口，不需要账号 —— 所以它在账号门槛外面。
             Section("工具") {
                 sidebarButton("小工具", systemImage: "wrench.and.screwdriver", selection: .toolbox)
+                // 监控读的也是一份匿名订阅，和账号无关 —— 所以它也在门槛外面。
+                sidebarButton(
+                    "新帖监控",
+                    systemImage: "bell.badge",
+                    selection: .topicMonitor,
+                    attentionLabel: model.topicMonitor.unreadCount > 0
+                        ? String(model.topicMonitor.unreadCount)
+                        : nil,
+                    identifier: "sidebar-topic-monitor-button"
+                )
             }
 
             if model.session.activeAccountID != nil {
@@ -203,7 +213,8 @@ struct SidebarView: View {
         systemImage: String,
         selection: SidebarSelection,
         badge: Int = 0,
-        attentionLabel: String? = nil
+        attentionLabel: String? = nil,
+        identifier: String? = nil
     ) -> some View {
         Button {
             model.sidebarSelection = selection
@@ -218,7 +229,7 @@ struct SidebarView: View {
                 model.aiProfiles.selectMostRecentIfNeeded()
             case .topicHistory:
                 model.topicHistory.reload()
-            case .favorites, .toolbox, .settings, .addAccount:
+            case .favorites, .toolbox, .topicMonitor, .settings, .addAccount:
                 break
             case let .userCenter(uid):
                 if let uid = uid ?? model.session.activeAccount?.siteUserID {
@@ -258,6 +269,9 @@ struct SidebarView: View {
         .sidebarListRow()
         .accessibilityLabel(title)
         .accessibilityValue(attentionLabel ?? "")
+        // 标识符贴在 `Button` 上 —— 它本身就是一个无障碍元素，所以这是给它自己
+        // 起名，不会像贴在布局容器上那样把孩子的标识符全盖掉。
+        .accessibilityIdentifier(identifier ?? "")
     }
 
     private func isSelectionActive(_ selection: SidebarSelection) -> Bool {

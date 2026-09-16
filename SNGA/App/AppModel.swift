@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SwiftData
@@ -65,8 +66,11 @@ final class AppModel {
     let searchHistory: SearchHistoryStore
     /// 浏览历史。同时供着侧栏那个面板和话题列表里「读过的变灰」。
     let topicHistory: TopicHistoryStore
-    /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
+    /// 小工具不认账号，也不认论坛，所以它不吃 `AppSession`。
     let toolbox = ToolboxStore()
+    /// 新帖监控。和小工具一样不吃 `AppSession` —— 它读的是一份匿名订阅，
+    /// 没有账号也能用，它的网络故障也不该显示成论坛的错误。
+    let topicMonitor: TopicMonitorStore
     /// 查更新问的是 GitHub，和账号、论坛都没关系；它的网络故障也不能报成论坛的错误，
     /// 所以不走 `AppSession.present(_:)`，由「关于」面板自己就地显示。
     let updateChecker: any UpdateChecking
@@ -81,9 +85,11 @@ final class AppModel {
         aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
         aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared,
-        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker()
+        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker(),
+        topicMonitor: TopicMonitorStore = TopicMonitorStore()
     ) {
         self.updateChecker = updateChecker
+        self.topicMonitor = topicMonitor
         let session = AppSession(
             container: container,
             sessionStore: sessionStore,
@@ -200,6 +206,7 @@ final class AppModel {
         case .directory: "返回全部版面"
         case .aiProfiles: "返回 AI 画像"
         case .toolbox: "返回小工具"
+        case .topicMonitor: "返回新帖监控"
         default: "返回"
         }
     }
@@ -585,6 +592,29 @@ final class AppModel {
         }
     }
 
+    /// 打开一条监控到的帖子。
+    ///
+    /// 监控不认账号，可当前账号**未必是 NodeSeek 的** —— 甚至可能一个账号都没有。
+    /// 拿一个 NodeSeek 的话题编号去问 NGA 或 V2EX 的服务，answer 是一张「找不到」
+    /// 的正常页面，用户看到的却是「论坛页面结构已变化」（`belongsToActiveSite` 那条
+    /// 记着的正是这种事）。所以站点对不上时交给浏览器 —— 那一条路总是通的。
+    func openMonitoredTopic(_ hit: TopicMonitorHit) {
+        topicMonitor.markHitRead(id: hit.id)
+        guard session.activeService?.site == .nodeseek else {
+            if let link = hit.link { NSWorkspace.shared.open(link) }
+            return
+        }
+        Task {
+            await openTopic(Topic(
+                id: TopicID(rawValue: hit.id),
+                forumID: .placeholder(site: .nodeseek),
+                subject: hit.title,
+                author: hit.author ?? "",
+                replyCount: 0
+            ))
+        }
+    }
+
     func returnFromUserCenter() {
         guard let origin = userCenterReturnSelection else { return }
         sidebarSelection = origin
@@ -894,6 +924,7 @@ final class AppModel {
         case .topicHistory: topicHistory.reload()
         case .aiProfiles: break
         case .toolbox: toolbox.refresh()
+        case .topicMonitor: await topicMonitor.checkNow()
         // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
         case .settings, .addAccount: break
         case let .userCenter(uid):
