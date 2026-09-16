@@ -143,8 +143,11 @@ final class MessageStore {
             }
             currentMessage = result
             markMessageRead(message, folder: folder)
+            // 跟着本地那一下走，而不是放在 `withLoading` 外面：详情取失败时
+            // `markMessageRead` 根本不会执行，那时候去告诉站点「读过了」，
+            // 等于替一次没成功的打开销掉了未读。
+            await syncReadState(of: [message])
         }
-        await syncReadState(of: [message])
         return .handled
     }
 
