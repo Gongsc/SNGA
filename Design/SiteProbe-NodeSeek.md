@@ -230,7 +230,13 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 
 - `/api/notification/unread-count`
 - `/api/notification/{type}/list?page=` — type 为 `at-me`（@我）、`reply-to-me`（回复我）、`message`（私信）
-- `/api/notification/{type}/markViewed?all=true` — 全部已读；不带 query 时用 JSON body 逐条标记
+- `/api/notification/{type}/markViewed?all=true` — 全部已读；不带 query 时用 JSON body 逐条标记。
+  **请求体里装编号数组的字段名和路径对不上，而且两类还各不相同**：`at-me` 用 `atMe`，
+  `reply-to-me` 用 **`replys`**（一个拼错了的复数）。照抄，别统一风格 —— 和 `receiverUid`
+  同一个毛病。出处是 `rirh/nodeseek-plus` 的 `notification-inbox.ts`（GPL-3.0），
+  那边从站点前端读出来的，**本机未实测**。要验：登录后在控制台发一条
+  `POST /api/notification/at-me/markViewed`，body `{"atMe":[某条通知的 id]}`，
+  看那条的 `viewed` 有没有从 0 变 1；字段名错了只会「标不上」，不会误发内容
 - `/api/notification/message/with/{uid}` — 一段完整会话
 - `/api/notification/message/send` — **收件人字段是 camelCase 的 `receiverUid`**，
   而这套接口其余字段都是 snake_case（实测 2026-07-26，从站点自身的 `notification.js` 读出）

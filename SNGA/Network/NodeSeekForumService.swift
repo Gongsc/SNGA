@@ -373,6 +373,48 @@ actor NodeSeekForumService: ForumService {
         return message
     }
 
+    /// 把这几条通知在站点那边标成已读。
+    ///
+    /// 两类通知落在两个接口上，装编号的字段名也各不相同（见
+    /// `NodeSeekNotificationKind.viewedIDsField`），所以得先按种类分开。
+    ///
+    /// **私信不在这里。** `/api/notification/message/markViewed` 大概也存在，但没有
+    /// 任何一处读出来过它的请求体长什么样 —— 而私信列表给的是会话不是单条消息，
+    /// 那个 `id` 装的是对方的用户编号（见 `NodeSeekParser.messages`），拿它当消息
+    /// 编号发出去多半是错的。猜一个字段名去写别人的账号状态，不如什么都不做。
+    ///
+    /// 按 `allCases` 遍历而不是遍历字典，是为了让发出去的请求顺序稳定 —— 否则测试
+    /// 里断言「第一条请求是什么」会随哈希种子飘。
+    func markRead(_ messages: [ForumMessage]) async throws {
+        for kind in NodeSeekNotificationKind.allCases {
+            let ids = messages
+                .filter { $0.isUnread && $0.kind == kind.messageKind }
+                .map(\.id.rawValue)
+            guard !ids.isEmpty else { continue }
+            try parser.confirmWrite(
+                json: await client.postJSON(
+                    NodeSeekEndpoint.markNotificationsViewed(kind: kind),
+                    body: [kind.viewedIDsField: ids]
+                ),
+                what: "已读标记"
+            )
+        }
+    }
+
+    func markAllRead(folder: MessageFolder) async throws {
+        // 私信那一路同上，没验过，不发。
+        guard folder == .notifications else { return }
+        for kind in NodeSeekNotificationKind.allCases {
+            try parser.confirmWrite(
+                json: await client.postJSON(
+                    NodeSeekEndpoint.markNotificationsViewed(kind: kind, all: true),
+                    body: [:]
+                ),
+                what: "已读标记"
+            )
+        }
+    }
+
     func replyMessage(id: MessageID, content: String) async throws {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {

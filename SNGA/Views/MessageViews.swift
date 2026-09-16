@@ -75,7 +75,7 @@ struct MessageListView: View {
                 HStack {
                     if folder == .notifications {
                         Button {
-                            model.messaging.markAllRead(in: folder)
+                            Task { await model.messaging.markAllRead(in: folder) }
                         } label: {
                             Label("全部已读", systemImage: "checkmark")
                         }

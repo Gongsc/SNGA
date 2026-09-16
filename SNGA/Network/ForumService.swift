@@ -86,6 +86,18 @@ protocol ForumService: Sendable {
     func messages(folder: MessageFolder, page: Int) async throws -> MessagePage
     func message(id: MessageID) async throws -> ForumMessage
     func replyMessage(id: MessageID, content: String) async throws
+    /// 把这几条消息在**站点**那边也标成已读。
+    ///
+    /// 应用里的已读一直是本地状态（`AccountRecord.readNotificationKeys`），而且是
+    /// 有意的：NGA 那边光「拉一次列表」就把服务端未读清零了，本地标记是用来把未读
+    /// **留住**的，好让用户在真正点开之前还看得见。
+    ///
+    /// NodeSeek 正好反过来 —— 每条通知自带 `viewed`，不显式说一声就一直是未读。
+    /// 于是在这个站上，本地已读只管住了自己这一侧：用户在应用里读完，网页端的红点
+    /// 还挂着，下一轮轮询又把它送回来。这个方法补的就是那半边。
+    func markRead(_ messages: [ForumMessage]) async throws
+    /// 把整个信箱在站点那边标成已读。
+    func markAllRead(folder: MessageFolder) async throws
     func favorites() async throws -> [Forum]
     func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws
     func favoriteTopicFolders() async throws -> [TopicFavoriteFolder]
@@ -120,6 +132,19 @@ extension ForumService {
     func updateFavorite(forumID: ForumID, isFavorite: Bool) async throws {
         throw ForumServiceError.unsupported("\(site.displayName) 不支持收藏版面")
     }
+
+    /// 已读同步的默认实现什么都不做，**不抛 `.unsupported`**。
+    ///
+    /// 和上面那几个不一样：那些是「站点没有这个功能，界面不该画出那个按钮」，走到
+    /// 默认实现说明门控漏了，报错是在指出 bug。这一个是「这个站没有需要同步的东西」——
+    /// NGA 拉一次列表服务端就清零了，V2EX 的提醒打开即已读，两边都已经是对的，
+    /// 无事可做本身就是正确答案。
+    ///
+    /// 所以它也没有对应的能力位：能力位挡的是控件，而「全部已读」那个按钮三个站都
+    /// 该画，只是有的站多发一次请求、有的站不必。
+    func markRead(_ messages: [ForumMessage]) async throws {}
+
+    func markAllRead(folder: MessageFolder) async throws {}
 }
 
 protocol SessionStore: Sendable {
