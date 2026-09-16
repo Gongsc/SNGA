@@ -98,7 +98,18 @@ actor RequestScheduler {
         let sequence = nextSequence
         nextSequence &+= 1
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                // 进来之前就已经被取消的任务，`onCancel` 会**先于** operation 跑完 ——
+                // 那时队里还没有这个等待者，`abandon` 什么都找不到，于是它排进去
+                // 之后再没人叫醒它，闸门少一个时隙，调用方永远挂着。
+                //
+                // 这一刀之外没有别的缝：这个闭包是在 actor 上同步跑的，而
+                // `abandon` 也要排队进 actor，所以它只能整个跑在这之前或这之后，
+                // 插不进来。
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 waiting.append(
                     Waiter(priority: priority, sequence: sequence, continuation: continuation)
                 )

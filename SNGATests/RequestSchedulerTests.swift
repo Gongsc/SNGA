@@ -199,6 +199,38 @@ final class RequestSchedulerTests: XCTestCase {
         XCTAssertTrue(recovered, "取消一个等待者之后，队伍卡住了")
     }
 
+    /// 进来之前就已经取消的任务，不能把一个时隙带进坟墓。
+    ///
+    /// 这种任务的 `onCancel` 会先于 operation 跑完，那时队里还没有这个等待者 ——
+    /// 不在排队之前再看一眼取消状态，它就会排进去再也没人叫醒，闸门少一个时隙。
+    func testATaskCancelledBeforeItArrivesDoesNotSwallowASlot() async throws {
+        let scheduler = makeScheduler(maximumConcurrent: 1)
+
+        let doomed = Task {
+            // 先让出一次，好让 cancel() 一定赶在 acquire 之前落下。
+            await Task.yield()
+            return try await scheduler.acquire(priority: .userInitiated)
+        }
+        doomed.cancel()
+        _ = try? await doomed.value
+
+        // 时隙必须还在。掉了的话下面这一发会永远挂着，用例会超时而不是失败 ——
+        // 所以给它一个自己的期限。
+        let acquired = Task { try await scheduler.acquire(priority: .userInitiated) }
+        let outcome = await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { try? await acquired.value }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                acquired.cancel()
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        XCTAssertEqual(outcome, true, "取消掉的那一发把时隙带走了，闸门锁死")
+    }
+
     /// 冷却里的那一发不出门，但答复要长得和站点自己说的一样 —— 三个客户端早就认得
     /// 429，不必为冷却在三处各写一遍翻译。
     func testTheTransportAnswers429WhileCoolingInsteadOfHittingTheNetwork() async throws {
