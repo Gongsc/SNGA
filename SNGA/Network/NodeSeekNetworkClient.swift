@@ -11,8 +11,6 @@ actor NodeSeekNetworkClient {
     /// `WKWebView` 自报的真实 UA。见类型文档里的第 1 条约束。
     private let userAgent: String
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
-    private var lastRequestAt: ContinuousClock.Instant?
-    private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
@@ -28,15 +26,10 @@ actor NodeSeekNetworkClient {
 
     func currentCookies() -> [SessionCookie] { jar.unexpired }
 
-    /// 站点搜索限流 1 次 / 2 秒，其余接口没有实测过 —— 先按和 NGA 相近的节奏发。
-    private func throttle() async throws {
-        let now = clock.now
-        guard let lastRequestAt else { self.lastRequestAt = now; return }
-        let reservedAt = lastRequestAt.advanced(by: .milliseconds(320))
-        if reservedAt <= now { self.lastRequestAt = now; return }
-        self.lastRequestAt = reservedAt
-        try await clock.sleep(until: reservedAt)
-    }
+    // 发送节奏（相邻两发的间隔）归 `RequestScheduler` 管了，不在这里。
+    // 原先这里那份 `throttle()` 节奏是对的，但它只会排队、不会挑人：补作者属地
+    // 那一下排进去 176 发，用户此刻点的那一下就排在它们后面。挪到闸门那一层
+    // 之后，同一份节奏之外还多了并发上限和优先级。
 
     /// 发一次 GET，拿回原始响应体。
     ///
@@ -112,7 +105,6 @@ actor NodeSeekNetworkClient {
         asJSON: Bool,
         referer: URL?
     ) async throws -> Data {
-        try await throttle()
 
         var request = URLRequest(url: url)
         request.httpMethod = method

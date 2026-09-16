@@ -40,6 +40,8 @@ final class AppSession {
     @ObservationIgnored let sessionStore: any SessionStore
     @ObservationIgnored let notificationService: NotificationService
     @ObservationIgnored private var services: [AccountID: any ForumService] = [:]
+    /// 每个站点一个发送闸门，按需建、之后一直留着。见 `scheduler(for:)`。
+    @ObservationIgnored private var schedulers: [ForumSite: RequestScheduler] = [:]
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
 
@@ -137,11 +139,16 @@ final class AppSession {
         let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
+        let transport = ScheduledTransport(
+            wrapping: URLSessionTransport(),
+            scheduler: scheduler(for: site)
+        )
         switch site {
         case .v2ex:
             return V2EXForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
@@ -149,6 +156,7 @@ final class AppSession {
             return NodeSeekForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
@@ -156,10 +164,23 @@ final class AppSession {
             return NGAForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
         }
+    }
+
+    /// 每个站点一个闸门，**账号之间共用**。
+    ///
+    /// 限流是服务器按 host 算的：同一个站上的两个账号打的是同一台机器，各排各的队
+    /// 等于把节奏放宽一倍。反过来，冷却因此也是共享的 —— 所以 `RequestScheduler`
+    /// 不把 403 当限流，免得一个账号的会话过期把另一个也停掉（那条的理由写在它那里）。
+    private func scheduler(for site: ForumSite) -> RequestScheduler {
+        if let existing = schedulers[site] { return existing }
+        let created = RequestScheduler(pacing: site.descriptor.requestPacing)
+        schedulers[site] = created
+        return created
     }
 
     /// 解析出该站点要用的 UA。要求用 WebView 真实 UA 的站点在这里去问一次。

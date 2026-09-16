@@ -86,6 +86,7 @@
 		6229E89369BE91EBFACAC0C8 /* NodeSeekLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DD3F7C8C560E02FF50F2764 /* NodeSeekLiveTests.swift */; };
 		6322FA63D852FC366437FBF0 /* SNGAUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4279D94AB00DDD4D9F0D362F /* SNGAUITests.swift */; };
 		663D523D8B052C40DB2B42BE /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C595E939887CE5215A4959D7 /* MessageStore.swift */; };
+		66E4D639FEA3FFB4E8AB29B8 /* RequestSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8284C26E143DBB5523DBFC5B /* RequestSchedulerTests.swift */; };
 		6788A3D67B25227C89289B89 /* PostWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3D6ACD35A55D601CA5EFD3C /* PostWebView.swift */; };
 		691D0CE44B552BA18A9C5E6C /* nodeseek-gated-decoy.json in Resources */ = {isa = PBXBuildFile; fileRef = 70D09C7D478E652B19C111D0 /* nodeseek-gated-decoy.json */; };
 		6F7F12859A862E0A7A5CEC4A /* CrossSiteForumGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2AB66990B0306297AF7BD7A /* CrossSiteForumGuardTests.swift */; };
@@ -101,6 +102,7 @@
 		7E996C3830A2C734EAF175DF /* AIProfileModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A45B49A6E59E9F94E9C655 /* AIProfileModels.swift */; };
 		7E9B82035431E045A806580A /* ToolboxAPIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */; };
 		8068022DFEA8DA8817A8F659 /* RequestSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68CE63CCBDAE8C39CF3822F2 /* RequestSlot.swift */; };
+		80E6BC64D013DE093CFD77C6 /* RequestScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 721560A97B9C1B6DF0FA25AD /* RequestScheduler.swift */; };
 		817EC6080E86A869FAD28C1E /* nodeseek-notifications-reply.json in Resources */ = {isa = PBXBuildFile; fileRef = CD1C4251631971F63E0997B4 /* nodeseek-notifications-reply.json */; };
 		8181B06DB484770CF7EE15FF /* PostQuoteExpander.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DF2A889872424BD68EAB4B /* PostQuoteExpander.swift */; };
 		83505E6115CD187A72A532EF /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9F0E0FF7141D702E8718F9 /* MessageDetailView.swift */; };
@@ -327,6 +329,7 @@
 		6F0C86AA303E8B9438408600 /* ThreadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadViews.swift; sourceTree = "<group>"; };
 		6FB2A08D072BC68BB9BCDA09 /* Base64Text.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64Text.swift; sourceTree = "<group>"; };
 		70D09C7D478E652B19C111D0 /* nodeseek-gated-decoy.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nodeseek-gated-decoy.json"; sourceTree = "<group>"; };
+		721560A97B9C1B6DF0FA25AD /* RequestScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestScheduler.swift; sourceTree = "<group>"; };
 		72A58344EE25283916F5E325 /* TopicPollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicPollView.swift; sourceTree = "<group>"; };
 		7328E599537151C15296E412 /* V2EXTabListingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXTabListingTests.swift; sourceTree = "<group>"; };
 		7380218644155C67948CA3E8 /* v2ex-member-topics.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "v2ex-member-topics.html"; sourceTree = "<group>"; };
@@ -341,6 +344,7 @@
 		801129D2FA4E2F544CA7F12A /* V2EXForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXForumService.swift; sourceTree = "<group>"; };
 		814AD4327FEB2788AD6CE279 /* ProfileFieldsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileFieldsTests.swift; sourceTree = "<group>"; };
 		823D55982FFC6FA57BF04E9D /* AnonymousBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousBadge.swift; sourceTree = "<group>"; };
+		8284C26E143DBB5523DBFC5B /* RequestSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSchedulerTests.swift; sourceTree = "<group>"; };
 		84856451E805FCC4DE1D5A4B /* LegacyStoreBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyStoreBackfillTests.swift; sourceTree = "<group>"; };
 		85422FA1790F7D2C986D12BE /* TopicHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicHistoryView.swift; sourceTree = "<group>"; };
 		855E1801C5E6E658996ABDA8 /* v2ex-node-missing.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "v2ex-node-missing.html"; sourceTree = "<group>"; };
@@ -617,6 +621,7 @@
 				0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */,
 				AB3F872320818B37C5DBC0B6 /* PostDocument.swift */,
 				39DF2A889872424BD68EAB4B /* PostQuoteExpander.swift */,
+				721560A97B9C1B6DF0FA25AD /* RequestScheduler.swift */,
 				C25321213642C72401CBA0B1 /* SessionCookieJar.swift */,
 				BFBA9DEC50C4A4D1E553E15A /* ToolboxAPIService.swift */,
 				CF7BFA9B6B329699810321DF /* UpdateChecker.swift */,
@@ -734,6 +739,7 @@
 				814AD4327FEB2788AD6CE279 /* ProfileFieldsTests.swift */,
 				938E291B2EBC6011699EACDD /* RecentForumDuplicationTests.swift */,
 				BC8770817601667A5AD32AE2 /* RecordingHTTPTransport.swift */,
+				8284C26E143DBB5523DBFC5B /* RequestSchedulerTests.swift */,
 				239CFB8B7E4CE369AAF0C698 /* RequestSlotTests.swift */,
 				1576244424FCF5AD27A70A45 /* SearchHistoryTests.swift */,
 				6817FFD7353256F7177C155E /* SessionIsolationTests.swift */,
@@ -993,6 +999,7 @@
 				8181B06DB484770CF7EE15FF /* PostQuoteExpander.swift in Sources */,
 				D063609FC31CF9952CFED316 /* PostRatingView.swift in Sources */,
 				6788A3D67B25227C89289B89 /* PostWebView.swift in Sources */,
+				80E6BC64D013DE093CFD77C6 /* RequestScheduler.swift in Sources */,
 				8068022DFEA8DA8817A8F659 /* RequestSlot.swift in Sources */,
 				F71EC86A1A5BC63D95CAEFAD /* RootView.swift in Sources */,
 				519579E1313A3C1DC2FAD29A /* RuntimeLogger.swift in Sources */,
@@ -1079,6 +1086,7 @@
 				7D6B789DFE50CC0951424DCB /* ProfileFieldsTests.swift in Sources */,
 				1E9F9A7E15482E5A80471D53 /* RecentForumDuplicationTests.swift in Sources */,
 				FD83DCCF39303735DA01B595 /* RecordingHTTPTransport.swift in Sources */,
+				66E4D639FEA3FFB4E8AB29B8 /* RequestSchedulerTests.swift in Sources */,
 				D015B988E067D1367C998F7E /* RequestSlotTests.swift in Sources */,
 				0A5517D3BA2909B5CC2AAD1B /* SVGImageTests.swift in Sources */,
 				853687CD7742F0EA7819670A /* SearchHistoryTests.swift in Sources */,

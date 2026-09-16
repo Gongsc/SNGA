@@ -52,9 +52,23 @@ final class SessionIsolationTests: XCTestCase {
         XCTAssertEqual(requestCount, 1)
     }
 
+    /// 三发并发请求必须落在三个不同的时隙上。
+    ///
+    /// 这条守的是一个 actor 重入的坑：等待结束之后才更新「下一发什么时候」，几个
+    /// 并发请求会在同一时刻一起醒来，节流就形同虚设。占位必须发生在等待**之前**。
+    ///
+    /// 节奏本身已经从 `NGANetworkClient.throttle()` 挪到了 `RequestScheduler`，所以
+    /// 这里得把闸门套上才测得到 —— 裸着的客户端现在是不节流的，那是有意的：
+    /// 单元测试里没人想为每发请求等 280ms。
     func testConcurrentRequestsReserveSeparateThrottleSlots() async throws {
         let transport = RecordingTransport()
-        let client = NGANetworkClient(cookies: [], transport: transport)
+        let client = NGANetworkClient(
+            cookies: [],
+            transport: ScheduledTransport(
+                wrapping: transport,
+                scheduler: RequestScheduler(pacing: ForumSiteDescriptor.nga.requestPacing)
+            )
+        )
 
         async let first = client.request(.forums)
         async let second = client.request(.forums)

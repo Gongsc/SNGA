@@ -161,7 +161,11 @@ final class AppModel {
     }
 
     func pollMessages() async {
-        await messaging.poll()
+        // 定时器发起的，没人在等 —— 它一轮要问每个账号两个信箱，不该挡在
+        // 用户那一下前面。
+        await RequestPriority.inBackground {
+            await messaging.poll()
+        }
     }
 
     var displayedUserUID: Int64? {

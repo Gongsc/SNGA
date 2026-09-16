@@ -49,6 +49,12 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 一个站点的实现是三个文件：`XxxEndpoint`（拼地址）+ `XxxParser`（解析，无状态）+ `XxxForumService`（actor，串起来）。网络往返统一走 `HTTPTransport` 协议（[SNGA/Network/HTTPTransport.swift](SNGA/Network/HTTPTransport.swift)），测试注入假实现。
 
+**发送节奏不在各客户端里，在 `RequestScheduler`**（[SNGA/Network/RequestScheduler.swift](SNGA/Network/RequestScheduler.swift)）。三个客户端原先各有一份「相邻两发隔 280–320ms」的节流，节奏是对的，但它只会排队、不会挑人：补作者属地那一下在 V2EX 上排进去 176 发，第 176 发等到 56 秒，而用户此刻点的那一下**排在它们后面**。闸门把三件事一起给了 —— 起飞间隔（各站的数原样搬过来，写在 `ForumSiteDescriptor.requestPacing`）、并发上限（和 `httpMaximumConnectionsPerHost` 对齐，为的是把排序权拿在自己手里而不是留给 `URLSession`）、以及优先级。`ScheduledTransport` 是套在传输外面的装饰器，`AppSession` 每个站点建一个闸门、**账号之间共用**（限流是服务器按 host 算的）。
+
+优先级走 task-local（`RequestPriority.current`），不是逐层传参 —— 从「谁发起的」到「谁在发」中间隔着 store → service → client → transport 四层，沿途绝大多数调用点不关心这件事。**默认是 `.userInitiated`，后台请求自己用 `RequestPriority.inBackground { }` 声明**；反过来省事，但忘了标的地方会悄悄把用户的点击降级。目前标了的有两处：逐楼补作者属地、定时的未读轮询。
+
+站点回 429 / 503 就进冷却（至少 60 秒，`Retry-After` 更长就听它的），冷却期间那一发不出门、就地答一个 429 —— 三个客户端早就认得 429，不必为冷却在三处各写一遍翻译。**403 不算限流**：油猴那边分不出来所以一并算了，我们分得出（NodeSeek 的 `/api/vote/*` 少了签名头就是 403，那是自己的 bug），而闸门按站点共用，把 403 算进去会因为一个账号会话过期把另一个也停掉。
+
 ### 状态层
 
 `AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和八个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`TopicHistoryStore`（读过的话题）、`ToolboxStore`。
