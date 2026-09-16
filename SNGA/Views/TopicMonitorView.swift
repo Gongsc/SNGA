@@ -58,7 +58,10 @@ struct TopicMonitorView: View {
             Text("已经收录的 \(monitor.hits.count) 条会被删掉。监控规则和检查进度不受影响，之后出现的新帖照常收录。")
         }
         .task {
-            monitor.start()
+            // 轮询是在 `AppModel.bootstrap()` 里起的 —— 监控要在没人看着的时候
+            // 干活。这里只补一种情况：用户刚设完规则、或者刚把它打开。
+            // 不无条件 `start()`，那会掐掉一次正在飞的检查。
+            monitor.startIfIdle()
         }
     }
 

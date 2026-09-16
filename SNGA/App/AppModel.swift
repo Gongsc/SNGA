@@ -270,6 +270,11 @@ final class AppModel {
     func bootstrap() async {
         guard !bootstrapped else { return }
         bootstrapped = true
+        // 监控在这里起，**不在它自己的面板里起**。它要在没人看着的时候干活 ——
+        // 挂在视图的 `.task` 上，等于只有打开那一页时才检查，而那一页正是用来
+        // 「不必自己盯着」的。也不放进下面那个 `if let activeAccount`：订阅是
+        // 匿名的，一个账号都没有时照样该跑。
+        topicMonitor.start()
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting-seed") {
             seedUITestData()

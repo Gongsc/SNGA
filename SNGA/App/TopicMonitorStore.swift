@@ -136,6 +136,13 @@ final class TopicMonitorStore {
         }
     }
 
+    /// 本该跑却没在跑时补一下。已经在跑就别动它 —— `start()` 会先 `stop()`，
+    /// 那会掐掉一次正在飞的检查。
+    func startIfIdle() {
+        guard pollTask == nil else { return }
+        start()
+    }
+
     func stop() {
         pollTask?.cancel()
         pollTask = nil

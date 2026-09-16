@@ -154,14 +154,15 @@ struct TopicMonitorConfigurationSheet: View {
         monitor.updateRules(draft)
         monitor.updateInterval(interval)
         monitor.sendsNotifications = sendsNotifications
-        if !monitor.rules.isEmpty, !monitor.isEnabled {
-            // 写了规则就是要它跑起来。保存完还得再去按一次「开始」，那一步没有意义。
-            monitor.isEnabled = true
+        guard !monitor.rules.isEmpty else {
+            dismiss()
+            return
         }
-        let shouldCheck = !monitor.rules.isEmpty
+        // 写了规则就是要它跑起来 —— 保存完还得再去按一次「开始」，那一步没有意义。
+        monitor.isEnabled = true
+        // 规则换了就重起一轮：`start()` 自己会先检查一次，所以这里不必再单独
+        // 叫一次 `checkNow()`（那会变成背靠背两次检查）。
+        monitor.start()
         dismiss()
-        if shouldCheck {
-            Task { await monitor.checkNow() }
-        }
     }
 }
