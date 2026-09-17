@@ -121,8 +121,8 @@ final class RequestSchedulerTests: XCTestCase {
 
         let cooling = await scheduler.isCoolingDown()
         XCTAssertTrue(cooling)
-        let allowed = try await scheduler.acquire(priority: .userInitiated)
-        XCTAssertFalse(allowed, "冷却里还放行，等于把封锁续期")
+        let background = try await scheduler.acquire(priority: .background)
+        XCTAssertFalse(background, "冷却里还放行后台请求，等于把封锁续期")
     }
 
     /// **403 不算限流。** 闸门按站点共用，一个账号的会话过期不该把另一个也停掉；
@@ -171,8 +171,53 @@ final class RequestSchedulerTests: XCTestCase {
 
         let cooling = await scheduler.isCoolingDown()
         XCTAssertTrue(cooling)
-        let allowed = try await scheduler.acquire(priority: .userInitiated)
-        XCTAssertFalse(allowed)
+        let background = try await scheduler.acquire(priority: .background)
+        XCTAssertFalse(background)
+    }
+
+    /// **冷却绝不能挡住用户此刻在等的那一下。**
+    ///
+    /// 这一条是 2026-09-17 那个线上 bug 的定身符：NGA 上打开一个话题会按楼层去补
+    /// 作者属地，那个 `ucp` 接口连着答十几个 503 —— 是**它自己**的防护，不是全站
+    /// 限流。可冷却按主机记，于是接下来一分钟里用户点的每一下都拿到一个**我们自己
+    /// 造的** 429，弹出「请求过于频繁」。日志里那几行 `durationMs=4 bytes=0` 就是它。
+    ///
+    /// 冷却的本意是别把事情弄得更糟，而拦下点击再伪造一句站点没说过的话，正是
+    /// 把事情弄得更糟。
+    func testACooldownNeverBlocksWhatTheUserIsWaitingFor() async throws {
+        let scheduler = makeScheduler()
+        let held = try await scheduler.acquire(priority: .userInitiated)
+        XCTAssertTrue(held)
+        await scheduler.release(observing: response(status: 503))
+
+        let cooling = await scheduler.isCoolingDown()
+        XCTAssertTrue(cooling, "前提：确实进了冷却")
+
+        let chore = try await scheduler.acquire(priority: .background)
+        XCTAssertFalse(chore, "杂活该等着")
+
+        let click = try await scheduler.acquire(priority: .userInitiated)
+        XCTAssertTrue(click, "用户点的那一下被应用自己拦下来了")
+        await scheduler.release(observing: nil)
+    }
+
+    /// 传输层那一侧同理：用户的请求照样出门，后台的才就地打回。
+    func testOnlyBackgroundTrafficIsShortCircuitedWhileCooling() async throws {
+        let scheduler = makeScheduler()
+        let base = RecordingHTTPTransport(responding: "{}", status: 503)
+        let transport = ScheduledTransport(wrapping: base, scheduler: scheduler)
+        let request = URLRequest(url: URL(string: "https://example.com/a")!)
+
+        _ = try await transport.data(for: request)
+        XCTAssertEqual(base.requests.count, 1)
+
+        await RequestPriority.$current.withValue(.background) {
+            _ = try? await transport.data(for: request)
+        }
+        XCTAssertEqual(base.requests.count, 1, "冷却里的后台请求不该出门")
+
+        _ = try await transport.data(for: request)
+        XCTAssertEqual(base.requests.count, 2, "用户那一下必须真的发出去")
     }
 
     /// **冷却按主机分开。**
@@ -192,9 +237,9 @@ final class RequestSchedulerTests: XCTestCase {
         let siteCooling = await scheduler.isCoolingDown(host: "www.v2ex.com")
         XCTAssertFalse(siteCooling, "第三方被限流，把站点本身也停掉了")
 
-        let allowed = try await scheduler.acquire(priority: .userInitiated, host: "www.v2ex.com")
+        let allowed = try await scheduler.acquire(priority: .background, host: "www.v2ex.com")
         XCTAssertTrue(allowed)
-        let refused = try await scheduler.acquire(priority: .userInitiated, host: "sov2ex.com")
+        let refused = try await scheduler.acquire(priority: .background, host: "sov2ex.com")
         XCTAssertFalse(refused)
     }
 
@@ -230,9 +275,14 @@ final class RequestSchedulerTests: XCTestCase {
         let scheduler = makeScheduler(maximumConcurrent: 1)
 
         let doomed = Task {
-            // 先让出一次，好让 cancel() 一定赶在 acquire 之前落下。
             await Task.yield()
-            return try await scheduler.acquire(priority: .userInitiated)
+            // 取消**可能**赶在 acquire 之前落下，也可能没赶上 —— 那是这条用例
+            // 本来就要覆盖的两种走法。没赶上时它会真的拿到那唯一一个时隙，
+            // 这里必须还回去：不还，下面那一发会永远等下去，用例就从「断言失败」
+            // 变成「超时」，而超时说明不了任何问题。
+            let acquired = try await scheduler.acquire(priority: .userInitiated)
+            if acquired { await scheduler.release(observing: nil) }
+            return acquired
         }
         doomed.cancel()
         _ = try? await doomed.value
@@ -266,14 +316,18 @@ final class RequestSchedulerTests: XCTestCase {
         XCTAssertEqual(first.1.statusCode, 429)
         XCTAssertEqual(base.requests.count, 1)
 
-        let second = try await transport.data(for: request)
-        XCTAssertEqual(second.1.statusCode, 429)
-        XCTAssertEqual(base.requests.count, 1, "冷却里那一发不该真的出门")
+        let second = await RequestPriority.$current.withValue(.background) {
+            try? await transport.data(for: request)
+        }
+        XCTAssertEqual(second?.1.statusCode, 429)
+        XCTAssertEqual(base.requests.count, 1, "冷却里那一发后台请求不该真的出门")
 
         // 另一台主机不受牵连。
-        _ = try await transport.data(
-            for: URLRequest(url: URL(string: "https://elsewhere.example/a")!)
-        )
+        _ = await RequestPriority.$current.withValue(.background) {
+            try? await transport.data(
+                for: URLRequest(url: URL(string: "https://elsewhere.example/a")!)
+            )
+        }
         XCTAssertEqual(base.requests.count, 2)
     }
 

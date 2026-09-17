@@ -99,7 +99,21 @@ actor RequestScheduler {
     /// 返回 `false` 表示站点刚说过别发了，这一发不该出门 —— 而不是在这儿睡满冷却。
     /// 睡满意味着用户点一下、转两分钟圈；把话直说，他至少知道发生了什么。
     func acquire(priority: RequestPriority, host: String? = nil) async throws -> Bool {
-        if isCoolingDown(host: host) { return false }
+        // **冷却只挡后台请求，绝不挡用户此刻在等的那一下。**
+        //
+        // 反过来做会捅出一个比限流本身糟得多的娄子，而且真捅出来过（2026-09-17）：
+        // NGA 上打开一个话题会按楼层去补作者属地，那个 `ucp` 接口连着答了十几个
+        // 503 —— 那是**它自己**的防护，不是全站在限流。冷却却按主机记，于是接下来
+        // 一分钟里用户点的每一下（开帖、翻版面）都拿到一个我们**自己造**的 429，
+        // 弹出「请求过于频繁，请稍后重试」。日志里那几行 `durationMs=4 bytes=0`
+        // 就是它 —— 根本没出门。
+        //
+        // 冷却的本意是「别把事情弄得更糟」，而拦下用户的点击、再伪造一句站点没说过
+        // 的话，正是把事情弄得更糟。所以它只管住那些没人等的请求：真限流了，用户
+        // 那一下会从**站点**拿回一个真的 429，那句话才是实话。
+        //
+        // 这也正是优先级那一套的本意 —— 别让杂活挡了点击。原先这里把它做反了。
+        if priority == .background, isCoolingDown(host: host) { return false }
         let sequence = nextSequence
         nextSequence &+= 1
         try await withTaskCancellationHandler {
@@ -249,11 +263,14 @@ struct ScheduledTransport: HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let host = request.url?.host()
         guard try await scheduler.acquire(priority: RequestPriority.current, host: host) else {
-            // 冷却中就地答一个 429，而不是自己造一种新错误。
+            // 走到这里的**只有后台请求**（见 `acquire`：冷却不挡用户的点击）。
+            // 就地答一个 429，而不是自己造一种新错误 —— 三个客户端早就认得 429
+            // （一律翻成 `.rateLimited`，NGA 还会据此不重试），不必为冷却在三处
+            // 各写一遍翻译。
             //
-            // 这不是在伪造站点的答复 —— 站点刚刚**就是**这么说的，这里只是替它把
-            // 话再说一遍。好处是三个客户端早就认得 429（一律翻成 `.rateLimited`，
-            // NGA 还会据此不重试），不必为冷却在三处各写一遍翻译。
+            // 这句话没人看得见：后台请求失败本来就不弹横幅（属地补不上就不显示，
+            // 未读轮询下一轮再来）。用户那一下永远走不到这一支，所以不会再出现
+            // 「应用自己造一个 429 再把它弹给用户」那种事。
             return (Data(), Self.throttledResponse(for: request))
         }
         do {
