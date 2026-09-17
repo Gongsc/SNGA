@@ -854,8 +854,15 @@ struct NodeSeekParser: Sendable {
     ///
     /// 站点只对本人报这几个数，所以只在看自己的资料时才去要。
     func unreadCounts(json data: Data) throws -> (replies: Int, mentions: Int, messages: Int) {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let counts = root["unreadCount"] as? [String: Any] else {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取未读数")
+        }
+        // 站点明说的那几句拒绝要按原话报。未登录时这一族**通常**答 500，客户端那层
+        // 就翻成了 `.requiresLogin`；但状态码不是唯一的形态（同一句话也会跟着 200
+        // 回来），而这里还兼着「站点还认不认得我」的差事 —— 认不出却报成
+        // 「无法读取未读数」，等于把一条能照着做的提示换成了一句没用的话。
+        try Self.rejectBulkGate(root)
+        guard let counts = root["unreadCount"] as? [String: Any] else {
             throw ForumServiceError.unexpectedPage("无法读取未读数")
         }
         func number(_ key: String) -> Int { (counts[key] as? NSNumber)?.intValue ?? 0 }

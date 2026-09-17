@@ -529,8 +529,37 @@ actor NodeSeekForumService: ForumService {
     }
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws { throw notYet("收藏夹") }
     func deleteTopicFavoriteFolder(folderID: String) async throws { throw notYet("收藏夹") }
+    /// 今天签没签。
+    ///
+    /// 判据是签到榜里有没有 `record`，这一条和站点自己一模一样 —— 它的 `board.js`
+    /// 就是这么写的（原样）：
+    ///
+    /// ```js
+    /// created(){ this.me = __config__.user; this.fetch() }   // fetch → record / order
+    /// t.me ? (record === null ? "今日还未签到…" : "今日签到获得鸡腿…当前排名第…")
+    ///      : "登录后签到"
+    /// ```
+    ///
+    /// **但那个 `t.me` 是承重的，而它不来自这个接口。** 签到榜匿名访问时照样答
+    /// HTTP 200、照样给整整 50 条榜单和 `total`，只是 `order` 和 `record` 都是 null
+    /// （2026-09-17 在无会话浏览器里实测）。也就是说「站点没认出我」和「我今天还
+    /// 没签」在**响应里长得一模一样** —— 少了这一问，前者就会被说成「待签到」，
+    /// 而用户明明已经签过了。这正是报上来的那个 bug。
+    ///
+    /// 所以照站点的样子分两步：榜给不出 `record` 时，另外问一句「你还认得我吗」。
+    /// 挑的是最小的那个会话接口（未读数，几十字节），而且**只在 `record` 为空时才发**
+    /// —— 已经签到的那条路一次多余的请求都没有，一天最多多一两次。
     func checkInStatus() async throws -> CheckInStatistics {
-        try parser.checkInStatistics(json: await client.get(NodeSeekEndpoint.checkInBoard(page: 1)))
+        let board = try parser.checkInStatistics(
+            json: await client.get(NodeSeekEndpoint.checkInBoard(page: 1))
+        )
+        if board.isCheckedInToday { return board }
+        // 认不出就抛（未登录时这一族答 500，客户端翻成 `.requiresLogin`），
+        // 让它显示成「签到状态查询失败」并给出重试，而不是冒充一句「还没签到」。
+        _ = try parser.unreadCounts(
+            json: await client.get(NodeSeekEndpoint.unreadCount)
+        )
+        return board
     }
 
     /// 签到。
