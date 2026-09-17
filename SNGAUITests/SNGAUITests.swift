@@ -259,7 +259,20 @@ final class SNGAUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertEqual(app.windows.count, 1)
-        XCTAssertTrue(mainWindow.staticTexts["版本 2.0.1（1）"].exists)
+        // **只验格式，不钉死版本号。** 原先这里写死着「版本 2.0.1（1）」——
+        // 这种断言在 1.9.0 上停过一次，发了好几版都没人发现：它一红就是发版那天，
+        // 而那天谁也不想查这个。这里要确认的本来就是「关于面板把版本写出来了」。
+        //
+        // 两个坑，都是 dump 无障碍树才看出来的（别靠猜，这条查了四轮）：
+        // 1. 内容在 `value` 上，不在 `label` 上 —— 照「断言一行字用 value」那条来；
+        // 2. **`value` 里的括号是半角 `(1)`，而 `label` 里是全角 `（1）`**。
+        //    原先那句下标匹配写的是全角，能过是因为它匹配的是 label 而不是 value。
+        //    按界面上看到的全角去写 value 的正则，一条都匹配不上。
+        let pattern = "^版本 [0-9]+[.][0-9]+([.][0-9]+)?\\([0-9]+\\)$"
+        let version = mainWindow.staticTexts.matching(
+            NSPredicate(format: "value MATCHES %@", pattern)
+        )
+        XCTAssertGreaterThan(version.count, 0, "关于面板里没写版本号")
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-github"].exists)
         XCTAssertTrue(mainWindow.descendants(matching: .any)["about-email"].exists)
         XCTAssertTrue(mainWindow.links["gongsc@live.cn"].exists)
