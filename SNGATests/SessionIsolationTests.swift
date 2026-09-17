@@ -17,6 +17,27 @@ final class SessionIsolationTests: XCTestCase {
         )
     }
 
+    /// 日志里那行 cookie **名字**不能被脱敏吃掉，也不能顺手把值漏出去。
+    ///
+    /// 名字不是秘密（`session` 这个名字就写在 `ForumSiteDescriptor` 里），而个数
+    /// 不够用：6 个里缺了 `session`、多了个别的，个数照样是 6。脱敏正则匹配的是
+    /// `名字=值`，光是名字不带等号，所以这一行能原样留下 —— 这条用例守的就是
+    /// 「以后有人改正则时别把它一起吃掉」。
+    func testCookieNamesSurviveRedactionButValuesNeverAppear() {
+        let line = "GET https://www.nodeseek.com/api/attendance/board?page=1"
+            + " cookies=6[cf_clearance,csrf_session,session,smac,tz,uid]"
+
+        let redacted = RuntimeLogger.redacted(line)
+
+        XCTAssertTrue(redacted.contains("session"), "名字被脱敏吃掉了，这行就没用了")
+        XCTAssertTrue(redacted.contains("cookies=6["))
+        // 真带上值的写法仍然要被挡住。
+        XCTAssertEqual(
+            RuntimeLogger.redacted("session=abc123"),
+            "session=<redacted>"
+        )
+    }
+
     func testClientsNeverShareCookieHeaders() async throws {
         let transportA = RecordingTransport()
         let transportB = RecordingTransport()

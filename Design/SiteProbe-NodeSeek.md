@@ -317,7 +317,19 @@ t.me ? [
 而这个接口匿名访问时照样答 HTTP 200、照样给 50 条榜单和 `total`，只是
 `order` 和 `record` **都是 null**（2026-09-17 在无会话浏览器里实测）。于是
 「没带上登录」和「今天还没签到」在响应里长得一模一样 —— 差别只在请求那一侧。
-`NodeSeekNetworkClient` 因此在日志里记 `cookies=`（只记个数）：登录后应当是 6 个。
+`NodeSeekNetworkClient` 因此在日志里记 `cookies=6[名字,名字,…]` —— **只记名字，不记值**
+（名字不是秘密，`session` 就写在 descriptor 里；而个数不够用：6 个里缺了 `session`、
+多了个别的，个数照样是 6）。
+
+**多带的那几个头不是原因（2026-09-17 实测，`probe-nodeseek-attendance-headers.js`）。**
+在已登录且已签到的浏览器里，`Accept`、`X-Requested-With`、`x-dynamic-sign`（值乱填）
+单加、全加，五种组合**都照样认人**（`record` 是对象）。所以站点不会因为这几个头
+把请求降级成匿名。JS 设不了 `User-Agent` / `Referer` / `Sec-Fetch-*`，那三个这条路测不到。
+
+剩下的解释是**应用那份 `session` 的值在服务端已经不作数了**（浏览器里那次登录是
+另一份会话）。这种情况下站点对签到榜照样答 200 和整张榜，只是不认人 —— 所以
+`checkInStatus()` 现在分两步，`record` 为空时再问一句未读数，认不出就报
+`.requiresLogin`，让用户看到「请重新登录」而不是「待签到」。
 - `/api/progress/today` — 今日各项额度
 
 ### 投票

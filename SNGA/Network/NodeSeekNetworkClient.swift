@@ -156,9 +156,14 @@ actor NodeSeekNetworkClient {
         if !cookieHeader.isEmpty {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
-        let cookieCount = cookieHeader.isEmpty
-            ? 0
-            : cookieHeader.components(separatedBy: "; ").count
+        // 只记**名字**，绝不记值。名字不是秘密（`session` 这个名字就写在
+        // `ForumSiteDescriptor` 里），而个数不够用：登录后是 6 个，可 6 个里缺了
+        // `session`、多了一个别的，个数照样是 6。
+        let cookieNames = cookieHeader
+            .components(separatedBy: "; ")
+            .compactMap { $0.split(separator: "=", maxSplits: 1).first.map(String.init) }
+            .filter { !$0.isEmpty }
+            .sorted()
 
         // **带了几个 cookie 也记一笔**（只记个数，不记名字更不记值）。
         //
@@ -169,7 +174,8 @@ actor NodeSeekNetworkClient {
         // 又能一眼分清的东西：登录后是 6 个（见类型文档第 2 条）。
         await RuntimeLogger.shared.log(
             category: "network",
-            "\(method) \(RuntimeLogger.sanitizedURL(url)) cookies=\(cookieCount)"
+            "\(method) \(RuntimeLogger.sanitizedURL(url))"
+                + " cookies=\(cookieNames.count)[\(cookieNames.joined(separator: ","))]"
         )
         let startedAt = ContinuousClock().now
         let (data, response) = try await transport.data(for: request)
