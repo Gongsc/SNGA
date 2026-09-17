@@ -40,6 +40,8 @@ final class AppSession {
     @ObservationIgnored let sessionStore: any SessionStore
     @ObservationIgnored let notificationService: NotificationService
     @ObservationIgnored private var services: [AccountID: any ForumService] = [:]
+    /// 每个站点一个发送闸门，按需建、之后一直留着。见 `scheduler(for:)`。
+    @ObservationIgnored private var schedulers: [ForumSite: RequestScheduler] = [:]
     @ObservationIgnored private var foregroundLoginFailureDates: [AccountID: Date] = [:]
     @ObservationIgnored private var loadingRequestCount = 0
 
@@ -137,11 +139,16 @@ final class AppSession {
         let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
+        let transport = ScheduledTransport(
+            wrapping: URLSessionTransport(),
+            scheduler: scheduler(for: site)
+        )
         switch site {
         case .v2ex:
             return V2EXForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
@@ -149,6 +156,7 @@ final class AppSession {
             return NodeSeekForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
@@ -156,10 +164,23 @@ final class AppSession {
             return NGAForumService(
                 accountID: accountID,
                 cookies: cookies,
+                transport: transport,
                 userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
                 cookieDidChange: persist
             )
         }
+    }
+
+    /// 每个站点一个闸门，**账号之间共用**。
+    ///
+    /// 限流是服务器按 host 算的：同一个站上的两个账号打的是同一台机器，各排各的队
+    /// 等于把节奏放宽一倍。反过来，冷却因此也是共享的 —— 所以 `RequestScheduler`
+    /// 不把 403 当限流，免得一个账号的会话过期把另一个也停掉（那条的理由写在它那里）。
+    private func scheduler(for site: ForumSite) -> RequestScheduler {
+        if let existing = schedulers[site] { return existing }
+        let created = RequestScheduler(pacing: site.descriptor.requestPacing)
+        schedulers[site] = created
+        return created
     }
 
     /// 解析出该站点要用的 UA。要求用 WebView 真实 UA 的站点在这里去问一次。
@@ -378,11 +399,35 @@ final class AppSession {
             updateActiveAccountCheckInStatus()
 
             do {
-                let statistics = try await service.checkInStatus()
-                checkInStatuses[accountID] = dailyCheckInStatus(from: statistics)
+                var statistics = try await service.checkInStatus()
+                // **今天签过的事实，一次读不准的查询不许把它翻回去。**
+                //
+                // 「今天签没签」在各站都是从只读接口推出来的，而那条路会不准：
+                // NodeSeek 的签到榜认不出人时照样答 200、照样给整张榜，只是不带
+                // `record` —— 和「你今天还没签」一模一样（2026-09-17 实测，用户那次
+                // 就是这样，而同一份会话的私信、提醒全是好的，所以连问一句会话
+                // 都问不出来）。
+                //
+                // 但有一件事是我们**自己**知道的：这个账号今天签到成功过，是我们
+                // 亲手发的请求、亲眼看见站点答应的（`lastCheckInDay` 就是那时写下的，
+                // 站点自己也认这个日界 —— `CheckInPolicy` 用的是北京时间）。记住的
+                // 事实比推出来的结论硬，所以它说了算，到北京时间隔日自动作废。
+                //
+                // 反过来不成立：记着的日子不是今天，**不能**据此说「还没签」——
+                // 用户可能刚在网页上签的，我们无从知道。那种时候仍然听站点的。
+                if !statistics.isCheckedInToday,
+                   record.lastCheckInDay == CheckInPolicy.dayKey(for: Date()) {
+                    statistics.isCheckedInToday = true
+                }
+                checkInStatuses[accountID] = dailyCheckInStatus(
+                    from: statistics,
+                    rememberedMessage: record.lastCheckInMessage
+                )
                 if statistics.isCheckedInToday {
                     record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
-                    record.lastCheckInMessage = "今日已签到"
+                    record.lastCheckInMessage = record.lastCheckInMessage ?? "今日已签到"
+                } else {
+                    await autoCheckIn(record: record, service: service)
                 }
             } catch {
                 checkInStatuses[accountID] = .failed(
@@ -470,9 +515,68 @@ final class AppSession {
         activeAccountCheckInStatus = checkInStatuses[activeAccountID] ?? .loading
     }
 
-    private func dailyCheckInStatus(from statistics: CheckInStatistics) -> DailyCheckInStatus {
+    /// 只读接口说「今天还没签」时，去问一次签到接口。
+    ///
+    /// **这一下主要不是替用户签到，是把状态问准。** 只读那条路推不准（NodeSeek 的
+    /// 签到榜认不出人时和「你还没签」长得一模一样，2026-09-17 实测），而签到接口是
+    /// 唯一一个会把话说死的地方：已经签过就答「今日已签到」，没签过就顺手签了 ——
+    /// 两种答复都让界面从此说实话，而且都把 `lastCheckInDay` 落下来，那之后就轮到
+    /// 「记住的事实翻不动」那一道兜着。
+    ///
+    /// 几道闸：
+    /// - 用户在设置里关掉就不发（它毕竟是个写请求）；
+    /// - `shouldCheckIn` 按**站点自己的日界**（北京时间）算，一天最多一次，
+    ///   开着应用跨日也只会在新的一天再发一次；
+    /// - 只在状态查询**成功**并且明确答「还没签」时才发。查询失败走的是 `catch`，
+    ///   那种时候什么都不知道，不能凭空去点一个写接口。
+    ///
+    /// 失败了**不报错、不改状态**：状态留在「待签到」，用户照样能自己点那个按钮 ——
+    /// 这是自动做的事，为它弹一个横幅只是噪音，而按钮还在就意味着这条路没断。
+    private func autoCheckIn(record: AccountRecord, service: any ForumService) async {
+        guard AutoCheckInSettings.isEnabled,
+              CheckInPolicy.shouldCheckIn(lastSuccessfulDay: record.lastCheckInDay) else {
+            return
+        }
+        do {
+            let result = try await service.checkIn()
+            let message: String
+            switch result {
+            case let .success(text), let .alreadyCheckedIn(text):
+                message = CheckInPolicy.userFacingSuccessMessage(from: text)
+            }
+            record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+            record.lastCheckInMessage = message
+            var statistics = CheckInStatistics(isCheckedInToday: true)
+            if case let .checkedIn(existing, _)? = checkInStatuses[record.accountID] {
+                statistics = existing
+            } else if case let .notCheckedIn(existing)? = checkInStatuses[record.accountID] {
+                statistics = existing
+            }
+            statistics.isCheckedInToday = true
+            checkInStatuses[record.accountID] = .checkedIn(
+                statistics: statistics,
+                message: message
+            )
+        } catch {
+            await RuntimeLogger.shared.log(
+                .warning,
+                category: "checkIn",
+                "\(service.site.rawValue) 自动签到没成：\(error.localizedDescription)"
+            )
+        }
+    }
+
+    /// `rememberedMessage` 是上次签到成功时站点自己说的那句话（「签到成功，获得
+    /// 鸡腿 8 个」这类）。有就用它 —— 比干巴巴一句「今日已签到」多告诉用户一件事。
+    private func dailyCheckInStatus(
+        from statistics: CheckInStatistics,
+        rememberedMessage: String? = nil
+    ) -> DailyCheckInStatus {
         if statistics.isCheckedInToday {
-            return .checkedIn(statistics: statistics, message: "今日已签到")
+            return .checkedIn(
+                statistics: statistics,
+                message: rememberedMessage ?? "今日已签到"
+            )
         }
         return .notCheckedIn(statistics: statistics)
     }

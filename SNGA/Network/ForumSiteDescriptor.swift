@@ -119,6 +119,47 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 站点黑名单那两个动作在这个站叫什么。
+    ///
+    /// 各站叫法不一样是常事（版面/节点、N 币/鸡腿），所以这一句也走这里。目前只有
+    /// NodeSeek 点亮了 `.userBlocking`，另外两个填的是它们**假如**有的时候会用的
+    /// 说法 —— 真接上时按站点自己的页面核一遍，别照抄。
+    func userBlockActionTitle(isBlocked: Bool) -> String {
+        switch site {
+        case .nga, .nodeseek, .v2ex:
+            isBlocked ? "解除屏蔽" : "屏蔽"
+        }
+    }
+
+    /// 往这个站发请求的节奏。
+    ///
+    /// 间隔那个数是从各客户端原来的 `throttle()` 搬过来的，没有改 —— 它们是各站
+    /// 实际跑出来的，换一个数就等于在赌。NGA 那 280ms 当年是为了不撞它的限流，
+    /// 另外两站没有公布阈值，跟着取了相近的值。
+    ///
+    /// 并发那个数三站一致：和 `URLSessionTransport` 的 `httpMaximumConnectionsPerHost`
+    /// 对齐，让排队发生在**我们**这一侧 —— 排在 `URLSession` 内部的那些，谁先谁后
+    /// 就不是我们说了算了。
+    var requestPacing: RequestScheduler.Pacing {
+        switch site {
+        case .nga:
+            RequestScheduler.Pacing(
+                maximumConcurrent: 4,
+                minimumStartInterval: .milliseconds(280)
+            )
+        case .nodeseek:
+            RequestScheduler.Pacing(
+                maximumConcurrent: 4,
+                minimumStartInterval: .milliseconds(320)
+            )
+        case .v2ex:
+            RequestScheduler.Pacing(
+                maximumConcurrent: 4,
+                minimumStartInterval: .milliseconds(320)
+            )
+        }
+    }
+
     /// 编号写在 Cookie 里的站点，那个 Cookie 的名字。
     var uidCookieName: String? {
         if case let .cookie(name) = userIDSource { return name }

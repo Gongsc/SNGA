@@ -44,21 +44,29 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 - **`ForumService`**（[SNGA/Network/ForumService.swift](SNGA/Network/ForumService.swift)）—— 站点能做的**动作**，一个协议、24 个 async 方法。每个账号一个实例（actor），自带 cookie，绝不共享 cookie 容器。协议保留全集，`extension` 给部分方法一份抛 `.unsupported` 的默认实现，适配器只写自己有的。
 - **`ForumCapabilities`**（[SNGA/Models/ForumCapabilities.swift](SNGA/Models/ForumCapabilities.swift)）—— OptionSet，站点**支不支持**某个功能。原则是「不支持就不画」，而不是画出来等用户点了再报错。只有「没数据也照样会画」的控件需要门控；数据为空时本来就不画的（评分、子版面、收藏夹）不必再问。**门控要挡在调用层，不只是视图层**——版面收藏在启动和切账号时会主动去拉，光藏界面请求照样发。
+- **能力位一条条写，别写 `.all`**。`.all` 的含义是「以后新加的任何一位我都支持」，而新加一位的时候适配器多半还没写。NGA 栽过一次：`.userBlocking` 一进 `.all`，它的用户中心立刻画出一个屏蔽按钮，点下去才答「NGA 没有站点黑名单」—— 正是「不支持就不画」要拦的那种事。`.all` 现在只给 `DebugForumService` 用。
 - **`ForumSiteDescriptor`**（[SNGA/Network/ForumSiteDescriptor.swift](SNGA/Network/ForumSiteDescriptor.swift)）—— 站点的**静态资料与措辞**：baseURL、登录方式、cookie 域、会话 cookie 名、用户编号从哪读、UA 策略、回复用 UBB / Markdown / 纯文本、搜索有哪几档、楼层签名从哪儿取、资料页显示哪些字段（各站叫法不同，NodeSeek 管货币叫「鸡腿」不叫「N 币」，V2EX 管版面叫「节点」）。视图通过 `@Environment(\.forumSiteDescriptor)` 拿，因为正文渲染链路太深，逐层传参会改一整条签名链。
 - **`ForumSite`**（[SNGA/Models/ForumSite.swift](SNGA/Models/ForumSite.swift)）—— 枚举。刻意不给 `default` 分支：加站点时编译器会把每一处要补的 `switch` 指出来。
 
 一个站点的实现是三个文件：`XxxEndpoint`（拼地址）+ `XxxParser`（解析，无状态）+ `XxxForumService`（actor，串起来）。网络往返统一走 `HTTPTransport` 协议（[SNGA/Network/HTTPTransport.swift](SNGA/Network/HTTPTransport.swift)），测试注入假实现。
 
+**发送节奏不在各客户端里，在 `RequestScheduler`**（[SNGA/Network/RequestScheduler.swift](SNGA/Network/RequestScheduler.swift)）。三个客户端原先各有一份「相邻两发隔 280–320ms」的节流，节奏是对的，但它只会排队、不会挑人：补作者属地那一下在 V2EX 上排进去 176 发，第 176 发等到 56 秒，而用户此刻点的那一下**排在它们后面**。闸门把三件事一起给了 —— 起飞间隔（各站的数原样搬过来，写在 `ForumSiteDescriptor.requestPacing`）、并发上限（和 `httpMaximumConnectionsPerHost` 对齐，为的是把排序权拿在自己手里而不是留给 `URLSession`）、以及优先级。`ScheduledTransport` 是套在传输外面的装饰器，`AppSession` 每个站点建一个闸门、**账号之间共用**（限流是服务器按 host 算的）。
+
+优先级走 task-local（`RequestPriority.current`），不是逐层传参 —— 从「谁发起的」到「谁在发」中间隔着 store → service → client → transport 四层，沿途绝大多数调用点不关心这件事。**默认是 `.userInitiated`，后台请求自己用 `RequestPriority.inBackground { }` 声明**；反过来省事，但忘了标的地方会悄悄把用户的点击降级。目前标了的有两处：逐楼补作者属地、定时的未读轮询。
+
+**冷却只挡后台请求，绝不挡用户此刻在等的那一下。** 反过来做捅过一个比限流本身糟得多的娄子（2026-09-17）：NGA 上开一个话题会按楼层去补作者属地，那个 `ucp` 接口连着答十几个 503 —— 是**它自己**的防护，不是全站限流；可冷却按主机记，接下来一分钟里用户点的每一下都拿到一个**应用自己造的** 429，弹「请求过于频繁」。日志里那几行 `durationMs=4 bytes=0` 就是它，根本没出门。冷却的本意是别把事情弄得更糟，而拦下点击再伪造一句站点没说过的话正是弄得更糟；真限流了，用户那一下会从站点拿回一个真的 429。站点回 429 / 503 就进冷却（**按主机记**，至少 60 秒，`Retry-After` 更长就听它的 —— 队列和节奏共用，冷却不共用：V2EX 的主题搜索走的是站外的 SoV2EX，它被限流不该让用户连 V2EX 都读不了），冷却期间那一发不出门、就地答一个 429 —— 三个客户端早就认得 429，不必为冷却在三处各写一遍翻译。**403 不算限流**：油猴那边分不出来所以一并算了，我们分得出（NodeSeek 的 `/api/vote/*` 少了签名头就是 403，那是自己的 bug），而闸门按站点共用，把 403 算进去会因为一个账号会话过期把另一个也停掉。
+
 ### 状态层
 
-`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和八个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`TopicHistoryStore`（读过的话题）、`ToolboxStore`。
+`AppModel`（[SNGA/App/AppModel.swift](SNGA/App/AppModel.swift)）持有 `AppSession` 和九个领域 store：`ForumStore`（浏览）、`ThreadStore`（话题）、`MessageStore`、`FavoriteStore`、`AIProfileStore`、`SearchHistoryStore`（搜过的关键词）、`TopicHistoryStore`（读过的话题）、`ToolboxStore`、`TopicMonitorStore`（新帖监控）。
 
 - `AppSession`（[SNGA/App/AppSession.swift](SNGA/App/AppSession.swift)）是各 store 的唯一依赖：给「当前账号的服务」「出错怎么呈现」「加载指示」三件事。store 不反手持有 `AppModel`；跨领域的事（收藏状态变化要更新话题列表）用闭包在 `AppModel.init` 里对接。
 - 错误呈现只有 `AppSession.present(_:)` 一道门。取消（`CancellationError` 和 `URLError.cancelled` 两种形态都要认）在这里拦掉，展示时冠上站名。
 - `RequestSlot`（[SNGA/App/RequestSlot.swift](SNGA/App/RequestSlot.swift)）是「最新者胜出」闸门：翻页、切版面、切账号时旧请求先发后至不能覆盖新结果。新起一类异步请求就配一个 slot。
 - **切账号时，界面上还挂着上一个站的版面。** 按版面编号触发的 `.task(id:)` 会拿它去问新账号的服务 —— V2EX 收到一个 NGA 的 `-7`，答一张「节点未找到」的正常页面，用户看到「论坛页面结构已变化」。`AppSession.belongsToActiveSite(_:)` 挡在 `ForumStore` 发请求**之前**：`ForumID` 本来就带着站点，判断只是没人做过。新加按 `ForumID` 发的请求，记得也过这一道。
 - `TopicHistoryStore`（[SNGA/App/TopicHistoryStore.swift](SNGA/App/TopicHistoryStore.swift)）一张表供着两件事：侧栏的「浏览历史」和列表里「读过的变灰」—— 它们本来就是同一个事实。它也是唯一一个**不重新查库**的 store：默认五百条上限，而写入发生在每次打开话题（用户正等着页面出来），所以内存里留一份列表加一个编号集合，写库只写变动的那一行。
-- `ToolboxStore` 是唯一不吃 `AppSession` 的 store —— 资讯小工具不认账号也不认论坛，一个账号没有时也能用，它的网络故障不能显示成论坛的错误。
+- `TopicMonitorStore`（[SNGA/App/TopicMonitorStore.swift](SNGA/App/TopicMonitorStore.swift)）是**新帖监控**：按正则盯 `rss.nodeseek.com` 那份公开订阅，命中就收录并发一条系统通知。它和小工具一样不吃 `AppSession` —— 订阅是匿名的，**一个 cookie 都不带**（和 SoV2EX 那条同理，单独一个 `TopicMonitorFeed` 而不是在发送函数里判域名）。两条规矩写在 `TopicMonitorPolicy` 里，都不是可选的：**首次检查只记位置不提醒**（订阅一次给二十条，开箱二十条通知的结果是用户把提醒关掉），**水位线只进不退**（请求失败不推进，拿到旧数据也不回拨，否则提醒过的会再提醒一遍）。规则、进度和结果落 `UserDefaults`，所以 UI 测试里要换成 `.uiTestingVolatile` 那一套，别写用户真实的偏好。
+- `ToolboxStore` 同样不吃 `AppSession` —— 资讯小工具不认账号也不认论坛，一个账号没有时也能用，它的网络故障不能显示成论坛的错误。
 
 ### 正文管线
 
@@ -112,6 +120,10 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 7. **首页分类（`/?tab=tech`）是聚合版面，不分页，而且会和节点重名**（`?tab=qna` 和 `/go/qna` 是两份列表）。所以它的 `ForumID` 加了 `tab:` 前缀，翻页在服务层被钳成第一页。它底下那第二排节点走 `ForumPage.subforums`，筛选靠 `Topic.sourceForumID`。分类表写死在 `V2EXEndpoint.tabs`。
 
 浏览面全部公开、匿名抓得全，所以夹具是真实响应；收藏 / 提醒 / 每日奖励只在登录后的页面上，一样都没接，能力位也关着。**唯一一处推断是发回复那张表单的字段名**，理由和验法记在 [Design/SiteProbe-V2EX.md](Design/SiteProbe-V2EX.md) 第五节。
+
+**从只读接口推出来的状态会不准，而且不准的时候和一个正常的否定答案长得一模一样。** NodeSeek 的签到榜是标本：会话不被它认时照样答 HTTP 200、照样给整整 50 条榜单和总人数，只是不带 `record` —— 和「你今天还没签到」分不开（2026-09-17 实测）。而那次出问题的会话**不是整个死的**，同一份会话的私信、提醒全是好的，所以「拿另一个会话接口去问一句」也问不出来。这类地方要留一条**自己记下的事实**兜底：签到成功那一刻写下 `AccountRecord.lastCheckInDay`（北京时间日界），亲手发过、亲眼见站点答应的事实比推出来的结论硬，一次读不准的查询翻不动它，隔日自动作废。反过来不成立 —— 记着的日子不是今天，不能据此说「还没签」。
+
+还有一道是**自动补签**（`AutoCheckInSettings`，默认开，设置里可关）：只读接口说「还没签」时去点一次签到接口 —— 它是唯一会把话说死的地方，已经签过就答「今日已签到」，没签过就顺手签了，两种答复都把 `lastCheckInDay` 落下来。它毕竟是个**写请求**，所以几道闸缺一不可：用户能关、一天最多一次（按站点日界）、**只在状态查询成功且明确答「还没签」时才发**（查询失败走 `catch`，那时候什么都不知道，不能凭空去点写接口）、失败不报错也不改状态（按钮还在，用户照样能自己点）。奖励只领固定的那一档，不替用户点「试试手气」—— 替人下注是另一回事。UI 测试里它一律当作关闭，要验就加 `--uitesting-auto-check-in`，别让用例受开发者自己那份偏好摆布。
 
 ### NodeSeek 的三条传输硬约束（实测）
 

@@ -166,11 +166,16 @@ final class ThreadStore {
         } else {
             let requestID = UUID()
             let task = Task<PostAuthorLocationResult, Never> { [service] in
-                do {
-                    let profile = try await service.profile(uid: uid)
-                    return PostAuthorLocationResult.loaded(profile.location)
-                } catch {
-                    return PostAuthorLocationResult.failed
+                // 这一批是**后台**请求：属地是补充信息，它一页能排上百发，而用户
+                // 此刻可能正在翻页。标了之后，闸门会让用户那一下先走。
+                // task-local 会跟着往下传，所以包住这一层就够了。
+                await RequestPriority.inBackground {
+                    do {
+                        let profile = try await service.profile(uid: uid)
+                        return PostAuthorLocationResult.loaded(profile.location)
+                    } catch {
+                        return PostAuthorLocationResult.failed
+                    }
                 }
             }
             request = PostAuthorLocationRequest(id: requestID, task: task)

@@ -700,5 +700,7 @@ enum SidebarSelection: Hashable, Sendable {
     case topicHistory
     case messages(MessageFolder)
     case toolbox
+    /// 新帖监控。和小工具一样在账号门槛外面：它读的是匿名订阅。
+    case topicMonitor
     case settings
 }

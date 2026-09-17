@@ -13,8 +13,6 @@ actor V2EXNetworkClient {
     private var jar: SessionCookieJar
     private let userAgent: String
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
-    private var lastRequestAt: ContinuousClock.Instant?
-    private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
@@ -30,15 +28,10 @@ actor V2EXNetworkClient {
 
     func currentCookies() -> [SessionCookie] { jar.unexpired }
 
-    /// 站点没有公布限流阈值，按和另外两站相近的节奏发。
-    private func throttle() async throws {
-        let now = clock.now
-        guard let lastRequestAt else { self.lastRequestAt = now; return }
-        let reservedAt = lastRequestAt.advanced(by: .milliseconds(320))
-        if reservedAt <= now { self.lastRequestAt = now; return }
-        self.lastRequestAt = reservedAt
-        try await clock.sleep(until: reservedAt)
-    }
+    // 发送节奏（相邻两发的间隔）归 `RequestScheduler` 管了，不在这里。
+    // 原先这里那份 `throttle()` 节奏是对的，但它只会排队、不会挑人：补作者属地
+    // 那一下排进去 176 发，用户此刻点的那一下就排在它们后面。挪到闸门那一层
+    // 之后，同一份节奏之外还多了并发上限和优先级。
 
     /// 取一张网页或一份 JSON。
     func get(_ url: URL, asJSON: Bool = false, referer: URL? = nil) async throws -> Data {
@@ -66,10 +59,10 @@ actor V2EXNetworkClient {
     /// 会话是用户的，没有理由让它离开 v2ex.com。
     ///
     /// 单独开一个方法而不是在 `send` 里判域名：判域名是一句可以被后来的人删掉的
-    /// 条件，而这里是「这条路本来就不碰 jar」。限流仍然共用，两边都不该被打太快。
+    /// 条件，而这里是「这条路本来就不碰 jar」。发送节奏仍和 V2EX 共用（两边都不该
+    /// 被打太快），但**冷却按主机分开** —— 第三方回一句 429，不该让用户连 V2EX
+    /// 本身都读不了。见 `RequestScheduler.coolingUntil`。
     func getThirdParty(_ url: URL) async throws -> Data {
-        try await throttle()
-
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 25
@@ -110,8 +103,6 @@ actor V2EXNetworkClient {
         asJSON: Bool,
         referer: URL?
     ) async throws -> Data {
-        try await throttle()
-
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = form == nil ? 25 : 40

@@ -1,0 +1,10 @@
+{
+  "list": [
+    {"id": 5896701, "member_id": 100001, "member_name": "用户A", "day_id": 1441, "gain": 42, "created_at": "2026-09-16T16:00:07.000Z"},
+    {"id": 5896702, "member_id": 100002, "member_name": "用户B", "day_id": 1441, "gain": 11, "created_at": "2026-09-16T16:00:19.000Z"},
+    {"id": 5896703, "member_id": 100003, "member_name": "用户C", "day_id": 1441, "gain": 5, "created_at": "2026-09-16T16:01:02.000Z"}
+  ],
+  "order": 482,
+  "total": 10502,
+  "record": {"id": 5897182, "member_id": 100482, "day_id": 1441, "gain": 8, "created_at": "2026-09-17T01:12:44.000Z"}
+}

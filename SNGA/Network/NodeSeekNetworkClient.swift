@@ -11,8 +11,6 @@ actor NodeSeekNetworkClient {
     /// `WKWebView` 自报的真实 UA。见类型文档里的第 1 条约束。
     private let userAgent: String
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
-    private var lastRequestAt: ContinuousClock.Instant?
-    private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
@@ -28,15 +26,10 @@ actor NodeSeekNetworkClient {
 
     func currentCookies() -> [SessionCookie] { jar.unexpired }
 
-    /// 站点搜索限流 1 次 / 2 秒，其余接口没有实测过 —— 先按和 NGA 相近的节奏发。
-    private func throttle() async throws {
-        let now = clock.now
-        guard let lastRequestAt else { self.lastRequestAt = now; return }
-        let reservedAt = lastRequestAt.advanced(by: .milliseconds(320))
-        if reservedAt <= now { self.lastRequestAt = now; return }
-        self.lastRequestAt = reservedAt
-        try await clock.sleep(until: reservedAt)
-    }
+    // 发送节奏（相邻两发的间隔）归 `RequestScheduler` 管了，不在这里。
+    // 原先这里那份 `throttle()` 节奏是对的，但它只会排队、不会挑人：补作者属地
+    // 那一下排进去 176 发，用户此刻点的那一下就排在它们后面。挪到闸门那一层
+    // 之后，同一份节奏之外还多了并发上限和优先级。
 
     /// 发一次 GET，拿回原始响应体。
     ///
@@ -112,7 +105,6 @@ actor NodeSeekNetworkClient {
         asJSON: Bool,
         referer: URL?
     ) async throws -> Data {
-        try await throttle()
 
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -164,12 +156,44 @@ actor NodeSeekNetworkClient {
         if !cookieHeader.isEmpty {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
+        // 只记**名字**，绝不记值。名字不是秘密（`session` 这个名字就写在
+        // `ForumSiteDescriptor` 里），而个数不够用：登录后是 6 个，可 6 个里缺了
+        // `session`、多了一个别的，个数照样是 6。
+        let cookieNames = cookieHeader
+            .components(separatedBy: "; ")
+            .compactMap { $0.split(separator: "=", maxSplits: 1).first.map(String.init) }
+            .filter { !$0.isEmpty }
+            .sorted()
 
+        // **带了几个 cookie 也记一笔**（只记个数，不记名字更不记值）。
+        //
+        // 这个站有一整族接口是「认得出你就多给一块，认不出就照常给公共的那部分」——
+        // 签到榜就是：匿名访问一样答 HTTP 200、一样给 50 条榜单和总人数，只是
+        // `order` 和 `record` 都是 null。于是「没带上登录」和「今天还没签到」
+        // 在响应里长得一模一样，差别只在请求这一侧。个数是唯一不涉及内容、
+        // 又能一眼分清的东西：登录后是 6 个（见类型文档第 2 条）。
         await RuntimeLogger.shared.log(
             category: "network",
             "\(method) \(RuntimeLogger.sanitizedURL(url))"
+                + " cookies=\(cookieNames.count)[\(cookieNames.joined(separator: ","))]"
         )
+        let startedAt = ContinuousClock().now
         let (data, response) = try await transport.data(for: request)
+        // **答复也要记一行**，和 NGA 那边一样。
+        //
+        // 先前这里只记了发出去的那一行，于是这个站一旦答得不对，日志上什么都看不出来 ——
+        // 签到状态那个 bug（已签到显示成待签到）卡了一轮，正是因为分不清「站点没给
+        // record」和「站点压根没答一张榜」。而这两者在字节数上差着两个数量级：
+        // 防抓取那句假的 `{"success":false,"message":"wrong uid"}` 是三十几字节，
+        // 一页真的签到榜是好几 KB。状态码和字节数都不涉及内容，进日志是安全的。
+        let elapsed = startedAt.duration(to: ContinuousClock().now)
+        await RuntimeLogger.shared.log(
+            category: "network",
+            "\(method) \(RuntimeLogger.sanitizedURL(url))"
+                + " status=\(response.statusCode)"
+                + " bytes=\(data.count)"
+                + " durationMs=\(elapsed.components.seconds * 1_000 + elapsed.components.attoseconds / 1_000_000_000_000_000)"
+        )
         let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, item in
             result[String(describing: item.key)] = String(describing: item.value)
         }

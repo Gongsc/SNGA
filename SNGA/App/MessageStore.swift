@@ -104,6 +104,7 @@ final class MessageStore {
         let folder = messageFolder
         if folder == .notifications {
             markMessageRead(message, folder: folder)
+            await syncReadState(of: [message])
             if message.kind == .privateMessage {
                 guard let service = session.activeService else { return .handled }
                 let requestAccountID = service.accountID
@@ -142,13 +143,22 @@ final class MessageStore {
             }
             currentMessage = result
             markMessageRead(message, folder: folder)
+            // 跟着本地那一下走，而不是放在 `withLoading` 外面：详情取失败时
+            // `markMessageRead` 根本不会执行，那时候去告诉站点「读过了」，
+            // 等于替一次没成功的打开销掉了未读。
+            await syncReadState(of: [message])
         }
         return .handled
     }
 
-    func markAllRead(in folder: MessageFolder) {
+    func markAllRead(in folder: MessageFolder) async {
+        guard messageFolder == folder, messages.contains(where: \.isUnread) else { return }
+        markEverythingReadLocally(in: folder)
+        await syncAllRead(in: folder)
+    }
+
+    private func markEverythingReadLocally(in folder: MessageFolder) {
         let unreadMessages = messages.filter(\.isUnread)
-        guard messageFolder == folder, !unreadMessages.isEmpty else { return }
 
         for index in messages.indices {
             messages[index].isUnread = false
@@ -362,6 +372,34 @@ final class MessageStore {
         keys.insert(contentsOf: newKeys, at: 0)
         record.readNotificationKeys = Array(keys.prefix(UnreadMessagePolicy.maximumSeenKeyCount))
         try? session.context.save()
+    }
+
+    /// 把已读同步到站点。
+    ///
+    /// **失败了不报错。** 这一下是记账，不是用户此刻要的东西 —— 他要的是看这条消息，
+    /// 而消息已经在眼前了。为一次记账失败弹个横幅，等于告诉他一件他做不了任何事的事。
+    /// 真没同步上，下一轮轮询会把未读送回来，那才是诚实的呈现。
+    ///
+    /// 不支持这件事的站点走的是 `ForumService` 里那份什么都不做的默认实现，所以
+    /// 这里不必先问能力位。
+    private func syncReadState(of messages: [ForumMessage]) async {
+        let unread = messages.filter(\.isUnread)
+        guard !unread.isEmpty, let service = session.activeService else { return }
+        try? await service.markRead(unread)
+    }
+
+    /// 「全部已读」那一下的站点侧。
+    ///
+    /// 这一个**报错**，和上面那个不一样：用户是专门点了一个按钮，按钮上写着「全部
+    /// 已读」。它没做到而界面上的红点先消了，下一轮轮询又全都回来 —— 不说一声，
+    /// 他只会觉得这个按钮时灵时不灵。
+    private func syncAllRead(in folder: MessageFolder) async {
+        guard let service = session.activeService else { return }
+        do {
+            try await service.markAllRead(folder: folder)
+        } catch {
+            session.present(error)
+        }
     }
 
     private func setUnreadCount(_ count: Int, for folder: MessageFolder) {

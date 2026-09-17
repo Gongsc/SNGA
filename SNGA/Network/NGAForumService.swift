@@ -3,7 +3,22 @@ import Foundation
 actor NGAForumService: ForumService {
     nonisolated let accountID: AccountID
     nonisolated let site: ForumSite = .nga
-    nonisolated let capabilities: ForumCapabilities = .all
+    /// **一条条写出来，不用 `.all`。**
+    ///
+    /// 原先这里是 `.all`，看着省事，实际含义是「以后新加的任何一位，NGA 都默认
+    /// 支持」—— 而新加一位的时候，适配器多半还没写。加 `.userBlocking` 那天就是
+    /// 这样：能力位一进 `.all`，NGA 的用户中心立刻画出一个屏蔽按钮，点下去才
+    /// 答「NGA 没有站点黑名单」，正是「不支持就不画」要拦的那种事。
+    ///
+    /// 写全了之后，加新位时这里会**保持沉默**，那正是对的 —— 沉默意味着没点亮，
+    /// 而点亮是要验过才做的动作。
+    nonisolated let capabilities: ForumCapabilities = [
+        .checkIn, .postVote, .postDownvote, .quotePost,
+        .topicRating, .poll, .subforums,
+        .forumFavorites, .topicFavorites, .topicFavoriteFolders,
+        .privateMessages, .notifications, .globalSearch,
+        .userActivities, .anonymousPosts, .postAuthorLocation
+    ]
     private let client: NGANetworkClient
     private let parser: NGAParser
 

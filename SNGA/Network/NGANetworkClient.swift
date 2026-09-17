@@ -32,8 +32,6 @@ actor NGANetworkClient {
     private let cookieDidChange: @Sendable ([SessionCookie]) async -> Void
     /// 站点要求的 UA。见 `SiteUserAgent` —— 有的站点不接受应用自报家门。
     private let defaultUserAgent: String
-    private var lastRequestAt: ContinuousClock.Instant?
-    private let clock = ContinuousClock()
 
     init(
         cookies: [SessionCookie],
@@ -56,7 +54,6 @@ actor NGANetworkClient {
         for attempt in 1...maximumAttempts {
             let startedAt = Date()
             do {
-                try await throttle()
                 var request = URLRequest(url: endpoint.url)
                 request.httpMethod = endpoint.method.rawValue
                 request.timeoutInterval = endpoint.isWrite ? 40 : 25
@@ -139,24 +136,10 @@ actor NGANetworkClient {
         throw lastError ?? ForumServiceError.invalidResponse
     }
 
-    private func throttle() async throws {
-        let now = clock.now
-        guard let lastRequestAt else {
-            self.lastRequestAt = now
-            return
-        }
-
-        let reservedAt = lastRequestAt.advanced(by: .milliseconds(280))
-        if reservedAt <= now {
-            self.lastRequestAt = now
-            return
-        }
-
-        // 先占用下一个发送时隙再等待。Actor 在 await 时可重入；如果等待结束后
-        // 才更新时间，并发请求会在同一时刻醒来，从而绕过节流并触发 NGA 限流。
-        self.lastRequestAt = reservedAt
-        try await Task.sleep(for: now.duration(to: reservedAt))
-    }
+    // 发送节奏（相邻两发的间隔）归 `RequestScheduler` 管了，不在这里。
+    // 原先这里那份 `throttle()` 节奏是对的，但它只会排队、不会挑人：补作者属地
+    // 那一下排进去 176 发，用户此刻点的那一下就排在它们后面。挪到闸门那一层
+    // 之后，同一份节奏之外还多了并发上限和优先级。
 
     private func validate(_ response: NGAHTTPResponse) throws {
         let explicitlyRequiresLogin = responseExplicitlyRequiresLogin(response)

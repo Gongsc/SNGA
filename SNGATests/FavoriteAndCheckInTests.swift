@@ -322,8 +322,197 @@ final class FavoriteAndCheckInTests: XCTestCase {
         )
     }
 
+    /// **今天签过的事实，一次读不准的查询不许把它翻回去。**
+    ///
+    /// 「今天签没签」在各站都是从只读接口推出来的，而那条路会不准：NodeSeek 的
+    /// 签到榜认不出人时照样答 200、照样给整张榜，只是不带 `record` —— 和「你今天
+    /// 还没签」一模一样（2026-09-17 实测）。于是签完之后下一轮轮询又把状态翻回
+    /// 「待签到」，用户看到的是一个反复横跳的按钮。
+    ///
+    /// 记住的事实比推出来的结论硬：`lastCheckInDay` 是我们亲手签到成功那一刻写下的。
+    @MainActor
+    func testARememberedCheckInSurvivesAStatusQueryThatSaysOtherwise() async throws {
+        // 同上：这一条只验记忆，补签关掉。
+        let defaults = try Self.withAutomaticCheckIn(false)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "RememberedCheckIn")
+        let record = try XCTUnwrap(
+            session.context.fetch(FetchDescriptor<AccountRecord>()).first
+        )
+        // 假服务的只读接口一律答「还没签」，正是读不准的那种情形。
+        record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+        record.lastCheckInMessage = "签到成功，获得鸡腿 8 个"
+        try session.context.save()
+
+        await session.refreshCheckInStatuses()
+
+        guard case let .checkedIn(_, message) = session.activeAccountCheckInStatus else {
+            return XCTFail("自己签过的事实被一次读不准的查询翻回去了")
+        }
+        XCTAssertEqual(
+            message, "签到成功，获得鸡腿 8 个",
+            "站点自己说过的那句话比干巴巴一句「今日已签到」多告诉用户一件事"
+        )
+        XCTAssertFalse(session.activeAccountCheckInStatus.needsCheckInPrompt)
+    }
+
+    /// 记着的日子**不是今天**时不能据此说「已签到」—— 到北京时间隔日就该自动作废，
+    /// 否则用户从此再也签不了。
+    @MainActor
+    func testYesterdaysMemoryDoesNotBlockTodaysCheckIn() async throws {
+        // 自动补签关掉：这一条验的是**记忆**那一道，不是补签那一道。开着的话
+        // 状态会被真的签到改成「已签到」，就看不出记忆有没有越界了。
+        let defaults = try Self.withAutomaticCheckIn(false)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "StaleCheckInMemory")
+        let record = try XCTUnwrap(
+            session.context.fetch(FetchDescriptor<AccountRecord>()).first
+        )
+        record.lastCheckInDay = CheckInPolicy.dayKey(
+            for: Date().addingTimeInterval(-86_400)
+        )
+        record.lastCheckInMessage = "签到成功"
+        try session.context.save()
+
+        await session.refreshCheckInStatuses()
+
+        XCTAssertTrue(
+            session.activeAccountCheckInStatus.canCheckIn,
+            "昨天签过不等于今天签过"
+        )
+    }
+
+    /// 只读接口说「还没签」时去问一次签到接口 —— 它是唯一会把话说死的地方。
+    ///
+    /// 这一下的主要用处不是替用户签到，是**把状态问准**：已经签过就答「今日已签到」，
+    /// 没签过就顺手签了，两种答复都让界面从此说实话。
+    @MainActor
+    func testAnUncheckedDayIsSettledByAskingTheCheckInEndpoint() async throws {
+        let defaults = try Self.withAutomaticCheckIn(true)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "AutoCheckIn")
+        let service = try XCTUnwrap(
+            session.service(for: try XCTUnwrap(session.activeAccountID)) as? DebugForumService
+        )
+
+        await session.refreshCheckInStatuses()
+
+        let checkIns = await service.debugCheckInRequestCount()
+        XCTAssertEqual(checkIns, 1, "只读接口说没签，却没去问签到接口")
+        XCTAssertFalse(
+            session.activeAccountCheckInStatus.needsCheckInPrompt,
+            "补签成功之后不该还催用户去签"
+        )
+    }
+
+    /// **一天最多一次。** 开着应用不动，每 5 分钟一轮维护都去点一次写接口，
+    /// 那是在替用户反复发请求。
+    @MainActor
+    func testTheMakeUpCheckInFiresAtMostOncePerDay() async throws {
+        let defaults = try Self.withAutomaticCheckIn(true)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "AutoCheckInOncePerDay")
+        let service = try XCTUnwrap(
+            session.service(for: try XCTUnwrap(session.activeAccountID)) as? DebugForumService
+        )
+
+        await session.refreshCheckInStatuses()
+        await session.refreshCheckInStatuses()
+        await session.refreshCheckInStatuses()
+
+        let checkIns = await service.debugCheckInRequestCount()
+        XCTAssertEqual(checkIns, 1)
+    }
+
+    /// 关掉就一个写请求都不许发。它毕竟是替用户点的。
+    @MainActor
+    func testNothingIsSubmittedWhenTheUserTurnedItOff() async throws {
+        let defaults = try Self.withAutomaticCheckIn(false)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "AutoCheckInOff")
+        let service = try XCTUnwrap(
+            session.service(for: try XCTUnwrap(session.activeAccountID)) as? DebugForumService
+        )
+
+        await session.refreshCheckInStatuses()
+
+        let checkIns = await service.debugCheckInRequestCount()
+        XCTAssertEqual(checkIns, 0)
+        XCTAssertTrue(
+            session.activeAccountCheckInStatus.needsCheckInPrompt,
+            "关掉之后仍然要能自己点"
+        )
+    }
+
+    /// 状态查询**失败**的时候什么都不知道，不能凭空去点一个写接口。
+    @MainActor
+    func testAFailedStatusQueryNeverTriggersAWrite() async throws {
+        let defaults = try Self.withAutomaticCheckIn(true)
+        defer { defaults() }
+        let session = try Self.makeCheckInSession(named: "AutoCheckInAfterFailure")
+        let accountID = try XCTUnwrap(session.activeAccountID)
+        let service = FailingCheckInStatusService(accountID: accountID)
+        session.setService(service, for: accountID)
+
+        await session.refreshCheckInStatuses()
+
+        let checkIns = await service.checkInCount
+        XCTAssertEqual(checkIns, 0, "查都没查明白就去点写接口")
+        XCTAssertTrue(session.activeAccountCheckInStatus.canRefresh)
+    }
+
+    /// 把开关临时设成某个值，返回一个还原它的闭包。
+    private static func withAutomaticCheckIn(_ enabled: Bool) throws -> () -> Void {
+        let key = AutoCheckInSettings.enabledKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(enabled, forKey: key)
+        return {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
+    @MainActor
+    private static func makeCheckInSession(named name: String) throws -> AppSession {
+        let schema = Schema([AccountRecord.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [
+                ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: true)
+            ]
+        )
+        let session = AppSession(
+            container: container,
+            sessionStore: LocalSessionStore.shared,
+            notificationService: .shared
+        )
+        let record = AccountRecord(
+            site: .nga,
+            siteUserID: 10_001,
+            displayName: "签到测试账号",
+            isCurrent: true
+        )
+        session.context.insert(record)
+        try session.context.save()
+        session.accounts = [record.summary()]
+        session.activeAccountID = record.accountID
+        session.setService(
+            DebugForumService(accountID: record.accountID),
+            for: record.accountID
+        )
+        return session
+    }
+
+    /// 「启动只查询、不替用户签到」这条**不再是无条件的**，它归设置里那个开关管了
+    /// （用户点名要的自动补签，见 `AutoCheckInSettings`）。关掉之后原来的保证照旧，
+    /// 所以这条用例把开关钉死在关上 —— 它守的是「关掉就真的一个写请求都不发」。
     @MainActor
     func testCheckInStatusRefreshDoesNotSignInAndManualActionRefreshesStatistics() async throws {
+        let restore = try Self.withAutomaticCheckIn(false)
+        defer { restore() }
         let schema = Schema([AccountRecord.self])
         let configuration = ModelConfiguration(
             "CheckInStatusTests",
@@ -700,4 +889,45 @@ final class ForumDirectorySearchTests: XCTestCase {
 
         XCTAssertTrue(result.isEmpty)
     }
+}
+
+/// 只读接口一律抛错的替身：用来验「查不明白就不许去点写接口」。
+private actor FailingCheckInStatusService: ForumService {
+    nonisolated let accountID: AccountID
+    nonisolated let site: ForumSite = .nodeseek
+    nonisolated let capabilities: ForumCapabilities = [.checkIn]
+    private(set) var checkInCount = 0
+
+    init(accountID: AccountID) { self.accountID = accountID }
+
+    func checkInStatus() async throws -> CheckInStatistics {
+        throw ForumServiceError.unexpectedPage("签到榜读不出来")
+    }
+
+    func checkIn() async throws -> CheckInResult {
+        checkInCount += 1
+        return .success(message: "签到成功")
+    }
+
+    private var unused: ForumServiceError { .unsupported("测试替身没实现这个") }
+
+    func currentUserID() async throws -> Int64 { throw unused }
+    func profile(uid: Int64) async throws -> Profile { throw unused }
+    func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage { throw unused }
+    func forums() async throws -> [Forum] { throw unused }
+    func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage { throw unused }
+    func topics(forumID: ForumID, page: Int, sortOrder: TopicListSortOrder, featuredOnly: Bool) async throws -> ForumPage { throw unused }
+    func threadPage(topicID: TopicID, page: Int, authorUID: Int64?) async throws -> ThreadPage { throw unused }
+    func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? { throw unused }
+    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection, isUndo: Bool) async throws -> PostVoteState { throw unused }
+    func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws { throw unused }
+    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage { throw unused }
+    func message(id: MessageID) async throws -> ForumMessage { throw unused }
+    func replyMessage(id: MessageID, content: String) async throws { throw unused }
+    func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] { throw unused }
+    func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage { throw unused }
+    func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws { throw unused }
+    func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? { throw unused }
+    func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws { throw unused }
+    func deleteTopicFavoriteFolder(folderID: String) async throws { throw unused }
 }

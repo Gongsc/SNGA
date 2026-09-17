@@ -854,8 +854,15 @@ struct NodeSeekParser: Sendable {
     ///
     /// 站点只对本人报这几个数，所以只在看自己的资料时才去要。
     func unreadCounts(json data: Data) throws -> (replies: Int, mentions: Int, messages: Int) {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let counts = root["unreadCount"] as? [String: Any] else {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取未读数")
+        }
+        // 站点明说的那几句拒绝要按原话报。未登录时这一族**通常**答 500，客户端那层
+        // 就翻成了 `.requiresLogin`；但状态码不是唯一的形态（同一句话也会跟着 200
+        // 回来），而这里还兼着「站点还认不认得我」的差事 —— 认不出却报成
+        // 「无法读取未读数」，等于把一条能照着做的提示换成了一句没用的话。
+        try Self.rejectBulkGate(root)
+        guard let counts = root["unreadCount"] as? [String: Any] else {
             throw ForumServiceError.unexpectedPage("无法读取未读数")
         }
         func number(_ key: String) -> Int { (counts[key] as? NSNumber)?.intValue ?? 0 }
@@ -908,6 +915,25 @@ struct NodeSeekParser: Sendable {
     func checkInStatistics(json data: Data) throws -> CheckInStatistics {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ForumServiceError.unexpectedPage("无法读取签到状态")
+        }
+        // **先确认这确实是一张签到榜，再谈签没签。**
+        //
+        // 「签没签」是靠 `record` 在不在判断的，于是任何**不是签到榜**的答复都会
+        // 被读成「没签到」—— 一个看起来很确定、其实什么都没查到的答案。用户已经
+        // 签过了，界面却一直催他去签。
+        //
+        // 这不是假想：`/api/attendance/board?page=` 正是「带 page、批量吐公开数据」
+        // 那一族，站点对非浏览器客户端会回一句假的 `wrong uid`（HTTP 200），
+        // 里面当然没有 `record`。这一族的其余接口早就过 `rejectBulkGate` 了，
+        // 只有这里漏了。
+        //
+        // 两道各管一件事：`rejectBulkGate` 认的是站点明说的那几句拒绝（顺带把
+        // 「没登录」和「被挡」分开报），`list` 认的是结构 —— 答复得真的长得像
+        // 一张榜。认不出就抛，让它显示成「签到状态查询失败」并给出重试，
+        // 而不是冒充一个否定的答案。
+        try Self.rejectBulkGate(root)
+        guard root["list"] is [Any] else {
+            throw ForumServiceError.unexpectedPage("签到榜的响应里没有榜单")
         }
         let record = root["record"] as? [String: Any]
         return CheckInStatistics(
@@ -1068,6 +1094,25 @@ struct NodeSeekParser: Sendable {
                 )
             )
         }
+    }
+
+    /// 站点黑名单。
+    ///
+    /// **空列表和查询失败要分开。** 两者都「一个人都没有」，但含义正相反：前者是
+    /// 「你没屏蔽任何人」，后者是「不知道」。混作一谈，界面就会在查询失败之后把
+    /// 每个人的按钮都画成「屏蔽」—— 而其中可能正有一个已经被屏蔽了的人，点下去
+    /// 等于在他身上做了一次反向操作。所以 `success` 不为真、或者 `data` 不是数组，
+    /// 一律抛错，不返回空集合。
+    func blockedUserIDs(json data: Data) throws -> Set<Int64> {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ForumServiceError.unexpectedPage("无法读取黑名单")
+        }
+        try Self.rejectBulkGate(root)
+        guard (root["success"] as? NSNumber)?.boolValue == true,
+              let rows = root["data"] as? [[String: Any]] else {
+            throw ForumServiceError.unexpectedPage("黑名单查询失败")
+        }
+        return Set(rows.compactMap { ($0["block_member_id"] as? NSNumber)?.int64Value })
     }
 
     /// 收藏的话题。

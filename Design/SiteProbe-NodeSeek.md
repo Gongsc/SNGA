@@ -230,17 +230,115 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 
 - `/api/notification/unread-count`
 - `/api/notification/{type}/list?page=` — type 为 `at-me`（@我）、`reply-to-me`（回复我）、`message`（私信）
-- `/api/notification/{type}/markViewed?all=true` — 全部已读；不带 query 时用 JSON body 逐条标记
+- `/api/notification/{type}/markViewed?all=true` — 全部已读；不带 query 时用 JSON body 逐条标记。
+  **请求体里装编号数组的字段名和路径对不上，而且两类还各不相同**：`at-me` 用 `atMe`，
+  `reply-to-me` 用 **`replys`**（一个拼错了的复数）。照抄，别统一风格 —— 和 `receiverUid`
+  同一个毛病。出处是 `rirh/nodeseek-plus` 的 `notification-inbox.ts`（GPL-3.0），
+  那边从站点前端读出来的，**本机未实测**。要验：登录后在控制台发一条
+  `POST /api/notification/at-me/markViewed`，body `{"atMe":[某条通知的 id]}`，
+  看那条的 `viewed` 有没有从 0 变 1；字段名错了只会「标不上」，不会误发内容
 - `/api/notification/message/with/{uid}` — 一段完整会话
 - `/api/notification/message/send` — **收件人字段是 camelCase 的 `receiverUid`**，
   而这套接口其余字段都是 snake_case（实测 2026-07-26，从站点自身的 `notification.js` 读出）
+
+### 黑名单
+
+- `GET /api/block-list/list` → `{success:true, data:[{block_member_id, block_member_name}]}`
+- `POST /api/block-list/add` → `{"block_member_name": "名字"}`
+- `POST /api/block-list/del` → `{"block_member_id": 编号}`
+
+**两个方向的参数不一样**：加按名字，删按编号。看着像接口写歪了，但它就是这样，
+所以调用方两样都得有（`ForumService.updateUserBlock` 因此同时收 uid 和 name）。
+读接口本机验过；两个写接口的字段名出处是 `rirh/nodeseek-plus` 的 `blocklist.ts`
+（GPL-3.0），它注明来自[原作者公开插件代码](https://www.5yyx.com/?p=662)，
+那边也只用模拟接口验过，**没有对真账号操作过**。
+
+`success` 不为真、或者 `data` 不是数组，一律当查询失败抛错，**不返回空集合** ——
+「你没屏蔽任何人」和「不知道」在界面上会长成同一个样子，而后者下点「屏蔽」
+可能正好是在解除。
 
 ### 账号与签到
 
 - `/api/account/getInfo/{uid}?readme=1` — 不加 `readme=1` 时响应里没有个人简介
 - `/api/account/find/{query}` — 用户搜索
 - `/api/attendance?random=true|false` — **签到**。`random=true` 是抽奖式，`false` 是固定 5 个鸡腿
-- `/api/attendance/board?page=` — 签到榜，今日是否已签到从这里的 `record` 读
+- `/api/attendance/board?page=` — 签到榜，今日是否已签到从这里的 `record` 读。
+  **这一族（带 page、批量吐公开数据）正是站点会回假 `wrong uid` 的那一族**，
+  而「签没签」靠 `record` 在不在判断 —— 于是任何非榜单的答复都会被读成「还没签到」，
+  用户签过了界面还在催他签（2026-09-17 报上来的就是这个症状）。现在解析器先过
+  `rejectBulkGate`、再要求 `list` 是数组，认不出就抛，宁可显示「查询失败」也不
+  冒充一个否定答案。
+  **`record` 的语义已实测（2026-09-17，登录且当天已签到，`probe-nodeseek-attendance.js`）：**
+  顶层是 `list[] + order + total + record`，**没有 `success` 也没有 `message`**。
+  - `record` 是对象，字段 `id / member_id / day_id / gain / created_at`；
+  - **`record` 不随 `page` 变** —— `page=1` 和 `page=2` 给的是同一份，所以只问第一页是对的；
+  - **`total` 不是站点的第几天**（那是 `day_id`，当天 1441），它是**今天签到的总人数**
+    （10502），`order` 是我今天的名次（482）。谁都别再拿这两个数充「连续天数 /
+    累计天数」—— 早先就是这么错过一次。
+  - `list` 一页 50 条，每条多一个 `member_name`。
+
+  所以「`record` 在不在」这条判据本身是对的：浏览器里已签到就一定有 `record`。
+  问题只可能出在**应用拿到的不是这份答复**。为此 `NodeSeekNetworkClient` 现在也记
+  响应行（`status=` / `bytes=`），照着 NGA 那边来 —— 被挡那句假答复三十几字节，
+  一页真榜好几 KB，日志上一眼分得开。
+
+  `SNGATests/Fixtures/nodeseek-attendance-board.json` **不是原样抓取**：字段名和层级、
+  以及几个与身份无关的数照实测写，`member_id` / `member_name` 是编的。
+
+#### `/board` 这张页面读不了，而且不必读（2026-09-17 实测）
+
+有人提议改从 `https://www.nodeseek.com/board` 判断，因为页面上已签到时写着
+「今日签到获得鸡腿 x 个，当前排名第 xxx」。**这条路走不通**：
+
+- 服务端发来的 HTML 只有 **11 KB**，里面**一个**「签到 / 鸡腿 / 排行榜」都没有；
+  浏览器里看到的 205 KB 是 JS 建出来的。不执行 JS 的客户端什么也读不到。
+- 这张页面的 `#temp-script` 内嵌状态只有 `pageType / user / allCategory /
+  commmentPerPage / enableCustomedStyle`，**没有任何签到数据**（帖子页那一套在这里
+  帮不上忙）。
+- 那句话本身就是拿 **`/api/attendance/board?page=1`** 渲染出来的 —— 也就是我们
+  已经在调的同一个接口。页面用的是一个**光秃秃的 `fetch()`**，没有额外的头，
+  也没有额外的参数。
+
+站点自己的判断写在 `board.*.js` 里（Vue 模板，原样）：
+
+```js
+created: function(){ this.me = __config__.user; this.fetch() }
+// fetch("/api/attendance/board?page="+n) → this.record = n.record; this.order = n.order
+t.me ? [
+  t.record && "loading" !== t.record ? "今日签到获得鸡腿"+record.gain+"个，当前排名第"+order : …,
+  null === t.record ? "今日还未签到，[鸡腿 x 5] / [试试手气]" : …
+] : "登录后签到"
+```
+
+所以「`record` 在不在」这条判据和站点**完全一致**，但它有个前提：
+**`record === null` 只在「已登录」的前提下才等于「今天还没签」。**
+站点的「已登录」是从页面的 `__config__.user` 读的，**不是从这个接口读的**。
+
+而这个接口匿名访问时照样答 HTTP 200、照样给 50 条榜单和 `total`，只是
+`order` 和 `record` **都是 null**（2026-09-17 在无会话浏览器里实测）。于是
+「没带上登录」和「今天还没签到」在响应里长得一模一样 —— 差别只在请求那一侧。
+`NodeSeekNetworkClient` 因此在日志里记 `cookies=6[名字,名字,…]` —— **只记名字，不记值**
+（名字不是秘密，`session` 就写在 descriptor 里；而个数不够用：6 个里缺了 `session`、
+多了个别的，个数照样是 6）。
+
+**多带的那几个头不是原因（2026-09-17 实测，`probe-nodeseek-attendance-headers.js`）。**
+在已登录且已签到的浏览器里，`Accept`、`X-Requested-With`、`x-dynamic-sign`（值乱填）
+单加、全加，五种组合**都照样认人**（`record` 是对象）。所以站点不会因为这几个头
+把请求降级成匿名。JS 设不了 `User-Agent` / `Referer` / `Sec-Fetch-*`，那三个这条路测不到。
+
+**结论（2026-09-17，用户侧确认）：重新登录之后签到状态就对了。** 但有一点要记牢：
+出问题的那份会话**不是整个死的** —— 同一份会话的私信和提醒一直是好的，只有签到榜
+不认人。所以：
+
+- 「拿另一个会话接口去问『你还认得我吗』」这一招**兜不住这种情形**
+  （`checkInStatus()` 里那一问只兜得住会话整个死掉的情形，注释里写明了）；
+- 真正兜得住的是**记住自己签到成功过的那一天**（`AccountRecord.lastCheckInDay`，
+  北京时间日界）：这是我们亲手发请求、亲眼看见站点答应的事实，比从只读接口推出来的
+  结论硬，一次读不准的查询翻不动它，隔日自动作废。反过来不成立 —— 记着的日子不是
+  今天，不能据此说「还没签」，用户可能刚在网页上签的。
+
+这个站上凡是「从只读接口推出当前状态」的功能，都要想一遍这条：**推出来的结论会
+不准，而且不准的时候和一个正常的否定答案长得一模一样。**
 - `/api/progress/today` — 今日各项额度
 
 ### 投票

@@ -29,7 +29,8 @@ actor NodeSeekForumService: ForumService {
     /// 逐个去拉作者资料，拉回来一个空值，什么都填不上 —— 纯赔。
     nonisolated let capabilities: ForumCapabilities = [
         .checkIn, .postVote, .quotePost, .poll,
-        .privateMessages, .notifications, .userActivities, .globalSearch
+        .privateMessages, .notifications, .userActivities, .globalSearch,
+        .userBlocking
     ]
 
     private let client: NodeSeekNetworkClient
@@ -373,6 +374,75 @@ actor NodeSeekForumService: ForumService {
         return message
     }
 
+    func blockedUserIDs() async throws -> Set<Int64> {
+        try parser.blockedUserIDs(json: await client.get(NodeSeekEndpoint.blockList))
+    }
+
+    /// 屏蔽或解除屏蔽。
+    ///
+    /// 两个方向的请求体**装的不是同一样东西**：加进去传名字，移出来传编号。照抄，
+    /// 别为了对称两边都传编号 —— 那一边会静静地什么也不做。
+    ///
+    /// 名字空着就不发。按名字加人的接口收到一个空串，最好的结果是报错，最坏的
+    /// 结果是屏蔽了某个名字为空的账号。
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBlocked, trimmed.isEmpty {
+            throw ForumServiceError.unsupported("不知道对方的用户名，无法屏蔽")
+        }
+        try parser.confirmWrite(
+            json: await client.postJSON(
+                isBlocked ? NodeSeekEndpoint.addBlock : NodeSeekEndpoint.removeBlock,
+                body: isBlocked
+                    ? ["block_member_name": trimmed]
+                    : ["block_member_id": uid]
+            ),
+            what: isBlocked ? "屏蔽" : "解除屏蔽"
+        )
+    }
+
+    /// 把这几条通知在站点那边标成已读。
+    ///
+    /// 两类通知落在两个接口上，装编号的字段名也各不相同（见
+    /// `NodeSeekNotificationKind.viewedIDsField`），所以得先按种类分开。
+    ///
+    /// **私信不在这里。** `/api/notification/message/markViewed` 大概也存在，但没有
+    /// 任何一处读出来过它的请求体长什么样 —— 而私信列表给的是会话不是单条消息，
+    /// 那个 `id` 装的是对方的用户编号（见 `NodeSeekParser.messages`），拿它当消息
+    /// 编号发出去多半是错的。猜一个字段名去写别人的账号状态，不如什么都不做。
+    ///
+    /// 按 `allCases` 遍历而不是遍历字典，是为了让发出去的请求顺序稳定 —— 否则测试
+    /// 里断言「第一条请求是什么」会随哈希种子飘。
+    func markRead(_ messages: [ForumMessage]) async throws {
+        for kind in NodeSeekNotificationKind.allCases {
+            let ids = messages
+                .filter { $0.isUnread && $0.kind == kind.messageKind }
+                .map(\.id.rawValue)
+            guard !ids.isEmpty else { continue }
+            try parser.confirmWrite(
+                json: await client.postJSON(
+                    NodeSeekEndpoint.markNotificationsViewed(kind: kind),
+                    body: [kind.viewedIDsField: ids]
+                ),
+                what: "已读标记"
+            )
+        }
+    }
+
+    func markAllRead(folder: MessageFolder) async throws {
+        // 私信那一路同上，没验过，不发。
+        guard folder == .notifications else { return }
+        for kind in NodeSeekNotificationKind.allCases {
+            try parser.confirmWrite(
+                json: await client.postJSON(
+                    NodeSeekEndpoint.markNotificationsViewed(kind: kind, all: true),
+                    body: [:]
+                ),
+                what: "已读标记"
+            )
+        }
+    }
+
     func replyMessage(id: MessageID, content: String) async throws {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
@@ -459,8 +529,43 @@ actor NodeSeekForumService: ForumService {
     }
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws { throw notYet("收藏夹") }
     func deleteTopicFavoriteFolder(folderID: String) async throws { throw notYet("收藏夹") }
+    /// 今天签没签。
+    ///
+    /// 判据是签到榜里有没有 `record`，这一条和站点自己一模一样 —— 它的 `board.js`
+    /// 就是这么写的（原样）：
+    ///
+    /// ```js
+    /// created(){ this.me = __config__.user; this.fetch() }   // fetch → record / order
+    /// t.me ? (record === null ? "今日还未签到…" : "今日签到获得鸡腿…当前排名第…")
+    ///      : "登录后签到"
+    /// ```
+    ///
+    /// **但那个 `t.me` 是承重的，而它不来自这个接口。** 签到榜匿名访问时照样答
+    /// HTTP 200、照样给整整 50 条榜单和 `total`，只是 `order` 和 `record` 都是 null
+    /// （2026-09-17 在无会话浏览器里实测）。也就是说「站点没认出我」和「我今天还
+    /// 没签」在**响应里长得一模一样** —— 少了这一问，前者就会被说成「待签到」，
+    /// 而用户明明已经签过了。这正是报上来的那个 bug。
+    ///
+    /// 所以照站点的样子分两步：榜给不出 `record` 时，另外问一句「你还认得我吗」。
+    /// 挑的是最小的那个会话接口（未读数，几十字节），而且**只在 `record` 为空时才发**
+    /// —— 已经签到的那条路一次多余的请求都没有，一天最多多一两次。
     func checkInStatus() async throws -> CheckInStatistics {
-        try parser.checkInStatistics(json: await client.get(NodeSeekEndpoint.checkInBoard(page: 1)))
+        let board = try parser.checkInStatistics(
+            json: await client.get(NodeSeekEndpoint.checkInBoard(page: 1))
+        )
+        if board.isCheckedInToday { return board }
+        // 认不出就抛（未登录时这一族答 500，客户端翻成 `.requiresLogin`），
+        // 让它显示成「签到状态查询失败」并给出重试，而不是冒充一句「还没签到」。
+        //
+        // **这一问只兜得住会话整个死掉的情形，兜不住全部。** 2026-09-17 实测过一次：
+        // 会话已经不被签到榜认了（`record` 为空），而同一份会话的私信、提醒全是好的 ——
+        // 这一问会答「会话还在」，于是照样说「还没签到」。重新登录才好。
+        // 真正兜住那种情形的是 `AppSession` 那边：自己签到成功过的日子记着，
+        // 一次读不准的查询翻不动它。
+        _ = try parser.unreadCounts(
+            json: await client.get(NodeSeekEndpoint.unreadCount)
+        )
+        return board
     }
 
     /// 签到。

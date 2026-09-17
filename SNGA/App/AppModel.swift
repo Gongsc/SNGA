@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import SwiftData
@@ -13,6 +14,14 @@ private struct AIProfileActivityPageKey: Hashable {
 final class AppModel {
     var sidebarSelection: SidebarSelection? = .userCenter(nil)
     var currentProfile: Profile?
+    /// 当前账号在站点侧屏蔽了谁。
+    ///
+    /// **nil 不等于空集合。** nil 是「还没查过，或者查失败了」，空集合是「查过了，
+    /// 一个都没有」。混作一谈，界面就会在查询失败之后把每个人都画成「未屏蔽」——
+    /// 而其中可能正有一个已经屏蔽了的人，点下去等于做了一次反向操作。
+    private(set) var blockedUserIDs: Set<Int64>?
+    /// 正在发屏蔽/解除的那个人。按人记而不是一个布尔：同一页上可能有好几个入口。
+    private(set) var pendingBlockUID: Int64?
     var userActivities: [UserActivity] = []
     var userActivityUID: Int64?
     var userActivityKind: UserActivityKind = .topics
@@ -57,8 +66,11 @@ final class AppModel {
     let searchHistory: SearchHistoryStore
     /// 浏览历史。同时供着侧栏那个面板和话题列表里「读过的变灰」。
     let topicHistory: TopicHistoryStore
-    /// 小工具不认账号，也不认论坛，所以它是唯一一个不吃 `AppSession` 的 store。
+    /// 小工具不认账号，也不认论坛，所以它不吃 `AppSession`。
     let toolbox = ToolboxStore()
+    /// 新帖监控。和小工具一样不吃 `AppSession` —— 它读的是一份匿名订阅，
+    /// 没有账号也能用，它的网络故障也不该显示成论坛的错误。
+    let topicMonitor: TopicMonitorStore
     /// 查更新问的是 GitHub，和账号、论坛都没关系；它的网络故障也不能报成论坛的错误，
     /// 所以不走 `AppSession.present(_:)`，由「关于」面板自己就地显示。
     let updateChecker: any UpdateChecking
@@ -73,9 +85,11 @@ final class AppModel {
         aiTopicSummarizer: any AITopicSummarizing = OpenAICompatibleClient(),
         aiConnectionTester: any AIConnectionTesting = OpenAICompatibleClient(),
         aiKeyStore: any AIKeyStore = LocalAIKeyStore.shared,
-        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker()
+        updateChecker: any UpdateChecking = GitHubReleaseUpdateChecker(),
+        topicMonitor: TopicMonitorStore = TopicMonitorStore()
     ) {
         self.updateChecker = updateChecker
+        self.topicMonitor = topicMonitor
         let session = AppSession(
             container: container,
             sessionStore: sessionStore,
@@ -161,7 +175,11 @@ final class AppModel {
     }
 
     func pollMessages() async {
-        await messaging.poll()
+        // 定时器发起的，没人在等 —— 它一轮要问每个账号两个信箱，不该挡在
+        // 用户那一下前面。
+        await RequestPriority.inBackground {
+            await messaging.poll()
+        }
     }
 
     var displayedUserUID: Int64? {
@@ -188,6 +206,7 @@ final class AppModel {
         case .directory: "返回全部版面"
         case .aiProfiles: "返回 AI 画像"
         case .toolbox: "返回小工具"
+        case .topicMonitor: "返回新帖监控"
         default: "返回"
         }
     }
@@ -251,6 +270,11 @@ final class AppModel {
     func bootstrap() async {
         guard !bootstrapped else { return }
         bootstrapped = true
+        // 监控在这里起，**不在它自己的面板里起**。它要在没人看着的时候干活 ——
+        // 挂在视图的 `.task` 上，等于只有打开那一页时才检查，而那一页正是用来
+        // 「不必自己盯着」的。也不放进下面那个 `if let activeAccount`：订阅是
+        // 匿名的，一个账号都没有时照样该跑。
+        topicMonitor.start()
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--uitesting-seed") {
             seedUITestData()
@@ -502,6 +526,98 @@ final class AppModel {
             return
         }
         await loadUserActivities(uid: uid, kind: .topics, page: 1)
+    }
+
+    // MARK: - 站点黑名单
+
+    /// 这个人现在是不是被屏蔽着。名单还没查到时是 nil —— 界面据此画「重试」
+    /// 而不是「屏蔽」。
+    func isBlocked(uid: Int64) -> Bool? {
+        blockedUserIDs.map { $0.contains(uid) }
+    }
+
+    /// 拉一次黑名单。
+    ///
+    /// 不在启动时拉，只在真要用的时候（打开别人的用户中心）拉 —— 这是一个大多数
+    /// 用户从来不用的功能，为它在每次启动上加一趟请求不值当。这一条和版面收藏
+    /// 那里的取舍正相反，因为那个是侧栏上一直画着的东西。
+    func loadBlockedUsers(force: Bool = false) async {
+        guard session.supports(.userBlocking) else { return }
+        guard force || blockedUserIDs == nil else { return }
+        guard let service = session.activeService else { return }
+        let requestAccountID = service.accountID
+        do {
+            let ids = try await service.blockedUserIDs()
+            guard session.activeAccountID == requestAccountID else { return }
+            blockedUserIDs = ids
+        } catch {
+            guard session.activeAccountID == requestAccountID else { return }
+            // 查失败就留在 nil，界面画「重试」。这里不报错：进用户中心顺手拉的
+            // 这一趟不是用户要的东西，他要的是那个人的资料。
+            blockedUserIDs = nil
+        }
+    }
+
+    /// 屏蔽或解除屏蔽。
+    ///
+    /// 动手之前**重新查一遍名单**。这一下写的是用户账号里的状态，而界面上那个标签
+    /// 可能已经放了很久（另一台设备上改过，或者刚才那次查询本来就失败了）。按一个
+    /// 过期的标签动作，「屏蔽」会变成「解除屏蔽」—— 反过来正是用户最不想要的那件事。
+    /// 对不上就停下来说一声，不替他猜。
+    func setBlocked(_ isBlocked: Bool, uid: Int64, name: String) async {
+        guard session.supports(.userBlocking), let service = session.activeService else { return }
+        guard uid > 0, pendingBlockUID == nil else { return }
+        let requestAccountID = service.accountID
+        pendingBlockUID = uid
+        defer { pendingBlockUID = nil }
+        do {
+            let current = try await service.blockedUserIDs()
+            guard session.activeAccountID == requestAccountID else { return }
+            blockedUserIDs = current
+            guard current.contains(uid) != isBlocked else {
+                session.statusMessage = isBlocked
+                    ? "\(name) 已经在黑名单里了"
+                    : "\(name) 本来就不在黑名单里"
+                session.statusMessageIsError = false
+                return
+            }
+            try await service.updateUserBlock(uid: uid, name: name, isBlocked: isBlocked)
+            guard session.activeAccountID == requestAccountID else { return }
+            if isBlocked {
+                blockedUserIDs?.insert(uid)
+            } else {
+                blockedUserIDs?.remove(uid)
+            }
+            session.statusMessage = isBlocked ? "已屏蔽 \(name)" : "已解除屏蔽 \(name)"
+            session.statusMessageIsError = false
+        } catch {
+            // 没确认成功就别留着一份自以为是的名单：下次打开重新查。
+            blockedUserIDs = nil
+            session.present(error)
+        }
+    }
+
+    /// 打开一条监控到的帖子。
+    ///
+    /// 监控不认账号，可当前账号**未必是 NodeSeek 的** —— 甚至可能一个账号都没有。
+    /// 拿一个 NodeSeek 的话题编号去问 NGA 或 V2EX 的服务，answer 是一张「找不到」
+    /// 的正常页面，用户看到的却是「论坛页面结构已变化」（`belongsToActiveSite` 那条
+    /// 记着的正是这种事）。所以站点对不上时交给浏览器 —— 那一条路总是通的。
+    func openMonitoredTopic(_ hit: TopicMonitorHit) {
+        topicMonitor.markHitRead(id: hit.id)
+        guard session.activeService?.site == .nodeseek else {
+            if let link = hit.link { NSWorkspace.shared.open(link) }
+            return
+        }
+        Task {
+            await openTopic(Topic(
+                id: TopicID(rawValue: hit.id),
+                forumID: .placeholder(site: .nodeseek),
+                subject: hit.title,
+                author: hit.author ?? "",
+                replyCount: 0
+            ))
+        }
     }
 
     func returnFromUserCenter() {
@@ -813,6 +929,7 @@ final class AppModel {
         case .topicHistory: topicHistory.reload()
         case .aiProfiles: break
         case .toolbox: toolbox.refresh()
+        case .topicMonitor: await topicMonitor.checkNow()
         // 设置和加账号里没有要重新拉的东西，⌘R 在这里什么都不做。
         case .settings, .addAccount: break
         case let .userCenter(uid):
@@ -915,6 +1032,10 @@ final class AppModel {
         clearForumSearch()
 
         currentProfile = nil
+        // 黑名单是**按账号**的。切账号不清，下一个账号会看到上一个账号的名单 ——
+        // 按钮标着「已屏蔽」，点一下却在另一个账号身上做了一次解除。
+        blockedUserIDs = nil
+        pendingBlockUID = nil
         userActivities = []
         userActivityUID = nil
         userActivityKind = .topics

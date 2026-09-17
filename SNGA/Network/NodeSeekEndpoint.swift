@@ -116,6 +116,23 @@ enum NodeSeekEndpoint {
         url("/api/notification/\(kind)/list", query: [.init(name: "page", value: String(max(1, page)))])
     }
 
+    /// 把通知标成已读。
+    ///
+    /// 站点不会因为「你拉过一次列表」就把它当读过 —— 每条通知自带一个 `viewed`，
+    /// 不显式说一声就一直挂着。所以这一下不是可有可无的收尾：不发，用户在网页端
+    /// 会看到一个永远消不掉的红点。
+    ///
+    /// `all` 为真时标当前这一类的全部，请求体就不必带编号了。
+    static func markNotificationsViewed(
+        kind: NodeSeekNotificationKind,
+        all: Bool = false
+    ) -> URL {
+        url(
+            "/api/notification/\(kind.rawValue)/markViewed",
+            query: all ? [.init(name: "all", value: "true")] : []
+        )
+    }
+
     /// 帖子搜索。
     ///
     /// 是整页跳转，不是接口：站点的搜索面板就是 `location = "/search?q=…"`。
@@ -137,6 +154,15 @@ enum NodeSeekEndpoint {
 
     /// 投一票。请求体的形状还没验证过。
     static let voteForItem = url("/api/vote/voteforitem")
+
+    /// 站点黑名单。
+    ///
+    /// 三个地址，**两个方向的参数不一样**：加是按名字（`block_member_name`），
+    /// 删是按编号（`block_member_id`）。看着像是接口写歪了，但它就是这样，
+    /// 所以调用方两样都得有。
+    static let blockList = url("/api/block-list/list")
+    static let addBlock = url("/api/block-list/add")
+    static let removeBlock = url("/api/block-list/del")
 
     static let unreadCount = url("/api/notification/unread-count")
     static func messageThread(uid: Int64) -> URL { url("/api/notification/message/with/\(uid)") }
@@ -251,6 +277,24 @@ enum NodeSeekNotificationKind: String, Sendable, CaseIterable {
         switch self {
         case .atMe: "提到了你"
         case .replyToMe: "回复了你"
+        }
+    }
+
+    /// 逐条标记已读时，请求体里装编号数组的那个字段名。
+    ///
+    /// 路径上是 kebab-case 的 `at-me` / `reply-to-me`，请求体里却换了一套写法，
+    /// 而且两类还不一致：`atMe` 是驼峰，回复那一类是 **`replys`** —— 一个拼错了的
+    /// 复数。照抄，别顺手改成 `replies`，也别为了对称改成 `replyToMe`
+    /// （和 `receiverUid` 是同一个道理：这套接口的字段命名本来就不自洽）。
+    ///
+    /// 出处是 `rirh/nodeseek-plus` 的 `notification-inbox.ts`（GPL-3.0，与本项目
+    /// 同一许可证），那边是从站点自己的前端读出来的 —— 但**本机没有实测过**。
+    /// 字段名错了的后果是「已读没同步上去」，不会误发内容，所以可以先接着用；
+    /// 真要验，`Design/SiteProbe-NodeSeek.md` 第四节记着验法。
+    var viewedIDsField: String {
+        switch self {
+        case .atMe: "atMe"
+        case .replyToMe: "replys"
         }
     }
 }

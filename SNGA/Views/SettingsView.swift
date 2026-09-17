@@ -56,6 +56,7 @@ struct SettingsMenuView: View {
     private var customToolboxBaseURL = ""
     @AppStorage(RuntimeLogSettings.enabledKey) private var runtimeLogEnabled = false
     @AppStorage(RuntimeLogSettings.directoryPathKey) private var runtimeLogDirectoryPath = ""
+    @AppStorage(AutoCheckInSettings.enabledKey) private var automaticCheckIn = true
     @AppStorage(AISettings.enabledKey) private var aiEnabled = true
     @AppStorage(AISettings.baseURLKey) private var aiBaseURL = AISettings.defaultBaseURL
     @AppStorage(AISettings.modelKey) private var aiModel = ""
@@ -162,7 +163,7 @@ struct SettingsMenuView: View {
             }
             return "自定义实例 · \(url.host() ?? url.absoluteString)"
         case .background:
-            return "消息轮询与签到状态"
+            return automaticCheckIn ? "消息轮询 · 自动补签已开" : "消息轮询 · 自动补签已关"
         case .runtimeLog:
             guard runtimeLogEnabled else { return "已关闭" }
             return "已启用 · \(runtimeLogDirectoryPath.isEmpty ? "默认目录" : runtimeLogDirectoryPath)"
@@ -1480,13 +1481,27 @@ private struct SettingsToolboxPane: View {
 }
 
 private struct SettingsBackgroundPane: View {
+    @AppStorage(AutoCheckInSettings.enabledKey) private var automaticCheckIn = true
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SettingsCard {
                 SettingsFieldRow("消息检查", value: "应用运行时每 5 分钟")
                 SettingsFieldRow("签到状态", value: "启动、回到前台及跨日时查询")
 
-                Text("签到仅在用户中心手动执行；退出 SNGA 后不会查询状态或运行消息轮询。")
+                Toggle("查到「今日未签到」时自动补签", isOn: $automaticCheckIn)
+                    .accessibilityIdentifier("settings-automatic-check-in")
+
+                // 说清楚它到底在干什么、以及为什么默认开着 —— 这是个写请求，
+                // 用户有权知道应用替他点了什么。
+                Text("站点的只读接口有时分不清「还没签到」和「没认出登录」，两种情况给的答复一样。签到接口是唯一会把话说死的地方：已经签过就答「今日已签到」，没签过就顺手签了，两种答复都让状态从此准确。一天最多一次，按站点自己的日界算。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("只领固定奖励，不会替你点「试试手气」那一档。关掉之后签到仍可在用户中心手动执行。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("退出 SNGA 后不会查询状态或运行消息轮询。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
