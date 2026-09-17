@@ -262,7 +262,14 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 - `/api/account/getInfo/{uid}?readme=1` — 不加 `readme=1` 时响应里没有个人简介
 - `/api/account/find/{query}` — 用户搜索
 - `/api/attendance?random=true|false` — **签到**。`random=true` 是抽奖式，`false` 是固定 5 个鸡腿
-- `/api/attendance/board?page=` — 签到榜，今日是否已签到从这里的 `record` 读
+- `/api/attendance/board?page=` — 签到榜，今日是否已签到从这里的 `record` 读。
+  **这一族（带 page、批量吐公开数据）正是站点会回假 `wrong uid` 的那一族**，
+  而「签没签」靠 `record` 在不在判断 —— 于是任何非榜单的答复都会被读成「还没签到」，
+  用户签过了界面还在催他签（2026-09-17 报上来的就是这个症状）。现在解析器先过
+  `rejectBulkGate`、再要求 `list` 是数组，认不出就抛，宁可显示「查询失败」也不
+  冒充一个否定答案。
+  **`record` 的确切语义仍未实测**：它是不是随 `page` 变、是不是只代表「今天」，
+  用 `Design/probe-nodeseek-attendance.js` 在登录且已签到的浏览器里跑一次就能定。
 - `/api/progress/today` — 今日各项额度
 
 ### 投票

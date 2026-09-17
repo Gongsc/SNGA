@@ -333,6 +333,63 @@ extension NodeSeekParserTests {
         )
         XCTAssertFalse(unsigned.isCheckedInToday, "榜上没有今天这条就是还没签")
     }
+
+    /// **不是签到榜的答复，不能读成「没签到」。**
+    ///
+    /// 「签没签」靠 `record` 在不在判断，所以任何答复只要没有 `record` 都会变成
+    /// 一个很确定的「还没签」—— 用户明明签过了，界面一直催他去签。
+    ///
+    /// `/api/attendance/board?page=` 正是「带 page、批量吐公开数据」那一族，站点
+    /// 对非浏览器客户端回的是一句假的 `wrong uid`，而且是 HTTP 200，客户端那一层
+    /// 拦不住。这几条盯的就是「查不到」不许伪装成「没签到」。
+    func testAnAnswerThatIsNotABoardIsAFailureNotAnUncheckedDay() {
+        for payload in [
+            // 站点挡下批量接口时那句假答复
+            #"{"success":false,"message":"wrong uid"}"#,
+            // 没有会话时那一句
+            #"{"success":false,"message":"USER NOT FOUND"}"#,
+            // 结构对不上：认不出是不是榜
+            #"{"order":0,"total":1420}"#,
+            #"{"list":"not an array"}"#,
+            "[]"
+        ] {
+            XCTAssertThrowsError(
+                try NodeSeekParser().checkInStatistics(json: Data(payload.utf8)),
+                "『查不到』被读成了『还没签到』：\(payload)"
+            )
+        }
+    }
+
+    /// 被挡和没登录要分开报 —— 一个要重新登录，一个重新登录也未必好使。
+    func testTheTwoRefusalsAreToldApart() {
+        do {
+            _ = try NodeSeekParser().checkInStatistics(
+                json: Data(#"{"success":false,"message":"USER NOT FOUND"}"#.utf8)
+            )
+            XCTFail("没登录该抛")
+        } catch {
+            XCTAssertEqual(error as? ForumServiceError, .requiresLogin)
+        }
+
+        do {
+            _ = try NodeSeekParser().checkInStatistics(
+                json: Data(#"{"success":false,"message":"wrong uid"}"#.utf8)
+            )
+            XCTFail("被挡该抛")
+        } catch {
+            guard case .restricted = error as? ForumServiceError else {
+                return XCTFail("被挡该报 .restricted，实际是 \(error)")
+            }
+        }
+    }
+
+    /// 榜是空的（今天还没人签到）仍然是一张**正常**的榜，不是失败。
+    func testAnEmptyBoardIsStillABoard() throws {
+        let statistics = try NodeSeekParser().checkInStatistics(
+            json: Data(#"{"list":[],"order":0,"total":1420}"#.utf8)
+        )
+        XCTAssertFalse(statistics.isCheckedInToday)
+    }
 }
 
 /// 页面内嵌的那段 base64 初始状态。

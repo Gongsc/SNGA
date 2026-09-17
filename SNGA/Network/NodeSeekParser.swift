@@ -909,6 +909,25 @@ struct NodeSeekParser: Sendable {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ForumServiceError.unexpectedPage("无法读取签到状态")
         }
+        // **先确认这确实是一张签到榜，再谈签没签。**
+        //
+        // 「签没签」是靠 `record` 在不在判断的，于是任何**不是签到榜**的答复都会
+        // 被读成「没签到」—— 一个看起来很确定、其实什么都没查到的答案。用户已经
+        // 签过了，界面却一直催他去签。
+        //
+        // 这不是假想：`/api/attendance/board?page=` 正是「带 page、批量吐公开数据」
+        // 那一族，站点对非浏览器客户端会回一句假的 `wrong uid`（HTTP 200），
+        // 里面当然没有 `record`。这一族的其余接口早就过 `rejectBulkGate` 了，
+        // 只有这里漏了。
+        //
+        // 两道各管一件事：`rejectBulkGate` 认的是站点明说的那几句拒绝（顺带把
+        // 「没登录」和「被挡」分开报），`list` 认的是结构 —— 答复得真的长得像
+        // 一张榜。认不出就抛，让它显示成「签到状态查询失败」并给出重试，
+        // 而不是冒充一个否定的答案。
+        try Self.rejectBulkGate(root)
+        guard root["list"] is [Any] else {
+            throw ForumServiceError.unexpectedPage("签到榜的响应里没有榜单")
+        }
         let record = root["record"] as? [String: Any]
         return CheckInStatistics(
             // 榜上有今天这条记录就说明签过了。
