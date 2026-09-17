@@ -268,8 +268,22 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
   用户签过了界面还在催他签（2026-09-17 报上来的就是这个症状）。现在解析器先过
   `rejectBulkGate`、再要求 `list` 是数组，认不出就抛，宁可显示「查询失败」也不
   冒充一个否定答案。
-  **`record` 的确切语义仍未实测**：它是不是随 `page` 变、是不是只代表「今天」，
-  用 `Design/probe-nodeseek-attendance.js` 在登录且已签到的浏览器里跑一次就能定。
+  **`record` 的语义已实测（2026-09-17，登录且当天已签到，`probe-nodeseek-attendance.js`）：**
+  顶层是 `list[] + order + total + record`，**没有 `success` 也没有 `message`**。
+  - `record` 是对象，字段 `id / member_id / day_id / gain / created_at`；
+  - **`record` 不随 `page` 变** —— `page=1` 和 `page=2` 给的是同一份，所以只问第一页是对的；
+  - **`total` 不是站点的第几天**（那是 `day_id`，当天 1441），它是**今天签到的总人数**
+    （10502），`order` 是我今天的名次（482）。谁都别再拿这两个数充「连续天数 /
+    累计天数」—— 早先就是这么错过一次。
+  - `list` 一页 50 条，每条多一个 `member_name`。
+
+  所以「`record` 在不在」这条判据本身是对的：浏览器里已签到就一定有 `record`。
+  问题只可能出在**应用拿到的不是这份答复**。为此 `NodeSeekNetworkClient` 现在也记
+  响应行（`status=` / `bytes=`），照着 NGA 那边来 —— 被挡那句假答复三十几字节，
+  一页真榜好几 KB，日志上一眼分得开。
+
+  `SNGATests/Fixtures/nodeseek-attendance-board.json` **不是原样抓取**：字段名和层级、
+  以及几个与身份无关的数照实测写，`member_id` / `member_name` 是编的。
 - `/api/progress/today` — 今日各项额度
 
 ### 投票

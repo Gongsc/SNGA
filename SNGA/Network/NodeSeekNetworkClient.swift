@@ -161,7 +161,23 @@ actor NodeSeekNetworkClient {
             category: "network",
             "\(method) \(RuntimeLogger.sanitizedURL(url))"
         )
+        let startedAt = ContinuousClock().now
         let (data, response) = try await transport.data(for: request)
+        // **答复也要记一行**，和 NGA 那边一样。
+        //
+        // 先前这里只记了发出去的那一行，于是这个站一旦答得不对，日志上什么都看不出来 ——
+        // 签到状态那个 bug（已签到显示成待签到）卡了一轮，正是因为分不清「站点没给
+        // record」和「站点压根没答一张榜」。而这两者在字节数上差着两个数量级：
+        // 防抓取那句假的 `{"success":false,"message":"wrong uid"}` 是三十几字节，
+        // 一页真的签到榜是好几 KB。状态码和字节数都不涉及内容，进日志是安全的。
+        let elapsed = startedAt.duration(to: ContinuousClock().now)
+        await RuntimeLogger.shared.log(
+            category: "network",
+            "\(method) \(RuntimeLogger.sanitizedURL(url))"
+                + " status=\(response.statusCode)"
+                + " bytes=\(data.count)"
+                + " durationMs=\(elapsed.components.seconds * 1_000 + elapsed.components.attoseconds / 1_000_000_000_000_000)"
+        )
         let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, item in
             result[String(describing: item.key)] = String(describing: item.value)
         }
