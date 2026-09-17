@@ -284,6 +284,40 @@ Cloudflare 的 managed challenge 会拿请求头里的 `User-Agent` 去和 JS �
 
   `SNGATests/Fixtures/nodeseek-attendance-board.json` **不是原样抓取**：字段名和层级、
   以及几个与身份无关的数照实测写，`member_id` / `member_name` 是编的。
+
+#### `/board` 这张页面读不了，而且不必读（2026-09-17 实测）
+
+有人提议改从 `https://www.nodeseek.com/board` 判断，因为页面上已签到时写着
+「今日签到获得鸡腿 x 个，当前排名第 xxx」。**这条路走不通**：
+
+- 服务端发来的 HTML 只有 **11 KB**，里面**一个**「签到 / 鸡腿 / 排行榜」都没有；
+  浏览器里看到的 205 KB 是 JS 建出来的。不执行 JS 的客户端什么也读不到。
+- 这张页面的 `#temp-script` 内嵌状态只有 `pageType / user / allCategory /
+  commmentPerPage / enableCustomedStyle`，**没有任何签到数据**（帖子页那一套在这里
+  帮不上忙）。
+- 那句话本身就是拿 **`/api/attendance/board?page=1`** 渲染出来的 —— 也就是我们
+  已经在调的同一个接口。页面用的是一个**光秃秃的 `fetch()`**，没有额外的头，
+  也没有额外的参数。
+
+站点自己的判断写在 `board.*.js` 里（Vue 模板，原样）：
+
+```js
+created: function(){ this.me = __config__.user; this.fetch() }
+// fetch("/api/attendance/board?page="+n) → this.record = n.record; this.order = n.order
+t.me ? [
+  t.record && "loading" !== t.record ? "今日签到获得鸡腿"+record.gain+"个，当前排名第"+order : …,
+  null === t.record ? "今日还未签到，[鸡腿 x 5] / [试试手气]" : …
+] : "登录后签到"
+```
+
+所以「`record` 在不在」这条判据和站点**完全一致**，但它有个前提：
+**`record === null` 只在「已登录」的前提下才等于「今天还没签」。**
+站点的「已登录」是从页面的 `__config__.user` 读的，**不是从这个接口读的**。
+
+而这个接口匿名访问时照样答 HTTP 200、照样给 50 条榜单和 `total`，只是
+`order` 和 `record` **都是 null**（2026-09-17 在无会话浏览器里实测）。于是
+「没带上登录」和「今天还没签到」在响应里长得一模一样 —— 差别只在请求那一侧。
+`NodeSeekNetworkClient` 因此在日志里记 `cookies=`（只记个数）：登录后应当是 6 个。
 - `/api/progress/today` — 今日各项额度
 
 ### 投票

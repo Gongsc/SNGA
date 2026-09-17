@@ -156,10 +156,20 @@ actor NodeSeekNetworkClient {
         if !cookieHeader.isEmpty {
             request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         }
+        let cookieCount = cookieHeader.isEmpty
+            ? 0
+            : cookieHeader.components(separatedBy: "; ").count
 
+        // **带了几个 cookie 也记一笔**（只记个数，不记名字更不记值）。
+        //
+        // 这个站有一整族接口是「认得出你就多给一块，认不出就照常给公共的那部分」——
+        // 签到榜就是：匿名访问一样答 HTTP 200、一样给 50 条榜单和总人数，只是
+        // `order` 和 `record` 都是 null。于是「没带上登录」和「今天还没签到」
+        // 在响应里长得一模一样，差别只在请求这一侧。个数是唯一不涉及内容、
+        // 又能一眼分清的东西：登录后是 6 个（见类型文档第 2 条）。
         await RuntimeLogger.shared.log(
             category: "network",
-            "\(method) \(RuntimeLogger.sanitizedURL(url))"
+            "\(method) \(RuntimeLogger.sanitizedURL(url)) cookies=\(cookieCount)"
         )
         let startedAt = ContinuousClock().now
         let (data, response) = try await transport.data(for: request)
