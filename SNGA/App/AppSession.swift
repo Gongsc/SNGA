@@ -399,11 +399,33 @@ final class AppSession {
             updateActiveAccountCheckInStatus()
 
             do {
-                let statistics = try await service.checkInStatus()
-                checkInStatuses[accountID] = dailyCheckInStatus(from: statistics)
+                var statistics = try await service.checkInStatus()
+                // **今天签过的事实，一次读不准的查询不许把它翻回去。**
+                //
+                // 「今天签没签」在各站都是从只读接口推出来的，而那条路会不准：
+                // NodeSeek 的签到榜认不出人时照样答 200、照样给整张榜，只是不带
+                // `record` —— 和「你今天还没签」一模一样（2026-09-17 实测，用户那次
+                // 就是这样，而同一份会话的私信、提醒全是好的，所以连问一句会话
+                // 都问不出来）。
+                //
+                // 但有一件事是我们**自己**知道的：这个账号今天签到成功过，是我们
+                // 亲手发的请求、亲眼看见站点答应的（`lastCheckInDay` 就是那时写下的，
+                // 站点自己也认这个日界 —— `CheckInPolicy` 用的是北京时间）。记住的
+                // 事实比推出来的结论硬，所以它说了算，到北京时间隔日自动作废。
+                //
+                // 反过来不成立：记着的日子不是今天，**不能**据此说「还没签」——
+                // 用户可能刚在网页上签的，我们无从知道。那种时候仍然听站点的。
+                if !statistics.isCheckedInToday,
+                   record.lastCheckInDay == CheckInPolicy.dayKey(for: Date()) {
+                    statistics.isCheckedInToday = true
+                }
+                checkInStatuses[accountID] = dailyCheckInStatus(
+                    from: statistics,
+                    rememberedMessage: record.lastCheckInMessage
+                )
                 if statistics.isCheckedInToday {
                     record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
-                    record.lastCheckInMessage = "今日已签到"
+                    record.lastCheckInMessage = record.lastCheckInMessage ?? "今日已签到"
                 }
             } catch {
                 checkInStatuses[accountID] = .failed(
@@ -491,9 +513,17 @@ final class AppSession {
         activeAccountCheckInStatus = checkInStatuses[activeAccountID] ?? .loading
     }
 
-    private func dailyCheckInStatus(from statistics: CheckInStatistics) -> DailyCheckInStatus {
+    /// `rememberedMessage` 是上次签到成功时站点自己说的那句话（「签到成功，获得
+    /// 鸡腿 8 个」这类）。有就用它 —— 比干巴巴一句「今日已签到」多告诉用户一件事。
+    private func dailyCheckInStatus(
+        from statistics: CheckInStatistics,
+        rememberedMessage: String? = nil
+    ) -> DailyCheckInStatus {
         if statistics.isCheckedInToday {
-            return .checkedIn(statistics: statistics, message: "今日已签到")
+            return .checkedIn(
+                statistics: statistics,
+                message: rememberedMessage ?? "今日已签到"
+            )
         }
         return .notCheckedIn(statistics: statistics)
     }

@@ -322,6 +322,90 @@ final class FavoriteAndCheckInTests: XCTestCase {
         )
     }
 
+    /// **今天签过的事实，一次读不准的查询不许把它翻回去。**
+    ///
+    /// 「今天签没签」在各站都是从只读接口推出来的，而那条路会不准：NodeSeek 的
+    /// 签到榜认不出人时照样答 200、照样给整张榜，只是不带 `record` —— 和「你今天
+    /// 还没签」一模一样（2026-09-17 实测）。于是签完之后下一轮轮询又把状态翻回
+    /// 「待签到」，用户看到的是一个反复横跳的按钮。
+    ///
+    /// 记住的事实比推出来的结论硬：`lastCheckInDay` 是我们亲手签到成功那一刻写下的。
+    @MainActor
+    func testARememberedCheckInSurvivesAStatusQueryThatSaysOtherwise() async throws {
+        let session = try Self.makeCheckInSession(named: "RememberedCheckIn")
+        let record = try XCTUnwrap(
+            session.context.fetch(FetchDescriptor<AccountRecord>()).first
+        )
+        // 假服务的只读接口一律答「还没签」，正是读不准的那种情形。
+        record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+        record.lastCheckInMessage = "签到成功，获得鸡腿 8 个"
+        try session.context.save()
+
+        await session.refreshCheckInStatuses()
+
+        guard case let .checkedIn(_, message) = session.activeAccountCheckInStatus else {
+            return XCTFail("自己签过的事实被一次读不准的查询翻回去了")
+        }
+        XCTAssertEqual(
+            message, "签到成功，获得鸡腿 8 个",
+            "站点自己说过的那句话比干巴巴一句「今日已签到」多告诉用户一件事"
+        )
+        XCTAssertFalse(session.activeAccountCheckInStatus.needsCheckInPrompt)
+    }
+
+    /// 记着的日子**不是今天**时不能据此说「已签到」—— 到北京时间隔日就该自动作废，
+    /// 否则用户从此再也签不了。
+    @MainActor
+    func testYesterdaysMemoryDoesNotBlockTodaysCheckIn() async throws {
+        let session = try Self.makeCheckInSession(named: "StaleCheckInMemory")
+        let record = try XCTUnwrap(
+            session.context.fetch(FetchDescriptor<AccountRecord>()).first
+        )
+        record.lastCheckInDay = CheckInPolicy.dayKey(
+            for: Date().addingTimeInterval(-86_400)
+        )
+        record.lastCheckInMessage = "签到成功"
+        try session.context.save()
+
+        await session.refreshCheckInStatuses()
+
+        XCTAssertTrue(
+            session.activeAccountCheckInStatus.canCheckIn,
+            "昨天签过不等于今天签过"
+        )
+    }
+
+    @MainActor
+    private static func makeCheckInSession(named name: String) throws -> AppSession {
+        let schema = Schema([AccountRecord.self])
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [
+                ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: true)
+            ]
+        )
+        let session = AppSession(
+            container: container,
+            sessionStore: LocalSessionStore.shared,
+            notificationService: .shared
+        )
+        let record = AccountRecord(
+            site: .nga,
+            siteUserID: 10_001,
+            displayName: "签到测试账号",
+            isCurrent: true
+        )
+        session.context.insert(record)
+        try session.context.save()
+        session.accounts = [record.summary()]
+        session.activeAccountID = record.accountID
+        session.setService(
+            DebugForumService(accountID: record.accountID),
+            for: record.accountID
+        )
+        return session
+    }
+
     @MainActor
     func testCheckInStatusRefreshDoesNotSignInAndManualActionRefreshesStatistics() async throws {
         let schema = Schema([AccountRecord.self])

@@ -556,6 +556,12 @@ actor NodeSeekForumService: ForumService {
         if board.isCheckedInToday { return board }
         // 认不出就抛（未登录时这一族答 500，客户端翻成 `.requiresLogin`），
         // 让它显示成「签到状态查询失败」并给出重试，而不是冒充一句「还没签到」。
+        //
+        // **这一问只兜得住会话整个死掉的情形，兜不住全部。** 2026-09-17 实测过一次：
+        // 会话已经不被签到榜认了（`record` 为空），而同一份会话的私信、提醒全是好的 ——
+        // 这一问会答「会话还在」，于是照样说「还没签到」。重新登录才好。
+        // 真正兜住那种情形的是 `AppSession` 那边：自己签到成功过的日子记着，
+        // 一次读不准的查询翻不动它。
         _ = try parser.unreadCounts(
             json: await client.get(NodeSeekEndpoint.unreadCount)
         )
