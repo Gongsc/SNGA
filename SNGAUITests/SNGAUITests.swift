@@ -24,6 +24,26 @@ final class SNGAUITests: XCTestCase {
         XCTAssertEqual(userCenter.value as? String, "")
     }
 
+    /// 开了自动补签之后，侧栏那个「待签到」提示自己就没了 —— 用户不必再点一下。
+    ///
+    /// 只读接口分不清「还没签」和「没认出登录」，签到接口是唯一会把话说死的地方：
+    /// 已经签过就答「今日已签到」，没签过就顺手签了。这条用例盯的是那一下真的发了、
+    /// 而且发完状态跟着变。
+    func testAutomaticMakeUpCheckInClearsThePromptOnItsOwn() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed", "--uitesting-auto-check-in"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        let userCenter = app.buttons["用户中心"]
+        XCTAssertTrue(userCenter.waitForExistence(timeout: 10))
+        // 上面那条（没开补签）在这里会是「待签到」。
+        let cleared = NSPredicate(format: "value == %@", "")
+        expectation(for: cleared, evaluatedWith: userCenter)
+        waitForExpectations(timeout: 10)
+    }
+
     /// 没有收藏夹的站点，收藏页得能用。
     ///
     /// 这一条补的是一个真出过的死路：站点只有一个收藏列表，适配器返回空的收藏夹

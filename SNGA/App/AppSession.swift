@@ -426,6 +426,8 @@ final class AppSession {
                 if statistics.isCheckedInToday {
                     record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
                     record.lastCheckInMessage = record.lastCheckInMessage ?? "今日已签到"
+                } else {
+                    await autoCheckIn(record: record, service: service)
                 }
             } catch {
                 checkInStatuses[accountID] = .failed(
@@ -511,6 +513,57 @@ final class AppSession {
             return
         }
         activeAccountCheckInStatus = checkInStatuses[activeAccountID] ?? .loading
+    }
+
+    /// 只读接口说「今天还没签」时，去问一次签到接口。
+    ///
+    /// **这一下主要不是替用户签到，是把状态问准。** 只读那条路推不准（NodeSeek 的
+    /// 签到榜认不出人时和「你还没签」长得一模一样，2026-09-17 实测），而签到接口是
+    /// 唯一一个会把话说死的地方：已经签过就答「今日已签到」，没签过就顺手签了 ——
+    /// 两种答复都让界面从此说实话，而且都把 `lastCheckInDay` 落下来，那之后就轮到
+    /// 「记住的事实翻不动」那一道兜着。
+    ///
+    /// 几道闸：
+    /// - 用户在设置里关掉就不发（它毕竟是个写请求）；
+    /// - `shouldCheckIn` 按**站点自己的日界**（北京时间）算，一天最多一次，
+    ///   开着应用跨日也只会在新的一天再发一次；
+    /// - 只在状态查询**成功**并且明确答「还没签」时才发。查询失败走的是 `catch`，
+    ///   那种时候什么都不知道，不能凭空去点一个写接口。
+    ///
+    /// 失败了**不报错、不改状态**：状态留在「待签到」，用户照样能自己点那个按钮 ——
+    /// 这是自动做的事，为它弹一个横幅只是噪音，而按钮还在就意味着这条路没断。
+    private func autoCheckIn(record: AccountRecord, service: any ForumService) async {
+        guard AutoCheckInSettings.isEnabled,
+              CheckInPolicy.shouldCheckIn(lastSuccessfulDay: record.lastCheckInDay) else {
+            return
+        }
+        do {
+            let result = try await service.checkIn()
+            let message: String
+            switch result {
+            case let .success(text), let .alreadyCheckedIn(text):
+                message = CheckInPolicy.userFacingSuccessMessage(from: text)
+            }
+            record.lastCheckInDay = CheckInPolicy.dayKey(for: Date())
+            record.lastCheckInMessage = message
+            var statistics = CheckInStatistics(isCheckedInToday: true)
+            if case let .checkedIn(existing, _)? = checkInStatuses[record.accountID] {
+                statistics = existing
+            } else if case let .notCheckedIn(existing)? = checkInStatuses[record.accountID] {
+                statistics = existing
+            }
+            statistics.isCheckedInToday = true
+            checkInStatuses[record.accountID] = .checkedIn(
+                statistics: statistics,
+                message: message
+            )
+        } catch {
+            await RuntimeLogger.shared.log(
+                .warning,
+                category: "checkIn",
+                "\(service.site.rawValue) 自动签到没成：\(error.localizedDescription)"
+            )
+        }
     }
 
     /// `rememberedMessage` 是上次签到成功时站点自己说的那句话（「签到成功，获得
