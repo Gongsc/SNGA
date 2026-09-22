@@ -8,7 +8,9 @@ struct ForumSearchPaginationBar: View {
     let navigate: (Int) -> Void
 
     var body: some View {
-        BottomActionBar {
+        // 加载指示器走栏的上边缘，理由和 `PaginationBar` 那条一样：栏里的东西
+        // 全是 `fixedSize`，多出来一个就得有人让位，而让位的可能是整一列。
+        BottomActionBar(loading: loading) {
             HStack(spacing: 10) {
                 if totalPages > 1 {
                     Button("上一页", systemImage: "chevron.left") {
@@ -32,10 +34,6 @@ struct ForumSearchPaginationBar: View {
                     .accessibilityIdentifier("search-next-page")
                 }
 
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                }
                 Spacer()
                 Button {
                     refresh()
@@ -48,5 +46,13 @@ struct ForumSearchPaginationBar: View {
                 .accessibilityIdentifier("global-search-refresh")
             }
         }
+    }
+
+    private var loading: BottomActionBarLoading? {
+        guard isLoading else { return nil }
+        return BottomActionBarLoading(
+            accessibilityLabel: "正在加载搜索结果",
+            accessibilityIdentifier: "global-search-loading-indicator"
+        )
     }
 }

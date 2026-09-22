@@ -1736,4 +1736,56 @@ final class SNGAUITests: XCTestCase {
             line: line
         )
     }
+
+    /// 点一下刷新，底栏里的东西一个都不许挪。
+    ///
+    /// 加载指示器原先是栏里多出来的一个控件。这条栏的内容全是 `fixedSize`，
+    /// 加起来就是它要的宽度，而这个宽度撑着所在那一列：富余够的时候
+    /// `ViewThatFits` 退成窄版，「/ 总页数」消失、翻页键往左挪 19 点；富余不够
+    /// 的时候整列被顶宽，列表和话题之间的分隔线往右跳 18 点，加载完再弹回来。
+    /// 这条用例盯的是前一种（后一种要先把列拖到顶格，在这儿摆不出来），两者
+    /// 同一个成因：指示器不该参与布局。
+    func testRefreshingTheTopicListLeavesTheBottomBarWhereItIs() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting", "--uitesting-seed"]
+        app.launch()
+        ensureMainWindow(in: app)
+
+        XCTAssertTrue(app.buttons["艾泽拉斯国家地理"].waitForExistence(timeout: 5))
+        app.buttons["艾泽拉斯国家地理"].firstMatch.click()
+
+        let refresh = app.buttons["forum-refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        let lastPage = app.buttons["topic-list-last-page"]
+        XCTAssertTrue(lastPage.waitForExistence(timeout: 5))
+        // 量之前先等这个版面自己那一发落地：底栏加载中会把刷新键禁掉，
+        // 这时候点下去什么也不会发生，后面那个「等指示器出现」就白等到超时。
+        let loading = app.descendants(matching: .any)["topic-list-loading-indicator"]
+        XCTAssertTrue(app.buttons["topic-9001"].waitForExistence(timeout: 10))
+        XCTAssertTrue(loading.waitForNonExistence(timeout: 10))
+        let settledLastPage = lastPage.frame.maxX
+        // 最右边那个按钮的右缘就是这一列的右缘，也就是分隔线所在。
+        let settledRefresh = refresh.frame.maxX
+
+        refresh.click()
+        XCTAssertTrue(loading.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            lastPage.frame.maxX,
+            settledLastPage,
+            accuracy: 0.5,
+            "加载中翻页键挪了位"
+        )
+        XCTAssertEqual(
+            refresh.frame.maxX,
+            settledRefresh,
+            accuracy: 0.5,
+            "加载中这一列被顶宽了"
+        )
+
+        XCTAssertTrue(loading.waitForNonExistence(timeout: 10))
+        XCTAssertEqual(lastPage.frame.maxX, settledLastPage, accuracy: 0.5)
+        XCTAssertEqual(refresh.frame.maxX, settledRefresh, accuracy: 0.5)
+    }
+
 }

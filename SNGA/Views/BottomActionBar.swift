@@ -1,9 +1,20 @@
 import SwiftUI
 
+/// 底栏正在加载时，上边缘那道线要换成的进度条该怎么念。`nil` 就是此刻没在加载。
+struct BottomActionBarLoading {
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
+}
+
 struct BottomActionBar<Content: View>: View {
     private let content: Content
+    private let loading: BottomActionBarLoading?
 
-    init(@ViewBuilder content: () -> Content) {
+    init(
+        loading: BottomActionBarLoading? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.loading = loading
         self.content = content()
     }
 
@@ -15,7 +26,16 @@ struct BottomActionBar<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.regularMaterial)
             .overlay(alignment: .top) {
-                Divider()
+                ZStack(alignment: .top) {
+                    Divider()
+                    if let loading {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .controlSize(.small)
+                            .accessibilityLabel(loading.accessibilityLabel)
+                            .accessibilityIdentifier(loading.accessibilityIdentifier)
+                    }
+                }
             }
     }
 
