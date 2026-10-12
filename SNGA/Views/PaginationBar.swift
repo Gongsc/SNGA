@@ -55,20 +55,13 @@ struct PaginationBar<Actions: View>: View {
     }
 
     var body: some View {
-        BottomActionBar {
+        BottomActionBar(loading: loading) {
             HStack(spacing: 8) {
                 if showsControls {
                     ViewThatFits(in: .horizontal) {
                         controls(isCompact: false)
                         controls(isCompact: true)
                     }
-                }
-
-                if isLoading && showsLoadingIndicator {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("正在加载\(subject)")
-                        .accessibilityIdentifier("\(identifierPrefix)-loading-indicator")
                 }
 
                 Spacer(minLength: 4)
@@ -94,6 +87,23 @@ struct PaginationBar<Actions: View>: View {
 
     private var showsControls: Bool {
         hidesControlsOnSinglePage ? totalPages > 1 : true
+    }
+
+    /// 加载指示器画在栏的上边缘，不是栏里多出来的一个控件。
+    ///
+    /// 这条栏里的东西全是 `fixedSize` 的，加起来就是它要的宽度，而这个宽度又
+    /// 撑着所在那一列 —— 话题列表那条栏平时就已经把列宽顶满了。于是原先那个
+    /// 加载时才出现的 16 点转圈是这样的：富余够的时候 `ViewThatFits` 退成窄版，
+    /// 「/ 总页数」消失、翻页键往左挪 19 点；富余不够的时候整列被顶宽，列表和
+    /// 话题之间的分隔线往右跳 18 点，加载完再弹回来（2026-09-22 的录屏逐帧量的，
+    /// 673 → 691 → 673）。两种都是「点一下刷新，界面自己动了一下」。
+    /// overlay 的宽度是栏给的，不参与布局，所以它出现与否一个点都不会动。
+    private var loading: BottomActionBarLoading? {
+        guard isLoading, showsLoadingIndicator else { return nil }
+        return BottomActionBarLoading(
+            accessibilityLabel: "正在加载\(subject)",
+            accessibilityIdentifier: "\(identifierPrefix)-loading-indicator"
+        )
     }
 
     private func controls(isCompact: Bool) -> some View {
