@@ -36,6 +36,18 @@ final class AppSession {
         message: "尚未登录"
     )
 
+    /// 弹出某个站点的登录窗。
+    ///
+    /// 站点和方式必须和 `showsLogin` 一起设：登录窗读的是 `loginSite`，它只在
+    /// 「添加账号」里被赋过值，单独把 `showsLogin` 打开会沿用上一次的站点 ——
+    /// NodeSeek 账号点「重新登录」弹出 NGA 登录页就是这么来的。所以凡是要弹
+    /// 登录窗的地方都走这里，不直接写 `showsLogin = true`。
+    func beginLogin(site: ForumSite, method: SiteLoginMethod? = nil) {
+        loginSite = site
+        loginMethod = method ?? site.descriptor.loginMethods[0]
+        showsLogin = true
+    }
+
     @ObservationIgnored let context: ModelContext
     @ObservationIgnored let sessionStore: any SessionStore
     @ObservationIgnored let notificationService: NotificationService

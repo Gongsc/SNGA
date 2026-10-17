@@ -358,7 +358,7 @@ private struct SidebarAccountButton: View {
         )
         .contextMenu {
             if account.sessionState == .requiresLogin {
-                Button("重新登录") { model.session.showsLogin = true }
+                Button("重新登录") { model.session.beginLogin(site: account.site) }
             }
             Button("移除账号", role: .destructive) {
                 showsRemoveConfirmation = true

@@ -45,9 +45,7 @@ struct AddAccountView: View {
 
             ForEach(descriptor.loginMethods) { method in
                 Button {
-                    model.session.loginSite = site
-                    model.session.loginMethod = method
-                    model.session.showsLogin = true
+                    model.session.beginLogin(site: site, method: method)
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: method.systemImage)

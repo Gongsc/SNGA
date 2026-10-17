@@ -506,6 +506,20 @@ final class FavoriteAndCheckInTests: XCTestCase {
         return session
     }
 
+    /// 「重新登录」要弹账号所在站点的登录窗。原来只开 `showsLogin`，登录窗
+    /// 沿用上一次的 `loginSite`（默认 NGA），NodeSeek 账号点下去看到的是 NGA。
+    @MainActor
+    func testBeginLoginOpensTheRequestedSiteWithItsDefaultMethod() throws {
+        let session = try Self.makeCheckInSession(named: "BeginLoginTests")
+        XCTAssertEqual(session.loginSite, .nga)
+
+        session.beginLogin(site: .nodeseek)
+
+        XCTAssertTrue(session.showsLogin)
+        XCTAssertEqual(session.loginSite, .nodeseek)
+        XCTAssertEqual(session.loginMethod, ForumSiteDescriptor.nodeseek.loginMethods[0])
+    }
+
     /// 「启动只查询、不替用户签到」这条**不再是无条件的**，它归设置里那个开关管了
     /// （用户点名要的自动补签，见 `AutoCheckInSettings`）。关掉之后原来的保证照旧，
     /// 所以这条用例把开关钉死在关上 —— 它守的是「关掉就真的一个写请求都不发」。

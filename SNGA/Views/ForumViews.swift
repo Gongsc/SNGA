@@ -15,7 +15,7 @@ struct UserCenterView: View {
                 } description: {
                     Text("添加 NGA 账号后即可浏览论坛。")
                 } actions: {
-                    Button("登录 NGA") { model.session.showsLogin = true }
+                    Button("登录 NGA") { model.session.beginLogin(site: .nga) }
                         .buttonStyle(.borderedProminent)
                 }
             } else {
