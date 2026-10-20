@@ -140,14 +140,17 @@ final class AppSession {
     /// 按站点造服务。这里直接写着具体类型，是 factory 的分支，不是漏出 ——
     /// 加站点时编译器会要求补上。
     ///
-    /// `userAgent` 由调用方解析后传入：要求用 WebView 真实 UA 的站点得先去问一次 WebView，
-    /// 而那是 `@MainActor` 上的异步动作，不能塞进这里。
+    /// UA 在这里自己解析，**不让调用方传**。先前它是一个带默认值 `nil` 的参数，
+    /// 由调用方先去问 WebView 再传进来；启动时那一处传了，登录那两处没传，
+    /// 于是刚登录完的 NodeSeek 服务带着写死的兜底 UA 去问「我是谁」—— 和页面
+    /// JS 环境对不上，Cloudflare 一挑战，用户刚在登录窗里过完验证，迎面就是
+    /// 一句「需要在浏览器里完成一次人机验证」。可选参数等于允许忘记。
     func makeService(
         site: ForumSite,
         accountID: AccountID,
-        cookies: [SessionCookie],
-        userAgent: String? = nil
-    ) -> any ForumService {
+        cookies: [SessionCookie]
+    ) async -> any ForumService {
+        let userAgent = await resolvedUserAgent(for: site)
         let persist: @Sendable ([SessionCookie]) async -> Void = { [sessionStore] cookies in
             try? await sessionStore.save(cookies: cookies, for: accountID)
         }
@@ -161,7 +164,7 @@ final class AppSession {
                 accountID: accountID,
                 cookies: cookies,
                 transport: transport,
-                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                userAgent: userAgent,
                 cookieDidChange: persist
             )
         case .nodeseek:
@@ -169,7 +172,7 @@ final class AppSession {
                 accountID: accountID,
                 cookies: cookies,
                 transport: transport,
-                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                userAgent: userAgent,
                 cookieDidChange: persist
             )
         case .nga:
@@ -177,7 +180,7 @@ final class AppSession {
                 accountID: accountID,
                 cookies: cookies,
                 transport: transport,
-                userAgent: userAgent ?? site.descriptor.resolvedUserAgent(fallback: nil),
+                userAgent: userAgent,
                 cookieDidChange: persist
             )
         }
@@ -242,11 +245,10 @@ final class AppSession {
                     // 本地凭据仍完整时先恢复为有效。单个接口的偶发鉴权失败
                     // 不应在下次启动后继续污染整个账号状态。
                     record.sessionState = .valid
-                    services[record.accountID] = makeService(
+                    services[record.accountID] = await makeService(
                         site: record.site,
                         accountID: record.accountID,
-                        cookies: cookies,
-                        userAgent: await resolvedUserAgent(for: record.site)
+                        cookies: cookies
                     )
                 }
             }

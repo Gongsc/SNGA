@@ -333,7 +333,7 @@ final class AppModel {
             records.forEach { $0.isCurrent = false }
             record.isCurrent = true
             try await session.sessionStore.save(cookies: capture.cookies, for: record.accountID)
-            let service = session.makeService(
+            let service = await session.makeService(
                 site: site,
                 accountID: record.accountID,
                 cookies: capture.cookies
