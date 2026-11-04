@@ -17,7 +17,9 @@ actor LinuxDoForumService: ForumService {
     /// 站点其实有的、只是还没接的：点赞和表情回应（`.postVote`，没有踩）、引用回复、
     /// 投票、私信、提醒、书签（`.topicFavorites`，不分文件夹）、用户动态、登录后的搜索。
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
-    nonisolated let capabilities: ForumCapabilities = [.subforums, .userActivities, .globalSearch]
+    nonisolated let capabilities: ForumCapabilities = [
+        .subforums, .userActivities, .globalSearch, .privateMessages, .notifications
+    ]
 
     private let client: LinuxDoNetworkClient
     private let parser = LinuxDoParser()
@@ -57,9 +59,14 @@ actor LinuxDoForumService: ForumService {
 
     func currentUserID() async throws -> Int64 {
         if let cachedUserID { return cachedUserID }
-        let uid = try parser.currentUserID(json: await client.get(LinuxDoEndpoint.sessionCurrent))
-        cachedUserID = uid
-        return uid
+        let me = try parser.currentUser(json: await client.get(LinuxDoEndpoint.sessionCurrent))
+        cachedUserID = me.id
+        if !me.username.isEmpty { usernames[me.id] = me.username }
+        return me.id
+    }
+
+    private func currentUsername() async throws -> String {
+        try await username(of: currentUserID())
     }
 
     /// 两步：卡片接口把编号换成用户名，再拿用户名取完整资料。
@@ -287,6 +294,73 @@ actor LinuxDoForumService: ForumService {
         return card.displayName
     }
 
+    // MARK: - 消息
+
+    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
+        switch folder {
+        case .notifications:
+            return try parser.notifications(json: await client.get(LinuxDoEndpoint.notifications(page: page)), page: page)
+        case .privateMessages:
+            let name = try await currentUsername()
+            return try parser.privateMessages(
+                json: await client.get(LinuxDoEndpoint.privateMessages(username: name, page: page)),
+                page: page
+            )
+        }
+    }
+
+    /// 一段私信。`id` 是私信那个话题的编号（列表和私信类提醒都这么给）。
+    ///
+    /// 详情接口只带回前 20 楼；私信一般不长，剩下的按编号补齐，每 20 楼一次，最多补到
+    /// 200 楼 —— 再长就是一个当论坛用的私信，后面的楼到网页上看。
+    func message(id: MessageID) async throws -> ForumMessage {
+        let topicID = TopicID(rawValue: id.rawValue)
+        let data = try await client.get(LinuxDoEndpoint.topic(topicID))
+        let detail = try parser.topicDetail(json: data)
+        let loaded = Set(detail.posts.map(\.id.rawValue))
+        let missing = Array(detail.stream.filter { !loaded.contains($0) }.prefix(180))
+        var extra: [Post] = []
+        for start in stride(from: 0, to: missing.count, by: LinuxDoEndpoint.postsPerPage) {
+            let chunk = Array(missing[start..<min(start + LinuxDoEndpoint.postsPerPage, missing.count)])
+            extra += try parser.posts(
+                json: await client.get(LinuxDoEndpoint.topicPosts(topicID, postIDs: chunk)),
+                topicID: topicID
+            )
+        }
+        return try parser.privateMessage(json: data, extraPosts: extra)
+    }
+
+    /// 回复一段私信：就是在那个话题里发一楼。
+    func replyMessage(id: MessageID, content: String) async throws {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw ForumServiceError.unsupported("私信内容不能为空")
+        }
+        _ = try await client.send("POST", LinuxDoEndpoint.createPost, form: [
+            ("raw", text),
+            ("topic_id", String(id.rawValue))
+        ])
+    }
+
+    /// 站点那边的已读。提醒在站点上各有未读状态，不说一声网页端的红点会一直挂着。
+    ///
+    /// 私信类的不在这里：它们的 `id` 是话题编号不是提醒编号（见 `LinuxDoParser.notifications`），
+    /// 拿去标提醒会标错别的。私信在站点上的已读是「读到第几楼」，打开那段私信时网页才会记，
+    /// 应用里先只管本地这一侧。
+    func markRead(_ messages: [ForumMessage]) async throws {
+        for message in messages where message.isUnread && message.kind != .privateMessage {
+            _ = try await client.send("PUT", LinuxDoEndpoint.markNotificationsRead, form: [
+                ("id", String(message.id.rawValue))
+            ])
+        }
+    }
+
+    /// 全部已读。只有提醒有这一招（不带参数的 PUT）；私信那边没有对应的接口。
+    func markAllRead(folder: MessageFolder) async throws {
+        guard folder == .notifications else { return }
+        _ = try await client.send("PUT", LinuxDoEndpoint.markNotificationsRead)
+    }
+
     // MARK: - 还没做的
 
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
@@ -302,17 +376,6 @@ actor LinuxDoForumService: ForumService {
         throw notYet("投票")
     }
 
-    func messages(folder: MessageFolder, page: Int) async throws -> MessagePage {
-        throw notYet("消息")
-    }
-
-    func message(id: MessageID) async throws -> ForumMessage {
-        throw notYet("消息")
-    }
-
-    func replyMessage(id: MessageID, content: String) async throws {
-        throw notYet("私信")
-    }
 
     func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
         throw notYet("书签")

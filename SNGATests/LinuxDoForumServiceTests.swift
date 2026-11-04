@@ -50,7 +50,10 @@ final class LinuxDoForumServiceTests: XCTestCase {
     /// 能力位一条条写，现在只点亮了真接上的那一位。
     func testOnlyImplementedCapabilitiesAreLit() {
         let service = makeService(RecordingHTTPTransport(responding: "{}"))
-        XCTAssertEqual(service.capabilities, [.subforums, .userActivities, .globalSearch])
+        XCTAssertEqual(
+            service.capabilities,
+            [.subforums, .userActivities, .globalSearch, .privateMessages, .notifications]
+        )
     }
 
     // MARK: - 请求

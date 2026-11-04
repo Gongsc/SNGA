@@ -173,6 +173,39 @@ enum LinuxDoEndpoint {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
+    /// 写请求要的 CSRF 令牌（`{"csrf": "…"}`，实测登录后拿得到）。
+    static var csrf: URL { url("/session/csrf") }
+
+    // MARK: - 消息
+
+    /// 提醒一页 30 条，按 `offset` 翻（站点自己的「加载更多」就是 `offset=30`）。
+    static let notificationsPerPage = 30
+
+    static func notifications(page: Int) -> URL {
+        url("/notifications.json", query: [
+            URLQueryItem(name: "limit", value: String(notificationsPerPage)),
+            URLQueryItem(name: "offset", value: String((max(1, page) - 1) * notificationsPerPage))
+        ])
+    }
+
+    /// 标成已读。带 `id` 是一条，不带是全部（站点「全部已读」那颗按钮就是不带参数的 PUT）。
+    static var markNotificationsRead: URL { url("/notifications/mark-read") }
+
+    /// 私信收件箱。私信在 Discourse 里是话题，列表和话题列表同形；页码从 0 数。
+    static func privateMessages(username: String, page: Int) -> URL {
+        // 不预先转义：`url(_:query:)` 走的是 `URLComponents.path`，它自己会转义，
+        // 先转一遍会把 `%` 再转成 `%25`。
+        let sitePage = max(1, page) - 1
+        return url(
+            "/topics/private-messages/\(username).json",
+            query: sitePage > 0 ? [URLQueryItem(name: "page", value: String(sitePage))] : []
+        )
+    }
+
+    /// 发帖（回复话题、回复私信都是它）。表单字段 `raw` + `topic_id`，回复某一楼再加
+    /// `reply_to_post_number`（站点前端的字段说明里就是这三样）。
+    static var createPost: URL { url("/posts.json") }
+
     /// 当前会话是谁。cookie 和页面里都没有编号，只能问这里。
     static var sessionCurrent: URL { url("/session/current.json") }
 

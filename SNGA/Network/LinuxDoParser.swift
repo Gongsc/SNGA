@@ -17,9 +17,14 @@ struct LinuxDoParser: Sendable {
     /// `/session/current.json` → 编号。会话不被认时站点答的是 404 或者没有 `current_user`，
     /// 两种都当作要重新登录。
     func currentUserID(json data: Data) throws -> Int64 {
+        try currentUser(json: data).id
+    }
+
+    /// 编号和用户名一起：私信收件箱的地址要名字。
+    func currentUser(json data: Data) throws -> (id: Int64, username: String) {
         let response = try decode(SessionCurrentResponse.self, from: data, what: "当前用户")
-        guard let id = response.currentUser?.id else { throw ForumServiceError.requiresLogin }
-        return id
+        guard let user = response.currentUser else { throw ForumServiceError.requiresLogin }
+        return (user.id, user.username ?? "")
     }
 
     // MARK: - 类别
@@ -386,6 +391,129 @@ struct LinuxDoParser: Sendable {
         )
     }
 
+    // MARK: - 消息
+
+    /// `/notifications.json` → 提醒。
+    ///
+    /// 每条有一个类型编号（`site.json` 的 `notification_types`，实测），`data` 里装什么随类型变。
+    /// 私信类（6、7）的 `id` 换成那段私信的话题编号：应用点开私信类提醒时调的是
+    /// `message(id:)`，那边按话题编号取；拿提醒编号去取会扑空。它们的已读也不在这里同步
+    /// （见 `LinuxDoForumService.markRead`），所以换掉编号不影响已读。
+    func notifications(json data: Data, page: Int) throws -> MessagePage {
+        let response = try decode(NotificationsResponse.self, from: data, what: "提醒")
+        let messages = response.notifications.compactMap { item -> ForumMessage? in
+            let kind = Self.messageKind(ofNotificationType: item.notificationType)
+            let id: Int64
+            if kind == .privateMessage {
+                guard let topicID = item.topicId else { return nil }
+                id = topicID
+            } else {
+                id = item.id
+            }
+            let info = item.data
+            let subject = info?.topicTitle
+                ?? info?.badgeName.map { "获得了徽章「\($0)」" }
+                ?? ""
+            return ForumMessage(
+                id: MessageID(rawValue: id),
+                kind: kind,
+                sender: info?.displayUsername ?? info?.originalUsername ?? "",
+                subject: subject,
+                preview: Self.notificationSummary(ofType: item.notificationType),
+                sentAt: Self.date(item.createdAt),
+                isUnread: !item.read,
+                topicID: item.topicId.map(TopicID.init(rawValue:))
+            )
+        }
+        return MessagePage(
+            folder: .notifications,
+            messages: messages,
+            page: max(1, page),
+            // 站点不报总数，给满一页就当还有。
+            hasMore: response.notifications.count >= LinuxDoEndpoint.notificationsPerPage
+        )
+    }
+
+    /// 提醒类型 → 应用的消息种类。认不出的归 `.unknown`，照样列出来。
+    static func messageKind(ofNotificationType type: Int) -> ForumMessageKind {
+        switch type {
+        case 1, 15: .mention          // 提到你、提到你所在的群组
+        case 2, 9: .reply             // 回复了你、在你关注的话题里发帖
+        case 3: .quote
+        case 6, 7: .privateMessage    // 私信、被拉进私信
+        case 5, 19, 25: .comment      // 赞、赞（合并）、表情回应
+        default: .unknown
+        }
+    }
+
+    /// 列表里那一行小字。站点的提醒没有正文，只有「谁对哪个话题做了什么」。
+    static func notificationSummary(ofType type: Int) -> String {
+        switch type {
+        case 1: "在帖子里提到了你"
+        case 15: "提到了你所在的群组"
+        case 2: "回复了你"
+        case 3: "引用了你的帖子"
+        case 5, 19: "赞了你的帖子"
+        case 25: "回应了你的帖子"
+        case 6: "给你发了私信"
+        case 7: "邀请你加入私信"
+        case 9: "在你关注的话题里发了帖子"
+        case 12: "你获得了新徽章"
+        case 17, 36: "发布了新话题"
+        default: ""
+        }
+    }
+
+    /// 私信收件箱 → 消息。私信在站点上是话题，一段私信就是一个话题。
+    func privateMessages(json data: Data, page: Int) throws -> MessagePage {
+        let response = try decode(TopicListResponse.self, from: data, what: "私信")
+        let messages = response.topicList.topics.map { item in
+            ForumMessage(
+                id: MessageID(rawValue: item.id),
+                kind: .privateMessage,
+                sender: item.lastPosterUsername ?? "",
+                subject: item.title,
+                preview: item.postsCount > 1 ? "共 \(item.postsCount) 条" : "",
+                sentAt: Self.date(item.lastPostedAt ?? item.bumpedAt),
+                // 有没读到的楼就算未读：`unread_posts` 是读过之后又来的，`new_posts` 是从没打开过的。
+                isUnread: (item.unreadPosts ?? 0) + (item.newPosts ?? 0) > 0 || (item.unseen ?? false)
+            )
+        }
+        return MessagePage(
+            folder: .privateMessages,
+            messages: messages,
+            page: max(1, page),
+            hasMore: response.topicList.moreTopicsURL != nil
+        )
+    }
+
+    /// 一段私信（话题详情的形状）→ 消息，楼层按顺序摆成一条条消息。
+    ///
+    /// 只用详情带回来的那一块（前 20 楼）加上调用方补齐的楼层，见 `LinuxDoForumService.message`。
+    func privateMessage(json data: Data, extraPosts: [Post] = []) throws -> ForumMessage {
+        let detail = try topicDetail(json: data)
+        let posts = (detail.posts + extraPosts).sorted { $0.floor < $1.floor }
+        return ForumMessage(
+            id: MessageID(rawValue: detail.topic.id.rawValue),
+            kind: .privateMessage,
+            sender: posts.first?.author ?? detail.topic.author,
+            subject: detail.topic.subject,
+            preview: "",
+            sentAt: posts.last?.postedAt ?? detail.topic.lastReplyAt,
+            isUnread: false,
+            posts: posts.map { post in
+                ForumMessagePost(
+                    id: MessageID(rawValue: post.id.rawValue),
+                    author: post.author,
+                    authorUID: post.authorUID,
+                    avatarURL: post.avatarURL,
+                    sentAt: post.postedAt,
+                    html: post.html
+                )
+            }
+        )
+    }
+
     // MARK: - 正文清洗
 
     /// 把 `cooked` 清洗成能进 `WKWebView`、也能交给 `PostContentBuilder` 的正文。
@@ -524,6 +652,7 @@ struct LinuxDoParser: Sendable {
 private struct SessionCurrentResponse: Decodable {
     struct User: Decodable {
         var id: Int64
+        var username: String?
         var sidebarTags: [TagItem]?
     }
     var currentUser: User?
@@ -578,6 +707,11 @@ private struct TopicListResponse: Decodable {
         var archived: Bool?
         var categoryId: Int?
         var posters: [Poster]?
+        // 私信列表才有的几样。
+        var lastPosterUsername: String?
+        var unreadPosts: Int?
+        var newPosts: Int?
+        var unseen: Bool?
         var categoryID: Int? { categoryId }
     }
     struct Poster: Decodable {
@@ -653,6 +787,24 @@ private struct UserProfileResponse: Decodable {
         var timeRead: Int?
     }
     var user: FullUser
+}
+
+private struct NotificationsResponse: Decodable {
+    struct Item: Decodable {
+        struct Payload: Decodable {
+            var topicTitle: String?
+            var displayUsername: String?
+            var originalUsername: String?
+            var badgeName: String?
+        }
+        var id: Int64
+        var notificationType: Int
+        var read: Bool
+        var createdAt: String?
+        var topicId: Int64?
+        var data: Payload?
+    }
+    var notifications: [Item]
 }
 
 private struct UserActionsResponse: Decodable {
