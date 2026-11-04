@@ -212,7 +212,8 @@ struct LinuxDoParser: Sendable {
             publishedAt: Self.date(response.createdAt),
             lastReplyAt: Self.date(response.lastPostedAt),
             isPinned: response.pinned ?? false,
-            isLocked: (response.closed ?? false) || (response.archived ?? false)
+            isLocked: (response.closed ?? false) || (response.archived ?? false),
+            replyCost: response.replyCost
         )
         let posts = try response.postStream.posts.map { try post(from: $0, topicID: topicID) }
         return TopicDetail(
@@ -302,6 +303,16 @@ struct LinuxDoParser: Sendable {
     private static func hasLiked(_ item: PostItem) -> Bool {
         item.actionsSummary?.contains { $0.id == 2 && $0.acted == true } == true
             || item.currentUserUsedMainReaction == true
+    }
+
+    /// 发帖之后站点答回来的东西 → 新那一楼的编号。
+    ///
+    /// 新用户的帖子可能要先审核：那时站点答的是 `{"action":"enqueued", …}`，没有楼层编号。
+    /// 这不是失败（帖子已经交上去了），所以返回 nil 而不是抛错 —— 抛错会让人再发一遍。
+    func createdPostID(json data: Data) -> PostID? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let post = (object["post"] as? [String: Any]) ?? object
+        return (post["id"] as? NSNumber).map { PostID(rawValue: $0.int64Value) }
     }
 
     /// 点赞 / 撤赞之后站点答回来的那一楼 → 新的赞数。
@@ -833,6 +844,8 @@ private struct TopicDetailResponse: Decodable {
     var archived: Bool?
     var postStream: PostStream
     var details: Details?
+    /// 回一帖要扣的积分（实测是数字，抽查 28 个话题全是 0）。
+    var replyCost: Int?
     var categoryID: Int? { categoryId }
     var userID: Int64? { userId }
 }

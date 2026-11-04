@@ -18,7 +18,8 @@ actor LinuxDoForumService: ForumService {
     /// 投票、私信、提醒、书签（`.topicFavorites`，不分文件夹）、用户动态、登录后的搜索。
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
     nonisolated let capabilities: ForumCapabilities = [
-        .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote
+        .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote,
+        .quotePost
     ]
 
     private let client: LinuxDoNetworkClient
@@ -32,6 +33,9 @@ actor LinuxDoForumService: ForumService {
     private var usernames: [Int64: String] = [:]
     /// 侧边栏标签。拼地址要 slug，列表页要知道标签叫什么。
     private var tags: [LinuxDoParser.Tag]?
+    /// 楼层编号 → 楼层号。回复某一楼时站点要的是楼层号（`reply_to_post_number`），
+    /// 应用手里的是编号；加载楼层时顺手记下。
+    private var postNumbers: [Int64: Int] = [:]
     /// 话题的楼层编号流。翻第二页起要靠它知道该取哪几楼；第一页一来就刷新。
     private var streams: [TopicID: (topic: Topic, stream: [Int64])] = [:]
 
@@ -206,6 +210,7 @@ actor LinuxDoForumService: ForumService {
         }
         // 按编号流的顺序排。被删掉或看不了的楼站点不会给，那一格就空着，不编造。
         let posts = wanted.compactMap { have[$0] ?? fetched[$0] }
+        for post in posts { postNumbers[post.id.rawValue] = post.floor + 1 }
         return ThreadPage(
             topic: topic,
             posts: posts,
@@ -361,6 +366,27 @@ actor LinuxDoForumService: ForumService {
         _ = try await client.send("PUT", LinuxDoEndpoint.markNotificationsRead)
     }
 
+    // MARK: - 回复
+
+    /// 回一帖。`raw` + `topic_id`，回复某一楼再加 `reply_to_post_number`。
+    ///
+    /// **扣积分的确认不在这里**：`reply_cost` 大于 0 时编辑器先问过用户才会走到这一步
+    /// （见 `Topic.replyCost`），站点那边提交时也不带别的参数（读的是它的插件代码）。
+    ///
+    /// 被回复那一楼的楼层号没记着（比如直接从链接打开、还没加载过那一页）时不带它 ——
+    /// 帖子照样发在这个话题里，只是网页上不显示「回复给某某」；引用块已经写在正文里了。
+    func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
+        let text = submission.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw ForumServiceError.unsupported("回复内容不能为空")
+        }
+        var form = [("raw", text), ("topic_id", String(topicID.rawValue))]
+        if let replyTo = submission.replyTo, let number = postNumbers[replyTo.rawValue] {
+            form.append(("reply_to_post_number", String(number)))
+        }
+        return parser.createdPostID(json: try await client.send("POST", LinuxDoEndpoint.createPost, form: form))
+    }
+
     // MARK: - 表态
 
     /// 赞。只有一个方向 —— 站点没有踩（`.postDownvote` 关着）。
@@ -404,10 +430,6 @@ actor LinuxDoForumService: ForumService {
 
     // MARK: - 还没做的
 
-    func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
-        // 接的时候别忘了 `reply_cost`：大于 0 的话题回复要扣积分，得先让用户确认。
-        throw notYet("回复")
-    }
 
 
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {

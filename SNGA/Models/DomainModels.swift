@@ -99,6 +99,12 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     /// 用站点自己的说法显示。少显示一个标记，读者就少一条判断这帖值不值得点的依据。
     var badges: [TopicBadge] = []
     var rating: TopicRating? = nil
+    /// 在这个话题里回一帖要花掉多少站点积分。为空或 0 就是不花。
+    ///
+    /// Linux.do 的 `reply_cost`（站点插件 `discourse-reply-cost`）：大于 0 时，站点自己的编辑器
+    /// 在发送前问一句「回复本帖将扣减 N 积分,确认继续？」，提交时不带别的参数。
+    /// 应用照做 —— 不作声就扣用户的积分，和 NodeSeek 的鸡腿、V2EX 的铜币是同一类事。
+    var replyCost: Int? = nil
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {

@@ -107,6 +107,64 @@ final class LinuxDoReactionsTests: XCTestCase {
         XCTAssertEqual(undo.url?.absoluteString, "https://linux.do/post_actions/2?post_action_type_id=2")
     }
 
+    // MARK: - 回复
+
+    func testReplyCostIsReadFromTheTopicDetail() throws {
+        XCTAssertEqual(try parser.topicDetail(json: fixture("linuxdo-topic")).topic.replyCost, 0)
+        let json = #"{"id":9,"title":"示例","posts_count":1,"reply_cost":5,"post_stream":{"posts":[],"stream":[]}}"#
+        XCTAssertEqual(try parser.topicDetail(json: Data(json.utf8)).topic.replyCost, 5)
+    }
+
+    /// 回复某一楼要带楼层号；楼层号是加载那一页时记下的。
+    func testReplyCarriesThePostNumberOnceThePageIsLoaded() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: #"{"id":24400000,"post_number":66}"#,
+            byPath: [
+                "/session/csrf": #"{"csrf":"tok"}"#,
+                "/t/3103315.json": String(decoding: try fixture("linuxdo-topic"), as: UTF8.self),
+                "/t/3103315/": String(decoding: try fixture("linuxdo-topic-posts"), as: UTF8.self)
+            ]
+        )
+        let service = makeService(transport)
+        let topicID = TopicID(rawValue: 3_103_315)
+        _ = try await service.threadPage(topicID: topicID, page: 2, authorUID: nil)
+
+        let created = try await service.submitReply(
+            topicID: topicID,
+            submission: ReplySubmission(content: "同意 +1", replyTo: PostID(rawValue: 24_263_835))
+        )
+        XCTAssertEqual(created, PostID(rawValue: 24_400_000))
+        let post = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(post.httpMethod, "POST")
+        XCTAssertEqual(post.url?.path, "/posts.json")
+        XCTAssertEqual(
+            String(data: try XCTUnwrap(post.httpBody), encoding: .utf8),
+            "raw=%E5%90%8C%E6%84%8F+%2B1&topic_id=3103315&reply_to_post_number=22"
+        )
+    }
+
+    /// 没加载过被回复那一楼时不带楼层号，帖子照样发在这个话题里。
+    func testReplyWithoutAKnownPostNumberStillPosts() async throws {
+        let transport = RecordingHTTPTransport(responding: #"{"csrf":"tok"}"#)
+        _ = try await makeService(transport).submitReply(
+            topicID: TopicID(rawValue: 7),
+            submission: ReplySubmission(content: "hi", replyTo: PostID(rawValue: 99))
+        )
+        XCTAssertEqual(String(data: try XCTUnwrap(transport.requests.last?.httpBody), encoding: .utf8), "raw=hi&topic_id=7")
+    }
+
+    /// 要审核的帖子没有楼层编号，但已经交上去了 —— 不能当失败，否则用户会再发一遍。
+    func testQueuedReplyIsNotAFailure() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: #"{"success":true,"action":"enqueued","pending_post":{"id":5,"raw":"hi"}}"#,
+            byPath: ["/session/csrf": #"{"csrf":"tok"}"#]
+        )
+        let created = try await makeService(transport).submitReply(
+            topicID: TopicID(rawValue: 7), submission: ReplySubmission(content: "hi", replyTo: nil)
+        )
+        XCTAssertNil(created)
+    }
+
     func testThereIsNoDownvote() async throws {
         let transport = RecordingHTTPTransport(responding: "{}")
         let service = makeService(transport)

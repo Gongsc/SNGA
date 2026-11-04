@@ -1521,12 +1521,36 @@ struct ReplyComposerView: View {
     /// 源码模式下光标在哪。插入要插在光标处，而不是接在末尾。
     @State private var sourceSelection: TextSelection?
     @State private var loadedDraft = false
+    /// 要扣积分的话题，发送前先问这一句。
+    @State private var confirmsReplyCost = false
+
+    /// 回这一帖要扣多少站点积分。以线程里当前那份话题为准 —— 它来自话题详情，
+    /// 列表里传进来的那份没有这个数。
+    private var replyCost: Int? {
+        let current = model.thread.currentTopic?.id == topic.id ? model.thread.currentTopic : topic
+        return current?.replyCost.flatMap { $0 > 0 ? $0 : nil }
+    }
 
     /// 引用某一层时预填的开头。
     ///
     /// 三种标记的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
     /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
     /// 得把被引的话真的抄进去；纯文本站点连引用块都没有，那里的惯例是 `@用户名`。
+    private func send() {
+        model.session.clearError()
+        Task {
+            if await model.thread.submitReply(
+                topicID: topic.id,
+                content: content,
+                replyTo: replyTo?.id,
+                ratingScores: selectedRatingScores
+            ) {
+                submitted = true
+                dismiss()
+            }
+        }
+    }
+
     private func quotedPrefix(_ replyTo: Post) -> String {
         switch siteDescriptor.replyMarkup {
         case .ubb:
@@ -1571,17 +1595,10 @@ struct ReplyComposerView: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.thread.isSubmitting)
                 Button {
-                    model.session.clearError()
-                    Task {
-                        if await model.thread.submitReply(
-                            topicID: topic.id,
-                            content: content,
-                            replyTo: replyTo?.id,
-                            ratingScores: selectedRatingScores
-                        ) {
-                            submitted = true
-                            dismiss()
-                        }
+                    if replyCost != nil {
+                        confirmsReplyCost = true
+                    } else {
+                        send()
                     }
                 } label: {
                     if model.thread.isSubmitting {
@@ -1596,6 +1613,16 @@ struct ReplyComposerView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.thread.isSubmitting)
+                .accessibilityIdentifier("reply-send-button")
+                // 文案照站点自己的原话，只把半角逗号换成全角。
+                .confirmationDialog(
+                    "回复本帖将扣减 \(replyCost ?? 0) 积分，确认继续？",
+                    isPresented: $confirmsReplyCost,
+                    titleVisibility: .visible
+                ) {
+                    Button("扣减 \(replyCost ?? 0) 积分并发送") { send() }
+                    Button("取消", role: .cancel) {}
+                }
             }
             .padding()
             Divider()
