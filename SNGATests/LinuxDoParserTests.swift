@@ -38,6 +38,28 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertTrue(categories.allSatisfy { $0.forum.id.site == .linuxdo })
     }
 
+    /// 登录后几乎每个类别底下都挂着一个「父名, Lv1」的等级分区（2026-11-04 实测 14 个）。
+    /// 夹具是匿名抓的、没有它们，这里照登录后的形状写一份。
+    func testLevelSubcategoriesDropTheRepeatedParentName() throws {
+        let json = """
+        {"category_list":{"categories":[
+          {"id":4,"name":"开发调优","slug":"develop","subcategory_list":[
+            {"id":20,"name":"开发调优, Lv1","slug":"develop-lv1","parent_category_id":4}]},
+          {"id":14,"name":"资源荟萃","slug":"resource","subcategory_list":[
+            {"id":83,"name":"资源荟萃, Lv1","slug":"resource-lv1","parent_category_id":14},
+            {"id":94,"name":"网盘资源","slug":"cloud-asset","parent_category_id":14}]}
+        ]}}
+        """
+        let categories = try parser.categories(json: Data(json.utf8))
+        XCTAssertEqual(categories.map(\.forum.name), ["开发调优", "Lv1", "资源荟萃", "Lv1", "网盘资源"])
+        // 地址照旧用站点的 slug，只是显示名短了。
+        XCTAssertEqual(categories.first { $0.forum.id.key == "20" }?.slugPath, "develop/develop-lv1")
+
+        XCTAssertEqual(LinuxDoParser.subcategoryName("开发调优，Lv1", parentName: "开发调优"), "Lv1")
+        XCTAssertEqual(LinuxDoParser.subcategoryName("开发调优", parentName: "开发调优"), "开发调优")
+        XCTAssertEqual(LinuxDoParser.subcategoryName("网盘资源", parentName: "资源荟萃"), "网盘资源")
+    }
+
     // MARK: - 话题列表
 
     func testTopicListTakesTheAuthorFromTheFirstPoster() throws {

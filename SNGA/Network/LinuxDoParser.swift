@@ -52,7 +52,7 @@ struct LinuxDoParser: Sendable {
                 result.append(Category(
                     forum: Forum(
                         id: LinuxDoEndpoint.forumID(categoryID: child.id),
-                        name: child.name,
+                        name: Self.subcategoryName(child.name, parentName: top.name),
                         subtitle: Self.nonEmpty(child.descriptionText),
                         category: "类别",
                         isSubforum: true
@@ -66,6 +66,21 @@ struct LinuxDoParser: Sendable {
             throw ForumServiceError.unexpectedPage("类别列表是空的")
         }
         return result
+    }
+
+    /// 子类别显示时去掉重复的父类别名。
+    ///
+    /// 站点把等级分区命名成「开发调优, Lv1」（实测，半角逗号加空格），放在「开发调优」底下的
+    /// 「子类别」那一格里再写一遍父名是多余的，只留「Lv1」。不是这种写法的（「网盘资源」）原样。
+    static func subcategoryName(_ name: String, parentName: String) -> String {
+        for separator in [", ", "，", ","] {
+            let prefix = parentName + separator
+            if name.hasPrefix(prefix) {
+                let rest = name.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty { return rest }
+            }
+        }
+        return name
     }
 
     // MARK: - 话题列表

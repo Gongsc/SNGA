@@ -61,9 +61,14 @@ actor LinuxDoForumService: ForumService {
         try parser.profile(json: await client.get(LinuxDoEndpoint.userCards(uids: [uid])), uid: uid)
     }
 
-    /// 「全站最新」放在最前，然后是站点的类别，子类别紧跟在父类别后面。
+    /// 「全站最新」放在最前，然后是站点的**顶层**类别。
+    ///
+    /// 子类别不进这张表，只在打开父类别时出现在「子类别」那一格里。登录之后几乎每个
+    /// 顶层类别底下都挂着一个「某某, Lv1」（信任等级 1 才看得到的分区，实测 14 个），
+    /// 平铺出来就是把整张表又列了一遍 —— 用户看到的是一份重复的版面列表。
+    /// 类别表本身仍然全量留着：站内链接直接跳进子类别时，拼地址要它的 slug。
     func forums() async throws -> [Forum] {
-        [Self.latestForum] + (try await loadCategories()).map(\.forum)
+        [Self.latestForum] + (try await loadCategories()).filter { $0.parentID == nil }.map(\.forum)
     }
 
     /// 应用补的入口，不是站点的类别。

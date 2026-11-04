@@ -101,6 +101,15 @@ final class LinuxDoForumServiceTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/categories.json" }.count, 1)
     }
 
+    /// 版面表只列顶层类别。子类别平铺出来，登录后会把每个类别的 Lv1 分区各列一遍，
+    /// 看起来就是一份重复的列表（用户在应用里实际看到的）。
+    func testForumListShowsOnlyTopLevelCategories() async throws {
+        let transport = RecordingHTTPTransport(responding: try fixture("linuxdo-categories"))
+        let forums = try await makeService(transport).forums()
+        XCTAssertEqual(forums.map(\.name), ["最新", "开发调优", "资源荟萃", "搞七捻三"])
+        XCTAssertFalse(forums.contains { $0.isSubforum })
+    }
+
     func testLatestDoesNotNeedTheCategoryTable() async throws {
         let transport = RecordingHTTPTransport(responding: try fixture("linuxdo-category-latest"))
         let page = try await makeService(transport).topics(
