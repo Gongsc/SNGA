@@ -179,3 +179,99 @@ final class LinuxDoReactionsTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 }
+
+/// Linux.do 的书签（应用里的「收藏」）。写请求对着假传输层断言。
+final class LinuxDoBookmarksTests: XCTestCase {
+    private let parser = LinuxDoParser()
+
+    private func fixture(_ name: String) throws -> String {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "json"))
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func makeService(_ transport: any HTTPTransport) -> LinuxDoForumService {
+        LinuxDoForumService(
+            accountID: AccountID(),
+            cookies: [SessionCookie(
+                name: "_t", value: "token", domain: "linux.do", path: "/",
+                expiresAt: nil, isSecure: true, isHTTPOnly: true
+            )],
+            transport: transport,
+            userAgent: "WebViewUA"
+        )
+    }
+
+    /// 同一个话题有两条书签时只列一次；作者只在书签挂在主楼时才填。
+    func testBookmarksListTopicsOnce() throws {
+        let page = try parser.favoriteTopics(json: Data(fixture("linuxdo-bookmarks").utf8), page: 1)
+        XCTAssertEqual(page.topics.map(\.id.rawValue), [3_121_100, 3_120_000])
+        XCTAssertEqual(page.topics.first?.author, "user2")
+        XCTAssertEqual(page.topics.first?.forumID, LinuxDoEndpoint.forumID(categoryID: 4))
+        XCTAssertTrue(page.topics.allSatisfy(\.isFavorite))
+        XCTAssertEqual(page.topics.last?.isLocked, true)
+        XCTAssertTrue(page.hasMore)
+    }
+
+    /// 一个书签都没有时站点只给 `{"bookmarks": []}`（实测）。
+    func testEmptyBookmarksShape() throws {
+        let page = try parser.favoriteTopics(json: Data(#"{"bookmarks":[]}"#.utf8), page: 1)
+        XCTAssertTrue(page.topics.isEmpty)
+        XCTAssertFalse(page.hasMore)
+    }
+
+    func testTopicDetailCarriesBookmarkState() throws {
+        let json = #"{"id":9,"title":"示例","posts_count":1,"bookmarked":true,"bookmarks":[{"id":71,"bookmarkable_id":5,"bookmarkable_type":"Post","post_number":1}],"post_stream":{"posts":[],"stream":[5]}}"#
+        let detail = try parser.topicDetail(json: Data(json.utf8))
+        XCTAssertTrue(detail.topic.isFavorite)
+        XCTAssertEqual(detail.bookmarkIDs, [71])
+        XCTAssertFalse(try parser.topicDetail(json: Data(fixtureTopic().utf8)).topic.isFavorite)
+    }
+
+    private func fixtureTopic() throws -> String { try fixture("linuxdo-topic") }
+
+    /// 收藏：给主楼加一个 `Post` 书签；主楼编号用已经加载过的编号流，不再取详情。
+    func testFavoriteBookmarksTheFirstPost() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: #"{"id":9100}"#,
+            byPath: [
+                "/session/csrf": #"{"csrf":"tok"}"#,
+                "/t/3103315.json": try fixtureTopic(),
+                "/t/3103315/": try fixture("linuxdo-topic-posts")
+            ]
+        )
+        let service = makeService(transport)
+        let topicID = TopicID(rawValue: 3_103_315)
+        _ = try await service.threadPage(topicID: topicID, page: 1, authorUID: nil)
+        transport.reset()
+
+        try await service.updateTopicFavorite(topicID: topicID, folderID: "bookmarks", isFavorite: true)
+        let post = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(post.httpMethod, "POST")
+        XCTAssertEqual(post.url?.path, "/bookmarks.json")
+        XCTAssertEqual(
+            String(data: try XCTUnwrap(post.httpBody), encoding: .utf8),
+            "bookmarkable_id=24259580&bookmarkable_type=Post"
+        )
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/t/3103315.json" })
+    }
+
+    /// 取消收藏：话题里我的书签逐个删掉，不管挂在哪一楼。
+    func testUnfavoriteDeletesEveryBookmarkInTheTopic() async throws {
+        let detail = #"{"id":9,"title":"示例","posts_count":2,"bookmarked":true,"bookmarks":[{"id":71},{"id":72}],"post_stream":{"posts":[],"stream":[5,6]}}"#
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: ["/session/csrf": #"{"csrf":"tok"}"#, "/t/9.json": detail]
+        )
+        try await makeService(transport).updateTopicFavorite(topicID: TopicID(rawValue: 9), folderID: "bookmarks", isFavorite: false)
+        let deletes = transport.requests.filter { $0.httpMethod == "DELETE" }
+        XCTAssertEqual(deletes.map { $0.url?.path }, ["/bookmarks/71.json", "/bookmarks/72.json"])
+    }
+
+    func testBookmarksAreOneFlatList() async throws {
+        let service = makeService(RecordingHTTPTransport(responding: "{}"))
+        XCTAssertTrue(service.capabilities.contains(.topicFavorites))
+        XCTAssertFalse(service.capabilities.contains(.topicFavoriteFolders))
+        let folders = try await service.favoriteTopicFolders()
+        XCTAssertEqual(folders.map(\.name), ["书签"])
+    }
+}

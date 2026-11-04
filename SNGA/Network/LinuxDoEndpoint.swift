@@ -206,6 +206,25 @@ enum LinuxDoEndpoint {
     /// `reply_to_post_number`（站点前端的字段说明里就是这三样）。
     static var createPost: URL { url("/posts.json") }
 
+    // MARK: - 书签
+
+    /// 我的书签。页码从 0 数（站点给的下一页地址是 `?page=1`）。
+    static func bookmarks(username: String, page: Int) -> URL {
+        let sitePage = max(1, page) - 1
+        return url(
+            "/u/\(username)/bookmarks.json",
+            query: sitePage > 0 ? [URLQueryItem(name: "page", value: String(sitePage))] : []
+        )
+    }
+
+    /// 加书签：`bookmarkable_id` + `bookmarkable_type`，答回新书签的 `id`；
+    /// 删是 `DELETE /bookmarks/{书签编号}.json`。抄自站点前端的 `create` / `delete`。
+    static var createBookmark: URL { url("/bookmarks.json") }
+
+    static func deleteBookmark(id: Int64) -> URL {
+        url("/bookmarks/\(id).json")
+    }
+
     // MARK: - 表态
 
     /// 赞：`POST /post_actions`（`id` + `post_action_type_id=2`），撤是

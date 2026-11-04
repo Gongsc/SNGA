@@ -190,6 +190,8 @@ struct LinuxDoParser: Sendable {
 
     /// 话题详情里应用要的那几样：话题本身、全部楼层编号、带回来的那一块楼层。
     struct TopicDetail: Sendable {
+        /// 我在这个话题里的书签编号（话题的、楼层的都算）。取消收藏时要逐个删。
+        var bookmarkIDs: [Int64] = []
         var topic: Topic
         /// 全部楼层编号，按楼层顺序。应用靠它自己切页。
         var stream: [Int64]
@@ -216,8 +218,11 @@ struct LinuxDoParser: Sendable {
             replyCost: response.replyCost
         )
         let posts = try response.postStream.posts.map { try post(from: $0, topicID: topicID) }
+        var markedTopic = topic
+        markedTopic.isFavorite = response.bookmarked ?? false
         return TopicDetail(
-            topic: topic,
+            bookmarkIDs: (response.bookmarks ?? []).map(\.id),
+            topic: markedTopic,
             // 极少数情况下站点不给 `stream`（比如只看某人时），那就只有带回来的这些。
             stream: response.postStream.stream ?? posts.map(\.id.rawValue),
             posts: posts
@@ -464,6 +469,50 @@ struct LinuxDoParser: Sendable {
             hasMore: hasMore,
             totalPages: hasMore ? page + 1 : page
         )
+    }
+
+    // MARK: - 书签
+
+    /// `/u/{我}/bookmarks.json` → 收藏的话题。
+    ///
+    /// 形状 2026-11-04 实测：有书签时是 `{"user_bookmark_list": {"bookmarks": [...]}}`，
+    /// 一个都没有时只是 `{"bookmarks": []}`，两种都认。书签可以挂在楼层上，同一个话题
+    /// 可能有好几条，按话题去重；作者那一栏写的是书签所在那一楼的作者，只在那一楼是主楼时才填。
+    func favoriteTopics(json data: Data, page: Int) throws -> ForumPage {
+        let response = try decode(BookmarksResponse.self, from: data, what: "书签")
+        let items = response.userBookmarkList?.bookmarks ?? response.bookmarks ?? []
+        var seen = Set<Int64>()
+        var topics: [Topic] = []
+        for item in items {
+            guard let topicID = item.topicId, seen.insert(topicID).inserted else { continue }
+            topics.append(Topic(
+                id: TopicID(rawValue: topicID),
+                forumID: item.categoryId.map(LinuxDoEndpoint.forumID(categoryID:))
+                    ?? ForumID.placeholder(site: .linuxdo),
+                subject: item.title ?? "",
+                author: item.linkedPostNumber == 1 ? (item.user?.username ?? "") : "",
+                replyCount: max(0, (item.highestPostNumber ?? 1) - 1),
+                lastReplyAt: Self.date(item.bumpedAt),
+                isLocked: (item.closed ?? false) || (item.archived ?? false),
+                sourceForumID: item.categoryId.map(LinuxDoEndpoint.forumID(categoryID:)),
+                isFavorite: true
+            ))
+        }
+        let hasMore = response.userBookmarkList?.moreBookmarksUrl != nil
+        let page = max(1, page)
+        return ForumPage(
+            forum: nil,
+            topics: topics,
+            page: page,
+            hasMore: hasMore,
+            totalPages: hasMore ? page + 1 : page
+        )
+    }
+
+    /// 加书签之后站点答回来的新书签编号。
+    func createdBookmarkID(json data: Data) -> Int64? {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["id"]
+            .flatMap { ($0 as? NSNumber)?.int64Value }
     }
 
     // MARK: - 消息
@@ -846,6 +895,10 @@ private struct TopicDetailResponse: Decodable {
     var details: Details?
     /// 回一帖要扣的积分（实测是数字，抽查 28 个话题全是 0）。
     var replyCost: Int?
+    /// 我收藏过没有，以及我在这里的书签（实测：网页上加过书签的话题，这里是 `true` 加一条记录）。
+    struct BookmarkItem: Decodable { var id: Int64 }
+    var bookmarked: Bool?
+    var bookmarks: [BookmarkItem]?
     var categoryID: Int? { categoryId }
     var userID: Int64? { userId }
 }
@@ -875,6 +928,27 @@ private struct UserProfileResponse: Decodable {
         var timeRead: Int?
     }
     var user: FullUser
+}
+
+private struct BookmarksResponse: Decodable {
+    struct Item: Decodable {
+        struct Author: Decodable { var username: String? }
+        var topicId: Int64?
+        var title: String?
+        var categoryId: Int?
+        var highestPostNumber: Int?
+        var linkedPostNumber: Int?
+        var bumpedAt: String?
+        var closed: Bool?
+        var archived: Bool?
+        var user: Author?
+    }
+    struct List: Decodable {
+        var bookmarks: [Item]?
+        var moreBookmarksUrl: String?
+    }
+    var userBookmarkList: List?
+    var bookmarks: [Item]?
 }
 
 private struct NotificationsResponse: Decodable {

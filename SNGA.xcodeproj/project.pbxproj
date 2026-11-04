@@ -165,6 +165,7 @@
 		A6790CE61077960FE2561EA2 /* linuxdo-user-card.json in Resources */ = {isa = PBXBuildFile; fileRef = C6B18C68725F1B8C72F42D11 /* linuxdo-user-card.json */; };
 		A6A7B4F5B407CE78ABF4835C /* LinuxDoMessagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202E80E5C9451451A3D63EBF /* LinuxDoMessagesTests.swift */; };
 		A71C1505E04A68E9E57ACA8E /* v2ex-member-page.html in Resources */ = {isa = PBXBuildFile; fileRef = 66A48F2693BD4AE5A32A2098 /* v2ex-member-page.html */; };
+		A7C35215A9697A8495E0B9D1 /* linuxdo-bookmarks.json in Resources */ = {isa = PBXBuildFile; fileRef = 0B0F3C7519BA7E3854C91A4D /* linuxdo-bookmarks.json */; };
 		A7DAFD0803185BC8387D4A9A /* ANSIText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8717C07BC66996081C13AF31 /* ANSIText.swift */; };
 		A8C83FFC2FFCF39E2F5561B1 /* v2ex-post-video.html in Resources */ = {isa = PBXBuildFile; fileRef = 98B9C90B0D9A5491B73F951D /* v2ex-post-video.html */; };
 		A8EB72193C248A72CFC3AB9B /* AboutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = BADE955006EA7B1FA327BBB5 /* AboutCommands.swift */; };
@@ -277,6 +278,7 @@
 		0857E19CE33E743B3071A816 /* NodeSeekForumService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekForumService.swift; sourceTree = "<group>"; };
 		0A0B864CC59179A60FEC4B94 /* TopicMonitorFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicMonitorFeed.swift; sourceTree = "<group>"; };
 		0AA62EC647F4021763905D89 /* TopicMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicMonitorTests.swift; sourceTree = "<group>"; };
+		0B0F3C7519BA7E3854C91A4D /* linuxdo-bookmarks.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linuxdo-bookmarks.json"; sourceTree = "<group>"; };
 		0C4291C78C08F3D77640FF18 /* V2EXInternalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V2EXInternalLink.swift; sourceTree = "<group>"; };
 		0CAC2B839F7AAD1F0709BE8F /* PostContentDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostContentDiagnostics.swift; sourceTree = "<group>"; };
 		0DD114A0EC399A2C62E39B37 /* TopicHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicHistoryTests.swift; sourceTree = "<group>"; };
@@ -564,6 +566,7 @@
 			children = (
 				9F5C31C2FD84CE4E825A30CA /* github-release-latest.json */,
 				C14ABE2532ED48F924AA9F5A /* legacy-1.8.2.store */,
+				0B0F3C7519BA7E3854C91A4D /* linuxdo-bookmarks.json */,
 				85265DAC89DDD70CD81BCE14 /* linuxdo-categories.json */,
 				549F6E79C256592278D288C7 /* linuxdo-category-latest.json */,
 				CD822A63BB804AEB7C5A8CBF /* linuxdo-notifications.json */,
@@ -972,6 +975,7 @@
 			files = (
 				FD86FE48C27AA0D7342A3A3D /* github-release-latest.json in Resources */,
 				26E7AB779B62E3203120C11B /* legacy-1.8.2.store in Resources */,
+				A7C35215A9697A8495E0B9D1 /* linuxdo-bookmarks.json in Resources */,
 				9FAF2135A06BAEDB8A57418E /* linuxdo-categories.json in Resources */,
 				D6548E6DD6C557AF1DEE0863 /* linuxdo-category-latest.json in Resources */,
 				0070418ACF27545625F0EFD0 /* linuxdo-notifications.json in Resources */,

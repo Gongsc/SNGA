@@ -19,7 +19,7 @@ actor LinuxDoForumService: ForumService {
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
     nonisolated let capabilities: ForumCapabilities = [
         .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote,
-        .quotePost
+        .quotePost, .topicFavorites
     ]
 
     private let client: LinuxDoNetworkClient
@@ -437,16 +437,58 @@ actor LinuxDoForumService: ForumService {
     }
 
 
+    // MARK: - 书签
+
+    /// 站点的书签不分文件夹，只有一个列表 —— 给出一个隐含的「书签」代表它。
+    ///
+    /// 不能返回空数组：收藏页和星标按钮都挂在「有一个文件夹」上（NodeSeek 那边写过同样的理由）。
+    /// `.topicFavoriteFolders` 关着，文件夹那一栏不画。
     func favoriteTopicFolders() async throws -> [TopicFavoriteFolder] {
-        throw notYet("书签")
+        [TopicFavoriteFolder(id: Self.bookmarkFolderID, name: "书签", isDefault: true)]
     }
+
+    static let bookmarkFolderID = "bookmarks"
 
     func favoriteTopics(folderID: String, page: Int) async throws -> ForumPage {
-        throw notYet("书签")
+        let name = try await currentUsername()
+        return try parser.favoriteTopics(
+            json: await client.get(LinuxDoEndpoint.bookmarks(username: name, page: page)),
+            page: page
+        )
     }
 
+    /// 收藏 / 取消收藏一个话题。
+    ///
+    /// **加：** 给主楼加一个 `Post` 类型的书签。在网页上加的书签实测就是这个形状
+    /// （`bookmarkable_type: "Post"`，列表里照样带着 `topic_id`）；整话题的书签类型名在站点
+    /// 代码里没找到，不去猜。
+    ///
+    /// **去：** 话题详情里列着我在这个话题的全部书签（`bookmarks`），逐个删掉 —— 不管它们
+    /// 当初挂在哪一楼。只删一个的话，网页上加过的另一个会让它看起来还收藏着。
     func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
-        throw notYet("书签")
+        if isFavorite {
+            let firstPostID: Int64
+            if let known = streams[topicID]?.stream.first {
+                firstPostID = known
+            } else {
+                let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
+                guard let first = detail.stream.first else {
+                    throw ForumServiceError.unexpectedPage("这个话题没有主楼")
+                }
+                firstPostID = first
+            }
+            _ = try await client.send("POST", LinuxDoEndpoint.createBookmark, form: [
+                ("bookmarkable_id", String(firstPostID)),
+                // 站点前端还会带一个 `auto_delete_preference`，默认值是个常量名，具体是几没核实 ——
+                // 不带，让站点用它自己的默认。
+                ("bookmarkable_type", "Post")
+            ])
+        } else {
+            let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
+            for id in detail.bookmarkIDs {
+                _ = try await client.send("DELETE", LinuxDoEndpoint.deleteBookmark(id: id))
+            }
+        }
     }
 
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String? {
