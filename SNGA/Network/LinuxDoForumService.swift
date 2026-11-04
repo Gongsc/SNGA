@@ -17,7 +17,7 @@ actor LinuxDoForumService: ForumService {
     /// 站点其实有的、只是还没接的：点赞和表情回应（`.postVote`，没有踩）、引用回复、
     /// 投票、私信、提醒、书签（`.topicFavorites`，不分文件夹）、用户动态、登录后的搜索。
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
-    nonisolated let capabilities: ForumCapabilities = [.subforums]
+    nonisolated let capabilities: ForumCapabilities = [.subforums, .userActivities, .globalSearch]
 
     private let client: LinuxDoNetworkClient
     private let parser = LinuxDoParser()
@@ -25,6 +25,9 @@ actor LinuxDoForumService: ForumService {
     private var cachedUserID: Int64?
     /// 类别表。拼列表地址要 slug 路径（省一次 302），挂子类别要知道谁是谁的父亲。
     private var categories: [LinuxDoParser.Category]?
+    /// 编号 → 用户名。站点按名字认人（用户动态、完整资料的地址都要名字），应用按编号。
+    /// 一个会话里名字基本不变；万一改了，取回来的资料会对不上编号，那时候按编号的那一边为准。
+    private var usernames: [Int64: String] = [:]
     /// 侧边栏标签。拼地址要 slug，列表页要知道标签叫什么。
     private var tags: [LinuxDoParser.Tag]?
     /// 话题的楼层编号流。翻第二页起要靠它知道该取哪几楼；第一页一来就刷新。
@@ -66,6 +69,7 @@ actor LinuxDoForumService: ForumService {
     /// 总比整页资料打不开强。取消照常往外抛，不当成失败吞掉。
     func profile(uid: Int64) async throws -> Profile {
         let card = try parser.profile(json: await client.get(LinuxDoEndpoint.userCards(uids: [uid])), uid: uid)
+        if !card.displayName.isEmpty { usernames[uid] = card.displayName }
         guard let url = LinuxDoEndpoint.userProfile(username: card.displayName),
               !card.displayName.isEmpty else {
             return card
@@ -223,15 +227,67 @@ actor LinuxDoForumService: ForumService {
         return loaded
     }
 
-    // MARK: - 还没做的
-
+    /// 某人发的话题或回复。地址要用户名，没记着就先拿卡片接口换一次。
     func userActivities(uid: Int64, kind: UserActivityKind, page: Int) async throws -> UserActivityPage {
-        throw notYet("用户动态")
+        let name = try await username(of: uid)
+        var result = try parser.userActivities(
+            json: await client.get(LinuxDoEndpoint.userActions(username: name, kind: kind, page: page)),
+            kind: kind,
+            page: page
+        )
+        // 版面名从类别表里补；表还没拉过就不为它多发一次请求。
+        if let categories {
+            let names = Dictionary(categories.map { ($0.forum.id, $0.forum.name) }, uniquingKeysWith: { first, _ in first })
+            for index in result.activities.indices {
+                result.activities[index].forumName = result.activities[index].forumID.flatMap { names[$0] }
+            }
+        }
+        return result
     }
 
+    /// 搜索。两档（话题和帖子 / 仅标题），可以按作者和日期筛，可以缩在一个类别里。
+    ///
+    /// 这个站的搜索要登录（匿名时 `site.json` 答 `can_search: false`），而这个服务本来就只在
+    /// 登录后存在，所以不另做检查。
     func search(_ request: ForumSearchRequest, page: Int) async throws -> ForumSearchPage {
-        throw notYet("搜索")
+        guard request.kind == .topicContent || request.kind == .topicSubject else {
+            throw ForumServiceError.unsupported("LINUX DO 的搜索只搜话题和帖子")
+        }
+        var slugPath: String?
+        if let forumID = request.forumID {
+            guard LinuxDoEndpoint.tagID(of: forumID) == nil, forumID.key != LinuxDoEndpoint.latestKey else {
+                throw ForumServiceError.unsupported("LINUX DO 只能在类别里搜，标签里搜不了")
+            }
+            slugPath = (try? await loadCategories())?.first { $0.forum.id == forumID }?.slugPath
+            // 拿不到 slug 就缩不进这个类别。宁可报错，也不能悄悄变成全站搜索 ——
+            // 范围上写着「当前版面」，结果却是全站，那是一句谎。
+            guard slugPath != nil else {
+                throw ForumServiceError.unsupported("找不到这个类别，没法在里面搜")
+            }
+        }
+        let url = LinuxDoEndpoint.search(
+            query: request.query,
+            titleOnly: request.kind == .topicSubject,
+            categorySlugPath: slugPath,
+            author: request.filters.trimmedAuthor,
+            postedAfter: request.filters.postedAfter,
+            postedBefore: request.filters.postedBefore,
+            page: page
+        )
+        return try parser.search(json: await client.get(url), request: request, page: page)
     }
+
+    private func username(of uid: Int64) async throws -> String {
+        if let known = usernames[uid] { return known }
+        let card = try parser.profile(json: await client.get(LinuxDoEndpoint.userCards(uids: [uid])), uid: uid)
+        guard !card.displayName.isEmpty else {
+            throw ForumServiceError.restricted("找不到这个用户")
+        }
+        usernames[uid] = card.displayName
+        return card.displayName
+    }
+
+    // MARK: - 还没做的
 
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
         // 接的时候别忘了 `reply_cost`：大于 0 的话题回复要扣积分，得先让用户确认。

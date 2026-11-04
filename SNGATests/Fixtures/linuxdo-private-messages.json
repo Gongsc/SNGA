@@ -1,0 +1,311 @@
+{
+  "users": [
+    {
+      "id": -1,
+      "username": "user2",
+      "name": "用户",
+      "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "admin": true,
+      "moderator": true,
+      "trust_level": 4,
+      "animated_avatar": null
+    },
+    {
+      "id": -2,
+      "username": "user3",
+      "name": "用户",
+      "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "admin": true,
+      "trust_level": 4,
+      "animated_avatar": null
+    }
+  ],
+  "primary_groups": [],
+  "flair_groups": [],
+  "topic_list": {
+    "can_create_topic": true,
+    "filter": "private_messages",
+    "per_page": 30,
+    "top_tags": [
+      {
+        "id": 1461,
+        "name": "纯水",
+        "slug": "1461-tag"
+      },
+      {
+        "id": 444,
+        "name": "人工智能",
+        "slug": "444-tag"
+      },
+      {
+        "id": 1436,
+        "name": "快问快答",
+        "slug": "1436-tag"
+      },
+      {
+        "id": 1451,
+        "name": "软件开发",
+        "slug": "1451-tag"
+      },
+      {
+        "id": 1476,
+        "name": "夸克网盘",
+        "slug": "1476-tag"
+      },
+      {
+        "id": 3,
+        "name": "ChatGPT",
+        "slug": "chatgpt"
+      },
+      {
+        "id": 73,
+        "name": "病友",
+        "slug": "73-tag"
+      },
+      {
+        "id": 1464,
+        "name": "树洞",
+        "slug": "1464-tag"
+      },
+      {
+        "id": 4,
+        "name": "OpenAI",
+        "slug": "openai"
+      },
+      {
+        "id": 1477,
+        "name": "百度网盘",
+        "slug": "1477-tag"
+      },
+      {
+        "id": 447,
+        "name": "影视",
+        "slug": "447-tag"
+      },
+      {
+        "id": 123,
+        "name": "AFF",
+        "slug": "aff"
+      },
+      {
+        "id": 250,
+        "name": "VPS",
+        "slug": "vps"
+      },
+      {
+        "id": 712,
+        "name": "职场",
+        "slug": "712-tag"
+      },
+      {
+        "id": 223,
+        "name": "动漫",
+        "slug": "223-tag"
+      },
+      {
+        "id": 1438,
+        "name": "网络安全",
+        "slug": "1438-tag"
+      },
+      {
+        "id": 207,
+        "name": "Claude",
+        "slug": "claude"
+      },
+      {
+        "id": 10,
+        "name": "抽奖",
+        "slug": "lottery"
+      },
+      {
+        "id": 2234,
+        "name": "开源推广",
+        "slug": "2234-tag"
+      },
+      {
+        "id": 19,
+        "name": "晒年味",
+        "slug": "19-tag"
+      },
+      {
+        "id": 321,
+        "name": "游戏",
+        "slug": "321-tag"
+      },
+      {
+        "id": 1498,
+        "name": "转载",
+        "slug": "1498-tag"
+      },
+      {
+        "id": 193,
+        "name": "订阅节点",
+        "slug": "193-tag"
+      },
+      {
+        "id": 1518,
+        "name": "作品集",
+        "slug": "1518-tag"
+      },
+      {
+        "id": 273,
+        "name": "Gemini",
+        "slug": "gemini"
+      },
+      {
+        "id": 248,
+        "name": "NSFW",
+        "slug": "nsfw"
+      },
+      {
+        "id": 1444,
+        "name": "金融经济",
+        "slug": "1444-tag"
+      },
+      {
+        "id": 1479,
+        "name": "迅雷网盘",
+        "slug": "1479-tag"
+      },
+      {
+        "id": 1508,
+        "name": "Cursor",
+        "slug": "cursor"
+      },
+      {
+        "id": 1574,
+        "name": "Codex",
+        "slug": "codex"
+      },
+      {
+        "id": 1454,
+        "name": "配置优化",
+        "slug": "1454-tag"
+      }
+    ],
+    "topics": [
+      {
+        "fancy_title": "示例",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3120878,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 1,
+        "reply_count": 0,
+        "highest_post_number": 1,
+        "image_url": null,
+        "created_at": "2026-11-04T07:26:35.767Z",
+        "last_posted_at": "2026-11-04T07:26:35.862Z",
+        "bumped": true,
+        "bumped_at": "2026-11-04T07:26:35.862Z",
+        "archetype": "private_message",
+        "unseen": false,
+        "last_read_post_number": 1,
+        "unread": 0,
+        "new_posts": 0,
+        "unread_posts": 0,
+        "pinned": false,
+        "unpinned": null,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "notification_level": 3,
+        "bookmarked": false,
+        "liked": false,
+        "thumbnails": null,
+        "views": 1,
+        "like_count": 0,
+        "has_summary": false,
+        "last_poster_username": "user2",
+        "category_id": null,
+        "op_like_count": 0,
+        "pinned_globally": false,
+        "featured_link": null,
+        "allowed_user_count": 2,
+        "participant_groups": [],
+        "can_assign": false,
+        "has_accepted_answer": false,
+        "posters": [
+          {
+            "extras": "latest single",
+            "description": "原始发帖人、最新发帖人",
+            "user_id": -1,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ],
+        "participants": [
+          {
+            "extras": "latest",
+            "description": null,
+            "user_id": -1,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      },
+      {
+        "fancy_title": "示例",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3120691,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 1,
+        "reply_count": 0,
+        "highest_post_number": 1,
+        "image_url": null,
+        "created_at": "2026-11-04T07:01:38.090Z",
+        "last_posted_at": "2026-11-04T07:01:38.205Z",
+        "bumped": true,
+        "bumped_at": "2026-11-04T07:01:38.205Z",
+        "archetype": "private_message",
+        "unseen": false,
+        "last_read_post_number": 1,
+        "unread": 0,
+        "new_posts": 0,
+        "unread_posts": 0,
+        "pinned": false,
+        "unpinned": null,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "notification_level": 3,
+        "bookmarked": false,
+        "liked": false,
+        "thumbnails": null,
+        "views": 1,
+        "like_count": 0,
+        "has_summary": false,
+        "last_poster_username": "user3",
+        "category_id": null,
+        "op_like_count": 0,
+        "pinned_globally": false,
+        "featured_link": null,
+        "allowed_user_count": 2,
+        "participant_groups": [],
+        "can_assign": false,
+        "has_accepted_answer": false,
+        "posters": [
+          {
+            "extras": "latest single",
+            "description": "原始发帖人、最新发帖人",
+            "user_id": -2,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ],
+        "participants": [
+          {
+            "extras": "latest",
+            "description": null,
+            "user_id": -2,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      }
+    ]
+  }
+}

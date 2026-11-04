@@ -124,6 +124,55 @@ enum LinuxDoEndpoint {
     /// 网页侧边栏「标签」那一段画的就是这一份。
     static var site: URL { url("/site.json") }
 
+    /// 某人发的话题（`filter=4`）或回复（`filter=5`）。一页 30 条，按 `offset` 翻。
+    static let userActionsPerPage = 30
+
+    static func userActions(username: String, kind: UserActivityKind, page: Int) -> URL {
+        url("/user_actions.json", query: [
+            URLQueryItem(name: "username", value: username),
+            URLQueryItem(name: "filter", value: kind == .topics ? "4" : "5"),
+            URLQueryItem(name: "offset", value: String((max(1, page) - 1) * userActionsPerPage))
+        ])
+    }
+
+    /// 搜索。条件全写进 `q` 里 —— 站点的搜索框就是这么做的，没有单独的参数。
+    ///
+    /// 下面每一条都在 2026-11-04 用真实请求核过：`in:title` 只返回主楼；`#develop` 只剩类别 4
+    /// 和它的子类别；`@用户名` 只剩那个人；`after:` / `before:` 卡住了日期。一页 50 条。
+    /// **`tags:` 不灵**（同一个关键词加上标签 slug 就是 0 条），所以标签里不提供版面内搜索。
+    ///
+    /// - `categorySlugPath`：类别的 slug 路径，子类别写成「父:子」（站点的 `#` 语法）。
+    static func search(
+        query: String,
+        titleOnly: Bool,
+        categorySlugPath: String?,
+        author: String?,
+        postedAfter: Date?,
+        postedBefore: Date?,
+        page: Int
+    ) -> URL {
+        var terms = [query]
+        if titleOnly { terms.append("in:title") }
+        if let categorySlugPath {
+            terms.append("#" + categorySlugPath.replacingOccurrences(of: "/", with: ":"))
+        }
+        if let author { terms.append("@" + author) }
+        if let postedAfter { terms.append("after:" + searchDate(postedAfter)) }
+        if let postedBefore { terms.append("before:" + searchDate(postedBefore)) }
+        return url("/search.json", query: [
+            URLQueryItem(name: "q", value: terms.joined(separator: " ")),
+            URLQueryItem(name: "page", value: String(max(1, page)))
+        ])
+    }
+
+    /// 站点的日期写法是 `2026-10-01`，按用户自己这一侧的日历日算。
+    private static func searchDate(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
     /// 当前会话是谁。cookie 和页面里都没有编号，只能问这里。
     static var sessionCurrent: URL { url("/session/current.json") }
 

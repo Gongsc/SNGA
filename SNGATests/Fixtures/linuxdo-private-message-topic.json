@@ -1,0 +1,335 @@
+{
+  "post_stream": {
+    "posts": [
+      {
+        "id": 24386364,
+        "name": "用户",
+        "username": "user2",
+        "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+        "created_at": "2026-11-04T07:26:35.862Z",
+        "cooked": "<p>示例</p>",
+        "post_number": 1,
+        "post_type": 1,
+        "posts_count": 1,
+        "updated_at": "2026-11-04T07:26:35.862Z",
+        "reply_count": 0,
+        "reply_to_post_number": null,
+        "quote_count": 0,
+        "incoming_link_count": 0,
+        "reads": 2,
+        "readers_count": 1,
+        "score": 0.4,
+        "yours": false,
+        "topic_id": 3120878,
+        "topic_slug": "topic",
+        "display_username": "user2",
+        "primary_group_name": null,
+        "flair_name": null,
+        "flair_url": null,
+        "flair_bg_color": null,
+        "flair_color": null,
+        "flair_group_id": null,
+        "badges_granted": [],
+        "version": 1,
+        "can_edit": false,
+        "can_delete": false,
+        "can_recover": false,
+        "can_see_hidden_post": false,
+        "can_wiki": false,
+        "link_counts": [
+          {
+            "url": "https://blog.discourse.org/2018/06/understanding-discourse-trust-levels/",
+            "internal": false,
+            "reflection": false,
+            "title": "示例",
+            "clicks": 1
+          }
+        ],
+        "read": true,
+        "user_title": null,
+        "bookmarked": false,
+        "actions_summary": [
+          {
+            "id": 2,
+            "can_act": true
+          },
+          {
+            "id": 3,
+            "can_act": true
+          },
+          {
+            "id": 4,
+            "can_act": true
+          },
+          {
+            "id": 8,
+            "can_act": true
+          },
+          {
+            "id": 1003,
+            "can_act": true
+          },
+          {
+            "id": 1002,
+            "can_act": true
+          },
+          {
+            "id": 1001,
+            "can_act": true
+          },
+          {
+            "id": 10,
+            "can_act": true
+          },
+          {
+            "id": 7,
+            "can_act": true
+          }
+        ],
+        "moderator": true,
+        "admin": true,
+        "staff": true,
+        "user_id": -1,
+        "hidden": false,
+        "trust_level": 4,
+        "deleted_at": null,
+        "user_deleted": false,
+        "edit_reason": null,
+        "can_view_edit_history": false,
+        "wiki": false,
+        "mentioned_users": [],
+        "post_url": "/t/topic/3120878/1",
+        "locale": null,
+        "is_localized": false,
+        "animated_avatar": null,
+        "can_assign": false,
+        "boosts": [],
+        "can_boost": true,
+        "user_cakedate": "2024-01-17",
+        "category_expert_approved_group": null,
+        "needs_category_expert_approval": null,
+        "can_manage_category_expert_posts": false,
+        "event": null,
+        "calendar_details": [],
+        "reactions": [],
+        "current_user_reaction": null,
+        "reaction_users_count": 0,
+        "current_user_used_main_reaction": false,
+        "user_signature": null,
+        "can_accept_answer": false,
+        "can_unaccept_answer": false,
+        "accepted_answer": false,
+        "topic_accepted_answer": null,
+        "can_vote": false
+      }
+    ],
+    "stream": [
+      24386364
+    ]
+  },
+  "timeline_lookup": [
+    [
+      1,
+      0
+    ]
+  ],
+  "related_messages": [],
+  "suggested_group_name": null,
+  "fancy_title": "示例",
+  "fancy_title_localized": false,
+  "locale": null,
+  "id": 3120878,
+  "title": "示例",
+  "posts_count": 1,
+  "created_at": "2026-11-04T07:26:35.767Z",
+  "views": 1,
+  "reply_count": 0,
+  "like_count": 0,
+  "last_posted_at": "2026-11-04T07:26:35.862Z",
+  "visible": true,
+  "closed": false,
+  "archived": false,
+  "has_summary": false,
+  "archetype": "private_message",
+  "slug": "topic",
+  "category_id": null,
+  "word_count": 31,
+  "deleted_at": null,
+  "user_id": -1,
+  "featured_link": null,
+  "pinned_globally": false,
+  "pinned_at": null,
+  "pinned_until": null,
+  "image_url": null,
+  "slow_mode_seconds": 0,
+  "draft_sequence": 0,
+  "posted": false,
+  "unpinned": null,
+  "pinned": false,
+  "current_post_number": 1,
+  "highest_post_number": 1,
+  "last_read_post_number": 1,
+  "last_read_post_id": 24386364,
+  "deleted_by": null,
+  "actions_summary": [
+    {
+      "id": 4,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 8,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 1003,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 1002,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 1001,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 10,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    },
+    {
+      "id": 7,
+      "count": 0,
+      "hidden": false,
+      "can_act": true
+    }
+  ],
+  "chunk_size": 20,
+  "bookmarked": false,
+  "message_archived": false,
+  "topic_timer": null,
+  "message_bus_last_id": 2,
+  "participant_count": 1,
+  "pm_with_non_human_user": true,
+  "show_read_indicator": false,
+  "thumbnails": null,
+  "slow_mode_enabled_until": null,
+  "has_localized_content": false,
+  "board_memberships": [],
+  "summarizable": false,
+  "has_cached_summary": false,
+  "ai_agent_name": null,
+  "can_assign": false,
+  "is_category_expert_question": null,
+  "has_livestream": null,
+  "livestream_chat_active": false,
+  "valid_reactions": [
+    "heart",
+    "+1",
+    "laughing",
+    "open_mouth",
+    "clap",
+    "confetti_ball",
+    "hugs",
+    "distorted_face",
+    "tieba_087",
+    "bili_057"
+  ],
+  "reply_cost": 0,
+  "has_accepted_answer": false,
+  "can_create_shared_issue": false,
+  "shared_issue_visible": false,
+  "can_vote": false,
+  "vote_count": 0,
+  "user_voted": false,
+  "discourse_zendesk_plugin_zendesk_id": null,
+  "discourse_zendesk_plugin_zendesk_url": "https://your-url.zendesk.com/agent/tickets/",
+  "topic_op_admin_status": null,
+  "details": {
+    "can_edit": false,
+    "notification_level": 3,
+    "notifications_reason_id": 2,
+    "can_invite_to": true,
+    "can_create_post": true,
+    "can_reply_as_new_topic": true,
+    "can_flag_topic": true,
+    "can_remove_self_id": 800000,
+    "participants": [
+      {
+        "id": -1,
+        "username": "user2",
+        "name": "用户",
+        "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+        "post_count": 1,
+        "primary_group_name": null,
+        "flair_name": null,
+        "flair_url": null,
+        "flair_color": null,
+        "flair_bg_color": null,
+        "flair_group_id": null,
+        "admin": true,
+        "moderator": true,
+        "trust_level": 4,
+        "animated_avatar": null
+      }
+    ],
+    "allowed_users": [
+      {
+        "id": -1,
+        "username": "user2",
+        "name": "用户",
+        "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+        "animated_avatar": null
+      },
+      {
+        "id": 800001,
+        "username": "user1",
+        "name": null,
+        "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+        "animated_avatar": null
+      }
+    ],
+    "staff_alias_can_create_post": false,
+    "created_by": {
+      "id": -1,
+      "username": "user2",
+      "name": "用户",
+      "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "animated_avatar": null
+    },
+    "last_poster": {
+      "id": -1,
+      "username": "user2",
+      "name": "用户",
+      "avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "animated_avatar": null
+    },
+    "links": [
+      {
+        "url": "https://blog.discourse.org/2018/06/understanding-discourse-trust-levels/",
+        "title": "示例",
+        "internal": false,
+        "attachment": false,
+        "reflection": false,
+        "clicks": 1,
+        "user_id": -1,
+        "domain": "blog.discourse.org",
+        "root_domain": "discourse.org"
+      }
+    ],
+    "allowed_groups": []
+  },
+  "pending_posts": [],
+  "bookmarks": []
+}

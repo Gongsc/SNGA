@@ -320,9 +320,8 @@ struct ForumSiteDescriptor: Sendable {
         // 谷歌那档应用里没有对应物，而 SoV2EX 是唯一真能搜正文的 —— 主题那一档
         // 走的就是它。名字写在档位上，因为关键词确实会离开 V2EX。
         case .v2ex: [.topicContent, .forum]
-        // 搜索要登录才有（匿名 `can_search: false`），接口是 `/search.json`，还没接。
-        // `.globalSearch` 关着，这一档不会被问到。
-        case .linuxdo: []
+        // 站点的搜索搜全文；「仅标题」是它自己的 `in:title`（实测只返回主楼）。
+        case .linuxdo: [.topicContent, .topicSubject]
         }
     }
 
@@ -357,6 +356,9 @@ struct ForumSiteDescriptor: Sendable {
     func searchFilters(for kind: ForumSearchKind) -> ForumSearchFilterOptions {
         switch (site, kind) {
         case (.v2ex, .topicContent): .all
+        // 作者（`@名字`）和日期（`after:` / `before:`）都实测生效。排序不画：站点只能按时间
+        // 倒序（`order:latest`），没有升序，摆一个「升序」开关却不生效比没有更糟。
+        case (.linuxdo, .topicContent), (.linuxdo, .topicSubject): [.author, .dateRange]
         // NGA 的搜索有自己的一套参数，还没摸过；NodeSeek 的搜索是整页跳转，
         // 地址上只有关键词和分类两个参数。两边都不画。
         default: []
@@ -371,8 +373,11 @@ struct ForumSiteDescriptor: Sendable {
     func supportsSearch(in forumID: ForumID) -> Bool {
         guard !currentForumSearchKinds.isEmpty else { return false }
         switch site {
-        case .nga, .nodeseek, .linuxdo:
+        case .nga, .nodeseek:
             return true
+        // 只有类别缩得进去（`#slug`）。标签那一招 `tags:` 实测不灵，「话题」那一栏本来就是全站。
+        case .linuxdo:
+            return LinuxDoEndpoint.tagID(of: forumID) == nil && forumID.key != LinuxDoEndpoint.latestKey
         case .v2ex:
             return V2EXEndpoint.tabKey(of: forumID) == nil
                 && forumID.key != V2EXEndpoint.recentKey
@@ -390,7 +395,7 @@ struct ForumSiteDescriptor: Sendable {
             "主题搜索由第三方的 \(V2EXEndpoint.searchProviderName) 提供 —— "
                 + "V2EX 自己没有全文搜索，所以关键词会发给它（不会带上你的登录状态）。"
                 + "节点搜索在本地完成，不出网。"
-        case .linuxdo: "LINUX DO 的搜索还没有接入。"
+        case .linuxdo: "搜索全站的话题和帖子，可以只搜标题、按作者和日期筛，或者只在当前类别里搜。"
         }
     }
 
@@ -409,6 +414,8 @@ struct ForumSiteDescriptor: Sendable {
         // 档位选择器是个定宽控件，名字一长就截断成「主题正文（SoV2…」，
         // 反而谁也看不见。它写在下面那行范围里，见 `searchProviderNote`。
         case (.v2ex, .topicContent): "主题正文"
+        case (.linuxdo, .topicContent): "话题和帖子"
+        case (.linuxdo, .topicSubject): "仅标题"
         default: kind.title
         }
     }

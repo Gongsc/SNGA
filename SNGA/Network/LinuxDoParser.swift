@@ -314,6 +314,78 @@ struct LinuxDoParser: Sendable {
         }
     }
 
+    // MARK: - 用户动态
+
+    /// `/user_actions.json` → 某人的话题或回复。
+    ///
+    /// 站点不报总数，一页给满 30 条就当还有下一页。
+    func userActivities(json data: Data, kind: UserActivityKind, page: Int) throws -> UserActivityPage {
+        let response = try decode(UserActionsResponse.self, from: data, what: "用户动态")
+        let activities = response.userActions.map { item in
+            UserActivity(
+                id: "\(item.topicId)-\(item.postNumber ?? 0)-\(item.actionType)",
+                kind: kind,
+                topicID: TopicID(rawValue: item.topicId),
+                postID: item.postId.map(PostID.init(rawValue:)),
+                forumID: item.categoryId.map(LinuxDoEndpoint.forumID(categoryID:)),
+                subject: item.title ?? "",
+                excerpt: Self.nonEmpty(item.excerpt.map(Self.plainText)),
+                postedAt: Self.date(item.createdAt)
+            )
+        }
+        let hasMore = response.userActions.count >= LinuxDoEndpoint.userActionsPerPage
+        let page = max(1, page)
+        return UserActivityPage(
+            kind: kind,
+            activities: activities,
+            page: page,
+            hasMore: hasMore,
+            totalPages: hasMore ? page + 1 : page
+        )
+    }
+
+    // MARK: - 搜索
+
+    /// `/search.json` → 话题。
+    ///
+    /// 站点按**楼层**给结果（`posts`），同一个话题可能命中好几楼；应用的搜索页列的是话题，
+    /// 所以按命中的先后去重。作者只在命中的是主楼时才填 —— 命中第 30 楼时那一楼的作者
+    /// 不是楼主，写上去就是在说错话。
+    func search(json data: Data, request: ForumSearchRequest, page: Int) throws -> ForumSearchPage {
+        let response = try decode(SearchResponse.self, from: data, what: "搜索结果")
+        let topics = Dictionary(
+            (response.topics ?? []).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var seen = Set<Int64>()
+        var results: [Topic] = []
+        for hit in response.posts ?? [] {
+            guard let topic = topics[hit.topicId], seen.insert(hit.topicId).inserted else { continue }
+            results.append(Topic(
+                id: TopicID(rawValue: topic.id),
+                forumID: topic.categoryId.map(LinuxDoEndpoint.forumID(categoryID:))
+                    ?? ForumID.placeholder(site: .linuxdo),
+                subject: topic.title,
+                author: hit.postNumber == 1 ? (hit.username ?? "") : "",
+                replyCount: max(0, (topic.postsCount ?? 1) - 1),
+                publishedAt: Self.date(topic.createdAt),
+                lastReplyAt: Self.date(topic.lastPostedAt ?? topic.bumpedAt),
+                isPinned: topic.pinned ?? false,
+                isLocked: (topic.closed ?? false) || (topic.archived ?? false),
+                sourceForumID: topic.categoryId.map(LinuxDoEndpoint.forumID(categoryID:))
+            ))
+        }
+        let hasMore = response.groupedSearchResult?.moreFullPageResults ?? false
+        let page = max(1, page)
+        return ForumSearchPage(
+            request: request,
+            topics: results,
+            page: page,
+            hasMore: hasMore,
+            totalPages: hasMore ? page + 1 : page
+        )
+    }
+
     // MARK: - 正文清洗
 
     /// 把 `cooked` 清洗成能进 `WKWebView`、也能交给 `PostContentBuilder` 的正文。
@@ -581,6 +653,46 @@ private struct UserProfileResponse: Decodable {
         var timeRead: Int?
     }
     var user: FullUser
+}
+
+private struct UserActionsResponse: Decodable {
+    struct Item: Decodable {
+        var actionType: Int
+        var topicId: Int64
+        var postId: Int64?
+        var postNumber: Int?
+        var categoryId: Int?
+        var title: String?
+        var excerpt: String?
+        var createdAt: String?
+    }
+    var userActions: [Item]
+}
+
+private struct SearchResponse: Decodable {
+    struct Hit: Decodable {
+        var topicId: Int64
+        var postNumber: Int?
+        var username: String?
+    }
+    struct TopicItem: Decodable {
+        var id: Int64
+        var title: String
+        var postsCount: Int?
+        var categoryId: Int?
+        var createdAt: String?
+        var lastPostedAt: String?
+        var bumpedAt: String?
+        var pinned: Bool?
+        var closed: Bool?
+        var archived: Bool?
+    }
+    struct Grouped: Decodable {
+        var moreFullPageResults: Bool?
+    }
+    var posts: [Hit]?
+    var topics: [TopicItem]?
+    var groupedSearchResult: Grouped?
 }
 
 private struct UserCardsResponse: Decodable {

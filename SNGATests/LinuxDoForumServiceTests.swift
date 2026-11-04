@@ -50,7 +50,7 @@ final class LinuxDoForumServiceTests: XCTestCase {
     /// 能力位一条条写，现在只点亮了真接上的那一位。
     func testOnlyImplementedCapabilitiesAreLit() {
         let service = makeService(RecordingHTTPTransport(responding: "{}"))
-        XCTAssertEqual(service.capabilities, [.subforums])
+        XCTAssertEqual(service.capabilities, [.subforums, .userActivities, .globalSearch])
     }
 
     // MARK: - 请求
@@ -288,6 +288,81 @@ final class LinuxDoForumServiceTests: XCTestCase {
         XCTAssertEqual(profile.uid, 800_030)
         XCTAssertEqual(profile.level, 4)
         XCTAssertNil(profile.profileViewCount)
+    }
+
+    // MARK: - 用户动态与搜索
+
+    /// 地址要用户名：先拿卡片换一次，之后记着，不再换。
+    func testUserActivitiesResolveTheUsernameOnce() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/user-cards.json": try fixture("linuxdo-user-card"),
+                "/user_actions.json": try fixture("linuxdo-user-replies")
+            ]
+        )
+        let service = makeService(transport)
+        _ = try await service.userActivities(uid: 800_030, kind: .replies, page: 2)
+        _ = try await service.userActivities(uid: 800_030, kind: .topics, page: 1)
+
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/user-cards.json" }.count, 1)
+        let actions = transport.requests.filter { $0.url?.path == "/user_actions.json" }.compactMap(\.url)
+        let first = URLComponents(url: try XCTUnwrap(actions.first), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(first.contains(URLQueryItem(name: "username", value: "user31")))
+        XCTAssertTrue(first.contains(URLQueryItem(name: "filter", value: "5")), "回复是 5")
+        XCTAssertTrue(first.contains(URLQueryItem(name: "offset", value: "30")), "第二页从第 30 条起")
+        let second = URLComponents(url: try XCTUnwrap(actions.last), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(second.contains(URLQueryItem(name: "filter", value: "4")), "话题是 4")
+    }
+
+    /// 条件全写进 `q`：仅标题、类别、作者、日期。
+    func testSearchPutsEveryConditionIntoTheQuery() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/categories.json": try fixture("linuxdo-categories"),
+                "/search.json": try fixture("linuxdo-search")
+            ]
+        )
+        var filters = ForumSearchFilters()
+        filters.author = " user5 "
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        filters.postedAfter = calendar.date(from: DateComponents(year: 2026, month: 10, day: 1, hour: 12))
+        let request = try XCTUnwrap(ForumSearchRequest(
+            query: "docker",
+            kind: .topicSubject,
+            forumID: LinuxDoEndpoint.forumID(categoryID: 94),
+            filters: filters
+        ))
+        let page = try await makeService(transport).search(request, page: 2)
+
+        let url = try XCTUnwrap(transport.requests.last?.url)
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "q" }?.value, "docker in:title #resource:cloud-asset @user5 after:2026-10-01")
+        XCTAssertEqual(query.first { $0.name == "page" }?.value, "2")
+        XCTAssertFalse(page.topics.isEmpty)
+    }
+
+    /// 标签和「话题」那一栏缩不进去，界面不画，服务也不假装能搜。
+    func testSearchRefusesScopesItCannotHonour() async throws {
+        let site = ForumSiteDescriptor.linuxdo
+        XCTAssertTrue(site.supportsSearch(in: LinuxDoEndpoint.forumID(categoryID: 4)))
+        XCTAssertFalse(site.supportsSearch(in: LinuxDoEndpoint.forumID(tagID: 10)))
+        XCTAssertFalse(site.supportsSearch(in: LinuxDoEndpoint.forumID(key: LinuxDoEndpoint.latestKey)))
+        XCTAssertEqual(site.searchFilters(for: .topicContent), [.author, .dateRange])
+
+        let transport = RecordingHTTPTransport(responding: "{}")
+        let request = try XCTUnwrap(ForumSearchRequest(
+            query: "x", kind: .topicContent, forumID: LinuxDoEndpoint.forumID(tagID: 10)
+        ))
+        do {
+            _ = try await makeService(transport).search(request, page: 1)
+            XCTFail("标签里搜不了，不该悄悄变成全站搜索")
+        } catch let error as ForumServiceError {
+            guard case .unsupported = error else { return XCTFail("应当是不支持，实际是 \(error)") }
+        }
+        XCTAssertTrue(transport.requests.isEmpty)
     }
 
     // MARK: - 站内链接

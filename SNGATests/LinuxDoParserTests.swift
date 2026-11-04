@@ -285,6 +285,55 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertNotEqual(fields.first { $0.title == "加入日期" }?.value, "—")
     }
 
+    // MARK: - 用户动态与搜索
+
+    func testUserTopicsAndRepliesParse() throws {
+        let topics = try parser.userActivities(json: fixture("linuxdo-user-topics"), kind: .topics, page: 1)
+        XCTAssertEqual(topics.activities.map(\.topicID.rawValue), [3_026_408, 2_501_838, 2_301_554, 2_296_954])
+        XCTAssertEqual(topics.activities.first?.forumID, LinuxDoEndpoint.forumID(categoryID: 11))
+        XCTAssertTrue(topics.activities.allSatisfy { $0.kind == .topics && $0.postedAt != nil })
+        // 夹具裁到了 4 条；不满 30 条就是没有下一页。
+        XCTAssertFalse(topics.hasMore)
+
+        let replies = try parser.userActivities(json: fixture("linuxdo-user-replies"), kind: .replies, page: 2)
+        let first = try XCTUnwrap(replies.activities.first)
+        XCTAssertEqual(first.topicID.rawValue, 3_044_791)
+        XCTAssertEqual(first.postID?.rawValue, 23_803_444, "回复要带楼层编号，才跳得到那一楼")
+        XCTAssertEqual(first.forumID, LinuxDoEndpoint.forumID(categoryID: 36))
+        XCTAssertNotNil(first.excerpt)
+        XCTAssertEqual(replies.page, 2)
+        // 同一个话题里的两条回复，编号不能撞。
+        XCTAssertEqual(Set(replies.activities.map(\.id)).count, replies.activities.count)
+    }
+
+    func testSearchListsTopicsInHitOrder() throws {
+        let request = try XCTUnwrap(ForumSearchRequest(query: "linux", kind: .topicContent))
+        let page = try parser.search(json: fixture("linuxdo-search"), request: request, page: 1)
+        XCTAssertEqual(page.topics.map(\.id.rawValue), [3_117_915, 3_115_449, 3_106_528, 3_105_357])
+        // 命中的都是主楼，作者就是楼主。
+        XCTAssertEqual(page.topics.first?.author, "user5")
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.totalPages, 2)
+    }
+
+    /// 同一个话题命中好几楼时只列一次；命中的不是主楼时不冒充楼主。
+    func testSearchDeduplicatesTopicsAndKeepsAuthorHonest() throws {
+        let json = """
+        {"posts":[{"id":1,"topic_id":10,"post_number":7,"username":"user2"},
+                  {"id":2,"topic_id":10,"post_number":1,"username":"user1"},
+                  {"id":3,"topic_id":11,"post_number":1,"username":"user3"}],
+         "topics":[{"id":10,"title":"示例","posts_count":9,"category_id":4},
+                   {"id":11,"title":"示例","posts_count":1,"category_id":4}],
+         "grouped_search_result":{"more_full_page_results":null}}
+        """
+        let request = try XCTUnwrap(ForumSearchRequest(query: "x", kind: .topicContent))
+        let page = try parser.search(json: Data(json.utf8), request: request, page: 1)
+        XCTAssertEqual(page.topics.map(\.id.rawValue), [10, 11])
+        XCTAssertEqual(page.topics.first?.author, "", "第一次命中的是第 7 楼，那一楼的作者不是楼主")
+        XCTAssertEqual(page.topics.first?.replyCount, 8)
+        XCTAssertFalse(page.hasMore)
+    }
+
     func testCurrentUserIsReadFromTheSessionEndpoint() throws {
         XCTAssertEqual(
             try parser.currentUserID(json: Data(#"{"current_user":{"id":800001,"username":"user1"}}"#.utf8)),
