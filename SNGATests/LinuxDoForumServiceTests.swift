@@ -104,10 +104,82 @@ final class LinuxDoForumServiceTests: XCTestCase {
     /// 版面表只列顶层类别。子类别平铺出来，登录后会把每个类别的 Lv1 分区各列一遍，
     /// 看起来就是一份重复的列表（用户在应用里实际看到的）。
     func testForumListShowsOnlyTopLevelCategories() async throws {
-        let transport = RecordingHTTPTransport(responding: try fixture("linuxdo-categories"))
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: ["/categories.json": try fixture("linuxdo-categories")]
+        )
         let forums = try await makeService(transport).forums()
-        XCTAssertEqual(forums.map(\.name), ["最新", "开发调优", "资源荟萃", "搞七捻三"])
+        XCTAssertEqual(forums.map(\.name), ["话题", "开发调优", "资源荟萃", "搞七捻三"])
         XCTAssertFalse(forums.contains { $0.isSubforum })
+    }
+
+    /// 侧边栏标签的形状（2026-11-04 实测 `current_user.sidebar_tags`，名字和编号是站点公开的标签）。
+    static let sessionWithSidebarTags = """
+    {"current_user":{"id":800001,"username":"user1","sidebar_tags":[
+      {"id":1436,"name":"快问快答","slug":"1436-tag","description":null,"pm_only":false},
+      {"id":444,"name":"人工智能","slug":"444-tag","description":null,"pm_only":false},
+      {"id":10,"name":"抽奖","slug":"lottery","description":"","pm_only":false},
+      {"id":1531,"name":"原创","slug":"1531-tag","description":"高质量原创帖子可用。","pm_only":false},
+      {"id":31,"name":"公告","slug":"31-tag","description":"","pm_only":false},
+      {"id":1435,"name":"精华神帖","slug":"1435-tag","description":"","pm_only":false},
+      {"id":1534,"name":"集中帖","slug":"1534-tag","description":"专题集中帖。<br>集中讨论。","pm_only":false},
+      {"id":9,"name":"私信专用","slug":"pm","description":null,"pm_only":true}
+    ]}}
+    """
+
+    /// 和网页侧边栏同一个结构：社区里的「话题」、类别、标签；标签按拼音排，私信专用的不列。
+    func testForumListMirrorsTheWebSidebar() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/categories.json": try fixture("linuxdo-categories"),
+                "/session/current.json": Self.sessionWithSidebarTags
+            ]
+        )
+        let forums = try await makeService(transport).forums()
+        XCTAssertEqual(forums.first?.name, "话题")
+        XCTAssertEqual(forums.first?.category, "社区")
+        let tags = forums.filter { $0.category == "标签" }
+        XCTAssertEqual(tags.map(\.name), ["抽奖", "公告", "集中帖", "精华神帖", "快问快答", "人工智能", "原创"])
+        XCTAssertEqual(tags.first?.id, LinuxDoEndpoint.forumID(tagID: 10))
+        XCTAssertEqual(tags.first { $0.name == "集中帖" }?.subtitle, "专题集中帖。 集中讨论。")
+        // 用户自己设了侧边栏标签，就不必再去问站点的热门标签。
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/site.json" })
+    }
+
+    /// 用户没在侧边栏放过标签时，退到站点的热门标签 —— 网页侧边栏也这么退。
+    func testTagsFallBackToTheSiteTopTags() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/categories.json": try fixture("linuxdo-categories"),
+                "/session/current.json": #"{"current_user":{"id":800001,"sidebar_tags":[]}}"#,
+                "/site.json": #"{"navigation_menu_site_top_tags":[{"id":1461,"name":"纯水","slug":"1461-tag","pm_only":false}]}"#
+            ]
+        )
+        let forums = try await makeService(transport).forums()
+        XCTAssertEqual(forums.filter { $0.category == "标签" }.map(\.name), ["纯水"])
+    }
+
+    /// 标签的列表地址带 slug；话题形状和类别列表一样。
+    func testTagListUsesTheTagSlug() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/session/current.json": Self.sessionWithSidebarTags,
+                "/tag/": try fixture("linuxdo-category-latest")
+            ]
+        )
+        let page = try await makeService(transport).topics(
+            forumID: LinuxDoEndpoint.forumID(tagID: 1435), page: 2, sortOrder: .latestReply, featuredOnly: false
+        )
+        let url = try XCTUnwrap(transport.requests.last?.url)
+        XCTAssertEqual(url.path, "/tag/1435-tag/1435/l/latest.json")
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems, [URLQueryItem(name: "page", value: "1")])
+        XCTAssertEqual(page.forum?.name, "精华神帖")
+        XCTAssertFalse(page.topics.isEmpty)
+        // 标签和类别的编号是两套：标签不该被当成类别去要子类别。
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/categories.json" })
     }
 
     func testLatestDoesNotNeedTheCategoryTable() async throws {
@@ -119,7 +191,7 @@ final class LinuxDoForumServiceTests: XCTestCase {
             featuredOnly: false
         )
         XCTAssertEqual(transport.requests.map { $0.url?.absoluteString }, ["https://linux.do/latest.json"])
-        XCTAssertEqual(page.forum?.name, "最新")
+        XCTAssertEqual(page.forum?.name, "话题")
     }
 
     /// 站点不分页，适配器按 20 楼一页自己切：第一页走详情，第二页按编号批量取那 20 楼。
@@ -241,6 +313,8 @@ final class LinuxDoForumServiceTests: XCTestCase {
             .forum(LinuxDoEndpoint.forumID(categoryID: 94))
         )
         XCTAssertEqual(destination("https://linux.do/latest"), .forum(LinuxDoEndpoint.forumID(key: "latest")))
+        XCTAssertEqual(destination("https://linux.do/tag/lottery/10"), .forum(LinuxDoEndpoint.forumID(tagID: 10)))
+        XCTAssertEqual(destination("https://linux.do/tag/1435-tag/1435"), .forum(LinuxDoEndpoint.forumID(tagID: 1435)))
         // 用户地址里是名字，同步路径上翻译不了，交给浏览器。
         XCTAssertNil(destination("https://linux.do/u/user1"))
         XCTAssertNil(destination("https://example.com/t/topic/1"))

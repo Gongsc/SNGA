@@ -83,6 +83,48 @@ struct LinuxDoParser: Sendable {
         return name
     }
 
+    // MARK: - 标签
+
+    /// 侧边栏里的一个标签。和类别一样，slug 只用来拼地址。
+    struct Tag: Sendable, Hashable {
+        var forum: Forum
+        var slug: String
+    }
+
+    /// 用户自己在侧边栏里放的标签（`/session/current.json` 的 `current_user.sidebar_tags`）。
+    ///
+    /// 网页侧边栏「标签」那一段画的就是这一份（2026-11-04 实测，7 个），所以「全部版面」照它来，
+    /// 而不是去列站点几千个标签。没登录或没设时给空，由调用方退到站点的热门标签。
+    func sidebarTags(sessionJSON data: Data) throws -> [Tag] {
+        let response = try decode(SessionCurrentResponse.self, from: data, what: "侧边栏标签")
+        return Self.tags(response.currentUser?.sidebarTags ?? [])
+    }
+
+    /// 站点给的热门标签（`/site.json` 的 `navigation_menu_site_top_tags`）。
+    func siteTopTags(siteJSON data: Data) throws -> [Tag] {
+        Self.tags(try decode(SiteResponse.self, from: data, what: "站点标签").navigationMenuSiteTopTags ?? [])
+    }
+
+    /// 网页侧边栏按名字排（「抽奖、公告、集中帖、精华神帖、快问快答、人工智能、原创」——
+    /// 是拼音序，不是接口给的顺序），照着排。
+    private static func tags(_ items: [TagItem]) -> [Tag] {
+        let collation = Locale(identifier: "zh_Hans_CN")
+        return items
+            .filter { !($0.pmOnly ?? false) }
+            .sorted { $0.name.compare($1.name, locale: collation) == .orderedAscending }
+            .map { item in
+                Tag(
+                    forum: Forum(
+                        id: LinuxDoEndpoint.forumID(tagID: item.id),
+                        name: item.name,
+                        subtitle: Self.nonEmpty(item.description.map(Self.plainText)),
+                        category: "标签"
+                    ),
+                    slug: item.slug ?? String(item.id)
+                )
+            }
+    }
+
     // MARK: - 话题列表
 
     /// 一页话题列表。
@@ -408,8 +450,23 @@ struct LinuxDoParser: Sendable {
 
 /// 只声明用得到的字段。全部按 `convertFromSnakeCase` 解码。
 private struct SessionCurrentResponse: Decodable {
-    struct User: Decodable { var id: Int64 }
+    struct User: Decodable {
+        var id: Int64
+        var sidebarTags: [TagItem]?
+    }
     var currentUser: User?
+}
+
+private struct TagItem: Decodable {
+    var id: Int
+    var name: String
+    var slug: String?
+    var description: String?
+    var pmOnly: Bool?
+}
+
+private struct SiteResponse: Decodable {
+    var navigationMenuSiteTopTags: [TagItem]?
 }
 
 private struct CategoryListResponse: Decodable {

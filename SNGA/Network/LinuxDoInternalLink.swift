@@ -8,7 +8,8 @@ enum LinuxDoInternalLink {
     //   /t/{slug}/{id}/{楼层号}   → 话题的那一楼所在页
     //   /t/{id}                   → 话题（没有 slug 的写法站点也认）
     //   /c/{slug…}/{id}           → 类别（子类别是两段 slug）
-    //   /latest                   → 全站最新
+    //   /tag/{slug}/{id}          → 标签
+    //   /latest                   → 话题（全站按最后回复）
     //
     // 用户链接（`/u/{名字}`）**不认**：地址里是名字，应用按编号认人，而这里是同步的、
     // 发不了那次翻译请求。猜一个编号比打开浏览器更糟 —— 和 V2EX 那条同一个道理。
@@ -27,6 +28,10 @@ enum LinuxDoInternalLink {
         if let match = path.wholeMatch(of: /^\/c\/(?:[^\/]+\/)*?(\d+)(?:\/l\/[a-z]+)?\/?$/),
            let id = Int(match.1) {
             return .forum(LinuxDoEndpoint.forumID(categoryID: id))
+        }
+        if let match = path.wholeMatch(of: /^\/tag\/(?:[^\/]+\/)?(\d+)(?:\/l\/[a-z]+)?\/?$/),
+           let id = Int(match.1) {
+            return .forum(LinuxDoEndpoint.forumID(tagID: id))
         }
         if path == "/" || path.isEmpty || path == "/latest" {
             return .forum(LinuxDoEndpoint.forumID(key: LinuxDoEndpoint.latestKey))

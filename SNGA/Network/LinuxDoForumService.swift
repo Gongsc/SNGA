@@ -25,6 +25,8 @@ actor LinuxDoForumService: ForumService {
     private var cachedUserID: Int64?
     /// 类别表。拼列表地址要 slug 路径（省一次 302），挂子类别要知道谁是谁的父亲。
     private var categories: [LinuxDoParser.Category]?
+    /// 侧边栏标签。拼地址要 slug，列表页要知道标签叫什么。
+    private var tags: [LinuxDoParser.Tag]?
     /// 话题的楼层编号流。翻第二页起要靠它知道该取哪几楼；第一页一来就刷新。
     private var streams: [TopicID: (topic: Topic, stream: [Int64])] = [:]
 
@@ -85,22 +87,26 @@ actor LinuxDoForumService: ForumService {
         }
     }
 
-    /// 「全站最新」放在最前，然后是站点的**顶层**类别。
+    /// 和网页侧边栏同一个结构：「社区」里的「话题」、顶层「类别」、「标签」。
     ///
     /// 子类别不进这张表，只在打开父类别时出现在「子类别」那一格里。登录之后几乎每个
     /// 顶层类别底下都挂着一个「某某, Lv1」（信任等级 1 才看得到的分区，实测 14 个），
     /// 平铺出来就是把整张表又列了一遍 —— 用户看到的是一份重复的版面列表。
     /// 类别表本身仍然全量留着：站内链接直接跳进子类别时，拼地址要它的 slug。
+    ///
+    /// 标签取不到不挡类别：那一段少了，版面照样能逛。
     func forums() async throws -> [Forum] {
-        [Self.latestForum] + (try await loadCategories()).filter { $0.parentID == nil }.map(\.forum)
+        let categories = try await loadCategories().filter { $0.parentID == nil }.map(\.forum)
+        let tags = ((try? await loadTags()) ?? []).map(\.forum)
+        return [Self.latestForum] + categories + tags
     }
 
-    /// 应用补的入口，不是站点的类别。
+    /// 网页侧边栏「社区」那一段的第一项「话题」，地址是 `/latest`。不是站点的类别。
     static let latestForum = Forum(
         id: LinuxDoEndpoint.forumID(key: LinuxDoEndpoint.latestKey),
-        name: "最新",
+        name: "话题",
         subtitle: "全站按最后回复时间排列",
-        category: "站点"
+        category: "社区"
     )
 
     /// `featuredOnly` 无处可去：站点没有精华。界面上那个开关由 NGA 的能力驱动，收到了也只能忽略。
@@ -110,8 +116,32 @@ actor LinuxDoForumService: ForumService {
         sortOrder: TopicListSortOrder,
         featuredOnly: Bool
     ) async throws -> ForumPage {
+        if forumID.key == LinuxDoEndpoint.latestKey {
+            var result = try parser.topicList(
+                json: await client.get(LinuxDoEndpoint.topicList(
+                    forumID: forumID, slugPath: nil, page: page, sortOrder: sortOrder
+                )),
+                forumID: forumID,
+                page: page
+            )
+            result.forum = Self.latestForum
+            return result
+        }
+        // 标签：取不到标签表也照样发，没有 slug 就只用编号（站点也认）。
+        if LinuxDoEndpoint.tagID(of: forumID) != nil {
+            let entry = ((try? await loadTags()) ?? []).first { $0.forum.id == forumID }
+            var result = try parser.topicList(
+                json: await client.get(LinuxDoEndpoint.topicList(
+                    forumID: forumID, slugPath: entry?.slug, page: page, sortOrder: sortOrder
+                )),
+                forumID: forumID,
+                page: page
+            )
+            result.forum = entry?.forum
+            return result
+        }
         // 类别表取不到时不挡列表：没有 slug 就走纯编号的地址（多一次 302），没有子类别就不挂。
-        let table = forumID.key == LinuxDoEndpoint.latestKey ? [] : ((try? await loadCategories()) ?? [])
+        let table = (try? await loadCategories()) ?? []
         let entry = table.first { $0.forum.id == forumID }
         let url = LinuxDoEndpoint.topicList(
             forumID: forumID,
@@ -125,7 +155,7 @@ actor LinuxDoForumService: ForumService {
             page: page,
             subforums: table.filter { $0.parentID == forumID }.map(\.forum)
         )
-        result.forum = forumID.key == LinuxDoEndpoint.latestKey ? Self.latestForum : entry?.forum
+        result.forum = entry?.forum
         return result
     }
 
@@ -172,6 +202,18 @@ actor LinuxDoForumService: ForumService {
             hasMore: page < totalPages,
             totalPages: totalPages
         )
+    }
+
+    /// 先要用户自己放进侧边栏的那几个；一个都没有（没设过）就退到站点的热门标签 ——
+    /// 网页侧边栏也是这么退的。
+    private func loadTags() async throws -> [LinuxDoParser.Tag] {
+        if let tags { return tags }
+        var loaded = try parser.sidebarTags(sessionJSON: await client.get(LinuxDoEndpoint.sessionCurrent))
+        if loaded.isEmpty {
+            loaded = try parser.siteTopTags(siteJSON: await client.get(LinuxDoEndpoint.site))
+        }
+        tags = loaded
+        return loaded
     }
 
     private func loadCategories() async throws -> [LinuxDoParser.Category] {

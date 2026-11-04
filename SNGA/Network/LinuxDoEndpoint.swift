@@ -7,8 +7,25 @@ import Foundation
 enum LinuxDoEndpoint {
     static let base = ForumSiteDescriptor.linuxdo.baseURL
 
-    /// 「全站最新」那一条的键。它不是站点的类别，是应用补的入口（`/latest`）。
+    /// 「话题」那一条的键：网页侧边栏「社区」那一段的第一项，地址是 `/latest`。
+    /// 它不是站点的类别。
     static let latestKey = "latest"
+
+    /// 标签的键是 `tag:{编号}`。
+    ///
+    /// 加前缀是因为标签和类别的编号是两套，各自从小数起，迟早会撞 ——
+    /// 和 V2EX 首页分类的 `tab:` 同一个道理。
+    static let tagPrefix = "tag:"
+
+    static func forumID(tagID: Int) -> ForumID {
+        forumID(key: "\(tagPrefix)\(tagID)")
+    }
+
+    /// 这个版面是不是一个标签；是的话给出标签编号。
+    static func tagID(of forumID: ForumID) -> Int? {
+        guard forumID.key.hasPrefix(tagPrefix) else { return nil }
+        return Int(forumID.key.dropFirst(tagPrefix.count))
+    }
 
     /// 一页话题有多少楼。
     ///
@@ -58,6 +75,11 @@ enum LinuxDoEndpoint {
         if forumID.key == latestKey {
             return url("/latest.json", query: query)
         }
+        // 标签的地址是 `/tag/{slug}/{编号}`；没有 slug 时只给编号站点也认（实测）。
+        if let tagID = tagID(of: forumID) {
+            let path = slugPath.map { "\($0)/\(tagID)" } ?? String(tagID)
+            return url("/tag/\(path)/l/latest.json", query: query)
+        }
         let path = slugPath.map { "\($0)/\(forumID.key)" } ?? forumID.key
         return url("/c/\(path)/l/latest.json", query: query)
     }
@@ -97,6 +119,10 @@ enum LinuxDoEndpoint {
         }
         return URL(string: "/u/\(encoded).json", relativeTo: base)?.absoluteURL
     }
+
+    /// 站点资料。这里只用它的 `navigation_menu_site_top_tags`：用户没在侧边栏里挑过标签时，
+    /// 网页侧边栏「标签」那一段画的就是这一份。
+    static var site: URL { url("/site.json") }
 
     /// 当前会话是谁。cookie 和页面里都没有编号，只能问这里。
     static var sessionCurrent: URL { url("/session/current.json") }
