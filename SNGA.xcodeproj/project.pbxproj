@@ -214,6 +214,7 @@
 		D506C12DBFB018535C82577E /* ToolboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E950E4FF757AC971AA2BD8 /* ToolboxTests.swift */; };
 		D6548E6DD6C557AF1DEE0863 /* linuxdo-category-latest.json in Resources */ = {isa = PBXBuildFile; fileRef = 549F6E79C256592278D288C7 /* linuxdo-category-latest.json */; };
 		D6C8400A97948E2D75C10221 /* nodeseek-post-denied.html in Resources */ = {isa = PBXBuildFile; fileRef = 58EACEF890AD0B5EC8A84D59 /* nodeseek-post-denied.html */; };
+		DA19D19C49D4DF436B2BF349 /* LinuxDoReactionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F714CA332B8A7EFA2DB65B5 /* LinuxDoReactionsTests.swift */; };
 		DAA62276959C740AEA77C810 /* ThreadPageContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF41ABB8FA16D66B3B59DCF /* ThreadPageContentView.swift */; };
 		DABC72CA3199C357FEDC3F97 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56BF648EE4A2EC4050DC77E4 /* AppModel.swift */; };
 		DADF27C772BDC0F978E15B4A /* ToolboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FEE12E14EA03ECFAA2363B /* ToolboxStore.swift */; };
@@ -292,6 +293,7 @@
 		1BEB827026FFD0B58EEAD68F /* nodeseek-vote-info.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nodeseek-vote-info.json"; sourceTree = "<group>"; };
 		1D633B4306BF609269215986 /* RuntimeLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLogger.swift; sourceTree = "<group>"; };
 		1DD3F7C8C560E02FF50F2764 /* NodeSeekLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekLiveTests.swift; sourceTree = "<group>"; };
+		1F714CA332B8A7EFA2DB65B5 /* LinuxDoReactionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoReactionsTests.swift; sourceTree = "<group>"; };
 		1F8D981B85DF3E9ADB4D32E0 /* nodeseek-activities-discussions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nodeseek-activities-discussions.json"; sourceTree = "<group>"; };
 		1FC4FF366583963162137BA1 /* nodeseek-post-poll.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "nodeseek-post-poll.html"; sourceTree = "<group>"; };
 		202E80E5C9451451A3D63EBF /* LinuxDoMessagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoMessagesTests.swift; sourceTree = "<group>"; };
@@ -818,6 +820,7 @@
 				780A96A96372CC30032E3275 /* LinuxDoLiveTests.swift */,
 				202E80E5C9451451A3D63EBF /* LinuxDoMessagesTests.swift */,
 				31AA4FEA4C48F11C56D3D44D /* LinuxDoParserTests.swift */,
+				1F714CA332B8A7EFA2DB65B5 /* LinuxDoReactionsTests.swift */,
 				F354393C9451574BD8078C88 /* MarkdownRendererTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
 				D779BA7A11E46F7877EF6731 /* NodeSeekBlockListTests.swift */,
@@ -1198,6 +1201,7 @@
 				C83A4EE5283E21CB1C9E2581 /* LinuxDoLiveTests.swift in Sources */,
 				A6A7B4F5B407CE78ABF4835C /* LinuxDoMessagesTests.swift in Sources */,
 				2B4E6E428E7062E6448CC50A /* LinuxDoParserTests.swift in Sources */,
+				DA19D19C49D4DF436B2BF349 /* LinuxDoReactionsTests.swift in Sources */,
 				AA3BE3111F7AAC8FD770149F /* MarkdownRendererTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,
 				04593442441765134F06CF6E /* NodeSeekBlockListTests.swift in Sources */,

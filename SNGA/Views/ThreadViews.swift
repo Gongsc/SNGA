@@ -2135,6 +2135,7 @@ private struct PostReactionBar: View {
                 } label: {
                     countLabel(
                         systemImage: reaction.systemImage,
+                        emoji: reaction.emoji,
                         count: reaction.count,
                         isChosen: reaction.isChosen
                     )
@@ -2176,10 +2177,24 @@ private struct PostReactionBar: View {
         }
     }
 
-    private func countLabel(systemImage: String, count: Int?, isChosen: Bool) -> some View {
-        Label("\(count ?? 0)", systemImage: systemImage)
+    @ViewBuilder
+    private func countLabel(systemImage: String, emoji: String?, count: Int?, isChosen: Bool) -> some View {
+        if let emoji {
+            // 表情本身是彩色的，「点过没有」靠数字的颜色和一圈底色说。
+            HStack(spacing: 3) {
+                Text(emoji)
+                Text("\(count ?? 0)")
+                    .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+            }
             .font(fonts.threadContent.caption.monospacedDigit())
-            .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(isChosen ? theme.accentSoftColor : Color.clear, in: Capsule())
+        } else {
+            Label("\(count ?? 0)", systemImage: systemImage)
+                .font(fonts.threadContent.caption.monospacedDigit())
+                .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+        }
     }
 
     private func helpText(for reaction: PostReaction) -> String {
@@ -2188,9 +2203,10 @@ private struct PostReactionBar: View {
     }
 
     /// 免费的点赞走 vote 那条路 —— 适配器只让它从那儿过。
+    /// 站点说了不走赞的（`routesToVote == false`，Linux.do 的表情回应），哪怕免费也走表态那条路。
     private func submit(_ reaction: PostReaction) {
         Task {
-            if reaction.cost == nil {
+            if reaction.cost == nil, reaction.routesToVote != false {
                 await model.thread.vote(on: post.id, direction: .up)
             } else {
                 await model.thread.submitReaction(on: post, reactionID: reaction.id)

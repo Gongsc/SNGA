@@ -52,7 +52,7 @@ final class LinuxDoForumServiceTests: XCTestCase {
         let service = makeService(RecordingHTTPTransport(responding: "{}"))
         XCTAssertEqual(
             service.capabilities,
-            [.subforums, .userActivities, .globalSearch, .privateMessages, .notifications]
+            [.subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote]
         )
     }
 

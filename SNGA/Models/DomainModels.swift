@@ -569,6 +569,19 @@ struct PostReaction: Identifiable, Hashable, Codable, Sendable {
     var cost: String? = nil
     /// 做了就收不回来。
     var isIrreversible: Bool = false
+    /// 用表情字符画，而不是系统图标。Linux.do 的回应是 😆、👏 这些，SF Symbols 里没有对应物。
+    /// 为空时照旧用 `systemImage`。
+    var emoji: String? = nil
+    /// 点下去走哪条路。
+    ///
+    /// 为空（老规矩）：不花钱的走「赞」（`ForumService.vote`），花钱的先确认再走
+    /// `submitPostReaction` —— NodeSeek 和 V2EX 一直是这样。
+    /// `false`：不花钱，但也**不是赞**，直接走 `submitPostReaction`。Linux.do 的表情回应就是
+    /// 这种：照老规矩，点 😆 会被当成点赞发出去。
+    ///
+    /// 做成可选而不是默认 `true` 的布尔：`Post` 是 `Codable` 的，非可选的新字段会让
+    /// 旧数据解码失败。
+    var routesToVote: Bool? = nil
 }
 
 /// 用户资料里的一行。

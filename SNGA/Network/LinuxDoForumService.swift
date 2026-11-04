@@ -18,7 +18,7 @@ actor LinuxDoForumService: ForumService {
     /// 投票、私信、提醒、书签（`.topicFavorites`，不分文件夹）、用户动态、登录后的搜索。
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
     nonisolated let capabilities: ForumCapabilities = [
-        .subforums, .userActivities, .globalSearch, .privateMessages, .notifications
+        .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote
     ]
 
     private let client: LinuxDoNetworkClient
@@ -361,6 +361,47 @@ actor LinuxDoForumService: ForumService {
         _ = try await client.send("PUT", LinuxDoEndpoint.markNotificationsRead)
     }
 
+    // MARK: - 表态
+
+    /// 赞。只有一个方向 —— 站点没有踩（`.postDownvote` 关着）。
+    ///
+    /// 楼层上画的是回应那一排（❤️ 走 `submitPostReaction`），这条路只在一层楼没有回应
+    /// 数据时才会被用到；照样接上，不让它报「还没做」。
+    ///
+    /// 撤赞在点过一段时间之后站点会拒（「您无法再移除您自己的赞了」），那句话原样报出来。
+    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection, isUndo: Bool) async throws -> PostVoteState {
+        guard direction == .up else {
+            throw ForumServiceError.unsupported("LINUX DO 没有踩")
+        }
+        let data: Data
+        if isUndo {
+            data = try await client.send("DELETE", LinuxDoEndpoint.undoPostAction(postID: postID))
+        } else {
+            data = try await client.send("POST", LinuxDoEndpoint.postActions, form: [
+                ("id", String(postID.rawValue)),
+                ("post_action_type_id", "2"),
+                ("flag_topic", "false")
+            ])
+        }
+        // 答回来的是那一楼。读不出新数时不当失败：请求已经被站点收下了，
+        // 报「失败」会让人再点一次。交给调用方保留它先改上去的数。
+        guard let state = try? parser.voteState(json: data) else {
+            throw ForumServiceError.ambiguousWrite
+        }
+        return state
+    }
+
+    /// 回应：加和撤是同一个请求，站点按「我现在点没点过」自己翻转。
+    ///
+    /// 返回 nil：调用方本来就会整页刷新，让站点的数说了算。
+    func submitPostReaction(topicID: TopicID, postID: PostID, reactionID: String) async throws -> PostVoteState? {
+        guard LinuxDoParser.reactionCatalog.contains(where: { $0.id == reactionID }) else {
+            throw ForumServiceError.unsupported("LINUX DO 没有这种回应")
+        }
+        _ = try await client.send("PUT", LinuxDoEndpoint.toggleReaction(postID: postID, reactionID: reactionID))
+        return nil
+    }
+
     // MARK: - 还没做的
 
     func submitReply(topicID: TopicID, submission: ReplySubmission) async throws -> PostID? {
@@ -368,9 +409,6 @@ actor LinuxDoForumService: ForumService {
         throw notYet("回复")
     }
 
-    func vote(topicID: TopicID, postID: PostID, direction: PostVoteDirection, isUndo: Bool) async throws -> PostVoteState {
-        throw notYet("点赞")
-    }
 
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
         throw notYet("投票")

@@ -245,8 +245,72 @@ struct LinuxDoParser: Sendable {
             html: PostDocument.html(body: body, extraCSS: PostDocument.markdownStyleSheet),
             nativeContent: try Self.nativeContent(body),
             // 赞是 `actions_summary` 里编号 2 的那一项（`site.json` 的 `post_action_types`，实测）。
-            // 点赞还没接（`.postVote` 关着），这里只把数带回来。
-            upvoteCount: item.actionsSummary?.first { $0.id == 2 }?.count ?? 0
+            // 装了回应插件之后它是**所有回应加起来**的数（实测：86 个 ❤️ + 22 个别的 = 108），
+            // 所以界面上画的是下面那一排各自的数，不画这一个。
+            upvoteCount: item.actionsSummary?.first { $0.id == 2 }?.count ?? 0,
+            userVote: Self.hasLiked(item) ? .up : nil,
+            reactions: Self.reactions(of: item)
+        )
+    }
+
+    /// 站点开放的回应（话题详情的 `valid_reactions`，2026-11-04 实测这 10 个）。
+    ///
+    /// 表情字符和叫法是应用这边配的：站点只给名字（`laughing`）。最后两个是站点自定义的
+    /// 贴吧、B 站表情图，没有对应的字符，退回一个系统图标。`distorted_face` 是新近才进
+    /// Unicode 的，系统字体未必画得出，也退回图标。
+    static let reactionCatalog: [(id: String, title: String, emoji: String?)] = [
+        ("heart", "赞", "❤️"),
+        ("+1", "赞同", "👍"),
+        ("laughing", "大笑", "😆"),
+        ("open_mouth", "惊讶", "😮"),
+        ("clap", "鼓掌", "👏"),
+        ("confetti_ball", "庆祝", "🎊"),
+        ("hugs", "拥抱", "🤗"),
+        ("distorted_face", "无语", nil),
+        ("tieba_087", "贴吧表情", nil),
+        ("bili_057", "B 站表情", nil)
+    ]
+
+    /// 楼层下那一排回应：❤️ 总是在（它就是这个站的「赞」），其余只列有人点过的和我点过的 ——
+    /// 网页上也是只摆有数的，再加一个选择器。十个全摆出来，一层楼的右下角就挤满了。
+    ///
+    /// 全部走回应插件的切换接口（`routesToVote: false`），包括 ❤️：插件把 ❤️ 当成主回应，
+    /// 和核心的「赞」是一回事。点完整页刷新，数以站点为准。
+    private static func reactions(of item: PostItem) -> [PostReaction] {
+        let counts = Dictionary(
+            (item.reactions ?? []).map { ($0.id, $0.count ?? 0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let mine = item.currentUserReaction?.id
+        return reactionCatalog.compactMap { entry in
+            let count = counts[entry.id] ?? 0
+            let isMine = mine == entry.id || (entry.id == "heart" && item.currentUserUsedMainReaction == true)
+            guard entry.id == "heart" || count > 0 || isMine else { return nil }
+            return PostReaction(
+                id: entry.id,
+                title: entry.title,
+                systemImage: entry.id == "heart" ? "heart" : "face.smiling",
+                count: count,
+                isChosen: isMine,
+                emoji: entry.emoji,
+                routesToVote: false
+            )
+        }
+    }
+
+    /// 我点过赞没有：核心的赞（`actions_summary` 里 `acted`）或者回应插件的主回应。
+    private static func hasLiked(_ item: PostItem) -> Bool {
+        item.actionsSummary?.contains { $0.id == 2 && $0.acted == true } == true
+            || item.currentUserUsedMainReaction == true
+    }
+
+    /// 点赞 / 撤赞之后站点答回来的那一楼 → 新的赞数。
+    func voteState(json data: Data) throws -> PostVoteState {
+        let item = try decode(PostItem.self, from: data, what: "点赞结果")
+        return PostVoteState(
+            upvoteCount: item.actionsSummary?.first { $0.id == 2 }?.count ?? 0,
+            downvoteCount: 0,
+            userVote: Self.hasLiked(item) ? .up : nil
         )
     }
 
@@ -726,7 +790,18 @@ private struct PostItem: Decodable {
     struct Action: Decodable {
         var id: Int
         var count: Int?
+        var acted: Bool?
     }
+    struct Reaction: Decodable {
+        var id: String
+        var count: Int?
+    }
+    struct CurrentReaction: Decodable {
+        var id: String
+    }
+    var reactions: [Reaction]?
+    var currentUserReaction: CurrentReaction?
+    var currentUserUsedMainReaction: Bool?
     var id: Int64
     var username: String
     var avatarTemplate: String?

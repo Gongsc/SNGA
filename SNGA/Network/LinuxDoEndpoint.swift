@@ -206,6 +206,22 @@ enum LinuxDoEndpoint {
     /// `reply_to_post_number`（站点前端的字段说明里就是这三样）。
     static var createPost: URL { url("/posts.json") }
 
+    // MARK: - 表态
+
+    /// 赞：`POST /post_actions`（`id` + `post_action_type_id=2`），撤是
+    /// `DELETE /post_actions/{楼层编号}?post_action_type_id=2`。两样都抄自站点前端的
+    /// `act` / `undo`（2026-11-04 读的线上代码）。
+    static var postActions: URL { url("/post_actions") }
+
+    static func undoPostAction(postID: PostID) -> URL {
+        url("/post_actions/\(postID.rawValue)", query: [URLQueryItem(name: "post_action_type_id", value: "2")])
+    }
+
+    /// 回应：同一个地址既加也撤（站点前端的 `toggle`，`PUT`）。
+    static func toggleReaction(postID: PostID, reactionID: String) -> URL {
+        url("/discourse-reactions/posts/\(postID.rawValue)/custom-reactions/\(reactionID)/toggle.json")
+    }
+
     /// 当前会话是谁。cookie 和页面里都没有编号，只能问这里。
     static var sessionCurrent: URL { url("/session/current.json") }
 
