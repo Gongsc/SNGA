@@ -381,7 +381,10 @@ enum PostContentBuilder {
         guard let source = try? element.attr("src"), !source.isEmpty else {
             return nil
         }
+        // `emoji` 是 Discourse（Linux.do）给表情图的类名，`:名字:` 渲染出来就是它。
+        // 不认的话每个表情都会被当成配图，自成一块、撑满一行。
         let isEmoticon = element.hasClass("nga-smile")
+            || element.hasClass("emoji")
             || source.localizedCaseInsensitiveContains("/ngabbs/post/smile/")
         guard isEmoticon, let url = URL(string: source) else { return nil }
         return url

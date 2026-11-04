@@ -142,7 +142,7 @@ final class LinuxDoLiveTests: XCTestCase {
         let headers = response.allHeaderFields.reduce(into: [String: String]()) {
             $0[String(describing: $1.key)] = String(describing: $1.value)
         }
-        let challenged = NodeSeekNetworkClient.isChallenge(
+        let challenged = CloudflareChallenge.isChallenge(
             status: response.statusCode, headers: headers, body: data, expectedJSON: true
         )
         // 只打路径（话题编号是公开的）、状态码和字节数，不打任何正文。

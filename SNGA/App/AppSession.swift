@@ -175,6 +175,14 @@ final class AppSession {
                 userAgent: userAgent,
                 cookieDidChange: persist
             )
+        case .linuxdo:
+            return LinuxDoForumService(
+                accountID: accountID,
+                cookies: cookies,
+                transport: transport,
+                userAgent: userAgent,
+                cookieDidChange: persist
+            )
         case .nga:
             return NGAForumService(
                 accountID: accountID,

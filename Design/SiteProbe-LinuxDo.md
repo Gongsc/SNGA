@@ -236,7 +236,10 @@ Discourse 自己有一层按 IP / 按用户的限流（默认匿名 10 秒 50 �
 1. ~~**先验生死线**~~ **已过**（第一节第 3 条）。原计划是写一个 `LinuxDoLiveTests.manualLive*`（手动用例，不以 `test` 开头），
    在应用里用 WebView 登录拿到的 cookie + 真实 UA，`URLSession` 请求一次 `/t/{id}.json`。
    过不去就先停 —— 那意味着要么走 User API Key，要么整个话题页只能 `WKWebView` 承载，工作量完全是另一个量级。
-2. 过得去：`ForumSite.linuxdo` + descriptor（`.webView` UA、`_t`、`/login`）+ 只读三件套
+2. **已做（只读骨架）**：类别、列表、话题（自己切页）、资料（`/user-cards.json` 按编号查，
+   不必翻译用户名）、「我是谁」。登录走新加的 `SiteUserIDSource.sessionQuery`。
+   夹具 `SNGATests/Fixtures/linuxdo-*.json` 是 2026-11-04 登录后抓的，用户名、用户编号和
+   话题标题这类自由文本已替换。原计划：`ForumSite.linuxdo` + descriptor（`.webView` UA、`_t`、`/login`）+ 只读三件套
    （`forums` / `topics` / `threadPage` / `profile`），能力位只点亮 `.subforums`。
 3. 正文清洗：对着探针拿到形状后抓真实楼层做夹具，逐个认 `cooked` 里的节点。
 4. 写操作和消息：回复、点赞、书签、通知、私信，每样配假传输层断言，**不往真站发测试回复**。

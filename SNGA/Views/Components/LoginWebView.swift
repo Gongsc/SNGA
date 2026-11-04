@@ -245,12 +245,17 @@ struct LoginWebView: NSViewRepresentable {
                         guard let text = value as? String, let uid = Int64(text) else { return }
                         self.finish(uid: uid, cookies: siteCookies)
                     }
+
+                case .sessionQuery:
+                    // 编号哪儿都读不到，只能登录之后拿这份会话去问。会话 cookie 到手就交差，
+                    // `AppModel.addAccount` 见 `uid` 为 nil 会去问 `currentUserID()`。
+                    self.finish(uid: nil, cookies: siteCookies)
                 }
             }
         }
 
         /// 抓取完成：停掉轮询，把结果交出去。只走一次。
-        private func finish(uid: Int64, cookies: [SessionCookie]) {
+        private func finish(uid: Int64?, cookies: [SessionCookie]) {
             guard !completed else { return }
             completed = true
             stopMonitoringCookies()
