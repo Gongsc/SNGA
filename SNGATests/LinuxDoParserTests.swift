@@ -226,6 +226,25 @@ final class LinuxDoParserTests: XCTestCase {
         )
     }
 
+    /// 登录后看别人的卡片，同一个人在 `users` 里出现两次，精简版排在前面（实测）。
+    /// 只认第一条的话，加入时间、头衔、群组全是空的。
+    func testDuplicateCardEntriesAreMergedNotTruncated() throws {
+        let json = """
+        {"users":[
+          {"id":153036,"username":"user9","name":"","avatar_template":"/user_avatar/linux.do/user9/{size}/1_2.png",
+           "trust_level":3,"animated_avatar":null},
+          {"id":153036,"username":"user9","name":"","avatar_template":"/user_avatar/linux.do/user9/{size}/1_2.png",
+           "trust_level":3,"created_at":"2026-07-27T12:46:45.235Z","title":"示例","primary_group_name":"g-premium",
+           "last_seen_at":"2026-11-04T08:40:00.000Z","badge_count":5}
+        ]}
+        """
+        let profile = try parser.profile(json: Data(json.utf8), uid: 153_036)
+        XCTAssertNotNil(profile.registeredAt, "加入时间在第二条里")
+        XCTAssertEqual(profile.title, "示例")
+        XCTAssertEqual(profile.userGroup, "g-premium")
+        XCTAssertEqual(profile.level, 3)
+    }
+
     func testCurrentUserIsReadFromTheSessionEndpoint() throws {
         XCTAssertEqual(
             try parser.currentUserID(json: Data(#"{"current_user":{"id":800001,"username":"user1"}}"#.utf8)),
@@ -241,5 +260,8 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertNotNil(LinuxDoParser.date("2026-11-01T02:17:46.149Z"))
         XCTAssertNotNil(LinuxDoParser.date("2026-11-01T02:17:46Z"))
         XCTAssertNil(LinuxDoParser.date("昨天"))
+        // 应用里显示成「—」的两个真实用户的加入时间。
+        XCTAssertNotNil(LinuxDoParser.date("2026-07-27T12:46:45.235Z"))
+        XCTAssertNotNil(LinuxDoParser.date("2026-09-29T08:41:27.606Z"))
     }
 }

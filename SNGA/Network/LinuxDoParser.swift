@@ -206,20 +206,34 @@ struct LinuxDoParser: Sendable {
     // MARK: - 用户
 
     /// `/user-cards.json?user_ids={uid}` → 资料。
+    ///
+    /// **同一个人可能在 `users` 里出现不止一次。** 登录后看别人的卡片时（2026-11-04 实测），
+    /// 数组里除了那份完整的卡片，还有一份只有六个字段的精简版
+    /// （`id`、`username`、`name`、`avatar_template`、`trust_level`、`animated_avatar`），
+    /// 而且排在前面。按「第一个编号对得上的」去取，拿到的就是精简版：信任等级有，
+    /// 加入时间、头衔、群组全空 —— 资料页上「加入时间」一直是「—」就是这么来的。
+    /// 浏览器里试的那几次数组里只有一条，所以对着浏览器查不出来。
+    ///
+    /// 所以把编号相同的几条并起来，每个字段取第一份有值的，不挑哪一条是「正本」。
     func profile(json data: Data, uid: Int64) throws -> Profile {
         let response = try decode(UserCardsResponse.self, from: data, what: "用户资料")
-        guard let user = response.users.first(where: { $0.id == uid }) ?? response.users.first else {
+        var entries = response.users.filter { $0.id == uid }
+        if entries.isEmpty, let first = response.users.first { entries = [first] }
+        guard let user = entries.first else {
             throw ForumServiceError.restricted("找不到这个用户")
+        }
+        func merged<T>(_ field: (UserCardsResponse.CardUser) -> T?) -> T? {
+            entries.lazy.compactMap(field).first
         }
         return Profile(
             uid: user.id,
             displayName: user.username,
-            avatarURL: LinuxDoEndpoint.avatarURL(template: user.avatarTemplate, size: 240),
-            userGroup: Self.nonEmpty(user.primaryGroupName),
-            level: user.trustLevel,
-            title: Self.nonEmpty(user.title),
-            registeredAt: Self.date(user.createdAt),
-            signature: Self.nonEmpty(user.bioExcerpt.map(Self.plainText))
+            avatarURL: LinuxDoEndpoint.avatarURL(template: merged(\.avatarTemplate), size: 240),
+            userGroup: Self.nonEmpty(merged(\.primaryGroupName)),
+            level: merged(\.trustLevel),
+            title: Self.nonEmpty(merged(\.title)),
+            registeredAt: Self.date(merged(\.createdAt)),
+            signature: Self.nonEmpty(merged(\.bioExcerpt).map(Self.plainText))
         )
     }
 

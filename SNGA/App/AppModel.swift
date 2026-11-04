@@ -518,6 +518,12 @@ final class AppModel {
             }
         } catch {
             // 用户中心保留楼层或账号中已有的资料，不因资料接口失败阻断浏览。
+            // 但要留一行日志：不报错也不留痕时，界面上只是少了几行（加入时间变成「—」），
+            // 谁也看不出是资料接口没拿到 —— Linux.do 接入时就是这样查了一轮。
+            await RuntimeLogger.shared.log(
+                category: "profile",
+                "\(service.site.displayName) 资料 \(uid) 取不到：\(error.localizedDescription)"
+            )
         }
         session.endLoading()
         guard session.activeAccountID == requestAccountID,
@@ -632,6 +638,9 @@ final class AppModel {
     }
 
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
+        // 门控挡在调用层：打开用户中心会主动来拉这一页，光把「发布记录」那块藏起来，
+        // 请求照样发，不支持的站点（Linux.do 现在就是）每打开一次资料就弹一句「还没做」。
+        guard session.supports(.userActivities) else { return }
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let ticket = userActivityRequests.begin()

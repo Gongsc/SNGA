@@ -34,7 +34,9 @@ struct UserCenterView: View {
 
                         basicInformation
                         reputationContent
-                        activityContent
+                        if model.session.supports(.userActivities) {
+                            activityContent
+                        }
                     }
                     .padding(24)
                 }
