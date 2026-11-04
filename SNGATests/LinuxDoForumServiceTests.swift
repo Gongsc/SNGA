@@ -184,6 +184,40 @@ final class LinuxDoForumServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - 资料
+
+    /// 卡片接口只用来把编号换成用户名，完整资料从 `/u/{用户名}.json` 取。
+    func testProfileResolvesTheUsernameThenLoadsTheFullProfile() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/user-cards.json": try fixture("linuxdo-user-card"),
+                "/u/": LinuxDoParserTests.fullProfileJSON
+            ]
+        )
+        let profile = try await makeService(transport).profile(uid: 800_030)
+
+        XCTAssertEqual(transport.requests.map { $0.url?.path }, ["/user-cards.json", "/u/user31.json"])
+        XCTAssertEqual(profile.profileViewCount, 392_093)
+        XCTAssertNotNil(profile.registeredAt)
+    }
+
+    /// 完整资料取不到时退回卡片那份，而不是让整页资料打不开。
+    func testProfileFallsBackToTheCardWhenTheFullProfileFails() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/user-cards.json": try fixture("linuxdo-user-card"),
+                // 不是 JSON 对象里的 `user`，解析会失败。
+                "/u/": #"{"errors":["示例"]}"#
+            ]
+        )
+        let profile = try await makeService(transport).profile(uid: 800_030)
+        XCTAssertEqual(profile.uid, 800_030)
+        XCTAssertEqual(profile.level, 4)
+        XCTAssertNil(profile.profileViewCount)
+    }
+
     // MARK: - 站内链接
 
     func testInternalLinks() {

@@ -245,6 +245,46 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertEqual(profile.level, 3)
     }
 
+    /// `/u/{用户名}.json` 的形状（2026-11-04 在浏览器里核过字段名和类型，值是编的）。
+    /// 资料在 `user` 里；同级还有一份 `users` 精简列表，不该被它带偏。
+    static let fullProfileJSON = """
+    {"users":[{"id":800030,"username":"user31","name":"","avatar_template":"/user_avatar/linux.do/user31/{size}/1_2.png","trust_level":4}],
+     "user":{"id":800030,"username":"user31","name":"用户31","avatar_template":"/user_avatar/linux.do/user31/{size}/1_2.png",
+       "created_at":"2024-01-17T08:26:33.362Z","last_seen_at":"2026-11-04T08:40:00.000Z","last_posted_at":"2026-11-04T08:00:00.000Z",
+       "trust_level":4,"title":"示例","primary_group_name":"g-premium","location":"示例","bio_excerpt":"<p>示例</p>",
+       "total_followers":12704,"total_following":3,"profile_view_count":392093,"gamification_score":800844,"time_read":11606857,
+       "invited_by":null}}
+    """
+
+    func testFullProfileCarriesTheProfilePageStats() throws {
+        let profile = try parser.fullProfile(json: Data(Self.fullProfileJSON.utf8))
+        XCTAssertEqual(profile.uid, 800_030)
+        XCTAssertEqual(profile.displayName, "user31")
+        XCTAssertNotNil(profile.registeredAt)
+        XCTAssertNotNil(profile.lastSeenAt)
+        XCTAssertNotNil(profile.lastPostedAt)
+        XCTAssertEqual(profile.profileViewCount, 392_093)
+        XCTAssertEqual(profile.points, 800_844)
+        XCTAssertEqual(profile.followerCount, 12_704)
+        XCTAssertEqual(profile.followingCount, 3)
+        XCTAssertEqual(profile.readingSeconds, 11_606_857)
+        XCTAssertEqual(profile.level, 4)
+        XCTAssertEqual(profile.location, "示例")
+        XCTAssertEqual(profile.signature, "示例", "简介摘录是 HTML，资料页那一栏要纯文本")
+    }
+
+    /// 资料页「基础信息」按站点自己那一排的叫法来。
+    func testProfileFieldsUseTheSiteOwnWording() throws {
+        let profile = try parser.fullProfile(json: Data(Self.fullProfileJSON.utf8))
+        let fields = ForumSiteDescriptor.linuxdo.profileFields(for: profile)
+        let titles = fields.map(\.title)
+        XCTAssertEqual(Array(titles.prefix(7)), ["加入日期", "最后一个帖子", "最后活动", "浏览量", "信任级别", "关注者", "正在关注"])
+        XCTAssertEqual(fields.first { $0.title == "信任级别" }?.value, "领导者")
+        XCTAssertEqual(fields.first { $0.title == "点数" }?.value, "800844")
+        XCTAssertEqual(fields.first { $0.title == "阅读时间" }?.value, "134 天")
+        XCTAssertNotEqual(fields.first { $0.title == "加入日期" }?.value, "—")
+    }
+
     func testCurrentUserIsReadFromTheSessionEndpoint() throws {
         XCTAssertEqual(
             try parser.currentUserID(json: Data(#"{"current_user":{"id":800001,"username":"user1"}}"#.utf8)),

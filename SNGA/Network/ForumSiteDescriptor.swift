@@ -511,19 +511,40 @@ struct ForumSiteDescriptor: Sendable {
                 }
             ].compactMap { $0 }
         case .linuxdo:
-            // 只放卡片接口（`/user-cards.json`）里有、且站点自己会画的几样。
-            // `location` 是会员自己填的一行字，不是 IP 属地，不放。
+            // 顺序和叫法照站点资料页头上那一排：加入日期、最后一个帖子、最后活动、浏览量、
+            // 信任级别、关注者、点数。站点不给的那几行不画。
+            // 所在地是会员自己填的一行字，不是 IP 属地 —— 和 V2EX 一样标「所在地」。
             return [
-                ProfileStat(title: "加入时间", value: Self.formatted(profile.registeredAt)),
-                profile.level.map { ProfileStat(title: "信任等级", value: "\($0) 级") },
+                ProfileStat(title: "加入日期", value: Self.formatted(profile.registeredAt)),
+                profile.lastPostedAt.map { ProfileStat(title: "最后一个帖子", value: Self.formatted($0)) },
+                profile.lastSeenAt.map { ProfileStat(title: "最后活动", value: Self.formatted($0)) },
+                number("浏览量", profile.profileViewCount),
+                profile.level.map {
+                    ProfileStat(title: "信任级别", value: LinuxDoParser.trustLevelTitle($0))
+                },
+                number("关注者", profile.followerCount),
+                number("正在关注", profile.followingCount),
+                number("点数", profile.points),
+                profile.readingSeconds.map { ProfileStat(title: "阅读时间", value: Self.readingTime($0)) },
                 profile.title.flatMap {
                     $0.isEmpty ? nil : ProfileStat(title: "头衔", value: $0)
                 },
                 profile.userGroup.flatMap {
                     $0.isEmpty ? nil : ProfileStat(title: "主要群组", value: $0)
+                },
+                profile.location.flatMap {
+                    $0.isEmpty ? nil : ProfileStat(title: "所在地", value: $0)
                 }
             ].compactMap { $0 }
         }
+    }
+
+    /// 阅读时长：站点给秒数，资料页上写「12 小时」「3 天」这种粗粒度的说法，照着来。
+    static func readingTime(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        if hours >= 48 { return "\(hours / 24) 天" }
+        if hours >= 1 { return "\(hours) 小时" }
+        return "\(max(0, seconds / 60)) 分钟"
     }
 
     /// 注册到今天有多少天。不足一天算一天 —— 站点显示的就是这个意思。

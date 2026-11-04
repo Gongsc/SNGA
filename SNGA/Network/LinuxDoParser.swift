@@ -205,16 +205,15 @@ struct LinuxDoParser: Sendable {
 
     // MARK: - 用户
 
-    /// `/user-cards.json?user_ids={uid}` → 资料。
+    /// `/user-cards.json?user_ids={uid}` → 资料（简版）。
     ///
-    /// **同一个人可能在 `users` 里出现不止一次。** 登录后看别人的卡片时（2026-11-04 实测），
-    /// 数组里除了那份完整的卡片，还有一份只有六个字段的精简版
-    /// （`id`、`username`、`name`、`avatar_template`、`trust_level`、`animated_avatar`），
-    /// 而且排在前面。按「第一个编号对得上的」去取，拿到的就是精简版：信任等级有，
-    /// 加入时间、头衔、群组全空 —— 资料页上「加入时间」一直是「—」就是这么来的。
-    /// 浏览器里试的那几次数组里只有一条，所以对着浏览器查不出来。
+    /// **它只够把编号换成用户名。** 应用登录后看别人时，这里给的那一条只有六个字段
+    /// （`id`、`username`、`name`、`avatar_template`、`trust_level`、`animated_avatar`，
+    /// 2026-11-04 在应用里实测）—— 没有加入时间、头衔、群组。同一个请求在浏览器里却是全的，
+    /// 差在哪没查清。完整资料改走 `/u/{用户名}.json`（`fullProfile`），这一份只当退路。
     ///
-    /// 所以把编号相同的几条并起来，每个字段取第一份有值的，不挑哪一条是「正本」。
+    /// 编号相同的几条并起来取，每个字段取第一份有值的：站点的 `users` 是个「本次出现过的人」
+    /// 的表，同一个人以不同详略出现几次并不稀奇，挑第一条是在赌顺序。
     func profile(json data: Data, uid: Int64) throws -> Profile {
         let response = try decode(UserCardsResponse.self, from: data, what: "用户资料")
         var entries = response.users.filter { $0.id == uid }
@@ -235,6 +234,42 @@ struct LinuxDoParser: Sendable {
             registeredAt: Self.date(merged(\.createdAt)),
             signature: Self.nonEmpty(merged(\.bioExcerpt).map(Self.plainText))
         )
+    }
+
+    /// `/u/{用户名}.json` → 完整资料。资料在 `user` 里；同级的 `users` 是精简列表，不看。
+    func fullProfile(json data: Data) throws -> Profile {
+        let user = try decode(UserProfileResponse.self, from: data, what: "用户资料").user
+        return Profile(
+            uid: user.id,
+            displayName: user.username,
+            avatarURL: LinuxDoEndpoint.avatarURL(template: user.avatarTemplate, size: 240),
+            userGroup: Self.nonEmpty(user.primaryGroupName),
+            level: user.trustLevel,
+            title: Self.nonEmpty(user.title),
+            registeredAt: Self.date(user.createdAt),
+            // 会员自己填的一行字（「咸阳」），不是 IP 属地。界面上标「所在地」。
+            location: Self.nonEmpty(user.location),
+            signature: Self.nonEmpty(user.bioExcerpt.map(Self.plainText)),
+            followerCount: user.totalFollowers,
+            followingCount: user.totalFollowing,
+            lastSeenAt: Self.date(user.lastSeenAt),
+            lastPostedAt: Self.date(user.lastPostedAt),
+            profileViewCount: user.profileViewCount,
+            points: user.gamificationScore,
+            readingSeconds: user.timeRead
+        )
+    }
+
+    /// 信任等级在站点上的叫法（Discourse 的中文语言包，资料页上写的就是这些）。
+    static func trustLevelTitle(_ level: Int) -> String {
+        switch level {
+        case 0: "新用户"
+        case 1: "基本用户"
+        case 2: "成员"
+        case 3: "活跃用户"
+        case 4: "领导者"
+        default: "\(level) 级"
+        }
     }
 
     // MARK: - 正文清洗
@@ -467,6 +502,28 @@ private struct TopicDetailResponse: Decodable {
 private struct PostsResponse: Decodable {
     struct PostStream: Decodable { var posts: [PostItem] }
     var postStream: PostStream
+}
+
+private struct UserProfileResponse: Decodable {
+    struct FullUser: Decodable {
+        var id: Int64
+        var username: String
+        var avatarTemplate: String?
+        var createdAt: String?
+        var lastSeenAt: String?
+        var lastPostedAt: String?
+        var trustLevel: Int?
+        var title: String?
+        var primaryGroupName: String?
+        var location: String?
+        var bioExcerpt: String?
+        var totalFollowers: Int?
+        var totalFollowing: Int?
+        var profileViewCount: Int?
+        var gamificationScore: Int?
+        var timeRead: Int?
+    }
+    var user: FullUser
 }
 
 private struct UserCardsResponse: Decodable {

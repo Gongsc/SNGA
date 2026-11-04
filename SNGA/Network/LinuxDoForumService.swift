@@ -57,8 +57,32 @@ actor LinuxDoForumService: ForumService {
         return uid
     }
 
+    /// 两步：卡片接口把编号换成用户名，再拿用户名取完整资料。
+    ///
+    /// 应用按编号认人，完整资料的地址却要用户名；卡片接口收编号，但在应用里看别人时只给
+    /// 六个字段（见 `LinuxDoParser.profile`）。第二步取不到时退回第一步那份 —— 少几行，
+    /// 总比整页资料打不开强。取消照常往外抛，不当成失败吞掉。
     func profile(uid: Int64) async throws -> Profile {
-        try parser.profile(json: await client.get(LinuxDoEndpoint.userCards(uids: [uid])), uid: uid)
+        let card = try parser.profile(json: await client.get(LinuxDoEndpoint.userCards(uids: [uid])), uid: uid)
+        guard let url = LinuxDoEndpoint.userProfile(username: card.displayName),
+              !card.displayName.isEmpty else {
+            return card
+        }
+        do {
+            var full = try parser.fullProfile(json: await client.get(url))
+            // 以编号为准：用户名改过的话，名字取到的可能是另一个人。
+            guard full.uid == uid else { return card }
+            full.avatarURL = full.avatarURL ?? card.avatarURL
+            return full
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            await RuntimeLogger.shared.log(
+                category: "linuxdo",
+                "完整资料取不到，退回卡片：\(error.localizedDescription)"
+            )
+            return card
+        }
     }
 
     /// 「全站最新」放在最前，然后是站点的**顶层**类别。

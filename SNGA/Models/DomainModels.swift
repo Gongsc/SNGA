@@ -485,6 +485,16 @@ struct Profile: Hashable, Codable, Sendable {
     var dailyRank: Int? = nil
     /// 公司与职位。V2EX 的会员可以填，站点把它画成「🏢 公司 职位」。
     var affiliation: String? = nil
+    /// 最后一次在站上活动、最后一次发帖。Linux.do（Discourse）的资料页头上那一排就有这两样。
+    var lastSeenAt: Date? = nil
+    var lastPostedAt: Date? = nil
+    /// 资料页被看过多少次。Linux.do 叫「浏览量」。
+    var profileViewCount: Int? = nil
+    /// 站点自己的积分。Linux.do 叫「点数」（`gamification_score`）。
+    /// 它是不是回复要扣的那份「积分」（`reply_cost`）没验过，别混为一谈。
+    var points: Int? = nil
+    /// 在站上读帖子花了多久，单位秒。Linux.do 叫「阅读时间」。
+    var readingSeconds: Int? = nil
     /// 资料页上的外部链接：主页、GitHub、Twitter 这些。
     ///
     /// 站点不给就是空的，那一栏整个不画 —— 不必再问一次能力位。

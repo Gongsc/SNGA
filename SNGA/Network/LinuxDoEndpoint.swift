@@ -87,6 +87,17 @@ enum LinuxDoEndpoint {
         )
     }
 
+    /// 完整资料。地址里是**用户名**，所以要先从卡片接口拿到名字。
+    ///
+    /// 卡片接口（`userCards`）在登录后看别人时只给一份六个字段的精简版（实测：没有加入时间、
+    /// 头衔、群组），这里才是全的 —— 加入时间、最后活动、浏览量、点数都在 `user` 里。
+    static func userProfile(username: String) -> URL? {
+        guard let encoded = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return URL(string: "/u/\(encoded).json", relativeTo: base)?.absoluteURL
+    }
+
     /// 当前会话是谁。cookie 和页面里都没有编号，只能问这里。
     static var sessionCurrent: URL { url("/session/current.json") }
 
