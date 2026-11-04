@@ -43,8 +43,24 @@ NodeSeek 那条「必须用 WebView 真实 UA」大概率同样成立。
 2. **登录之后，浏览器里同源 `fetch` 一路 200、没有一次挑战**（实测，登录，浏览器）：
    `/t/{id}.json`、`/t/{id}/posts.json`、搜索、通知、私信、用户资料全部通过。
    也就是说挑战规则针对的是匿名访问，带着 `_t` + `cf_clearance` 的会话被放行。
-   **但这只证明了浏览器；`URLSession` 带同一份 cookie + WebView UA 能不能过，仍没验过** ——
-   这是剩下的生死线，见第九节第一步。NodeSeek 上同样的搬运是成立的，所以乐观。
+3. **`URLSession` 带同一份会话也过了（实测，2026-11-04，`LinuxDoLiveTests`）。** 用例弹窗由人在
+   `WKWebView`（`.nonPersistent()`、不设 UA）里登录，再把这个域下的**全部** cookie 和 WebView 自报的
+   UA 交给应用自己的 `URLSessionTransport`：
+
+   | 端点 | 结果 |
+   | --- | --- |
+   | `/latest.json` | ✅ 200，91751 B |
+   | `/t/{id}.json` | ✅ 200，93424 B —— 匿名时这一发必被挑战 |
+   | `/t/{id}/posts.json?post_ids[]=…` | ✅ 200，48448 B，20 条给满 |
+   | `/session/current.json` | ✅ 200 —— **会话被认出来了**，不只是挑战放行 |
+   | `/session/csrf` | ✅ 200 |
+
+   登录后 WebView 里有 11 个 cookie：`_t`、`_forum_session`、`_rt`、`cf_clearance`、`__cf_ob`、
+   `_cfuvid`，外加 `g_state`、`_ga*`、`__stripe_*` 这些第三方脚本留下的。照规矩按域名全收，不挑。
+   WebView 的 UA 长 88 字符（和 NodeSeek 那条一样，没有 `Version/… Safari/…` 后缀）。
+
+   **结论：照 NodeSeek 的路子接，`WebViewTransport` 不用做。** 没验的只剩时效：`cf_clearance`
+   多久过期、过期后 `URLSession` 是不是又回到挑战 —— 那时候走「请重新登录」，和 NodeSeek 一样。
 3. 自动化探测到此为止：反复去试哪个端点放行、哪个不放行，本身就是在和对方的防护较劲，
    我没有继续，也不建议在实现里做「被挑战就换个端点绕」这种事。
 
@@ -134,8 +150,8 @@ Discourse 的话题**不分页**，是一条「流」：
 - 登录方式（`site.json` 的 `auth_providers`，实测）：用户名密码、Google、GitHub、Discord、Apple，外加通行密钥。
   **Google 在 `WKWebView` 里会被拒（`disallowed_useragent`）** —— 这是 Google 的策略，不是这个站的；
   登录页上那颗按钮用户点了会失败，至少要在登录说明里写一句。
-- 会话 cookie（推断）：`_t`（登录令牌，httpOnly）+ `_forum_session`，外加 Cloudflare 的 `cf_clearance`。
-  照 NodeSeek 的规矩按域名全收，`sessionCookieNames` 写 `_t`。
+- 会话 cookie（实测）：`_t`（登录令牌）+ `_forum_session` + `_rt`，外加 Cloudflare 的 `cf_clearance`
+  等，全部 11 个见第一节。照 NodeSeek 的规矩按域名全收，`sessionCookieNames` 写 `_t`。
 - 用户编号（实测）：cookie 里没有，**页面里的 `#data-preloaded` 也不带 `currentUser`**，
   所以 `renderedDOM` 那条路不通。只能登录之后问一次 `/session/current.json`（200，`{current_user: …}`）——
   和 NodeSeek「只有一个 `session`，登录后问一次」同一个处理。
@@ -217,7 +233,7 @@ Discourse 自己有一层按 IP / 按用户的限流（默认匿名 10 秒 50 �
 
 ## 九、建议的推进顺序
 
-1. **先验生死线**：浏览器那一半已经过了（第一节）；剩下写一个 `LinuxDoLiveTests.manualLive*`（手动用例，不以 `test` 开头），
+1. ~~**先验生死线**~~ **已过**（第一节第 3 条）。原计划是写一个 `LinuxDoLiveTests.manualLive*`（手动用例，不以 `test` 开头），
    在应用里用 WebView 登录拿到的 cookie + 真实 UA，`URLSession` 请求一次 `/t/{id}.json`。
    过不去就先停 —— 那意味着要么走 User API Key，要么整个话题页只能 `WKWebView` 承载，工作量完全是另一个量级。
 2. 过得去：`ForumSite.linuxdo` + descriptor（`.webView` UA、`_t`、`/login`）+ 只读三件套
