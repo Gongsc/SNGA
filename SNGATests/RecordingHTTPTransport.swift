@@ -12,6 +12,9 @@ final class RecordingHTTPTransport: HTTPTransport, @unchecked Sendable {
 
     var requests: [URLRequest] { lock.withLock { _requests } }
 
+    /// 清掉已记下的请求，好让一条用例分段断言「这一步发了什么」。
+    func reset() { lock.withLock { _requests.removeAll() } }
+
     /// 按路径给不同的响应。取不到就用 `body` 兜底。
     private let byPath: [String: String]
 

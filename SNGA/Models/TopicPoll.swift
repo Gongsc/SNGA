@@ -13,6 +13,12 @@ struct TopicPoll: Identifiable, Hashable, Codable, Sendable {
         let id: Int
         var title: String?
         var options: [Option]
+        /// 这一组自己的上限。为空就用整份投票的 `maximumSelectionsPerGroup`。
+        ///
+        /// Linux.do 一层楼可以挂好几个投票，单选和多选能混在一起（Discourse 的每个投票各有
+        /// 各的 `type` 和 `max`），一个整体的上限装不下。可选而不是必填：`Post` 是 `Codable`
+        /// 的，缓存里的旧数据没有这一栏。
+        var maximumSelections: Int? = nil
 
         var voteCount: Int {
             options.reduce(0) { $0 + $1.voteCount }
@@ -52,6 +58,16 @@ struct TopicPoll: Identifiable, Hashable, Codable, Sendable {
         return true
     }
 
+    func maximumSelections(in group: Group) -> Int {
+        group.maximumSelections ?? maximumSelectionsPerGroup
+    }
+
+    /// 各组上限都一样时的那个数；不一样就是 nil，界面改成每组各写一句。
+    var uniformMaximumSelections: Int? {
+        let limits = Set(groups.map(maximumSelections(in:)))
+        return limits.count <= 1 ? (limits.first ?? maximumSelectionsPerGroup) : nil
+    }
+
     func orderedOptionIDs(in selection: Set<String>) -> [String] {
         groups.flatMap(\.options).compactMap { option in
             selection.contains(option.id) ? option.id : nil
@@ -63,7 +79,7 @@ struct TopicPoll: Identifiable, Hashable, Codable, Sendable {
         let selectedIDs = Set(orderedOptionIDs(in: selection))
         guard selectedIDs == selection else { return false }
         return groups.allSatisfy { group in
-            selectedIDs.intersection(group.options.map(\.id)).count <= maximumSelectionsPerGroup
+            selectedIDs.intersection(group.options.map(\.id)).count <= maximumSelections(in: group)
         }
     }
 }

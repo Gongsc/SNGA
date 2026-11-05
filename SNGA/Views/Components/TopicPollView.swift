@@ -4,6 +4,7 @@ struct TopicPollView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
+    @Environment(\.forumSiteDescriptor) private var siteDescriptor
     let poll: TopicPoll
 
     @State private var selection: Set<String> = []
@@ -21,13 +22,19 @@ struct TopicPollView: View {
                         Text(title)
                             .font(fonts.threadContent.font(.subheadline, weight: .bold))
                     }
+                    // 单选多选混在一起时，底下那一句说不清，每组自己说。
+                    if poll.uniformMaximumSelections == nil {
+                        Text(limitMessage(poll.maximumSelections(in: group)))
+                            .font(fonts.threadContent.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     ForEach(group.options) { option in
                         Button {
                             toggleSelection(of: option, in: group)
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: selectionImage(for: option))
+                                Image(systemName: selectionImage(for: option, in: group))
                                     .foregroundStyle(
                                         selection.contains(option.id)
                                             ? theme.accentColor
@@ -97,7 +104,9 @@ struct TopicPollView: View {
 
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(selectionLimitMessage)
+                    if let selectionLimitMessage {
+                        Text(selectionLimitMessage)
+                    }
                     if let endsAt = poll.endsAt {
                         Text(
                             endsAt,
@@ -157,7 +166,7 @@ struct TopicPollView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("NGA 投票提交后通常不能修改。")
+            Text(siteDescriptor.pollSubmissionNote)
         }
     }
 
@@ -183,12 +192,13 @@ struct TopicPollView: View {
         model.thread.submittingPollTopicIDs.contains(poll.id)
     }
 
-    private var selectionLimitMessage: String {
-        if poll.groups.count > 1 {
-            "每组最多选择 \(poll.maximumSelectionsPerGroup) 项"
-        } else {
-            "最多选择 \(poll.maximumSelectionsPerGroup) 项"
-        }
+    private var selectionLimitMessage: String? {
+        guard let limit = poll.uniformMaximumSelections else { return nil }
+        return poll.groups.count > 1 ? "每组\(limitMessage(limit))" : limitMessage(limit)
+    }
+
+    private func limitMessage(_ limit: Int) -> String {
+        limit == 1 ? "单选" : "最多选择 \(limit) 项"
     }
 
     private var hiddenResultsMessage: String {
@@ -199,9 +209,9 @@ struct TopicPollView: View {
         }
     }
 
-    private func selectionImage(for option: TopicPoll.Option) -> String {
+    private func selectionImage(for option: TopicPoll.Option, in group: TopicPoll.Group) -> String {
         let isSelected = selection.contains(option.id)
-        if poll.maximumSelectionsPerGroup == 1 {
+        if poll.maximumSelections(in: group) == 1 {
             return isSelected ? "largecircle.fill.circle" : "circle"
         }
         return isSelected ? "checkmark.square.fill" : "square"
@@ -212,13 +222,12 @@ struct TopicPollView: View {
         in group: TopicPoll.Group
     ) -> Bool {
         guard isAcceptingResponses, !isSubmitting else { return true }
-        guard poll.maximumSelectionsPerGroup > 1,
-              !selection.contains(option.id) else {
+        let limit = poll.maximumSelections(in: group)
+        guard limit > 1, !selection.contains(option.id) else {
             return false
         }
         let groupOptionIDs = Set(group.options.map(\.id))
-        return selection.intersection(groupOptionIDs).count
-            >= poll.maximumSelectionsPerGroup
+        return selection.intersection(groupOptionIDs).count >= limit
     }
 
     private func accessibilityValue(for option: TopicPoll.Option) -> String {
@@ -246,10 +255,10 @@ struct TopicPollView: View {
         }
 
         let groupOptionIDs = Set(group.options.map(\.id))
-        if poll.maximumSelectionsPerGroup == 1 {
+        let limit = poll.maximumSelections(in: group)
+        if limit == 1 {
             selection.subtract(groupOptionIDs)
-        } else if selection.intersection(groupOptionIDs).count
-                    >= poll.maximumSelectionsPerGroup {
+        } else if selection.intersection(groupOptionIDs).count >= limit {
             return
         }
         selection.insert(option.id)

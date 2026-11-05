@@ -34,7 +34,9 @@ struct UserCenterView: View {
 
                         basicInformation
                         reputationContent
-                        activityContent
+                        if model.session.supports(.userActivities) {
+                            activityContent
+                        }
                     }
                     .padding(24)
                 }
@@ -2166,6 +2168,9 @@ private struct TopicRow: View {
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if !topic.tags.isEmpty {
+                        TopicTagStrip(topicID: topic.id, tags: topic.tags)
+                    }
                 }
                 Spacer(minLength: 8)
                 if topic.mirroredForumID == nil {
@@ -2211,6 +2216,62 @@ private struct TopicRow: View {
         // 而且这一行整个都淡了，标题再单独淡一次也说不出任何多余的意思。
         guard levelGate == nil else { return base }
         return isVisited ? base.opacity(Metrics.visitedSubjectOpacity) : base
+    }
+}
+
+/// 作者名后面那一串标签。
+///
+/// 放在作者那一行而不是标题行：标题行前面已经挂着版面名、置顶、等级这些标记，
+/// 再塞两三个标签，标题本身会被挤到第二行去。标签是「这帖讲什么」的补充，
+/// 地位和作者、回复数相当。
+///
+/// **一个标签要么整个画出来，要么不画。** 先前每个胶囊各自 `lineLimit(1)` 再整串让位，
+/// 地方不够时 SwiftUI 把每个胶囊都压成一个「…」—— 几个空胶囊排在那里，比不画还糟。
+/// 现在用 `ViewThatFits` 从「全画」开始一个个往下减，挑放得下的最多的那一档，
+/// 没画出来的折成「+N」；一个都放不下时只剩「+N」。整串仍然让位给作者名和右边的
+/// 回复数、日期（`layoutPriority` 低于它们），全部标签在悬停提示里。
+private struct TopicTagStrip: View {
+    @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
+    let topicID: TopicID
+    let tags: [TopicTag]
+
+    private enum Metrics {
+        static let spacing: CGFloat = 4
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: tags.count, through: 0, by: -1)), id: \.self) { count in
+                strip(showing: count)
+            }
+        }
+        .layoutPriority(-1)
+        .help(tags.map(\.name).joined(separator: "、"))
+    }
+
+    private func strip(showing count: Int) -> some View {
+        HStack(spacing: Metrics.spacing) {
+            ForEach(tags.prefix(count)) { tag in
+                tagView(tag)
+            }
+            if tags.count > count {
+                Text("+\(tags.count - count)")
+                    .font(fonts.topicList.caption2)
+                    .foregroundStyle(theme.tertiaryForegroundColor)
+            }
+        }
+        // 每一档都按自己的完整宽度去比，`ViewThatFits` 才挑得对；也保证选中的那一档
+        // 不会再被压出省略号。
+        .fixedSize()
+    }
+
+    private func tagView(_ tag: TopicTag) -> some View {
+        TopicTagCapsule(
+            tag: tag,
+            font: fonts.topicList.caption2,
+            accessibilityIdentifier: "topic-tag-\(topicID.rawValue)-\(tag.name)"
+        )
     }
 }
 

@@ -333,7 +333,7 @@ final class AppModel {
             records.forEach { $0.isCurrent = false }
             record.isCurrent = true
             try await session.sessionStore.save(cookies: capture.cookies, for: record.accountID)
-            let service = session.makeService(
+            let service = await session.makeService(
                 site: site,
                 accountID: record.accountID,
                 cookies: capture.cookies
@@ -518,6 +518,12 @@ final class AppModel {
             }
         } catch {
             // 用户中心保留楼层或账号中已有的资料，不因资料接口失败阻断浏览。
+            // 但要留一行日志：不报错也不留痕时，界面上只是少了几行（加入时间变成「—」），
+            // 谁也看不出是资料接口没拿到 —— Linux.do 接入时就是这样查了一轮。
+            await RuntimeLogger.shared.log(
+                category: "profile",
+                "\(service.site.displayName) 资料 \(uid) 取不到：\(error.localizedDescription)"
+            )
         }
         session.endLoading()
         guard session.activeAccountID == requestAccountID,
@@ -632,6 +638,9 @@ final class AppModel {
     }
 
     func loadUserActivities(uid: Int64, kind: UserActivityKind, page: Int) async {
+        // 门控挡在调用层：打开用户中心会主动来拉这一页，光把「发布记录」那块藏起来，
+        // 请求照样发，不支持的站点（Linux.do 现在就是）每打开一次资料就弹一句「还没做」。
+        guard session.supports(.userActivities) else { return }
         guard let service = activeService else { return }
         let requestAccountID = service.accountID
         let ticket = userActivityRequests.begin()
@@ -830,6 +839,16 @@ final class AppModel {
             browsing.forumNavigationPath.append(currentForum)
         }
         await showForum(forum)
+    }
+
+    /// 点了话题行上的一个标签：打开那个标签的列表。
+    ///
+    /// 走 `openSubforum` 而不是 `openForum`：把当前版面压进返回路径，看完标签还能一键
+    /// 回到刚才那一页 —— 标签是从这个版面「钻进去」的，不是另起一处。
+    /// 没有 `forumID` 的标签（站点只给了名字）打不开，界面那边也就不把它画成可点的。
+    func openTopicTag(_ tag: TopicTag) async {
+        guard let forumID = tag.forumID else { return }
+        await openSubforum(Forum(id: forumID, name: tag.name, category: "标签"))
     }
 
     func openParentForum() async {

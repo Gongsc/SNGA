@@ -91,9 +91,12 @@ struct PostImageView: View {
         return min(naturalWidth, availableWidth)
     }
 
+    /// 正文里写了 `width` 就按它画，和网页一样 —— 那是作者（或站点）声明的显示尺寸，
+    /// 不是图片本身的像素数。Linux.do 给的是二倍图配一倍的 `width`，按像素画会大一倍。
+    /// 没写才退回图片自己的像素宽度。
     private var naturalWidth: CGFloat? {
-        if let pixelSize { return pixelSize.width }
-        return image.pixelWidth.map(CGFloat.init)
+        if let declared = image.pixelWidth { return CGFloat(declared) }
+        return pixelSize?.width
     }
 
     private var pixelSize: CGSize? {

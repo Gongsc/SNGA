@@ -1,0 +1,80 @@
+{
+  "notifications": [
+    {
+      "id": 735204558,
+      "user_id": 800001,
+      "notification_type": 12,
+      "read": false,
+      "high_priority": false,
+      "created_at": "2026-11-04T07:26:37.361Z",
+      "post_number": null,
+      "topic_id": null,
+      "slug": null,
+      "data": {
+        "badge_id": 1,
+        "badge_name": "基本用户",
+        "badge_slug": "-",
+        "badge_title": false,
+        "username": "user1",
+        "original_name": null
+      },
+      "acting_user_avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "acting_user_name": null
+    },
+    {
+      "fancy_title": "示例",
+      "fancy_title_localized": false,
+      "locale": null,
+      "id": 735204435,
+      "user_id": 800001,
+      "notification_type": 6,
+      "read": true,
+      "high_priority": true,
+      "created_at": "2026-11-04T07:26:36.110Z",
+      "post_number": 1,
+      "topic_id": 3120878,
+      "slug": "topic",
+      "data": {
+        "topic_title": "示例",
+        "original_post_id": 24386364,
+        "original_post_type": 1,
+        "original_username": "user2",
+        "revision_number": null,
+        "display_username": "user2",
+        "display_name": "system",
+        "original_name": "system"
+      },
+      "acting_user_avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "acting_user_name": "用户"
+    },
+    {
+      "fancy_title": "示例",
+      "fancy_title_localized": false,
+      "locale": null,
+      "id": 735113351,
+      "user_id": 800001,
+      "notification_type": 6,
+      "read": true,
+      "high_priority": true,
+      "created_at": "2026-11-04T07:01:38.486Z",
+      "post_number": 1,
+      "topic_id": 3120691,
+      "slug": "topic",
+      "data": {
+        "topic_title": "示例",
+        "original_post_id": 24384926,
+        "original_post_type": 1,
+        "original_username": "user3",
+        "revision_number": null,
+        "display_username": "user3",
+        "display_name": "anon3",
+        "original_name": "anon3"
+      },
+      "acting_user_avatar_template": "/user_avatar/linux.do/user/{size}/1_2.png",
+      "acting_user_name": "用户"
+    }
+  ],
+  "total_rows_notifications": 3,
+  "seen_notification_id": 735204558,
+  "load_more_notifications": "/notifications?limit=30&offset=30&username=anon5"
+}

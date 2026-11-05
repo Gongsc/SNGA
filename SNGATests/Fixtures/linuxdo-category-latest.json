@@ -1,0 +1,474 @@
+{
+  "users": [
+    {
+      "id": -1,
+      "username": "user28",
+      "name": "用户28",
+      "avatar_template": "/user_avatar/linux.do/user28/{size}/1_2.png",
+      "admin": true,
+      "moderator": true,
+      "trust_level": 4,
+      "animated_avatar": null
+    },
+    {
+      "id": 800028,
+      "username": "user29",
+      "name": "用户29",
+      "avatar_template": "/user_avatar/linux.do/user29/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800029,
+      "username": "user30",
+      "name": "用户30",
+      "avatar_template": "/user_avatar/linux.do/user30/{size}/1_2.png",
+      "flair_name": "g-s-acgn",
+      "flair_url": "https://cdn3.ldstatic.com/original/4X/0/e/8/0e83c8a502c286423e8fd5fdd29b254d676b8940.gif",
+      "flair_group_id": 99,
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800030,
+      "username": "user31",
+      "name": "用户31",
+      "avatar_template": "/user_avatar/linux.do/user31/{size}/1_2.png",
+      "flair_name": "admins",
+      "flair_url": "battery-quarter",
+      "flair_bg_color": "00aeff",
+      "flair_color": "fff",
+      "flair_group_id": 1,
+      "primary_group_name": "g-premium",
+      "admin": true,
+      "moderator": true,
+      "trust_level": 4,
+      "animated_avatar": null
+    },
+    {
+      "id": 800031,
+      "username": "user32",
+      "name": "用户32",
+      "avatar_template": "/user_avatar/linux.do/user32/{size}/1_2.png",
+      "trust_level": 1,
+      "animated_avatar": null
+    },
+    {
+      "id": 800032,
+      "username": "user33",
+      "name": null,
+      "avatar_template": "/user_avatar/linux.do/user33/{size}/1_2.png",
+      "trust_level": 1,
+      "animated_avatar": null
+    },
+    {
+      "id": 800033,
+      "username": "user34",
+      "name": "",
+      "avatar_template": "/user_avatar/linux.do/user34/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800034,
+      "username": "user35",
+      "name": "用户35",
+      "avatar_template": "/user_avatar/linux.do/user35/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800035,
+      "username": "user36",
+      "name": "用户36",
+      "avatar_template": "/user_avatar/linux.do/user36/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800036,
+      "username": "user37",
+      "name": "用户37",
+      "avatar_template": "/user_avatar/linux.do/user37/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    },
+    {
+      "id": 800037,
+      "username": "user38",
+      "name": "用户38",
+      "avatar_template": "/user_avatar/linux.do/user38/{size}/1_2.png",
+      "trust_level": 2,
+      "animated_avatar": null
+    }
+  ],
+  "primary_groups": [
+    {
+      "id": 116,
+      "name": "g-premium"
+    }
+  ],
+  "flair_groups": [
+    {
+      "id": 99,
+      "name": "g-s-acgn",
+      "flair_url": "https://cdn3.ldstatic.com/original/4X/0/e/8/0e83c8a502c286423e8fd5fdd29b254d676b8940.gif",
+      "flair_bg_color": "",
+      "flair_color": ""
+    },
+    {
+      "id": 1,
+      "name": "admins",
+      "flair_url": "battery-quarter",
+      "flair_bg_color": "00aeff",
+      "flair_color": "fff"
+    },
+    {
+      "id": 13,
+      "name": "trust_level_3",
+      "flair_url": "https://cdn3.ldstatic.com/original/3X/9/d/9d8a9be47928b3e1a35aaf632f9eeafa32600765.png",
+      "flair_bg_color": "2e303d",
+      "flair_color": "fff"
+    },
+    {
+      "id": 113,
+      "name": "g-s-game-dev",
+      "flair_url": "https://cdn3.ldstatic.com/original/4X/3/a/c/3acbe6820e3e0c69d60cfed31d95f49b47f8e2d5.webp",
+      "flair_bg_color": "",
+      "flair_color": "eeff40"
+    },
+    {
+      "id": 101,
+      "name": "g-s-music",
+      "flair_url": "https://cdn3.ldstatic.com/original/4X/9/4/6/946273630545a004f60ea28551e47f2ca448a01e.gif",
+      "flair_bg_color": "",
+      "flair_color": "2acc57"
+    },
+    {
+      "id": 97,
+      "name": "g-s-gaming-life",
+      "flair_url": "https://cdn3.ldstatic.com/original/4X/f/c/f/fcf90d85ad757e9b994b1be73a53106b281bd14f.gif",
+      "flair_bg_color": "",
+      "flair_color": "FF0000"
+    }
+  ],
+  "topic_list": {
+    "can_create_topic": false,
+    "filter": "latest",
+    "more_topics_url": "/c/develop/4/l/latest?page=1",
+    "per_page": 30,
+    "topics": [
+      {
+        "fancy_title": "antigravity 怎么查看模型速度",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3121019,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 2,
+        "reply_count": 0,
+        "highest_post_number": 2,
+        "image_url": null,
+        "created_at": "2026-11-04T07:46:18.966Z",
+        "last_posted_at": "2026-11-04T07:48:11.001Z",
+        "bumped": true,
+        "bumped_at": "2026-11-04T07:48:11.001Z",
+        "archetype": "regular",
+        "unseen": false,
+        "pinned": false,
+        "unpinned": null,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "bookmarked": null,
+        "liked": null,
+        "thumbnails": null,
+        "tags": [
+          {
+            "id": 1436,
+            "name": "快问快答",
+            "slug": "1436-tag"
+          },
+          {
+            "id": 444,
+            "name": "人工智能",
+            "slug": "444-tag"
+          }
+        ],
+        "tags_descriptions": {},
+        "views": 34,
+        "like_count": 0,
+        "has_summary": false,
+        "last_poster_username": "user34",
+        "category_id": 4,
+        "op_like_count": 0,
+        "pinned_globally": false,
+        "featured_link": null,
+        "has_accepted_answer": false,
+        "can_vote": false,
+        "posters": [
+          {
+            "extras": null,
+            "description": "原始发帖人",
+            "user_id": 800032,
+            "primary_group_id": null,
+            "flair_group_id": null
+          },
+          {
+            "extras": "latest",
+            "description": "最新发帖人",
+            "user_id": 800033,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      },
+      {
+        "fancy_title": "公司部署本地模型",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3121017,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 3,
+        "reply_count": 0,
+        "highest_post_number": 3,
+        "image_url": null,
+        "created_at": "2026-11-04T07:46:14.349Z",
+        "last_posted_at": "2026-11-04T07:47:55.195Z",
+        "bumped": true,
+        "bumped_at": "2026-11-04T07:47:55.195Z",
+        "archetype": "regular",
+        "unseen": false,
+        "pinned": false,
+        "unpinned": null,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "bookmarked": null,
+        "liked": null,
+        "thumbnails": null,
+        "tags": [
+          {
+            "id": 444,
+            "name": "人工智能",
+            "slug": "444-tag"
+          }
+        ],
+        "tags_descriptions": {},
+        "views": 68,
+        "like_count": 0,
+        "has_summary": false,
+        "last_poster_username": "user37",
+        "category_id": 4,
+        "op_like_count": 0,
+        "pinned_globally": false,
+        "featured_link": null,
+        "has_accepted_answer": false,
+        "can_vote": false,
+        "posters": [
+          {
+            "extras": null,
+            "description": "原始发帖人",
+            "user_id": 800034,
+            "primary_group_id": null,
+            "flair_group_id": null
+          },
+          {
+            "extras": null,
+            "description": "最近的发帖人",
+            "user_id": 800035,
+            "primary_group_id": null,
+            "flair_group_id": null
+          },
+          {
+            "extras": "latest",
+            "description": "最新发帖人",
+            "user_id": 800036,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      },
+      {
+        "fancy_title": "anthropic 好像通过 zkSNARK (零知识证明) 可以让用户验证 API 后面的模型到底是不是特定模型了",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3121015,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 1,
+        "reply_count": 0,
+        "highest_post_number": 1,
+        "image_url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_1024x576.jpeg",
+        "created_at": "2026-11-04T07:45:51.429Z",
+        "last_posted_at": "2026-11-04T07:45:51.583Z",
+        "bumped": true,
+        "bumped_at": "2026-11-04T07:45:51.583Z",
+        "archetype": "regular",
+        "unseen": false,
+        "pinned": false,
+        "unpinned": null,
+        "visible": true,
+        "closed": false,
+        "archived": false,
+        "bookmarked": null,
+        "liked": null,
+        "thumbnails": [
+          {
+            "max_width": null,
+            "max_height": null,
+            "width": 2000,
+            "height": 1125,
+            "url": "https://cdn3.ldstatic.com/original/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0.jpeg"
+          },
+          {
+            "max_width": 1024,
+            "max_height": 1024,
+            "width": 1024,
+            "height": 576,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_1024x576.jpeg"
+          },
+          {
+            "max_width": 800,
+            "max_height": 800,
+            "width": 800,
+            "height": 450,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_800x450.jpeg"
+          },
+          {
+            "max_width": 600,
+            "max_height": 600,
+            "width": 600,
+            "height": 337,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_600x337.jpeg"
+          },
+          {
+            "max_width": 400,
+            "max_height": 400,
+            "width": 400,
+            "height": 225,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_400x225.jpeg"
+          },
+          {
+            "max_width": 300,
+            "max_height": 300,
+            "width": 300,
+            "height": 168,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_300x168.jpeg"
+          },
+          {
+            "max_width": 200,
+            "max_height": 200,
+            "width": 200,
+            "height": 112,
+            "url": "https://cdn3.ldstatic.com/optimized/4X/6/6/a/66a72ed558145b284fcefd6c2e279eae2e134bc0_2_200x112.jpeg"
+          }
+        ],
+        "tags": [
+          {
+            "id": 444,
+            "name": "人工智能",
+            "slug": "444-tag"
+          }
+        ],
+        "tags_descriptions": {},
+        "views": 33,
+        "like_count": 1,
+        "has_summary": false,
+        "last_poster_username": "user38",
+        "category_id": 4,
+        "op_like_count": 1,
+        "pinned_globally": false,
+        "featured_link": null,
+        "has_accepted_answer": false,
+        "can_vote": false,
+        "posters": [
+          {
+            "extras": "latest single",
+            "description": "原始发帖人、最新发帖人",
+            "user_id": 800037,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      },
+      {
+        "fancy_title": "关于“开发调优”类别",
+        "fancy_title_localized": false,
+        "locale": null,
+        "id": 3,
+        "title": "示例",
+        "slug": "topic",
+        "posts_count": 338,
+        "reply_count": 248,
+        "highest_post_number": 528,
+        "image_url": null,
+        "created_at": "2024-01-17T07:40:27.540Z",
+        "last_posted_at": "2026-06-11T16:37:33.582Z",
+        "bumped": true,
+        "bumped_at": "2026-06-11T16:37:33.582Z",
+        "archetype": "regular",
+        "unseen": false,
+        "pinned": true,
+        "unpinned": null,
+        "excerpt": "此版块包含开发、测试、调试、部署、优化、安全等方面的内容。",
+        "visible": true,
+        "closed": true,
+        "archived": false,
+        "bookmarked": null,
+        "liked": null,
+        "thumbnails": null,
+        "tags": [],
+        "tags_descriptions": {},
+        "views": 30726,
+        "like_count": 2698,
+        "has_summary": true,
+        "last_poster_username": "user32",
+        "category_id": 4,
+        "op_like_count": 623,
+        "pinned_globally": false,
+        "featured_link": null,
+        "has_accepted_answer": false,
+        "can_vote": false,
+        "posters": [
+          {
+            "extras": null,
+            "description": "原始发帖人",
+            "user_id": -1,
+            "primary_group_id": null,
+            "flair_group_id": null
+          },
+          {
+            "extras": null,
+            "description": "频繁发帖人",
+            "user_id": 800028,
+            "primary_group_id": null,
+            "flair_group_id": null
+          },
+          {
+            "extras": null,
+            "description": "频繁发帖人",
+            "user_id": 800029,
+            "primary_group_id": null,
+            "flair_group_id": 99
+          },
+          {
+            "extras": null,
+            "description": "最近的发帖人",
+            "user_id": 800030,
+            "primary_group_id": 116,
+            "flair_group_id": 1
+          },
+          {
+            "extras": "latest",
+            "description": "最新发帖人",
+            "user_id": 800031,
+            "primary_group_id": null,
+            "flair_group_id": null
+          }
+        ]
+      }
+    ]
+  }
+}

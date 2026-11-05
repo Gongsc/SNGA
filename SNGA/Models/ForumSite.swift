@@ -8,6 +8,7 @@ enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable 
     case nga
     case nodeseek
     case v2ex
+    case linuxdo
 
     var id: String { rawValue }
 
@@ -16,6 +17,8 @@ enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable 
         case .nga: "NGA"
         case .nodeseek: "NodeSeek"
         case .v2ex: "V2EX"
+        // 站点自己的写法：页面标题、Logo 都是全大写加一个空格。
+        case .linuxdo: "LINUX DO"
         }
     }
 
@@ -27,6 +30,8 @@ enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable 
         // 站点的图标就是一个方块里的 V。SF Symbols 里没有它的字样，
         // `v.circle` 是最接近的一个，也和另外两个站分得开。
         case .v2ex: "v.circle"
+        // 站点的吉祥物是一只企鹅，SF Symbols 里没有；终端提示符和「Linux」最贴，也和另外三个分得开。
+        case .linuxdo: "apple.terminal"
         }
     }
 
@@ -35,6 +40,7 @@ enum ForumSite: String, Codable, CaseIterable, Hashable, Sendable, Identifiable 
         case .nga: .nga
         case .nodeseek: .nodeseek
         case .v2ex: .v2ex
+        case .linuxdo: .linuxdo
         }
     }
 }

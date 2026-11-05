@@ -99,6 +99,25 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     /// 用站点自己的说法显示。少显示一个标记，读者就少一条判断这帖值不值得点的依据。
     var badges: [TopicBadge] = []
     var rating: TopicRating? = nil
+    /// 在这个话题里回一帖要花掉多少站点积分。为空或 0 就是不花。
+    ///
+    /// Linux.do 的 `reply_cost`（站点插件 `discourse-reply-cost`）：大于 0 时，站点自己的编辑器
+    /// 在发送前问一句「回复本帖将扣减 N 积分,确认继续？」，提交时不带别的参数。
+    /// 应用照做 —— 不作声就扣用户的积分，和 NodeSeek 的鸡腿、V2EX 的铜币是同一类事。
+    var replyCost: Int? = nil
+    /// 话题上挂的标签（Linux.do 的 `tags`）。没有标签的站点留空，界面就不画那一段。
+    var tags: [TopicTag] = []
+}
+
+/// 话题上挂的一个标签。
+///
+/// 带着 `forumID` 是因为在 Linux.do 上标签本身就是一个能打开的列表（`/tag/{编号}`），
+/// 解析时就把它算好，界面要跳过去时不必再回头认站点的编码约定。
+struct TopicTag: Identifiable, Hashable, Codable, Sendable {
+    var name: String
+    var forumID: ForumID? = nil
+
+    var id: String { name }
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {
@@ -485,6 +504,16 @@ struct Profile: Hashable, Codable, Sendable {
     var dailyRank: Int? = nil
     /// 公司与职位。V2EX 的会员可以填，站点把它画成「🏢 公司 职位」。
     var affiliation: String? = nil
+    /// 最后一次在站上活动、最后一次发帖。Linux.do（Discourse）的资料页头上那一排就有这两样。
+    var lastSeenAt: Date? = nil
+    var lastPostedAt: Date? = nil
+    /// 资料页被看过多少次。Linux.do 叫「浏览量」。
+    var profileViewCount: Int? = nil
+    /// 站点自己的积分。Linux.do 叫「点数」（`gamification_score`）。
+    /// 它是不是回复要扣的那份「积分」（`reply_cost`）没验过，别混为一谈。
+    var points: Int? = nil
+    /// 在站上读帖子花了多久，单位秒。Linux.do 叫「阅读时间」。
+    var readingSeconds: Int? = nil
     /// 资料页上的外部链接：主页、GitHub、Twitter 这些。
     ///
     /// 站点不给就是空的，那一栏整个不画 —— 不必再问一次能力位。
@@ -559,6 +588,19 @@ struct PostReaction: Identifiable, Hashable, Codable, Sendable {
     var cost: String? = nil
     /// 做了就收不回来。
     var isIrreversible: Bool = false
+    /// 用表情字符画，而不是系统图标。Linux.do 的回应是 😆、👏 这些，SF Symbols 里没有对应物。
+    /// 为空时照旧用 `systemImage`。
+    var emoji: String? = nil
+    /// 点下去走哪条路。
+    ///
+    /// 为空（老规矩）：不花钱的走「赞」（`ForumService.vote`），花钱的先确认再走
+    /// `submitPostReaction` —— NodeSeek 和 V2EX 一直是这样。
+    /// `false`：不花钱，但也**不是赞**，直接走 `submitPostReaction`。Linux.do 的表情回应就是
+    /// 这种：照老规矩，点 😆 会被当成点赞发出去。
+    ///
+    /// 做成可选而不是默认 `true` 的布尔：`Post` 是 `Codable` 的，非可选的新字段会让
+    /// 旧数据解码失败。
+    var routesToVote: Bool? = nil
 }
 
 /// 用户资料里的一行。

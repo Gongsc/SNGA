@@ -93,6 +93,7 @@ final class ForumSiteTests: XCTestCase {
             switch descriptor.userIDSource {
             case let .cookie(name): XCTAssertFalse(name.isEmpty)
             case let .renderedDOM(script): XCTAssertFalse(script.isEmpty)
+            case .sessionQuery: break
             }
             XCTAssertTrue(descriptor.loginURL.absoluteString.hasPrefix("https://"))
             XCTAssertTrue(descriptor.baseURL.absoluteString.hasPrefix("https://"))

@@ -654,6 +654,11 @@ private struct ThreadTitleHeader: View {
     let canSummarize: Bool
     let summarize: () -> Void
 
+    private enum Metrics {
+        /// 标题和标签之间、标签和标签之间。
+        static let tagSpacing: CGFloat = 6
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let previousTitle {
@@ -664,16 +669,31 @@ private struct ThreadTitleHeader: View {
                 )
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if topic.isAnonymous {
-                    AnonymousBadge(scale: .medium)
-                        .font(fonts.threadContent.title2)
-                        .accessibilityIdentifier("thread-topic-anonymous")
+            VStack(alignment: .leading, spacing: Metrics.tagSpacing) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if topic.isAnonymous {
+                        AnonymousBadge(scale: .medium)
+                            .font(fonts.threadContent.title2)
+                            .accessibilityIdentifier("thread-topic-anonymous")
+                    }
+                    ThreadTitleText(text: normalizedTitle, fonts: fonts.threadContent)
+                        .accessibilityLabel(normalizedTitle)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("thread-topic-title")
                 }
-                ThreadTitleText(text: normalizedTitle, fonts: fonts.threadContent)
-                    .accessibilityLabel(normalizedTitle)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("thread-topic-title")
+                // 列表行里放不下的标签折成了「+N」，点进来就要看得到全部。
+                // 排不下就折行，一个也不省略。
+                if !topic.tags.isEmpty {
+                    FlowLayout(spacing: Metrics.tagSpacing, lineSpacing: Metrics.tagSpacing) {
+                        ForEach(topic.tags) { tag in
+                            TopicTagCapsule(
+                                tag: tag,
+                                font: fonts.threadContent.caption,
+                                accessibilityIdentifier: "thread-topic-tag-\(tag.name)"
+                            )
+                        }
+                    }
+                }
             }
             .layoutPriority(1)
 
@@ -1515,18 +1535,45 @@ struct ReplyComposerView: View {
     @State private var editorMode = ReplyEditorMode.visual
     @State private var editorCommand: UBBEditorCommand?
     @State private var showsEmoticons = false
+    /// 表情面板的名单。多数站点是写死的那份，开框就有；要去站点上取的（Linux.do）取回来才有，
+    /// 在那之前不画按钮 —— 画一个点开是空的面板更糟。
+    @State private var emoticonPacks: [EmoticonPack] = []
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
     @State private var showsBase64Editor = false
     /// 源码模式下光标在哪。插入要插在光标处，而不是接在末尾。
     @State private var sourceSelection: TextSelection?
     @State private var loadedDraft = false
+    /// 要扣积分的话题，发送前先问这一句。
+    @State private var confirmsReplyCost = false
+
+    /// 回这一帖要扣多少站点积分。以线程里当前那份话题为准 —— 它来自话题详情，
+    /// 列表里传进来的那份没有这个数。
+    private var replyCost: Int? {
+        let current = model.thread.currentTopic?.id == topic.id ? model.thread.currentTopic : topic
+        return current?.replyCost.flatMap { $0 > 0 ? $0 : nil }
+    }
 
     /// 引用某一层时预填的开头。
     ///
     /// 三种标记的引用完全不是一回事，所以按站点分：UBB 站点写 `[quote]` 标签，
     /// 由站点自己渲染；Markdown 站点没有服务端的引用机制，引用就是正文里的一段引用块，
     /// 得把被引的话真的抄进去；纯文本站点连引用块都没有，那里的惯例是 `@用户名`。
+    private func send() {
+        model.session.clearError()
+        Task {
+            if await model.thread.submitReply(
+                topicID: topic.id,
+                content: content,
+                replyTo: replyTo?.id,
+                ratingScores: selectedRatingScores
+            ) {
+                submitted = true
+                dismiss()
+            }
+        }
+    }
+
     private func quotedPrefix(_ replyTo: Post) -> String {
         switch siteDescriptor.replyMarkup {
         case .ubb:
@@ -1571,17 +1618,10 @@ struct ReplyComposerView: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.thread.isSubmitting)
                 Button {
-                    model.session.clearError()
-                    Task {
-                        if await model.thread.submitReply(
-                            topicID: topic.id,
-                            content: content,
-                            replyTo: replyTo?.id,
-                            ratingScores: selectedRatingScores
-                        ) {
-                            submitted = true
-                            dismiss()
-                        }
+                    if replyCost != nil {
+                        confirmsReplyCost = true
+                    } else {
+                        send()
                     }
                 } label: {
                     if model.thread.isSubmitting {
@@ -1596,6 +1636,16 @@ struct ReplyComposerView: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.thread.isSubmitting)
+                .accessibilityIdentifier("reply-send-button")
+                // 文案照站点自己的原话，只把半角逗号换成全角。
+                .confirmationDialog(
+                    "回复本帖将扣减 \(replyCost ?? 0) 积分，确认继续？",
+                    isPresented: $confirmsReplyCost,
+                    titleVisibility: .visible
+                ) {
+                    Button("扣减 \(replyCost ?? 0) 积分并发送") { send() }
+                    Button("取消", role: .cancel) {}
+                }
             }
             .padding()
             Divider()
@@ -1678,6 +1728,14 @@ struct ReplyComposerView: View {
             Button("好", role: .cancel) { model.session.clearError() }
         } message: {
             Text(model.session.errorMessage ?? "")
+        }
+        .task {
+            emoticonPacks = siteDescriptor.emoticonPacks
+            // 取不到就不画按钮。不报错：表情面板是锦上添花，用户来这儿是为了回帖，
+            // 弹一句「表情加载失败」只会打断他。
+            if let loaded = try? await model.session.activeService?.emoticonPacks() {
+                emoticonPacks = loaded
+            }
         }
         .task {
             guard !loadedDraft else { return }
@@ -1863,7 +1921,7 @@ struct ReplyComposerView: View {
         // 按名单画，不按标记语言画：有表情的站点形态各不相同 —— NGA 是 UBB 的
         // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `；V2EX 干脆没有
         // 表情面板（正文里就是 Unicode emoji）。名单空了才不画。
-        if !siteDescriptor.emoticonPacks.isEmpty {
+        if !emoticonPacks.isEmpty {
             Button {
                 showsEmoticons = true
             } label: {
@@ -1872,7 +1930,7 @@ struct ReplyComposerView: View {
             .labelStyle(.iconOnly)
             .help("选择表情")
             .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
-                EmoticonPicker(packs: siteDescriptor.emoticonPacks) { emoticon in
+                EmoticonPicker(packs: emoticonPacks) { emoticon in
                     apply(.insertEmoticon(emoticon))
                     showsEmoticons = false
                 }
@@ -2119,9 +2177,11 @@ private struct PostReactionBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
+    @Environment(\.forumSiteDescriptor) private var descriptor
     let post: Post
 
     @State private var pending: PostReaction?
+    @State private var isPickingReaction = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -2135,6 +2195,7 @@ private struct PostReactionBar: View {
                 } label: {
                     countLabel(
                         systemImage: reaction.systemImage,
+                        emoji: reaction.emoji,
                         count: reaction.count,
                         isChosen: reaction.isChosen
                     )
@@ -2148,6 +2209,29 @@ private struct PostReactionBar: View {
                 )
                 .accessibilityLabel("\(reaction.title) \(reaction.count ?? 0)")
                 .accessibilityIdentifier("post-reaction-\(reaction.id)-\(post.id.rawValue)")
+            }
+
+            if !pickableReactions.isEmpty {
+                Button {
+                    isPickingReaction = true
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "plus")
+                                .font(.system(size: Metrics.pickerBadgeSize, weight: .bold))
+                                .offset(x: 3, y: 2)
+                        }
+                        .font(fonts.threadContent.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("回应")
+                .disabled(model.thread.votingPostIDs.contains(post.id))
+                .accessibilityLabel("回应")
+                .accessibilityIdentifier("post-reaction-picker-\(post.id.rawValue)")
+                .popover(isPresented: $isPickingReaction, arrowEdge: .bottom) {
+                    reactionPicker
+                }
             }
 
             // 收藏是话题级的，只在主楼显示 —— 网页版也是这么摆的。
@@ -2176,10 +2260,79 @@ private struct PostReactionBar: View {
         }
     }
 
-    private func countLabel(systemImage: String, count: Int?, isChosen: Bool) -> some View {
-        Label("\(count ?? 0)", systemImage: systemImage)
+    @ViewBuilder
+    private func countLabel(systemImage: String, emoji: String?, count: Int?, isChosen: Bool) -> some View {
+        if let emoji {
+            // 表情本身是彩色的，「点过没有」靠数字的颜色和一圈底色说。
+            HStack(spacing: 3) {
+                Text(emoji)
+                Text("\(count ?? 0)")
+                    .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+            }
             .font(fonts.threadContent.caption.monospacedDigit())
-            .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(isChosen ? theme.accentSoftColor : Color.clear, in: Capsule())
+        } else {
+            Label("\(count ?? 0)", systemImage: systemImage)
+                .font(fonts.threadContent.caption.monospacedDigit())
+                .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
+        }
+    }
+
+    private enum Metrics {
+        static let pickerBadgeSize: CGFloat = 7
+        static let pickerCellWidth: CGFloat = 64
+        static let pickerCellHeight: CGFloat = 44
+        static let pickerSpacing: CGFloat = 4
+        static let pickerPadding: CGFloat = 10
+    }
+
+    /// 选择器里摆那一排还没摆出来的 —— 已经在排里的直接点排里那个就行，两处各一个只会让人犹豫。
+    private var pickableReactions: [PostReaction] {
+        let shown = Set(post.reactions.map(\.id))
+        return descriptor.reactionPickerOptions.filter { !shown.contains($0.id) }
+    }
+
+    private var reactionPicker: some View {
+        LazyVGrid(
+            columns: Array(
+                repeating: GridItem(.fixed(Metrics.pickerCellWidth), spacing: Metrics.pickerSpacing),
+                count: 4
+            ),
+            spacing: Metrics.pickerSpacing
+        ) {
+            ForEach(pickableReactions) { reaction in
+                Button {
+                    isPickingReaction = false
+                    submit(reaction)
+                } label: {
+                    VStack(spacing: 2) {
+                        // 没有对应 Unicode 字符的（站点自定义的图片表情）那一格只写名字 ——
+                        // 拿一个笑脸图标顶替，会让人以为点的是另一个。
+                        if let emoji = reaction.emoji {
+                            Text(emoji).font(.title2)
+                            Text(reaction.title)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text(reaction.title)
+                                .font(.caption)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(width: Metrics.pickerCellWidth, height: Metrics.pickerCellHeight)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help(reaction.title)
+                .accessibilityIdentifier("post-reaction-option-\(reaction.id)-\(post.id.rawValue)")
+            }
+        }
+        .padding(Metrics.pickerPadding)
     }
 
     private func helpText(for reaction: PostReaction) -> String {
@@ -2188,9 +2341,10 @@ private struct PostReactionBar: View {
     }
 
     /// 免费的点赞走 vote 那条路 —— 适配器只让它从那儿过。
+    /// 站点说了不走赞的（`routesToVote == false`，Linux.do 的表情回应），哪怕免费也走表态那条路。
     private func submit(_ reaction: PostReaction) {
         Task {
-            if reaction.cost == nil {
+            if reaction.cost == nil, reaction.routesToVote != false {
                 await model.thread.vote(on: post.id, direction: .up)
             } else {
                 await model.thread.submitReaction(on: post, reactionID: reaction.id)

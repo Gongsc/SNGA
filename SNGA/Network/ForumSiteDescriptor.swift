@@ -60,6 +60,13 @@ enum SiteUserIDSource: Sendable, Hashable {
     case cookie(name: String)
     /// 在登录页渲染完的 DOM 上跑这段脚本，取回编号字符串。取不到就返回空串。
     case renderedDOM(javaScript: String)
+    /// Cookie 和页面上都没有，登录之后拿这份会话问一次 `ForumService.currentUserID()`。
+    ///
+    /// Linux.do 就是这样：会话 cookie `_t` 是个不透明令牌，页面里预载的数据也不带当前用户
+    /// （2026-11-04 实测，`#data-preloaded` 里没有 `currentUser`）。登录窗口只等会话 cookie
+    /// 落定就交差，编号交给 `AppModel.addAccount` 那条「`uid` 为 nil 就去问」的路 ——
+    /// 那条路本来就在，只是之前没有站点走它。
+    case sessionQuery
 }
 
 /// 请求该用什么 User-Agent。
@@ -128,6 +135,12 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek, .v2ex:
             isBlocked ? "解除屏蔽" : "屏蔽"
+        // Linux.do 接的是「免打扰」，不是「忽略」：后者才藏帖子，但要更高的信任等级（1 级账号
+        // `can_ignore_users` 是 false），而按钮画不画只看站点、不看账号。免打扰只是不再收他的
+        // 通知和私信，帖子照样看得见 —— 所以名字照站点自己的叫法写，不说「屏蔽」，免得许诺
+        // 一件没做的事。
+        case .linuxdo:
+            isBlocked ? "取消免打扰" : "设为免打扰"
         }
     }
 
@@ -153,6 +166,13 @@ struct ForumSiteDescriptor: Sendable {
                 minimumStartInterval: .milliseconds(320)
             )
         case .v2ex:
+            RequestScheduler.Pacing(
+                maximumConcurrent: 4,
+                minimumStartInterval: .milliseconds(320)
+            )
+        // 站点没公布阈值，Discourse 自己的默认限流远比这宽（登录用户每分钟几百发），
+        // 先跟着另外两站取同一个数。真撞上了它答 429 + `Retry-After`，冷却会接住。
+        case .linuxdo:
             RequestScheduler.Pacing(
                 maximumConcurrent: 4,
                 minimumStartInterval: .milliseconds(320)
@@ -191,6 +211,7 @@ struct ForumSiteDescriptor: Sendable {
         case .nga: return NGAInternalLink.destination(for: url)
         case .nodeseek: return NodeSeekInternalLink.destination(for: url)
         case .v2ex: return V2EXInternalLink.destination(for: url)
+        case .linuxdo: return LinuxDoInternalLink.destination(for: url)
         }
     }
 
@@ -208,6 +229,13 @@ struct ForumSiteDescriptor: Sendable {
             // 黑字黑底，表情也不受 120px 的约束。
             PostDocument.html(
                 body: MarkdownRenderer.previewHTML(source, emoticons: NodeSeekStickers.index),
+                extraCSS: PostDocument.markdownStyleSheet
+            )
+        case .linuxdo:
+            // 回复是 Markdown，和 NodeSeek 同一个渲染器。站点的表情是 `:名字:`，
+            // 还没做表情表，预览里先照原文显示。
+            PostDocument.html(
+                body: MarkdownRenderer.previewHTML(source),
                 extraCSS: PostDocument.markdownStyleSheet
             )
         case .v2ex:
@@ -228,6 +256,8 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek: "收藏版面"
         case .v2ex: "节点收藏"
+        // 站点管版面叫「类别」。它没有收藏类别（「关注」是通知级别），这一栏不会画。
+        case .linuxdo: "收藏类别"
         }
     }
 
@@ -236,6 +266,7 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek: "收藏版面"
         case .v2ex: "收藏节点"
+        case .linuxdo: "收藏类别"
         }
     }
 
@@ -248,6 +279,7 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek: "子版面"
         case .v2ex: "聚合节点"
+        case .linuxdo: "子类别"
         }
     }
 
@@ -259,6 +291,9 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek: "勾选后在当前话题列表中显示该子版面的话题"
         case .v2ex: "取消勾选可以把该节点的主题从这一格里暂时隐藏"
+        // 和 V2EX 同一个方向：父类别的列表在服务端就混着子类别的话题（实测
+        // `/c/14/l/latest.json` 里有类别 94 的话题），勾选是**筛出去**，不是加进来。
+        case .linuxdo: "取消勾选可以把该子类别的话题从这个类别里暂时隐藏"
         }
     }
 
@@ -269,6 +304,39 @@ struct ForumSiteDescriptor: Sendable {
         case .nodeseek: NodeSeekStickers.packs
         // 站点没有表情面板，正文里的表情是 Unicode emoji，直接打就是了。
         case .v2ex: []
+        // 自定义表情的图地址是内容哈希，写不死；回复框通过 `ForumService.emoticonPacks()` 去站点取。
+        case .linuxdo: []
+        }
+    }
+
+    /// 提交投票前确认框里那句话。各站「投了还能不能改」不一样。
+    var pollSubmissionNote: String {
+        switch site {
+        // 这一句原先写死在投票视图里，NodeSeek 和 V2EX 也一直显示它；没验过那两站能不能改投，
+        // 措辞先不动。
+        case .nga, .nodeseek, .v2ex: "NGA 投票提交后通常不能修改。"
+        // Discourse 允许改投：再交一次就是覆盖上一次（`PUT /polls/vote`）。
+        case .linuxdo: "提交后还可以改投：重新选择再提交一次即可。"
+        }
+    }
+
+    /// 楼层「回应」那个选择器里能挑的全部表态。
+    ///
+    /// 楼层底下那一排只摆有人点过的（网页也是这样），没点过的就靠这里补：空数组就不画选择器。
+    /// 写在描述里而不是每层楼带一份：这是站点的固定清单，跟具体哪一楼无关。
+    var reactionPickerOptions: [PostReaction] {
+        switch site {
+        // NGA 只有赞踩；NodeSeek 的鸡腿、V2EX 的感谢都已经摆在那一排里了，没有可挑的。
+        case .nga, .nodeseek, .v2ex: []
+        case .linuxdo: LinuxDoParser.reactionCatalog.map { entry in
+            PostReaction(
+                id: entry.id,
+                title: entry.title,
+                systemImage: entry.id == "heart" ? "heart" : "face.smiling",
+                emoji: entry.emoji,
+                routesToVote: false
+            )
+        }
         }
     }
 
@@ -289,6 +357,8 @@ struct ForumSiteDescriptor: Sendable {
         // 谷歌那档应用里没有对应物，而 SoV2EX 是唯一真能搜正文的 —— 主题那一档
         // 走的就是它。名字写在档位上，因为关键词确实会离开 V2EX。
         case .v2ex: [.topicContent, .forum]
+        // 站点的搜索搜全文；「仅标题」是它自己的 `in:title`（实测只返回主楼）。
+        case .linuxdo: [.topicContent, .topicSubject]
         }
     }
 
@@ -323,6 +393,9 @@ struct ForumSiteDescriptor: Sendable {
     func searchFilters(for kind: ForumSearchKind) -> ForumSearchFilterOptions {
         switch (site, kind) {
         case (.v2ex, .topicContent): .all
+        // 作者（`@名字`）和日期（`after:` / `before:`）都实测生效。排序不画：站点只能按时间
+        // 倒序（`order:latest`），没有升序，摆一个「升序」开关却不生效比没有更糟。
+        case (.linuxdo, .topicContent), (.linuxdo, .topicSubject): [.author, .dateRange]
         // NGA 的搜索有自己的一套参数，还没摸过；NodeSeek 的搜索是整页跳转，
         // 地址上只有关键词和分类两个参数。两边都不画。
         default: []
@@ -339,6 +412,9 @@ struct ForumSiteDescriptor: Sendable {
         switch site {
         case .nga, .nodeseek:
             return true
+        // 只有类别缩得进去（`#slug`）。标签那一招 `tags:` 实测不灵，「话题」那一栏本来就是全站。
+        case .linuxdo:
+            return LinuxDoEndpoint.tagID(of: forumID) == nil && forumID.key != LinuxDoEndpoint.latestKey
         case .v2ex:
             return V2EXEndpoint.tabKey(of: forumID) == nil
                 && forumID.key != V2EXEndpoint.recentKey
@@ -356,6 +432,7 @@ struct ForumSiteDescriptor: Sendable {
             "主题搜索由第三方的 \(V2EXEndpoint.searchProviderName) 提供 —— "
                 + "V2EX 自己没有全文搜索，所以关键词会发给它（不会带上你的登录状态）。"
                 + "节点搜索在本地完成，不出网。"
+        case .linuxdo: "搜索全站的话题和帖子，可以只搜标题、按作者和日期筛，或者只在当前类别里搜。"
         }
     }
 
@@ -374,6 +451,8 @@ struct ForumSiteDescriptor: Sendable {
         // 档位选择器是个定宽控件，名字一长就截断成「主题正文（SoV2…」，
         // 反而谁也看不见。它写在下面那行范围里，见 `searchProviderNote`。
         case (.v2ex, .topicContent): "主题正文"
+        case (.linuxdo, .topicContent): "话题和帖子"
+        case (.linuxdo, .topicSubject): "仅标题"
         default: kind.title
         }
     }
@@ -391,6 +470,8 @@ struct ForumSiteDescriptor: Sendable {
         // 站点设置页里这一栏就叫「个人简介」；`tagline` 是另一栏（一句话简介），
         // 进的是资料页的字段那一格。
         case .v2ex: "个人简介"
+        // Discourse 管它叫「关于我」（资料页那一栏的标题）。
+        case .linuxdo: "关于我"
         }
     }
 
@@ -406,6 +487,7 @@ struct ForumSiteDescriptor: Sendable {
         // 站点有铜币 / 银币 / 金币，但**只对本人下发**（`/ajax/money` 要登录），
         // 别人的资料里根本没有这三个数。摆一段全是「—」的声望不如不摆。
         case .v2ex: false
+        case .linuxdo: false
         }
     }
 
@@ -472,7 +554,41 @@ struct ForumSiteDescriptor: Sendable {
                     $0.isEmpty ? nil : ProfileStat(title: "公司 / 职位", value: $0)
                 }
             ].compactMap { $0 }
+        case .linuxdo:
+            // 顺序和叫法照站点资料页头上那一排：加入日期、最后一个帖子、最后活动、浏览量、
+            // 信任级别、关注者、点数。站点不给的那几行不画。
+            // 所在地是会员自己填的一行字，不是 IP 属地 —— 和 V2EX 一样标「所在地」。
+            return [
+                ProfileStat(title: "加入日期", value: Self.formatted(profile.registeredAt)),
+                profile.lastPostedAt.map { ProfileStat(title: "最后一个帖子", value: Self.formatted($0)) },
+                profile.lastSeenAt.map { ProfileStat(title: "最后活动", value: Self.formatted($0)) },
+                number("浏览量", profile.profileViewCount),
+                profile.level.map {
+                    ProfileStat(title: "信任级别", value: LinuxDoParser.trustLevelTitle($0))
+                },
+                number("关注者", profile.followerCount),
+                number("正在关注", profile.followingCount),
+                number("点数", profile.points),
+                profile.readingSeconds.map { ProfileStat(title: "阅读时间", value: Self.readingTime($0)) },
+                profile.title.flatMap {
+                    $0.isEmpty ? nil : ProfileStat(title: "头衔", value: $0)
+                },
+                profile.userGroup.flatMap {
+                    $0.isEmpty ? nil : ProfileStat(title: "主要群组", value: $0)
+                },
+                profile.location.flatMap {
+                    $0.isEmpty ? nil : ProfileStat(title: "所在地", value: $0)
+                }
+            ].compactMap { $0 }
         }
+    }
+
+    /// 阅读时长：站点给秒数，资料页上写「12 小时」「3 天」这种粗粒度的说法，照着来。
+    static func readingTime(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        if hours >= 48 { return "\(hours / 24) 天" }
+        if hours >= 1 { return "\(hours) 小时" }
+        return "\(max(0, seconds / 60)) 分钟"
     }
 
     /// 注册到今天有多少天。不足一天算一天 —— 站点显示的就是这个意思。
@@ -494,6 +610,7 @@ struct ForumSiteDescriptor: Sendable {
         case .nga: NGAEndpoint.topicWebURL(topicID: topicID)
         case .nodeseek: NodeSeekEndpoint.thread(topicID: topicID, page: 1)
         case .v2ex: V2EXEndpoint.topic(topicID: topicID, page: 1)
+        case .linuxdo: LinuxDoEndpoint.topicWebURL(topicID: topicID)
         }
     }
 
@@ -633,6 +750,35 @@ extension ForumSiteDescriptor {
         // 节点接口，三个都是 200（2026-09-08 实测）。所以自报家门就行，
         // 不必像 NodeSeek 那样去问 WebView 要真实 UA。
         userAgent: .fixed("SNGA/1.0 (macOS; native client)")
+    )
+}
+
+extension ForumSiteDescriptor {
+    static let linuxdo = ForumSiteDescriptor(
+        site: .linuxdo,
+        replyMarkup: .markdown,
+        baseURL: URL(string: "https://linux.do")!,
+        loginMethods: [
+            SiteLoginMethod(
+                id: "login",
+                title: "登录 LINUX DO",
+                systemImage: "person.badge.key",
+                url: URL(string: "https://linux.do/login")!,
+                // Google 那颗按钮在内嵌浏览器里点了也没用：Google 拒绝内嵌 WebView 里的
+                // 授权（`disallowed_useragent`），这是 Google 的规矩，不是站点的。
+                detail: "用户名密码、通行密钥或 GitHub 等都行；Google 登录在应用内会被 Google 拒绝"
+            )
+        ],
+        cookieDomains: ["linux.do"],
+        linkDomains: ["linux.do"],
+        // 登录后这个域下有 11 个 cookie（实测，见 `Design/SiteProbe-LinuxDo.md`），
+        // 判断登录与否只看 Discourse 的登录令牌 `_t`；保存照例按域名全收。
+        sessionCookieNames: ["_t"],
+        userIDSource: .sessionQuery,
+        // 站前是 Cloudflare，而且挑战规则比 NodeSeek 还紧：话题详情匿名连真浏览器都过不去。
+        // 登录后的会话搬给 `URLSession` 能过，前提是 UA 用 WebView 自报的那个
+        // （`LinuxDoLiveTests`，2026-11-04 实测）。
+        userAgent: .webView
     )
 }
 
