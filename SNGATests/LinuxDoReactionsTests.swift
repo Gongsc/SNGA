@@ -67,6 +67,27 @@ final class LinuxDoReactionsTests: XCTestCase {
         XCTAssertEqual(put.value(forHTTPHeaderField: "X-CSRF-Token"), "tok")
     }
 
+    /// 选择器里的每一项都必须是适配器肯发的那一种 —— 否则点了就是一句「没有这种表态」。
+    func testEveryPickerOptionIsAcceptedByTheService() async throws {
+        let options = ForumSiteDescriptor.linuxdo.reactionPickerOptions
+        XCTAssertEqual(options.count, LinuxDoParser.reactionCatalog.count)
+        XCTAssertTrue(options.allSatisfy { $0.routesToVote == false }, "点了 😆 不能被当成赞发出去")
+        for option in options {
+            let transport = RecordingHTTPTransport(responding: #"{"csrf":"tok"}"#)
+            _ = try await makeService(transport).submitPostReaction(
+                topicID: TopicID(rawValue: 1), postID: PostID(rawValue: 2), reactionID: option.id
+            )
+            XCTAssertEqual(transport.requests.last?.httpMethod, "PUT", option.id)
+        }
+    }
+
+    /// 别的站点的那一排已经是全集，没有选择器。
+    func testOtherSitesHaveNoReactionPicker() {
+        for site in ForumSite.allCases where site != .linuxdo {
+            XCTAssertTrue(site.descriptor.reactionPickerOptions.isEmpty, site.rawValue)
+        }
+    }
+
     func testUnknownReactionIsNotSent() async throws {
         let transport = RecordingHTTPTransport(responding: "{}")
         do {

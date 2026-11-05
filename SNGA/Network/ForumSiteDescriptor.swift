@@ -303,6 +303,26 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 楼层「回应」那个选择器里能挑的全部表态。
+    ///
+    /// 楼层底下那一排只摆有人点过的（网页也是这样），没点过的就靠这里补：空数组就不画选择器。
+    /// 写在描述里而不是每层楼带一份：这是站点的固定清单，跟具体哪一楼无关。
+    var reactionPickerOptions: [PostReaction] {
+        switch site {
+        // NGA 只有赞踩；NodeSeek 的鸡腿、V2EX 的感谢都已经摆在那一排里了，没有可挑的。
+        case .nga, .nodeseek, .v2ex: []
+        case .linuxdo: LinuxDoParser.reactionCatalog.map { entry in
+            PostReaction(
+                id: entry.id,
+                title: entry.title,
+                systemImage: entry.id == "heart" ? "heart" : "face.smiling",
+                emoji: entry.emoji,
+                routesToVote: false
+            )
+        }
+        }
+    }
+
     /// 这个站点的搜索能搜什么。
     ///
     /// 各站给的档位不一样，写死一份会在别的站上摆出搜不了的选项。NodeSeek 的搜索面板

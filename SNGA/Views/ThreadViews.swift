@@ -2146,9 +2146,11 @@ private struct PostReactionBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
+    @Environment(\.forumSiteDescriptor) private var descriptor
     let post: Post
 
     @State private var pending: PostReaction?
+    @State private var isPickingReaction = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -2176,6 +2178,29 @@ private struct PostReactionBar: View {
                 )
                 .accessibilityLabel("\(reaction.title) \(reaction.count ?? 0)")
                 .accessibilityIdentifier("post-reaction-\(reaction.id)-\(post.id.rawValue)")
+            }
+
+            if !pickableReactions.isEmpty {
+                Button {
+                    isPickingReaction = true
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "plus")
+                                .font(.system(size: Metrics.pickerBadgeSize, weight: .bold))
+                                .offset(x: 3, y: 2)
+                        }
+                        .font(fonts.threadContent.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("回应")
+                .disabled(model.thread.votingPostIDs.contains(post.id))
+                .accessibilityLabel("回应")
+                .accessibilityIdentifier("post-reaction-picker-\(post.id.rawValue)")
+                .popover(isPresented: $isPickingReaction, arrowEdge: .bottom) {
+                    reactionPicker
+                }
             }
 
             // 收藏是话题级的，只在主楼显示 —— 网页版也是这么摆的。
@@ -2222,6 +2247,61 @@ private struct PostReactionBar: View {
                 .font(fonts.threadContent.caption.monospacedDigit())
                 .foregroundStyle(isChosen ? theme.accentColor : Color.secondary)
         }
+    }
+
+    private enum Metrics {
+        static let pickerBadgeSize: CGFloat = 7
+        static let pickerCellWidth: CGFloat = 64
+        static let pickerCellHeight: CGFloat = 44
+        static let pickerSpacing: CGFloat = 4
+        static let pickerPadding: CGFloat = 10
+    }
+
+    /// 选择器里摆那一排还没摆出来的 —— 已经在排里的直接点排里那个就行，两处各一个只会让人犹豫。
+    private var pickableReactions: [PostReaction] {
+        let shown = Set(post.reactions.map(\.id))
+        return descriptor.reactionPickerOptions.filter { !shown.contains($0.id) }
+    }
+
+    private var reactionPicker: some View {
+        LazyVGrid(
+            columns: Array(
+                repeating: GridItem(.fixed(Metrics.pickerCellWidth), spacing: Metrics.pickerSpacing),
+                count: 4
+            ),
+            spacing: Metrics.pickerSpacing
+        ) {
+            ForEach(pickableReactions) { reaction in
+                Button {
+                    isPickingReaction = false
+                    submit(reaction)
+                } label: {
+                    VStack(spacing: 2) {
+                        // 没有对应 Unicode 字符的（站点自定义的图片表情）那一格只写名字 ——
+                        // 拿一个笑脸图标顶替，会让人以为点的是另一个。
+                        if let emoji = reaction.emoji {
+                            Text(emoji).font(.title2)
+                            Text(reaction.title)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text(reaction.title)
+                                .font(.caption)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(width: Metrics.pickerCellWidth, height: Metrics.pickerCellHeight)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .help(reaction.title)
+                .accessibilityIdentifier("post-reaction-option-\(reaction.id)-\(post.id.rawValue)")
+            }
+        }
+        .padding(Metrics.pickerPadding)
     }
 
     private func helpText(for reaction: PostReaction) -> String {
