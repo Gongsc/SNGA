@@ -651,7 +651,10 @@ struct LinuxDoParser: Sendable {
     /// - 链接预览卡片 `aside.onebox` 换成一条链接 —— 卡片的样式全靠站点的 CSS。
     /// - 标题前面那个锚点（`a.anchor`）和所有 `svg` 去掉。
     static func sanitizedBody(_ cooked: String) throws -> String {
-        let document = try SwiftSoup.parseBodyFragment(cooked, baseURI)
+        // 用 `parse` 而不是 `parseBodyFragment`：SwiftSoup 2.13.6 在片段解析、关掉 pretty-print
+        // 的时候会直接回放原文 —— 改过的**属性**（换掉的 `src`、删掉的 `srcset`）在 `html()` 里
+        // 全部丢失，只有增删节点这种结构改动才会生效。整份文档解析没有这个毛病，正文照样在 `body` 里。
+        let document = try SwiftSoup.parse(cooked, baseURI)
         document.outputSettings(verbatimOutput)
         guard let body = try document.body() else { return "" }
 
@@ -705,9 +708,15 @@ struct LinuxDoParser: Sendable {
 
     private static func resolveRelativeURLs(in element: Element) throws {
         for image in try element.select("img[src]") {
-            let absolute = try image.attr("abs:src")
+            // 配图的 `src` 是一倍图（`_2_468x500`），网页在 Retina 屏上按 `srcset` 换成二倍图。
+            // 只留 `src` 就是在 2x 屏上把一倍图放大着画 —— 比网页糊一档。这里直接把 `src`
+            // 换成 `srcset` 里密度最高的那张；`width` / `height` 原样留着，它们是**显示尺寸**，
+            // 图本身大一倍不改变它画多大（`PostImageView` 按声明宽度排版，和网页一样）。
+            let preferred = highestDensityCandidate(in: try image.attr("srcset"))
+                .flatMap { URL(string: $0, relativeTo: LinuxDoEndpoint.base)?.absoluteString }
+            let absolute = try preferred ?? image.attr("abs:src")
             if absolute.isEmpty { try image.remove() } else { try image.attr("src", absolute) }
-            // `srcset` 里是几张不同尺寸的同一张图，相对地址解不出来，留着只会让 WebView 去抓坏链接。
+            // 选过了就不必留着：WebView 那一侧会按它重新挑一遍，而相对地址在那边解不出来。
             try image.removeAttr("srcset")
         }
         for link in try element.select("a[href]") {
@@ -718,6 +727,26 @@ struct LinuxDoParser: Sendable {
                 try link.removeAttr("href")
             }
         }
+    }
+
+    /// `srcset` 里密度最高的那个地址。只认 `1.5x` / `2x` 这种密度描述符，不带描述符的算 1x；
+    /// 出现宽度描述符（`936w`）就不挑了 —— 那要配 `sizes` 才算得出来，站点目前也不这么写。
+    static func highestDensityCandidate(in srcset: String) -> String? {
+        var best: (url: String, density: Double)?
+        for candidate in srcset.split(separator: ",") {
+            let parts = candidate.split(whereSeparator: \.isWhitespace)
+            guard let url = parts.first.map(String.init), !url.isEmpty else { continue }
+            var density = 1.0
+            if parts.count > 1 {
+                let descriptor = parts[1].lowercased()
+                guard descriptor.hasSuffix("x"), let value = Double(descriptor.dropLast()) else {
+                    return nil
+                }
+                density = value
+            }
+            if best == nil || density > best!.density { best = (url, density) }
+        }
+        return best?.url
     }
 
     private static func whitelist() throws -> Whitelist {

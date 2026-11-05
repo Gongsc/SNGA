@@ -76,6 +76,8 @@ UI 从不直接发请求，只经过 `AppSession.activeService`。接一个站�
 
 `PostContentBuilder`（[SNGA/Network/PostContentBuilder.swift](SNGA/Network/PostContentBuilder.swift)）是**全有或全无**：遇到一个还原不了的节点就返回 nil 整层回退，宁可多回退也不能悄悄丢内容。超过 150 块或引用嵌套超 16 层也回退（实测 2000 块要 6.7 秒布局，主线程追不上）。
 
+**改属性的 DOM 别用 `parseBodyFragment` 解析。** SwiftSoup 2.13.6 对片段解析的结果、在关掉 pretty-print 时会直接回放原文：之后改过的属性（换 `src`、删 `srcset`）在 `html()` 里全部丢失，只有增删节点这种结构改动生效。整页 `SwiftSoup.parse` 和 NGA 那种经 `Cleaner` 重建的 DOM 没有这个毛病。Linux.do 的配图清晰度栽在这上面（二倍图换上了又被原文盖回去）。
+
 `PostDocument.baseStyleSheet` 里 `:root` 那几个 CSS 变量名不能改 —— `ResolvedAppTheme.applying(to:)` 靠字符串替换上主题，改名字主题会静默失效。
 
 ### 标识与持久化

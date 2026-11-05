@@ -148,6 +148,11 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertTrue(try body.select("div.lightbox-wrapper, .meta, svg").isEmpty())
         XCTAssertFalse(try body.select("img[src^=https://cdn3.ldstatic.com/]").isEmpty())
         XCTAssertTrue(try body.select("img[srcset]").isEmpty(), "srcset 里的相对地址解不出来")
+        // 夹具里那张盲测图：`src` 是一倍图，要换成 `srcset` 里的二倍图，否则 Retina 屏上比网页糊。
+        XCTAssertFalse(
+            try body.select("img[src$=_2_936x1000.jpeg][width=468][height=500]").isEmpty(),
+            "配图该取二倍图、留着一倍的显示尺寸"
+        )
         // 引用变成普通的引用块，抬头那行（被引的话题名）是粗体。
         XCTAssertTrue(try body.select("aside").isEmpty())
         let quote = try XCTUnwrap(body.select("blockquote").first())
@@ -174,6 +179,27 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertEqual(try root.select("img").count, 1)
         XCTAssertEqual(try root.select("img").attr("src"), "https://cdn3.ldstatic.com/optimized/a_2_468x500.jpeg")
         XCTAssertTrue(try root.select("a, span, svg").isEmpty())
+    }
+
+    /// 网页在 2x 屏上按 `srcset` 换二倍图；原生分支和 WebView 都拿不到 `srcset`，就在清洗时替它选好。
+    func testImageTakesTheHighestDensitySourceAndKeepsItsDisplaySize() throws {
+        let cooked = """
+        <p><img src="/uploads/a_2_468x500.jpeg" width="468" height="500" \
+        srcset="/uploads/a_2_468x500.jpeg, /uploads/a_2_702x750.jpeg 1.5x, /uploads/a_2_936x1000.jpeg 2x"></p>
+        """
+        let root = try XCTUnwrap(SwiftSoup.parseBodyFragment(try LinuxDoParser.sanitizedBody(cooked)).body())
+        let image = try XCTUnwrap(root.select("img").first())
+        XCTAssertEqual(try image.attr("src"), "https://linux.do/uploads/a_2_936x1000.jpeg", "相对地址也要解开")
+        XCTAssertEqual(try image.attr("width"), "468")
+        XCTAssertEqual(try image.attr("height"), "500")
+        XCTAssertFalse(image.hasAttr("srcset"))
+    }
+
+    func testDensityPickIgnoresWidthDescriptorsAndOrder() {
+        XCTAssertEqual(LinuxDoParser.highestDensityCandidate(in: "b 2x, a"), "b")
+        XCTAssertEqual(LinuxDoParser.highestDensityCandidate(in: "a"), "a")
+        XCTAssertNil(LinuxDoParser.highestDensityCandidate(in: ""))
+        XCTAssertNil(LinuxDoParser.highestDensityCandidate(in: "a 468w, b 936w"), "宽度描述符要配 sizes，不猜")
     }
 
     func testOneboxBecomesAPlainLink() throws {
