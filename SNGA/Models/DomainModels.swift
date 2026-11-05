@@ -105,6 +105,19 @@ struct Topic: Identifiable, Hashable, Codable, Sendable {
     /// 在发送前问一句「回复本帖将扣减 N 积分,确认继续？」，提交时不带别的参数。
     /// 应用照做 —— 不作声就扣用户的积分，和 NodeSeek 的鸡腿、V2EX 的铜币是同一类事。
     var replyCost: Int? = nil
+    /// 话题上挂的标签（Linux.do 的 `tags`）。没有标签的站点留空，界面就不画那一段。
+    var tags: [TopicTag] = []
+}
+
+/// 话题上挂的一个标签。
+///
+/// 带着 `forumID` 是因为在 Linux.do 上标签本身就是一个能打开的列表（`/tag/{编号}`），
+/// 解析时就把它算好，界面要跳过去时不必再回头认站点的编码约定。
+struct TopicTag: Identifiable, Hashable, Codable, Sendable {
+    var name: String
+    var forumID: ForumID? = nil
+
+    var id: String { name }
 }
 
 struct TopicFavoriteFolder: Identifiable, Hashable, Codable, Sendable {

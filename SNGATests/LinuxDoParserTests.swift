@@ -88,6 +88,65 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertEqual(page.totalPages, 2)
     }
 
+    func testTopicListCarriesTagsAndThePinnedBadge() throws {
+        let page = try parser.topicList(
+            json: fixture("linuxdo-category-latest"),
+            forumID: LinuxDoEndpoint.forumID(categoryID: 4),
+            page: 1
+        )
+        let first = try XCTUnwrap(page.topics.first)
+        XCTAssertEqual(first.tags.map(\.name), ["快问快答", "人工智能"])
+        // 标签本身就是一个能打开的列表，编号在解析时就换成版面键。
+        XCTAssertEqual(first.tags.last?.forumID, LinuxDoEndpoint.forumID(tagID: 444))
+        XCTAssertTrue(first.badges.isEmpty, "普通话题不挂标记")
+
+        let pinned = try XCTUnwrap(page.topics.last)
+        XCTAssertEqual(pinned.badges.map(\.title), [LinuxDoParser.pinnedBadgeTitle])
+        XCTAssertTrue(pinned.tags.isEmpty)
+    }
+
+    /// 老版本 Discourse 的标签是光秃秃的字符串。认不出来会把整页列表拖垮。
+    func testTopicListAcceptsPlainStringTags() throws {
+        let json = Data("""
+        {"topic_list": {"topics": [
+          {"id": 1, "title": "t", "posts_count": 1, "tags": ["linux", "linux", " "]}
+        ]}}
+        """.utf8)
+        let page = try parser.topicList(json: json, forumID: LinuxDoEndpoint.forumID(categoryID: 4), page: 1)
+        let topic = try XCTUnwrap(page.topics.first)
+        XCTAssertEqual(topic.tags, [TopicTag(name: "linux")], "重复的和空白的不算")
+    }
+
+    func testListBadgesFollowTheSiteStatuses() {
+        func titles(
+            pinned: Bool? = nil,
+            pinnedGlobally: Bool? = nil,
+            archived: Bool? = nil,
+            visible: Bool? = nil,
+            solved: Bool? = nil
+        ) -> [String] {
+            LinuxDoParser.listBadges(
+                pinned: pinned,
+                pinnedGlobally: pinnedGlobally,
+                archived: archived,
+                visible: visible,
+                hasAcceptedAnswer: solved
+            ).map(\.title)
+        }
+        XCTAssertEqual(titles(pinned: true, pinnedGlobally: true), [LinuxDoParser.pinnedGloballyBadgeTitle])
+        // 用户在网页上取消过置顶：`pinned_globally` 还是 true，`pinned` 变成 false。照用户的意思不再标。
+        XCTAssertEqual(titles(pinned: false, pinnedGlobally: true), [])
+        XCTAssertEqual(titles(archived: true, visible: false, solved: true), ["已解决", "已归档", "未公开"])
+        // 接口没给 `visible` 不等于不公开。
+        XCTAssertEqual(titles(visible: nil), [])
+    }
+
+    func testSearchResultsCarryTags() throws {
+        let request = try XCTUnwrap(ForumSearchRequest(query: "linux", kind: .topicContent))
+        let page = try parser.search(json: fixture("linuxdo-search"), request: request, page: 1)
+        XCTAssertEqual(page.topics.first?.tags.map(\.name), ["人工智能"])
+    }
+
     /// 父类别的列表里混着子类别的话题，子类别要一律勾上，否则界面会把它们全筛掉。
     func testSubcategoriesAreAttachedAndSelectedByDefault() throws {
         let child = Forum(id: LinuxDoEndpoint.forumID(categoryID: 94), name: "网盘资源", isSubforum: true)

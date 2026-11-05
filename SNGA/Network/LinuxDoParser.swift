@@ -211,7 +211,15 @@ struct LinuxDoParser: Sendable {
                 lastReplyAt: Self.date(item.lastPostedAt ?? item.bumpedAt),
                 isPinned: item.pinned ?? false,
                 isLocked: (item.closed ?? false) || (item.archived ?? false),
-                sourceForumID: item.categoryID.map(LinuxDoEndpoint.forumID(categoryID:))
+                sourceForumID: item.categoryID.map(LinuxDoEndpoint.forumID(categoryID:)),
+                badges: Self.listBadges(
+                    pinned: item.pinned,
+                    pinnedGlobally: item.pinnedGlobally,
+                    archived: item.archived,
+                    visible: item.visible,
+                    hasAcceptedAnswer: item.hasAcceptedAnswer
+                ),
+                tags: Self.topicTags(item.tags)
             )
         }
         let hasMore = response.topicList.moreTopicsURL != nil
@@ -231,6 +239,57 @@ struct LinuxDoParser: Sendable {
                 return forum
             }
         )
+    }
+
+    /// 列表上挂在标题前面的那几个标记。
+    ///
+    /// 名字照站点自己的说法（话题状态图标悬停时的那句）。关闭不在这里：`isLocked`
+    /// 已经画了一把锁，再挂一个「已关闭」是同一件事说两遍。归档也算锁定（不能再回），
+    /// 但它多一层「整个冻住了、连改都不能改」，所以另挂一个。
+    ///
+    /// 全站置顶和版面置顶分开：前者在哪个列表里都顶着，读者看到它就知道这不是这个版面的事。
+    /// 用户在网页上「取消置顶」过的话题，站点自己把 `pinned` 答成 false（`unpinned` 为 true），
+    /// 照着它就是用户的意思。
+    static func listBadges(
+        pinned: Bool?,
+        pinnedGlobally: Bool?,
+        archived: Bool?,
+        visible: Bool?,
+        hasAcceptedAnswer: Bool?
+    ) -> [TopicBadge] {
+        var badges: [TopicBadge] = []
+        // `pinned_globally` 在用户取消置顶之后照样是 true，只有 `pinned` 会跟着变 ——
+        // 所以先看 `pinned`，再用 `pinned_globally` 分是哪一种置顶。
+        if pinned ?? false {
+            badges.append(TopicBadge(
+                title: (pinnedGlobally ?? false) ? pinnedGloballyBadgeTitle : pinnedBadgeTitle,
+                systemImage: "pin.fill"
+            ))
+        }
+        if hasAcceptedAnswer ?? false {
+            badges.append(TopicBadge(title: "已解决", systemImage: "checkmark.seal.fill"))
+        }
+        if archived ?? false {
+            badges.append(TopicBadge(title: "已归档", systemImage: "archivebox"))
+        }
+        // 只有明确答 false 才算不公开：缺这个字段的接口（私信、部分搜索）不能被一律标成不公开。
+        if visible == false {
+            badges.append(TopicBadge(title: "未公开", systemImage: "eye.slash"))
+        }
+        return badges
+    }
+
+    static let pinnedBadgeTitle = "置顶"
+    static let pinnedGloballyBadgeTitle = "全站置顶"
+
+    /// 话题的标签。私信标签（`pm_only`）不会出现在公开列表里，这里不必再筛。
+    private static func topicTags(_ refs: [TopicTagRef]?) -> [TopicTag] {
+        var seen = Set<String>()
+        return (refs ?? []).compactMap { ref in
+            let name = ref.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, seen.insert(name).inserted else { return nil }
+            return TopicTag(name: name, forumID: ref.id.map(LinuxDoEndpoint.forumID(tagID:)))
+        }
     }
 
     // MARK: - 话题与楼层
@@ -572,7 +631,15 @@ struct LinuxDoParser: Sendable {
                 lastReplyAt: Self.date(topic.lastPostedAt ?? topic.bumpedAt),
                 isPinned: topic.pinned ?? false,
                 isLocked: (topic.closed ?? false) || (topic.archived ?? false),
-                sourceForumID: topic.categoryId.map(LinuxDoEndpoint.forumID(categoryID:))
+                sourceForumID: topic.categoryId.map(LinuxDoEndpoint.forumID(categoryID:)),
+                badges: Self.listBadges(
+                    pinned: topic.pinned,
+                    pinnedGlobally: nil,
+                    archived: topic.archived,
+                    visible: topic.visible,
+                    hasAcceptedAnswer: topic.hasAcceptedAnswer
+                ),
+                tags: Self.topicTags(topic.tags)
             ))
         }
         let hasMore = response.groupedSearchResult?.moreFullPageResults ?? false
@@ -960,6 +1027,29 @@ private struct UserItem: Decodable {
     var avatarTemplate: String?
 }
 
+/// 话题上的一个标签。
+///
+/// 现在的站点给的是 `{id, name, slug}`（2026-11-05 实测）；Discourse 老版本和关掉
+/// `tags_listed_by_group` 之类设置的站点给的是光秃秃的字符串。两种都认 —— 解码失败
+/// 会把整页列表一起拖垮，为一个标签不值得。
+private struct TopicTagRef: Decodable {
+    var id: Int?
+    var name: String
+
+    private enum CodingKeys: String, CodingKey { case id, name }
+
+    init(from decoder: Decoder) throws {
+        if let name = try? decoder.singleValueContainer().decode(String.self) {
+            self.name = name
+            self.id = nil
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        id = try container.decodeIfPresent(Int.self, forKey: .id)
+    }
+}
+
 private struct TopicListResponse: Decodable {
     struct TopicList: Decodable {
         var topics: [TopicItem]
@@ -975,8 +1065,12 @@ private struct TopicListResponse: Decodable {
         var lastPostedAt: String?
         var bumpedAt: String?
         var pinned: Bool?
+        var pinnedGlobally: Bool?
         var closed: Bool?
         var archived: Bool?
+        var visible: Bool?
+        var hasAcceptedAnswer: Bool?
+        var tags: [TopicTagRef]?
         var categoryId: Int?
         var posters: [Poster]?
         // 私信列表才有的几样。
@@ -1172,6 +1266,9 @@ private struct SearchResponse: Decodable {
         var pinned: Bool?
         var closed: Bool?
         var archived: Bool?
+        var visible: Bool?
+        var hasAcceptedAnswer: Bool?
+        var tags: [TopicTagRef]?
     }
     struct Grouped: Decodable {
         var moreFullPageResults: Bool?

@@ -68,6 +68,19 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
+    /// 话题列表里的标签胶囊：次级文字压在 `fillColor` 上。跟随系统那一档没有调色板，
+    /// 是系统的 `.secondary` 叠在 3.5% 的前景上，不在这里量。
+    func testTopicTagTextReadsOnFill() throws {
+        for theme in [AppTheme.light, .dark, .ngaClassic, .midnight, .custom] {
+            let style = theme.resolved()
+            let ratio = try contrastRatio(style.secondaryForegroundColor, style.fillColor)
+            XCTAssertGreaterThanOrEqual(
+                ratio, 4.5,
+                "\(theme.displayName)：标签文字只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+    }
+
     // MARK: - 辅助
 
     private struct Components {

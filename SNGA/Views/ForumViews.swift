@@ -2168,6 +2168,9 @@ private struct TopicRow: View {
                     Text(topic.author.isEmpty ? "未知作者" : topic.author)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    if !topic.tags.isEmpty {
+                        TopicTagStrip(topicID: topic.id, tags: topic.tags)
+                    }
                 }
                 Spacer(minLength: 8)
                 if topic.mirroredForumID == nil {
@@ -2213,6 +2216,50 @@ private struct TopicRow: View {
         // 而且这一行整个都淡了，标题再单独淡一次也说不出任何多余的意思。
         guard levelGate == nil else { return base }
         return isVisited ? base.opacity(Metrics.visitedSubjectOpacity) : base
+    }
+}
+
+/// 作者名后面那一串标签。
+///
+/// 放在作者那一行而不是标题行：标题行前面已经挂着版面名、置顶、等级这些标记，
+/// 再塞两三个标签，标题本身会被挤到第二行去。标签是「这帖讲什么」的补充，
+/// 地位和作者、回复数相当。
+///
+/// 只画前几个，而且整串让位给作者名和右边的数字（`layoutPriority` 低于它们）：
+/// 站点允许一帖挂五个标签，全画出来窄窗口下会把日期顶出行外。全部标签在悬停提示里。
+private struct TopicTagStrip: View {
+    @Environment(\.sngaTheme) private var theme
+    @Environment(\.sngaFonts) private var fonts
+    let topicID: TopicID
+    let tags: [TopicTag]
+
+    private enum Metrics {
+        static let visibleCount = 3
+        static let spacing: CGFloat = 4
+        static let horizontalPadding: CGFloat = 5
+        static let verticalPadding: CGFloat = 1
+    }
+
+    var body: some View {
+        HStack(spacing: Metrics.spacing) {
+            ForEach(tags.prefix(Metrics.visibleCount)) { tag in
+                Text(tag.name)
+                    .font(fonts.topicList.caption2)
+                    .lineLimit(1)
+                    .padding(.horizontal, Metrics.horizontalPadding)
+                    .padding(.vertical, Metrics.verticalPadding)
+                    .foregroundStyle(theme.secondaryForegroundColor)
+                    .background(theme.fillColor, in: Capsule())
+                    .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
+            }
+            if tags.count > Metrics.visibleCount {
+                Text("+\(tags.count - Metrics.visibleCount)")
+                    .font(fonts.topicList.caption2)
+                    .foregroundStyle(theme.tertiaryForegroundColor)
+            }
+        }
+        .layoutPriority(-1)
+        .help(tags.map(\.name).joined(separator: "、"))
     }
 }
 
