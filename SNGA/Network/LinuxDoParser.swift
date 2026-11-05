@@ -488,6 +488,11 @@ struct LinuxDoParser: Sendable {
         )
     }
 
+    /// 自己的 `/u/{我}.json` → 设了免打扰的那些人的用户名（`muted_usernames`，只有看自己时才有）。
+    func mutedUsernames(json data: Data) throws -> [String] {
+        try decode(UserProfileResponse.self, from: data, what: "免打扰名单").user.mutedUsernames ?? []
+    }
+
     /// 信任等级在站点上的叫法（Discourse 的中文语言包，资料页上写的就是这些）。
     static func trustLevelTitle(_ level: Int) -> String {
         switch level {
@@ -1068,6 +1073,7 @@ private struct UserProfileResponse: Decodable {
     struct FullUser: Decodable {
         var id: Int64
         var username: String
+        var mutedUsernames: [String]?
         var avatarTemplate: String?
         var createdAt: String?
         var lastSeenAt: String?

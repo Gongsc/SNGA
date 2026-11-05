@@ -342,3 +342,79 @@ final class LinuxDoEmoticonTests: XCTestCase {
         XCTAssertEqual(packs, service.site.descriptor.emoticonPacks)
     }
 }
+
+/// 「屏蔽」在 Linux.do 上接的是免打扰。名单字段（`muted_usernames`）和接口（`PUT
+/// /u/{name}/notification_level.json`）按 2026-11-05 实测和站点前端；写请求只对假传输层断言。
+final class LinuxDoMuteTests: XCTestCase {
+    private func makeService(_ transport: any HTTPTransport) -> LinuxDoForumService {
+        LinuxDoForumService(
+            accountID: AccountID(),
+            cookies: [SessionCookie(
+                name: "_t", value: "token", domain: "linux.do", path: "/",
+                expiresAt: nil, isSecure: true, isHTTPOnly: true
+            )],
+            transport: transport,
+            userAgent: "WebViewUA"
+        )
+    }
+
+    func testMutedUsernamesAreResolvedToIDs() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/session/current.json": #"{"current_user":{"id":800001,"username":"me"}}"#,
+                "/u/me.json": #"{"user":{"id":800001,"username":"me","muted_usernames":["alice","bob"]}}"#,
+                "/u/alice.json": #"{"user":{"id":800002,"username":"alice"}}"#,
+                "/u/bob.json": #"{"user":{"id":800003,"username":"bob"}}"#
+            ]
+        )
+        let service = makeService(transport)
+        let ids = try await service.blockedUserIDs()
+        XCTAssertEqual(ids, [800_002, 800_003])
+
+        transport.reset()
+        _ = try await service.blockedUserIDs()
+        XCTAssertFalse(
+            transport.requests.contains { $0.url?.path == "/u/alice.json" },
+            "换过的用户名记着，不再逐个问"
+        )
+    }
+
+    func testEmptyListMeansNobodyIsMuted() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/session/current.json": #"{"current_user":{"id":800001,"username":"me"}}"#,
+                "/u/me.json": #"{"user":{"id":800001,"username":"me","muted_usernames":[]}}"#
+            ]
+        )
+        let ids = try await makeService(transport).blockedUserIDs()
+        XCTAssertTrue(ids.isEmpty)
+    }
+
+    func testMuteAndUnmuteSetTheNotificationLevel() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/session/csrf": #"{"csrf":"tok"}"#,
+                "/user-cards.json": #"{"users":[{"id":800002,"username":"alice"}]}"#
+            ]
+        )
+        let service = makeService(transport)
+        try await service.updateUserBlock(uid: 800_002, name: "显示名", isBlocked: true)
+        try await service.updateUserBlock(uid: 800_002, name: "显示名", isBlocked: false)
+        let puts = transport.requests.filter { $0.httpMethod == "PUT" }
+        XCTAssertEqual(puts.map { $0.url?.path }, Array(repeating: "/u/alice/notification_level.json", count: 2),
+                       "地址里用的是用户名，不是界面上的显示名")
+        XCTAssertEqual(
+            puts.map { String(decoding: $0.httpBody ?? Data(), as: UTF8.self) },
+            ["notification_level=mute", "notification_level=normal"]
+        )
+    }
+
+    /// 名字照站点自己的说法，不许诺「屏蔽」—— 免打扰不藏帖子。
+    func testActionIsWordedAsMuteNotBlock() {
+        XCTAssertEqual(ForumSiteDescriptor.linuxdo.userBlockActionTitle(isBlocked: false), "设为免打扰")
+        XCTAssertEqual(ForumSiteDescriptor.linuxdo.userBlockActionTitle(isBlocked: true), "取消免打扰")
+    }
+}

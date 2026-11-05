@@ -19,7 +19,7 @@ actor LinuxDoForumService: ForumService {
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
     nonisolated let capabilities: ForumCapabilities = [
         .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote,
-        .quotePost, .topicFavorites, .poll
+        .quotePost, .topicFavorites, .poll, .userBlocking
     ]
 
     private let client: LinuxDoNetworkClient
@@ -562,6 +562,42 @@ actor LinuxDoForumService: ForumService {
         let loaded = try parser.customEmoticonPacks(json: await client.get(LinuxDoEndpoint.emojis))
         emoticons = loaded
         return loaded
+    }
+
+    // MARK: - 免打扰
+
+    /// 站点侧的「屏蔽」接的是**免打扰**（`mute`）：不再收这个人的通知和私信。为什么不是更像
+    /// 黑名单的「忽略」，见 `ForumSiteDescriptor.userBlockActionTitle`。
+    ///
+    /// 名单只给用户名（`muted_usernames`），应用按编号认人，所以逐个换成编号 —— 每人一次
+    /// `/u/{name}.json`。名单通常只有几个人；换过的记在用户名缓存里，下次不再问。
+    func blockedUserIDs() async throws -> Set<Int64> {
+        guard let me = LinuxDoEndpoint.userProfile(username: try await currentUsername()) else {
+            throw ForumServiceError.invalidResponse
+        }
+        var ids = Set<Int64>()
+        for name in try parser.mutedUsernames(json: await client.get(me)) {
+            ids.insert(try await userID(ofUsername: name))
+        }
+        return ids
+    }
+
+    func updateUserBlock(uid: Int64, name: String, isBlocked: Bool) async throws {
+        // 传进来的 `name` 是界面上显示的名字；地址里要的是用户名，按编号问一遍才稳。
+        guard let url = LinuxDoEndpoint.notificationLevel(username: try await username(of: uid)) else {
+            throw ForumServiceError.invalidResponse
+        }
+        _ = try await client.send("PUT", url, form: [("notification_level", isBlocked ? "mute" : "normal")])
+    }
+
+    private func userID(ofUsername name: String) async throws -> Int64 {
+        if let known = usernames.first(where: { $0.value == name })?.key { return known }
+        guard let url = LinuxDoEndpoint.userProfile(username: name) else {
+            throw ForumServiceError.invalidResponse
+        }
+        let uid = try parser.fullProfile(json: await client.get(url)).uid
+        usernames[uid] = name
+        return uid
     }
 
     func checkInStatus() async throws -> CheckInStatistics {

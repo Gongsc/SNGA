@@ -133,8 +133,14 @@ struct ForumSiteDescriptor: Sendable {
     /// 说法 —— 真接上时按站点自己的页面核一遍，别照抄。
     func userBlockActionTitle(isBlocked: Bool) -> String {
         switch site {
-        case .nga, .nodeseek, .v2ex, .linuxdo:
+        case .nga, .nodeseek, .v2ex:
             isBlocked ? "解除屏蔽" : "屏蔽"
+        // Linux.do 接的是「免打扰」，不是「忽略」：后者才藏帖子，但要更高的信任等级（1 级账号
+        // `can_ignore_users` 是 false），而按钮画不画只看站点、不看账号。免打扰只是不再收他的
+        // 通知和私信，帖子照样看得见 —— 所以名字照站点自己的叫法写，不说「屏蔽」，免得许诺
+        // 一件没做的事。
+        case .linuxdo:
+            isBlocked ? "取消免打扰" : "设为免打扰"
         }
     }
 

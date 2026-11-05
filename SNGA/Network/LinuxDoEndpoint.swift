@@ -118,6 +118,15 @@ enum LinuxDoEndpoint {
     ///
     /// 卡片接口（`userCards`）在登录后看别人时只给一份六个字段的精简版（实测：没有加入时间、
     /// 头衔、群组），这里才是全的 —— 加入时间、最后活动、浏览量、点数都在 `user` 里。
+    /// 对某个人的通知级别（`PUT`，`notification_level` = `normal` / `mute` / `ignore`，忽略还要
+    /// 带 `expiring_at`）。抄自站点前端，2026-11-05。
+    static func notificationLevel(username: String) -> URL? {
+        guard let encoded = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            return nil
+        }
+        return url("/u/\(encoded)/notification_level.json")
+    }
+
     static func userProfile(username: String) -> URL? {
         guard let encoded = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
             return nil
