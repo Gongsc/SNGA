@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发），同时支持 NGA、NodeSeek 和 V2EX 三个站点。仓库内文档、代码注释用中文，commit message 用英文。
+SNGA 是 macOS 26 的原生 SwiftUI 论坛客户端（Swift 6，严格并发），同时支持 NGA、NodeSeek、V2EX 和 Linux.do 四个站点。仓库内文档、代码注释用中文，commit message 用英文。
 
 ## 常用命令
 
@@ -34,9 +34,9 @@ xcodebuild -project SNGA.xcodeproj -scheme SNGA -derivedDataPath .build/DerivedD
 xcodegen generate
 ```
 
-**README 里的版本更新记录只写主要内容，不要过于详细。** 一版五六条，每条一句话说清「用户能多做什么」或者「什么毛病没了」。实现细节、踩过的坑、为什么不是另一种写法，写进 commit message 和代码注释 —— 那才是它们的去处；更新记录是给用户看的，不是变更清单。（2.0.0 那一节是反面教材，别照着写。）没发出去过的回归不必写：那个 bug 用户从来没遇到过。
+**版本更新记录写在 `ReleaseNotes/<版本号>.md`，不进 README**（2.1.0 起；更早的版本只在 GitHub Release 页上）。只写主要内容，不要过于详细：一版五六条，每条一句话说清「用户能多做什么」或者「什么毛病没了」。实现细节、踩过的坑、为什么不是另一种写法，写进 commit message 和代码注释 —— 那才是它们的去处；更新记录是给用户看的，不是变更清单。没发出去过的回归不必写：那个 bug 用户从来没遇到过。
 
-发版由 `.github/workflows/release.yml` 承担：推一个 `1.9.0` 形式的 tag（不带 `v` 前缀，带后缀的按预发布处理）就归档、临时签名（ad-hoc）、建 Release。tag 必须和 `MARKETING_VERSION` 对得上，发布说明直接取 README 里该版本那一节。不需要任何 secret（`GITHUB_TOKEN` 除外），也不公证——用户首次打开要手动放行。CI 不跑测试。
+发版由 `.github/workflows/release.yml` 承担：推一个 `1.9.0` 形式的 tag（不带 `v` 前缀，带后缀的按预发布处理）就归档、临时签名（ad-hoc）、建 Release。tag 必须和 `MARKETING_VERSION` 对得上，发布说明原样取 `ReleaseNotes/<版本号>.md`（预发布 tag 取数字部分那一份）。不需要任何 secret（`GITHUB_TOKEN` 除外），也不公证——用户首次打开要手动放行。CI 不跑测试。
 
 ## 架构
 
@@ -105,7 +105,7 @@ SwiftData 的 `FavoriteRecord`、`RecentForumRecord`、`DraftRecord`、`Subforum
 - 全是 XCTest，没有 swift-testing。解析器测试一律**对着真实抓取的脱敏夹具**跑，先有夹具再写解析器；`RecordingHTTPTransport` 用来断言发出去的请求体。
 - **方法名不以 `test` 开头的是手动用例**，XCTest 发现不了（如 `NodeSeekLiveTests.manualLive*`、`SNGAUITests.manualOfficialLogin*`）。它们打线上站点或依赖 XCUITest 查不进的 `NSAlert`，慢且会随对方改版而红。怀疑站点改版时才临时把名字改回 `test` 前缀单独跑。环境变量传不进 UI 测试运行器，这是唯一可行的排除方式。
 - UI 测试靠 launch arguments 驱动：`--uitesting`（内存库 + `DebugForumService` 假数据）、`--uitesting-seed`（灌种子数据）、`--uitesting-no-folders` / `--uitesting-one-way-vote`（模拟缺能力的站点）等。`DebugForumService` 的 `capabilities` 可注入，用来验「站点缺某个能力时会怎样」而不必等真适配器写出来。
-- **UI 套件 34 条，单次约十分钟（算上构建更久）。跑一次、如实报告、继续干活，不要为一次失败反复重跑。** 确实有偶发失败这一类（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先），但**别拿「偶发」当默认解释** —— 2026-09-15 这一天，套件里当时红着的每一条查到底都是真 bug：标识符被容器盖掉、版本号断言停在 1.9.0、签名那条去 `label` 上找一个只存在于 `value` 的字符串。三条都不是时序，都是写下那天起就没对过，而且在 macOS 27 把测试运行器直接杀掉的那段时间里根本没人看得见。
+- **UI 套件 39 条，单次约十分钟（算上构建更久）。跑一次、如实报告、继续干活，不要为一次失败反复重跑。** 确实有偶发失败这一类（中文 `typeText` 打出乱码；或断言「此刻还没加载出来」的用例被更快的加载抢先），但**别拿「偶发」当默认解释** —— 2026-09-15 这一天，套件里当时红着的每一条查到底都是真 bug：标识符被容器盖掉、版本号断言停在 1.9.0、签名那条去 `label` 上找一个只存在于 `value` 的字符串。三条都不是时序，都是写下那天起就没对过，而且在 macOS 27 把测试运行器直接杀掉的那段时间里根本没人看得见。
 - **判一条失败是不是偶发，只看一步：同一条单独再跑两三次。** 真偶发会时红时绿；稳定红的就是 bug，接着查，别再重跑。要分「是我改的」还是「本来就这样」，把改动 `checkout HEAD` 原样跑一次 —— 但注意这一招在编译不过的时候用不了（macOS 27 刚升上来那次就是），那种情况下改动范围本身就是判据。查因优先看无障碍树（`XCUIElement.debugDescription` 落到文件里慢慢读），它直接说明元素到底叫什么、值在哪个属性上，比一轮轮加断言快得多。
 - **别在用例里写死版本号。** 这种断言在 1.9.0 上停过一次，发了好几版都没人发现 —— 它一红就是发版那天，而那天谁也不想查这个。写成格式断言（「关于面板把版本写出来了」才是要验的事）。顺带一个真出过的坑：关于面板那一行的 **`value` 里括号是半角 `(1)`，`label` 里是全角 `（1）`**，照界面上看到的全角去写 `value` 的正则一条都匹配不上 —— 又一次「先 dump 无障碍树，别猜」。
 - **断言一行字用 `value`，不是 `label`。** SwiftUI 的 `Text` 把内容放在 `value` 上，`staticTexts["某某"]` 这种下标匹配的是标识符和 label，永远匹配不上；写成 `.matching(NSPredicate(format: "value CONTAINS %@", …))`，并把范围收在所属元素之内。

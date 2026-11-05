@@ -1,4 +1,4 @@
-# 打 tag 就出包：Release 归档 → 临时签名 → 压缩 → 建一个 GitHub Release。
+# 打 tag 就出包：Release 归档 → 临时签名 → 压缩 → 建一个 GitHub Release（说明取 ReleaseNotes/<版本号>.md）。
 #
 # 触发方式：
 #   - 推送 1.9.0 / 1.9.0-beta1 这样的 tag（沿用仓库现有习惯，不带 v 前缀），带后缀的按预发布处理
@@ -119,14 +119,14 @@ jobs:
         run: |
           set -euo pipefail
           notes="$RUNNER_TEMP/notes.md"
-          # README 里每个版本都有一节「## 1.9.0 更新」，直接拿来当发布说明
-          awk -v version="$BASE" '
-            $0 ~ "^## \\[?" version " " { inside = 1; next }
-            inside && /^## / { exit }
-            inside { print }
-          ' README.md > "$notes"
-          if [ ! -s "$notes" ]; then
-            echo "::warning::README 里没找到 $BASE 的更新小节，发布说明留空"
+          # 每个版本一份 ReleaseNotes/<版本号>.md，原样当发布说明。更新记录只在 Release 页上，
+          # README 不再逐版罗列（2.1.0 起）。
+          source="ReleaseNotes/$BASE.md"
+          if [ -s "$source" ]; then
+            cp "$source" "$notes"
+          else
+            echo "::warning::没找到 $source，发布说明留空"
+            : > "$notes"
           fi
           {
             echo
