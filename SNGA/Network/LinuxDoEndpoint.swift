@@ -85,8 +85,13 @@ enum LinuxDoEndpoint {
     }
 
     /// 话题详情：元数据、全部楼层编号、前 20 楼。
-    static func topic(_ topicID: TopicID) -> URL {
-        url("/t/\(topicID.rawValue).json")
+    /// 话题详情。`usernameFilter` 是「只看某人」：`username_filters=用户名`，站点只给那个人的
+    /// 楼层编号流（实测：13 层的话题只剩楼主那 5 层；`posts_count` 还是全部的 13）。
+    static func topic(_ topicID: TopicID, usernameFilter: String? = nil) -> URL {
+        url(
+            "/t/\(topicID.rawValue).json",
+            query: usernameFilter.map { [URLQueryItem(name: "username_filters", value: $0)] } ?? []
+        )
     }
 
     /// 按楼层编号批量取楼层。

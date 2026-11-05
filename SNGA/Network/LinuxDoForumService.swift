@@ -40,6 +40,9 @@ actor LinuxDoForumService: ForumService {
     private var postNumbers: [Int64: Int] = [:]
     /// 话题的楼层编号流。翻第二页起要靠它知道该取哪几楼；第一页一来就刷新。
     private var streams: [TopicID: (topic: Topic, stream: [Int64])] = [:]
+    /// 「只看某人」时那个人的楼层编号流，和全部的分开记 —— 主楼编号、翻页都得按全部的那份算，
+    /// 混在一起，关掉只看楼主之后第二页会翻错。
+    private var authorStreams: [TopicID: (uid: Int64, topic: Topic, stream: [Int64])] = [:]
 
     init(
         accountID: AccountID,
@@ -182,12 +185,29 @@ actor LinuxDoForumService: ForumService {
     func threadPage(topicID: TopicID, page: Int, authorUID: Int64?) async throws -> ThreadPage {
         let page = max(1, page)
         var prefetched: [Post] = []
-        if page == 1 || streams[topicID] == nil {
-            let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
-            streams[topicID] = (detail.topic, detail.stream)
-            prefetched = detail.posts
+        let topic: Topic
+        let stream: [Int64]
+        if let authorUID {
+            // 只看某人：同一套切片，换一份按用户名筛过的编号流。
+            if page == 1 || authorStreams[topicID]?.uid != authorUID {
+                let username = try await topicAuthorName(topicID: topicID, uid: authorUID)
+                let detail = try parser.topicDetail(
+                    json: await client.get(LinuxDoEndpoint.topic(topicID, usernameFilter: username))
+                )
+                authorStreams[topicID] = (authorUID, detail.topic, detail.stream)
+                prefetched = detail.posts
+            }
+            guard let cached = authorStreams[topicID] else { throw ForumServiceError.invalidResponse }
+            (topic, stream) = (cached.topic, cached.stream)
+        } else {
+            if page == 1 || streams[topicID] == nil {
+                let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
+                streams[topicID] = (detail.topic, detail.stream)
+                prefetched = detail.posts
+            }
+            guard let cached = streams[topicID] else { throw ForumServiceError.invalidResponse }
+            (topic, stream) = cached
         }
-        guard let (topic, stream) = streams[topicID] else { throw ForumServiceError.invalidResponse }
 
         let perPage = LinuxDoEndpoint.postsPerPage
         let totalPages = max(1, (stream.count + perPage - 1) / perPage)
@@ -285,6 +305,14 @@ actor LinuxDoForumService: ForumService {
             page: page
         )
         return try parser.search(json: await client.get(url), request: request, page: page)
+    }
+
+    /// 站点按用户名筛，应用手里是编号。多半就是楼主 —— 话题详情里已经有他的名字，不必再问一次。
+    private func topicAuthorName(topicID: TopicID, uid: Int64) async throws -> String {
+        if let topic = streams[topicID]?.topic, topic.authorUID == uid, !topic.author.isEmpty {
+            return topic.author
+        }
+        return try await username(of: uid)
     }
 
     private func username(of uid: Int64) async throws -> String {

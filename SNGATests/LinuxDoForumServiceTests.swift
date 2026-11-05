@@ -231,6 +231,36 @@ final class LinuxDoForumServiceTests: XCTestCase {
         XCTAssertEqual(second.topic.id, topicID)
     }
 
+    /// 只看楼主：站点按用户名筛（`username_filters`），楼主的名字话题详情里就有，不必再问。
+    /// 筛过的编号流和全部的分开记，关掉之后翻页照旧按全部的算。
+    func testAuthorOnlyViewFiltersByTheTopicAuthorName() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/t/3103315.json": try fixture("linuxdo-topic"),
+                "/t/3103315/": try fixture("linuxdo-topic-posts")
+            ]
+        )
+        let service = makeService(transport)
+        let topicID = TopicID(rawValue: 3_103_315)
+        _ = try await service.threadPage(topicID: topicID, page: 1, authorUID: nil)
+
+        transport.reset()
+        _ = try await service.threadPage(topicID: topicID, page: 1, authorUID: 800_001)
+        let filtered = try XCTUnwrap(transport.requests.first?.url)
+        XCTAssertEqual(filtered.path, "/t/3103315.json")
+        XCTAssertEqual(
+            URLComponents(url: filtered, resolvingAgainstBaseURL: false)?.queryItems,
+            [URLQueryItem(name: "username_filters", value: "user1")]
+        )
+        XCTAssertFalse(transport.requests.contains { $0.url?.path == "/user-cards.json" }, "楼主的名字已经有了")
+
+        transport.reset()
+        _ = try await service.threadPage(topicID: topicID, page: 2, authorUID: nil)
+        XCTAssertEqual(transport.requests.count, 1, "全部的那份编号流还在，第二页不必重取详情")
+        XCTAssertEqual(transport.requests.first?.url?.path, "/t/3103315/posts.json")
+    }
+
     func testChallengeIsReportedAsVerificationNotLogin() async throws {
         let transport = RecordingHTTPTransport(
             responding: "<html><head><title>Just a moment...</title></head></html>",
