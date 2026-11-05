@@ -33,6 +33,8 @@ actor LinuxDoForumService: ForumService {
     private var usernames: [Int64: String] = [:]
     /// 侧边栏标签。拼地址要 slug，列表页要知道标签叫什么。
     private var tags: [LinuxDoParser.Tag]?
+    /// 自定义表情。一个会话里不会变，取一次记着 —— 每开一次回复框都去取一份几百条的表就太浪费了。
+    private var emoticons: [EmoticonPack]?
     /// 楼层编号 → 楼层号。回复某一楼时站点要的是楼层号（`reply_to_post_number`），
     /// 应用手里的是编号；加载楼层时顺手记下。
     private var postNumbers: [Int64: Int] = [:]
@@ -501,6 +503,13 @@ actor LinuxDoForumService: ForumService {
 
     func deleteTopicFavoriteFolder(folderID: String) async throws {
         throw ForumServiceError.unsupported("LINUX DO 的书签不分文件夹")
+    }
+
+    func emoticonPacks() async throws -> [EmoticonPack] {
+        if let emoticons { return emoticons }
+        let loaded = try parser.customEmoticonPacks(json: await client.get(LinuxDoEndpoint.emojis))
+        emoticons = loaded
+        return loaded
     }
 
     func checkInStatus() async throws -> CheckInStatistics {

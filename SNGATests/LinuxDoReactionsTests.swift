@@ -296,3 +296,49 @@ final class LinuxDoBookmarksTests: XCTestCase {
         XCTAssertEqual(folders.map(\.name), ["书签"])
     }
 }
+
+/// 回复框的表情面板。夹具是照 `/emojis.json` 实测的形状手写的（2026-11-05：九组标准
+/// emoji + b站 120、飞书 199、贴吧 113、小红书 40），名字和哈希是编的。
+final class LinuxDoEmoticonTests: XCTestCase {
+    private func fixture() throws -> String {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "linuxdo-emojis", withExtension: "json"))
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    func testOnlyTheSiteOwnGroupsAreOfferedInWebOrder() throws {
+        let packs = try LinuxDoParser().customEmoticonPacks(json: Data(fixture().utf8))
+        XCTAssertEqual(packs.map(\.title), ["b站", "飞书", "贴吧", "小红书"], "标准 emoji 交给系统面板")
+        let tieba = try XCTUnwrap(packs.first { $0.id == "贴吧" })
+        XCTAssertEqual(tieba.emoticons.map(\.id), ["tieba_001", "tieba_087"])
+        XCTAssertFalse(tieba.isSearchable, "名字是编号，搜索框只会占一行")
+        let first = try XCTUnwrap(tieba.emoticons.first)
+        XCTAssertEqual(first.insertion, " :tieba_001: ")
+        XCTAssertEqual(first.previewURL.scheme, "https", "协议相对地址要补成 https")
+        XCTAssertEqual(first.previewURL.host, "linuxdo-uploads.s3.ldstatic.com")
+    }
+
+    func testPacksAreFetchedOncePerSession() async throws {
+        let transport = RecordingHTTPTransport(responding: try fixture())
+        let service = LinuxDoForumService(
+            accountID: AccountID(),
+            cookies: [SessionCookie(
+                name: "_t", value: "token", domain: "linux.do", path: "/",
+                expiresAt: nil, isSecure: true, isHTTPOnly: true
+            )],
+            transport: transport,
+            userAgent: "WebViewUA"
+        )
+        let first = try await service.emoticonPacks()
+        let second = try await service.emoticonPacks()
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(transport.requests.count, 1)
+        XCTAssertEqual(transport.requests.first?.url?.path, "/emojis.json")
+    }
+
+    /// 写死名单的站点不发请求，照旧交回描述里那份。
+    func testOtherSitesKeepTheirStaticPacks() async throws {
+        let service = DebugForumService(accountID: AccountID())
+        let packs = try await service.emoticonPacks()
+        XCTAssertEqual(packs, service.site.descriptor.emoticonPacks)
+    }
+}

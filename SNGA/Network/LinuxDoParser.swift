@@ -110,6 +110,44 @@ struct LinuxDoParser: Sendable {
         Self.tags(try decode(SiteResponse.self, from: data, what: "站点标签").navigationMenuSiteTopTags ?? [])
     }
 
+    /// `/emojis.json` → 回复框表情面板里的那几组**站点自定义**表情。
+    ///
+    /// 标准 emoji 不进面板：一千八百个，系统自带的表情面板（⌃⌘空格）本来就有，而且打 Unicode
+    /// 字符站点照样认。真正只有这个站有的是那几组上传的图（`bili_001`、`tieba_087`……），
+    /// 认法是图的地址：标准的在 `/images/emoji/` 底下，上传的是 `//…/original/…` 的哈希地址。
+    ///
+    /// 图的地址里是内容哈希，从名字推不出来 —— 这也是为什么这份名单得去站点取，不能像
+    /// NodeSeek 那样写死。
+    ///
+    /// 组的顺序：接口给的是 b站、飞书、贴吧、小红书，恰好是按拼音排的（b、f、t、x）。解码成字典
+    /// 会丢掉原顺序，所以按转写成拉丁字母之后的名字排 —— 直接用中文排序规则会把「b站」甩到最后。
+    func customEmoticonPacks(json data: Data) throws -> [EmoticonPack] {
+        let groups = try decode([String: [EmojiItem]].self, from: data, what: "表情")
+        func sortKey(_ title: String) -> String {
+            (title.applyingTransform(.toLatin, reverse: false) ?? title)
+                .applyingTransform(.stripDiacritics, reverse: false)?.lowercased() ?? title
+        }
+        return groups
+            .compactMap { title, items -> EmoticonPack? in
+                let emoticons = items.compactMap { item -> ForumEmoticon? in
+                    guard !item.url.hasPrefix("/images/emoji/"),
+                          let url = URL(string: item.url, relativeTo: LinuxDoEndpoint.base)?.absoluteURL,
+                          !item.name.isEmpty else { return nil }
+                    // 前后各一个空格：Discourse 只认两侧是空白或标点的 `:名字:`，
+                    // 紧贴着前一个字就当普通文字了。
+                    return ForumEmoticon(id: item.name, title: item.name, previewURL: url, insertion: " :\(item.name): ")
+                }
+                guard !emoticons.isEmpty else { return nil }
+                return EmoticonPack(id: title, title: title, isSearchable: false, emoticons: emoticons)
+            }
+            .sorted { sortKey($0.title) < sortKey($1.title) }
+    }
+
+    private struct EmojiItem: Decodable {
+        let name: String
+        let url: String
+    }
+
     /// 网页侧边栏按名字排（「抽奖、公告、集中帖、精华神帖、快问快答、人工智能、原创」——
     /// 是拼音序，不是接口给的顺序），照着排。
     private static func tags(_ items: [TagItem]) -> [Tag] {

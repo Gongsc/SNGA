@@ -106,6 +106,9 @@ protocol ForumService: Sendable {
     func createTopicFavoriteFolder(name: String, isPublic: Bool, isDefault: Bool) async throws -> String?
     func updateTopicFavoriteFolder(_ folder: TopicFavoriteFolder) async throws
     func deleteTopicFavoriteFolder(folderID: String) async throws
+    /// 回复框的表情面板。大多数站点是一份写死的名单（`ForumSiteDescriptor.emoticonPacks`），
+    /// 默认实现就是把它原样交回去；名单得去站点上取的（Linux.do 的自定义表情）自己实现。
+    func emoticonPacks() async throws -> [EmoticonPack]
     func checkInStatus() async throws -> CheckInStatistics
     func checkIn() async throws -> CheckInResult
     /// 当前账号在站点侧屏蔽了哪些人。
@@ -120,6 +123,10 @@ protocol ForumService: Sendable {
 }
 
 extension ForumService {
+    func emoticonPacks() async throws -> [EmoticonPack] {
+        site.descriptor.emoticonPacks
+    }
+
     /// 没有额外表态的站点（`Post.reactions` 一直是空的）不必写这个方法。
     /// 界面按 `Post.reactions` 决定画不画，正常路径走不到这里。
     func submitPostReaction(

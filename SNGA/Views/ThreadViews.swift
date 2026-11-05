@@ -1515,6 +1515,9 @@ struct ReplyComposerView: View {
     @State private var editorMode = ReplyEditorMode.visual
     @State private var editorCommand: UBBEditorCommand?
     @State private var showsEmoticons = false
+    /// 表情面板的名单。多数站点是写死的那份，开框就有；要去站点上取的（Linux.do）取回来才有，
+    /// 在那之前不画按钮 —— 画一个点开是空的面板更糟。
+    @State private var emoticonPacks: [EmoticonPack] = []
     @State private var showsLinkEditor = false
     @State private var showsImageEditor = false
     @State private var showsBase64Editor = false
@@ -1707,6 +1710,14 @@ struct ReplyComposerView: View {
             Text(model.session.errorMessage ?? "")
         }
         .task {
+            emoticonPacks = siteDescriptor.emoticonPacks
+            // 取不到就不画按钮。不报错：表情面板是锦上添花，用户来这儿是为了回帖，
+            // 弹一句「表情加载失败」只会打断他。
+            if let loaded = try? await model.session.activeService?.emoticonPacks() {
+                emoticonPacks = loaded
+            }
+        }
+        .task {
             guard !loadedDraft else { return }
             loadedDraft = true
             // 初值只能写死成可视化 —— 属性初始化时读不到环境里的站点资料。
@@ -1890,7 +1901,7 @@ struct ReplyComposerView: View {
         // 按名单画，不按标记语言画：有表情的站点形态各不相同 —— NGA 是 UBB 的
         // `[s:ac:茶]`，NodeSeek 是 Markdown 里的短代码 ` :ac01: `；V2EX 干脆没有
         // 表情面板（正文里就是 Unicode emoji）。名单空了才不画。
-        if !siteDescriptor.emoticonPacks.isEmpty {
+        if !emoticonPacks.isEmpty {
             Button {
                 showsEmoticons = true
             } label: {
@@ -1899,7 +1910,7 @@ struct ReplyComposerView: View {
             .labelStyle(.iconOnly)
             .help("选择表情")
             .popover(isPresented: $showsEmoticons, arrowEdge: .bottom) {
-                EmoticonPicker(packs: siteDescriptor.emoticonPacks) { emoticon in
+                EmoticonPicker(packs: emoticonPacks) { emoticon in
                     apply(.insertEmoticon(emoticon))
                     showsEmoticons = false
                 }

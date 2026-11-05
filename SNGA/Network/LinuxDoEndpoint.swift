@@ -173,6 +173,10 @@ enum LinuxDoEndpoint {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
+    /// 表情全表，按组：九组标准 emoji（`/images/emoji/twemoji/`）加站点自己上传的几组
+    /// （b站、飞书、贴吧、小红书，实测 2026-11-05）。
+    static var emojis: URL { url("/emojis.json") }
+
     /// 写请求要的 CSRF 令牌（`{"csrf": "…"}`，实测登录后拿得到）。
     static var csrf: URL { url("/session/csrf") }
 

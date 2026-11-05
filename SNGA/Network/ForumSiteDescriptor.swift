@@ -298,7 +298,7 @@ struct ForumSiteDescriptor: Sendable {
         case .nodeseek: NodeSeekStickers.packs
         // 站点没有表情面板，正文里的表情是 Unicode emoji，直接打就是了。
         case .v2ex: []
-        // 站点有一整套 `:名字:` 表情（`/emojis.json`），还没接。
+        // 自定义表情的图地址是内容哈希，写不死；回复框通过 `ForumService.emoticonPacks()` 去站点取。
         case .linuxdo: []
         }
     }
