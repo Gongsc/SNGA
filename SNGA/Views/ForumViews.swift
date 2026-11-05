@@ -2225,8 +2225,11 @@ private struct TopicRow: View {
 /// 再塞两三个标签，标题本身会被挤到第二行去。标签是「这帖讲什么」的补充，
 /// 地位和作者、回复数相当。
 ///
-/// 只画前几个，而且整串让位给作者名和右边的数字（`layoutPriority` 低于它们）：
-/// 站点允许一帖挂五个标签，全画出来窄窗口下会把日期顶出行外。全部标签在悬停提示里。
+/// **一个标签要么整个画出来，要么不画。** 先前每个胶囊各自 `lineLimit(1)` 再整串让位，
+/// 地方不够时 SwiftUI 把每个胶囊都压成一个「…」—— 几个空胶囊排在那里，比不画还糟。
+/// 现在用 `ViewThatFits` 从「全画」开始一个个往下减，挑放得下的最多的那一档，
+/// 没画出来的折成「+N」；一个都放不下时只剩「+N」。整串仍然让位给作者名和右边的
+/// 回复数、日期（`layoutPriority` 低于它们），全部标签在悬停提示里。
 private struct TopicTagStrip: View {
     @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
@@ -2236,40 +2239,55 @@ private struct TopicTagStrip: View {
     @State private var hoveredTag: String?
 
     private enum Metrics {
-        static let visibleCount = 3
         static let spacing: CGFloat = 4
         static let horizontalPadding: CGFloat = 5
         static let verticalPadding: CGFloat = 1
     }
 
     var body: some View {
-        HStack(spacing: Metrics.spacing) {
-            ForEach(tags.prefix(Metrics.visibleCount)) { tag in
-                if tag.forumID != nil {
-                    // 行本身是一颗「打开话题」的按钮；里面这颗按钮先接住点击，
-                    // 点标签就只去标签列表，不会顺带把话题也打开。
-                    Button {
-                        Task { await model.openTopicTag(tag) }
-                    } label: {
-                        capsule(tag, isHovered: hoveredTag == tag.name)
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { hoveredTag = $0 ? tag.name : nil }
-                    .help("查看标签「\(tag.name)」下的话题")
-                    .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
-                } else {
-                    capsule(tag, isHovered: false)
-                        .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
-                }
-            }
-            if tags.count > Metrics.visibleCount {
-                Text("+\(tags.count - Metrics.visibleCount)")
-                    .font(fonts.topicList.caption2)
-                    .foregroundStyle(theme.tertiaryForegroundColor)
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: tags.count, through: 0, by: -1)), id: \.self) { count in
+                strip(showing: count)
             }
         }
         .layoutPriority(-1)
         .help(tags.map(\.name).joined(separator: "、"))
+    }
+
+    private func strip(showing count: Int) -> some View {
+        HStack(spacing: Metrics.spacing) {
+            ForEach(tags.prefix(count)) { tag in
+                tagView(tag)
+            }
+            if tags.count > count {
+                Text("+\(tags.count - count)")
+                    .font(fonts.topicList.caption2)
+                    .foregroundStyle(theme.tertiaryForegroundColor)
+            }
+        }
+        // 每一档都按自己的完整宽度去比，`ViewThatFits` 才挑得对；也保证选中的那一档
+        // 不会再被压出省略号。
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func tagView(_ tag: TopicTag) -> some View {
+        if tag.forumID != nil {
+            // 行本身是一颗「打开话题」的按钮；里面这颗按钮先接住点击，
+            // 点标签就只去标签列表，不会顺带把话题也打开。
+            Button {
+                Task { await model.openTopicTag(tag) }
+            } label: {
+                capsule(tag, isHovered: hoveredTag == tag.name)
+            }
+            .buttonStyle(.plain)
+            .onHover { hoveredTag = $0 ? tag.name : nil }
+            .help("查看标签「\(tag.name)」下的话题")
+            .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
+        } else {
+            capsule(tag, isHovered: false)
+                .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
+        }
     }
 
     /// 悬停时换成 `hoverFillColor`，告诉用户这一小块是能单独点的 —— 否则它看上去
