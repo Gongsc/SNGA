@@ -19,7 +19,7 @@ actor LinuxDoForumService: ForumService {
     /// 站点没有的：签到、版面收藏（「关注类别」是通知级别）、IP 属地、匿名、评分。
     nonisolated let capabilities: ForumCapabilities = [
         .subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote,
-        .quotePost, .topicFavorites
+        .quotePost, .topicFavorites, .poll
     ]
 
     private let client: LinuxDoNetworkClient
@@ -55,10 +55,6 @@ actor LinuxDoForumService: ForumService {
             userAgent: userAgent,
             cookieDidChange: cookieDidChange
         )
-    }
-
-    private func notYet(_ what: String) -> ForumServiceError {
-        .unsupported("LINUX DO 的\(what)还没做")
     }
 
     // MARK: - 已实现
@@ -430,12 +426,49 @@ actor LinuxDoForumService: ForumService {
         return nil
     }
 
-    // MARK: - 还没做的
+    // MARK: - 投票
 
-
-
+    /// 投票挂在主楼上，按投票名一个一个交：`PUT /polls/vote`，`post_id` + `poll_name` +
+    /// `options[]`（抄自站点前端）。一层楼有两个投票、两个都选了，就是两次请求。
+    ///
+    /// 再交一次就是改投：站点拿这一次的选项覆盖上一次。撤回是 `DELETE /polls/vote`，界面
+    /// 上没有入口，没接。
+    ///
+    /// 中途失败不回滚第一个 —— 投出去的票收不回来（要收就是另一个请求，也可能失败）。
+    /// 抛出去之后调用方会整页刷新，以站点为准。
     func submitTopicPollVote(topicID: TopicID, optionIDs: [String]) async throws {
-        throw notYet("投票")
+        var byPoll: [(name: String, options: [String])] = []
+        for raw in optionIDs {
+            // 认不出来的编号宁可整单失败，也不能悄悄少投一项。
+            guard let parsed = LinuxDoParser.pollOption(of: raw) else {
+                throw ForumServiceError.unexpectedPage("投票选项编号无法识别：\(raw)")
+            }
+            if let index = byPoll.firstIndex(where: { $0.name == parsed.pollName }) {
+                byPoll[index].options.append(parsed.optionID)
+            } else {
+                byPoll.append((parsed.pollName, [parsed.optionID]))
+            }
+        }
+        guard !byPoll.isEmpty else {
+            throw ForumServiceError.unsupported("请至少选择一个投票选项")
+        }
+        let postID = try await firstPostID(of: topicID)
+        for poll in byPoll {
+            _ = try await client.send("PUT", LinuxDoEndpoint.pollVote, form: [
+                ("post_id", String(postID)),
+                ("poll_name", poll.name)
+            ] + poll.options.map { ("options[]", $0) })
+        }
+    }
+
+    /// 主楼的编号。翻过这个话题就在楼层流里，没翻过就去取一次详情。
+    private func firstPostID(of topicID: TopicID) async throws -> Int64 {
+        if let known = streams[topicID]?.stream.first { return known }
+        let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
+        guard let first = detail.stream.first else {
+            throw ForumServiceError.unexpectedPage("这个话题没有主楼")
+        }
+        return first
     }
 
 
@@ -469,16 +502,7 @@ actor LinuxDoForumService: ForumService {
     /// 当初挂在哪一楼。只删一个的话，网页上加过的另一个会让它看起来还收藏着。
     func updateTopicFavorite(topicID: TopicID, folderID: String, isFavorite: Bool) async throws {
         if isFavorite {
-            let firstPostID: Int64
-            if let known = streams[topicID]?.stream.first {
-                firstPostID = known
-            } else {
-                let detail = try parser.topicDetail(json: await client.get(LinuxDoEndpoint.topic(topicID)))
-                guard let first = detail.stream.first else {
-                    throw ForumServiceError.unexpectedPage("这个话题没有主楼")
-                }
-                firstPostID = first
-            }
+            let firstPostID = try await firstPostID(of: topicID)
             _ = try await client.send("POST", LinuxDoEndpoint.createBookmark, form: [
                 ("bookmarkable_id", String(firstPostID)),
                 // 站点前端还会带一个 `auto_delete_preference`，默认值是个常量名，具体是几没核实 ——

@@ -53,7 +53,7 @@ final class LinuxDoForumServiceTests: XCTestCase {
         XCTAssertEqual(
             service.capabilities,
             [.subforums, .userActivities, .globalSearch, .privateMessages, .notifications, .postVote,
-             .quotePost, .topicFavorites]
+             .quotePost, .topicFavorites, .poll]
         )
     }
 

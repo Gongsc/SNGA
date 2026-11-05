@@ -63,6 +63,7 @@
 		40B4EFDB1B77696E9A8FAD6C /* LinuxDoEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A96DA8D741916C9AB7BBF8D /* LinuxDoEndpoint.swift */; };
 		417B84607EC81D1AF477CA30 /* PostQuoteExpanderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA68ED4CDA3D00903F923345 /* PostQuoteExpanderTests.swift */; };
 		4189D000AAB9BD65065DD2DB /* LinuxDoForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2505BA24DA2413031FC338C /* LinuxDoForumService.swift */; };
+		41B2CE11B78296BD187DE434 /* LinuxDoPollTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD0E51883ACB8BBF0F2AAC0 /* LinuxDoPollTests.swift */; };
 		41FB7F0DFE2458662E27C9FE /* V2EXLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4192272BC81733549F41E4 /* V2EXLiveTests.swift */; };
 		434C98C8A76E1BFBD4DA407F /* SessionCookieJar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C25321213642C72401CBA0B1 /* SessionCookieJar.swift */; };
 		45575FD770F63AFC831BF920 /* TopicHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A97ED524C9EE311CF3441E5 /* TopicHistoryStore.swift */; };
@@ -78,6 +79,7 @@
 		4B951E6FBA47ADF68F208AE1 /* FontSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5A0F9DF55B0A44E3EFDAC3 /* FontSettings.swift */; };
 		4D0941A6BDB089378BC44CC6 /* TopicRatingEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADEF7A599A975F59C182B61A /* TopicRatingEditorView.swift */; };
 		4D367C3473EEC2606CEECA9D /* TopicMonitorConfigurationSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B8D8BB0C003E61FCCD47D5 /* TopicMonitorConfigurationSheet.swift */; };
+		4D467A174C6B87B6083F9663 /* linuxdo-poll-topic-closed.json in Resources */ = {isa = PBXBuildFile; fileRef = EDD67FBE222E0A61BE78632F /* linuxdo-poll-topic-closed.json */; };
 		4EE53088DD1E342E4362C921 /* v2ex-member-topics-hidden.html in Resources */ = {isa = PBXBuildFile; fileRef = A11247C49AB7B56B9B5E8ED7 /* v2ex-member-topics-hidden.html */; };
 		4EE76C24A0373B77AFF272C0 /* NodeSeekNetworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A2AEC1CB932996BC4AB0827 /* NodeSeekNetworkClient.swift */; };
 		513DE8253165833A4912C1AD /* V2EXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFD3533FF6F0208354D4A206 /* V2EXParser.swift */; };
@@ -146,6 +148,7 @@
 		9563F54069C05D52640E70A8 /* TopicHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85422FA1790F7D2C986D12BE /* TopicHistoryView.swift */; };
 		95893143C4128A14ABD467F2 /* BlockListGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE016F32BC071573C05FE383 /* BlockListGateTests.swift */; };
 		95C61683A59EFE9231626483 /* ThemePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2AA5E0624D43795D13C6C9F /* ThemePalette.swift */; };
+		9637468C78912331601BFFEA /* linuxdo-poll-topic.json in Resources */ = {isa = PBXBuildFile; fileRef = 1F5A6E92E6671945A3231B03 /* linuxdo-poll-topic.json */; };
 		9686995B6BE350438D814139 /* TopicListSkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63341E6F1B6BA8E3A73940CA /* TopicListSkeletonView.swift */; };
 		989553F5070F22B3BC475163 /* TopicRatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BBFBB703C970455503FD2C1 /* TopicRatingView.swift */; };
 		9B76E9911C639E7E78D2FB6B /* nodeseek-post-counts.html in Resources */ = {isa = PBXBuildFile; fileRef = C912525B1032787C368DEB87 /* nodeseek-post-counts.html */; };
@@ -154,6 +157,7 @@
 		9CB705A42B5F1DA970E53D13 /* TopicMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 962614E6C5FFFD9456E65FE3 /* TopicMonitorView.swift */; };
 		9D3EE54B4BC9C0E4F4C0C67A /* V2EXForumService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801129D2FA4E2F544CA7F12A /* V2EXForumService.swift */; };
 		9DF1C4CEEAD493FF5DFA7A39 /* EmoticonImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D43F5F0DF150D11AFAB3D8F /* EmoticonImageStore.swift */; };
+		9F9D6FA7984B1C70F460BF0A /* linuxdo-poll-topic-multiple-voted.json in Resources */ = {isa = PBXBuildFile; fileRef = 8E462827C74D020492BD102A /* linuxdo-poll-topic-multiple-voted.json */; };
 		9FAB2C53753CD5385C9A9AB7 /* Base64InsertPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 473428D4B428AAE8869974FE /* Base64InsertPopover.swift */; };
 		9FAF2135A06BAEDB8A57418E /* linuxdo-categories.json in Resources */ = {isa = PBXBuildFile; fileRef = 85265DAC89DDD70CD81BCE14 /* linuxdo-categories.json */; };
 		A167783284B5974A0900A8AD /* linuxdo-topic.json in Resources */ = {isa = PBXBuildFile; fileRef = 43D4200C3AC132E0BF2EE6D3 /* linuxdo-topic.json */; };
@@ -296,6 +300,7 @@
 		1BEB827026FFD0B58EEAD68F /* nodeseek-vote-info.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nodeseek-vote-info.json"; sourceTree = "<group>"; };
 		1D633B4306BF609269215986 /* RuntimeLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeLogger.swift; sourceTree = "<group>"; };
 		1DD3F7C8C560E02FF50F2764 /* NodeSeekLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSeekLiveTests.swift; sourceTree = "<group>"; };
+		1F5A6E92E6671945A3231B03 /* linuxdo-poll-topic.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linuxdo-poll-topic.json"; sourceTree = "<group>"; };
 		1F714CA332B8A7EFA2DB65B5 /* LinuxDoReactionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoReactionsTests.swift; sourceTree = "<group>"; };
 		1F8D981B85DF3E9ADB4D32E0 /* nodeseek-activities-discussions.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "nodeseek-activities-discussions.json"; sourceTree = "<group>"; };
 		1FC4FF366583963162137BA1 /* nodeseek-post-poll.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "nodeseek-post-poll.html"; sourceTree = "<group>"; };
@@ -411,6 +416,7 @@
 		8AE2486E74E439721AD8AEAD /* v2ex-sov2ex-search.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "v2ex-sov2ex-search.json"; sourceTree = "<group>"; };
 		8D31C2EC6A6B098B6354C3A9 /* EmoticonImageStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmoticonImageStoreTests.swift; sourceTree = "<group>"; };
 		8D7D78EB211DCB9F23A11693 /* AIKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIKeyStore.swift; sourceTree = "<group>"; };
+		8E462827C74D020492BD102A /* linuxdo-poll-topic-multiple-voted.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linuxdo-poll-topic-multiple-voted.json"; sourceTree = "<group>"; };
 		8F3AE681907138C9E40EC442 /* v2ex-node-topics.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "v2ex-node-topics.html"; sourceTree = "<group>"; };
 		9182CA9E7ACA8C9F965A49DC /* AddAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddAccountView.swift; sourceTree = "<group>"; };
 		91A6ABB86221363E412C05AB /* ForumSite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumSite.swift; sourceTree = "<group>"; };
@@ -496,9 +502,11 @@
 		E12618816A06AC96CE940A86 /* ForumViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForumViews.swift; sourceTree = "<group>"; };
 		E8DED0DBE66E49EE29FFEE1E /* nodeseek-post-tabs.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "nodeseek-post-tabs.html"; sourceTree = "<group>"; };
 		E9E8A5B528CA38C6154B328E /* PostPunishmentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostPunishmentNotice.swift; sourceTree = "<group>"; };
+		EBD0E51883ACB8BBF0F2AAC0 /* LinuxDoPollTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoPollTests.swift; sourceTree = "<group>"; };
 		EBD861A9EA008D4337E70013 /* ThreadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadStore.swift; sourceTree = "<group>"; };
 		EC014ABFCB1046028FD4BA63 /* PostRatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostRatingView.swift; sourceTree = "<group>"; };
 		ECFA0205717BA56C67014605 /* GlobalForumSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalForumSearchView.swift; sourceTree = "<group>"; };
+		EDD67FBE222E0A61BE78632F /* linuxdo-poll-topic-closed.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "linuxdo-poll-topic-closed.json"; sourceTree = "<group>"; };
 		EFB18D2FEDBDD4319DB93B43 /* TopicMonitorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicMonitorStore.swift; sourceTree = "<group>"; };
 		F1A0DAEA1A109A2D3313E8E5 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		F34C7E7F57C5FC1740780D7D /* Identifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identifiers.swift; sourceTree = "<group>"; };
@@ -573,6 +581,9 @@
 				549F6E79C256592278D288C7 /* linuxdo-category-latest.json */,
 				940C01DB35E6A7A593834F3D /* linuxdo-emojis.json */,
 				CD822A63BB804AEB7C5A8CBF /* linuxdo-notifications.json */,
+				EDD67FBE222E0A61BE78632F /* linuxdo-poll-topic-closed.json */,
+				8E462827C74D020492BD102A /* linuxdo-poll-topic-multiple-voted.json */,
+				1F5A6E92E6671945A3231B03 /* linuxdo-poll-topic.json */,
 				BA0A8D5ABBE0FAD41FE54E26 /* linuxdo-private-message-topic.json */,
 				A3FF5B72C43A08CC92EAD13C /* linuxdo-private-messages.json */,
 				3A9F457032D20B2A5408EA19 /* linuxdo-search.json */,
@@ -826,6 +837,7 @@
 				780A96A96372CC30032E3275 /* LinuxDoLiveTests.swift */,
 				202E80E5C9451451A3D63EBF /* LinuxDoMessagesTests.swift */,
 				31AA4FEA4C48F11C56D3D44D /* LinuxDoParserTests.swift */,
+				EBD0E51883ACB8BBF0F2AAC0 /* LinuxDoPollTests.swift */,
 				1F714CA332B8A7EFA2DB65B5 /* LinuxDoReactionsTests.swift */,
 				F354393C9451574BD8078C88 /* MarkdownRendererTests.swift */,
 				DCE6AABFC9510C1DFBC0831A /* NGAParserTests.swift */,
@@ -983,6 +995,9 @@
 				D6548E6DD6C557AF1DEE0863 /* linuxdo-category-latest.json in Resources */,
 				821A5903B020F4BFFEB6F496 /* linuxdo-emojis.json in Resources */,
 				0070418ACF27545625F0EFD0 /* linuxdo-notifications.json in Resources */,
+				4D467A174C6B87B6083F9663 /* linuxdo-poll-topic-closed.json in Resources */,
+				9F9D6FA7984B1C70F460BF0A /* linuxdo-poll-topic-multiple-voted.json in Resources */,
+				9637468C78912331601BFFEA /* linuxdo-poll-topic.json in Resources */,
 				79CA7EAC45F1A36868FCEDEC /* linuxdo-private-message-topic.json in Resources */,
 				072D1CADDB6B312A5D02DCC4 /* linuxdo-private-messages.json in Resources */,
 				BC29C812E39BCB145E8D956D /* linuxdo-search.json in Resources */,
@@ -1209,6 +1224,7 @@
 				C83A4EE5283E21CB1C9E2581 /* LinuxDoLiveTests.swift in Sources */,
 				A6A7B4F5B407CE78ABF4835C /* LinuxDoMessagesTests.swift in Sources */,
 				2B4E6E428E7062E6448CC50A /* LinuxDoParserTests.swift in Sources */,
+				41B2CE11B78296BD187DE434 /* LinuxDoPollTests.swift in Sources */,
 				DA19D19C49D4DF436B2BF349 /* LinuxDoReactionsTests.swift in Sources */,
 				AA3BE3111F7AAC8FD770149F /* MarkdownRendererTests.swift in Sources */,
 				855F72F314DC83BD21665ED2 /* NGAParserTests.swift in Sources */,

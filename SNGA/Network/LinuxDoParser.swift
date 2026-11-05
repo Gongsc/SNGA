@@ -276,7 +276,9 @@ struct LinuxDoParser: Sendable {
     }
 
     private func post(from item: PostItem, topicID: TopicID) throws -> Post {
-        let body = try Self.sanitizedBody(item.cooked)
+        let poll = Self.poll(of: item, topicID: topicID)
+        // 投票原生画了，正文里那份（`div.poll`，一串选项的列表）就去掉，不然同一个投票出现两次。
+        let body = try Self.sanitizedBody(item.cooked, removingPolls: poll != nil)
         return Post(
             id: PostID(rawValue: item.id),
             topicID: topicID,
@@ -293,7 +295,68 @@ struct LinuxDoParser: Sendable {
             // 所以界面上画的是下面那一排各自的数，不画这一个。
             upvoteCount: item.actionsSummary?.first { $0.id == 2 }?.count ?? 0,
             userVote: Self.hasLiked(item) ? .up : nil,
-            reactions: Self.reactions(of: item)
+            reactions: Self.reactions(of: item),
+            poll: poll
+        )
+    }
+
+    /// 主楼上的投票 → 一份话题投票，每个 Discourse 投票是其中一组。
+    ///
+    /// **只认主楼**：应用的投票是话题级的（`submitTopicPollVote(topicID:)`，没有楼层参数），
+    /// 投到别的楼上就得另说。实测 20 个带「投票」的话题里 19 个有投票，全在 1 楼；别的楼上
+    /// 真有投票时，正文里那份列表原样留着，不会凭空消失。
+    ///
+    /// 选项编号写成「投票名:选项哈希」：Discourse 的选项编号是按选项文字算的哈希，同一层楼里
+    /// 两个投票选项一样时编号也一样（夹具里的 `poll` 和 `poll2` 就是），而提交时还得知道
+    /// 它属于哪个投票。
+    static func pollOptionID(pollName: String, optionID: String) -> String {
+        "\(pollName):\(optionID)"
+    }
+
+    static func pollOption(of id: String) -> (pollName: String, optionID: String)? {
+        guard let separator = id.firstIndex(of: ":") else { return nil }
+        let name = String(id[..<separator])
+        let option = String(id[id.index(after: separator)...])
+        return name.isEmpty || option.isEmpty ? nil : (name, option)
+    }
+
+    private static func poll(of item: PostItem, topicID: TopicID) -> TopicPoll? {
+        guard item.postNumber == 1, let polls = item.polls, !polls.isEmpty else { return nil }
+        let myVotes = item.pollsVotes ?? [:]
+        let hasVoted = !myVotes.values.allSatisfy(\.isEmpty)
+        let groups = polls.enumerated().map { index, poll in
+            let mine = Set(myVotes[poll.name] ?? [])
+            return TopicPoll.Group(
+                id: index,
+                title: poll.title.flatMap { nonEmpty(plainText($0)) },
+                options: poll.options.map { option in
+                    TopicPoll.Option(
+                        id: pollOptionID(pollName: poll.name, optionID: option.id),
+                        title: plainText(option.html),
+                        voteCount: option.votes ?? 0,
+                        isChosen: mine.contains(option.id)
+                    )
+                },
+                // 单选（`regular`）和数字投票（`number`，选项就是一串数）都只能选一项。
+                maximumSelections: poll.type == "multiple" ? max(1, poll.max ?? poll.options.count) : 1
+            )
+        }
+        // `results`：`always` / `on_vote`（投了才看得到）/ `on_close`（结束才看得到）/
+        // `staff_only`（只有管理员看得到 —— 对普通用户等于一直不公布，按「结束后」说）。
+        // 实测 20 个全是 `always`。
+        let hiddenUntilVoting = polls.contains { $0.results == "on_vote" }
+        let hiddenUntilEnd = polls.contains { $0.results == "on_close" || $0.results == "staff_only" }
+        return TopicPoll(
+            id: topicID,
+            groups: groups,
+            maximumSelectionsPerGroup: groups.map { $0.maximumSelections ?? 1 }.max() ?? 1,
+            endsAt: polls.compactMap { date($0.close) }.min(),
+            hidesResultsUntilVoting: hiddenUntilVoting,
+            hidesResultsUntilEnd: hiddenUntilEnd,
+            // `showsResults` 拿「零人参与」当「还没投」的判据。`on_vote` 的投票在我没投之前，
+            // 站点不给票数，所以那时报零 —— 反正结果不画，人数也就不会被看见。
+            participantCount: hiddenUntilVoting && !hasVoted ? 0 : (polls.compactMap(\.voters).max() ?? 0),
+            isLocked: polls.allSatisfy { $0.status == "closed" }
         )
     }
 
@@ -688,7 +751,7 @@ struct LinuxDoParser: Sendable {
     ///   换成一个普通的引用块，抬头那一行写成粗体。
     /// - 链接预览卡片 `aside.onebox` 换成一条链接 —— 卡片的样式全靠站点的 CSS。
     /// - 标题前面那个锚点（`a.anchor`）和所有 `svg` 去掉。
-    static func sanitizedBody(_ cooked: String) throws -> String {
+    static func sanitizedBody(_ cooked: String, removingPolls: Bool = false) throws -> String {
         // 用 `parse` 而不是 `parseBodyFragment`：SwiftSoup 2.13.6 在片段解析、关掉 pretty-print
         // 的时候会直接回放原文 —— 改过的**属性**（换掉的 `src`、删掉的 `srcset`）在 `html()` 里
         // 全部丢失，只有增删节点这种结构改动才会生效。整份文档解析没有这个毛病，正文照样在 `body` 里。
@@ -696,6 +759,9 @@ struct LinuxDoParser: Sendable {
         document.outputSettings(verbatimOutput)
         guard let body = try document.body() else { return "" }
 
+        if removingPolls {
+            try body.select("div.poll").remove()
+        }
         for wrapper in try body.select("div.lightbox-wrapper") {
             if let image = try wrapper.select("img").first() {
                 try wrapper.before(image)
@@ -937,7 +1003,30 @@ private struct PostItem: Decodable {
     var postNumber: Int
     var userId: Int64?
     var actionsSummary: [Action]?
+    var polls: [PollItem]?
+    /// 我投了哪几项：投票名 → 选项编号。没投过就不给这个键（实测）。
+    var pollsVotes: [String: [String]]?
     var userID: Int64? { userId }
+}
+
+/// 楼层上的一个投票（投票插件）。字段按 2026-11-05 实测：
+/// `id name type status public dynamic results options voters chart_type title closed_at closed_by`，
+/// 多选的再带 `min` / `max`，定了截止时间的带 `close`。
+private struct PollItem: Decodable {
+    struct Option: Decodable {
+        var id: String
+        var html: String
+        var votes: Int?
+    }
+    var name: String
+    var type: String?
+    var status: String?
+    var results: String?
+    var title: String?
+    var options: [Option]
+    var voters: Int?
+    var max: Int?
+    var close: String?
 }
 
 private struct TopicDetailResponse: Decodable {

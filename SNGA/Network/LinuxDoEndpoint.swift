@@ -225,6 +225,10 @@ enum LinuxDoEndpoint {
     /// 删是 `DELETE /bookmarks/{书签编号}.json`。抄自站点前端的 `create` / `delete`。
     static var createBookmark: URL { url("/bookmarks.json") }
 
+    /// 投票（`PUT`，`post_id` + `poll_name` + `options[]`）。撤回同一个地址用 `DELETE`。
+    /// 抄自站点前端，2026-11-05。
+    static var pollVote: URL { url("/polls/vote") }
+
     static func deleteBookmark(id: Int64) -> URL {
         url("/bookmarks/\(id).json")
     }

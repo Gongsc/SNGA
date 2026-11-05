@@ -303,6 +303,17 @@ struct ForumSiteDescriptor: Sendable {
         }
     }
 
+    /// 提交投票前确认框里那句话。各站「投了还能不能改」不一样。
+    var pollSubmissionNote: String {
+        switch site {
+        // 这一句原先写死在投票视图里，NodeSeek 和 V2EX 也一直显示它；没验过那两站能不能改投，
+        // 措辞先不动。
+        case .nga, .nodeseek, .v2ex: "NGA 投票提交后通常不能修改。"
+        // Discourse 允许改投：再交一次就是覆盖上一次（`PUT /polls/vote`）。
+        case .linuxdo: "提交后还可以改投：重新选择再提交一次即可。"
+        }
+    }
+
     /// 楼层「回应」那个选择器里能挑的全部表态。
     ///
     /// 楼层底下那一排只摆有人点过的（网页也是这样），没点过的就靠这里补：空数组就不画选择器。
