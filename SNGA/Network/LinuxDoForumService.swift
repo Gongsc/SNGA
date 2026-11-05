@@ -33,6 +33,8 @@ actor LinuxDoForumService: ForumService {
     private var usernames: [Int64: String] = [:]
     /// 侧边栏标签。拼地址要 slug，列表页要知道标签叫什么。
     private var tags: [LinuxDoParser.Tag]?
+    /// 用户侧边栏里的类别，和标签一起取。
+    private var sidebarCategoryIDs: Set<ForumID>?
     /// 自定义表情。一个会话里不会变，取一次记着 —— 每开一次回复框都去取一份几百条的表就太浪费了。
     private var emoticons: [EmoticonPack]?
     /// 楼层编号 → 楼层号。回复某一楼时站点要的是楼层号（`reply_to_post_number`），
@@ -112,8 +114,12 @@ actor LinuxDoForumService: ForumService {
     ///
     /// 标签取不到不挡类别：那一段少了，版面照样能逛。
     func forums() async throws -> [Forum] {
-        let categories = try await loadCategories().filter { $0.parentID == nil }.map(\.forum)
+        let all = try await loadCategories()
         let tags = ((try? await loadTags()) ?? []).map(\.forum)
+        // 顶层类别全列；子类别只列用户放进侧边栏的那几个，跟在父类别后面 —— 网页侧边栏就是
+        // 这么画的。全列子类别会把「全部版面」撑长一倍（每个顶层都有 Lv1、Lv2……）。
+        let pinned = sidebarCategoryIDs ?? []
+        let categories = all.filter { $0.parentID == nil || pinned.contains($0.forum.id) }.map(\.forum)
         return [Self.latestForum] + categories + tags
     }
 
@@ -242,7 +248,10 @@ actor LinuxDoForumService: ForumService {
     /// 网页侧边栏也是这么退的。
     private func loadTags() async throws -> [LinuxDoParser.Tag] {
         if let tags { return tags }
-        var loaded = try parser.sidebarTags(sessionJSON: await client.get(LinuxDoEndpoint.sessionCurrent))
+        // 侧边栏的类别和标签在同一份响应里，一次取齐。
+        let session = try await client.get(LinuxDoEndpoint.sessionCurrent)
+        sidebarCategoryIDs = try? parser.sidebarCategoryIDs(sessionJSON: session)
+        var loaded = try parser.sidebarTags(sessionJSON: session)
         if loaded.isEmpty {
             loaded = try parser.siteTopTags(siteJSON: await client.get(LinuxDoEndpoint.site))
         }

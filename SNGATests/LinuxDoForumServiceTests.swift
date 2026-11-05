@@ -117,6 +117,25 @@ final class LinuxDoForumServiceTests: XCTestCase {
         XCTAssertFalse(forums.contains { $0.isSubforum })
     }
 
+    /// 用户放进侧边栏的子类别跟在父类别后面列出来，别的子类别照旧不列。
+    /// 2026-11-05 实测：网页侧边栏 17 项里有一个子类别「网盘资源」，紧跟在「资源荟萃」后面。
+    func testSidebarSubcategoriesFollowTheirParent() async throws {
+        let transport = RecordingHTTPTransport(
+            responding: "{}",
+            byPath: [
+                "/categories.json": try fixture("linuxdo-categories"),
+                "/session/current.json": #"{"current_user":{"id":800001,"username":"user1","sidebar_tags":[],"sidebar_category_ids":[4,14,94,11]}}"#
+            ]
+        )
+        let forums = try await makeService(transport).forums()
+        XCTAssertEqual(forums.filter { $0.category == "类别" }.map(\.name), ["开发调优", "资源荟萃", "网盘资源", "搞七捻三"])
+        XCTAssertEqual(forums.filter(\.isSubforum).map(\.id), [LinuxDoEndpoint.forumID(categoryID: 94)])
+        XCTAssertEqual(
+            transport.requests.filter { $0.url?.path == "/session/current.json" }.count, 1,
+            "侧边栏的类别和标签在同一份响应里"
+        )
+    }
+
     /// 侧边栏标签的形状（2026-11-04 实测 `current_user.sidebar_tags`，名字和编号是站点公开的标签）。
     static let sessionWithSidebarTags = """
     {"current_user":{"id":800001,"username":"user1","sidebar_tags":[

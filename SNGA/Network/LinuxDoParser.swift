@@ -105,6 +105,15 @@ struct LinuxDoParser: Sendable {
         return Self.tags(response.currentUser?.sidebarTags ?? [])
     }
 
+    /// 用户侧边栏里放的类别（`current_user.sidebar_category_ids`）。
+    ///
+    /// 里面可以有子类别：2026-11-05 实测 17 个，其中「网盘资源」是「资源荟萃」的子类别，
+    /// 网页侧边栏把它画成和顶层类别并列的一项，紧跟在父类别后面。
+    func sidebarCategoryIDs(sessionJSON data: Data) throws -> Set<ForumID> {
+        let response = try decode(SessionCurrentResponse.self, from: data, what: "侧边栏类别")
+        return Set((response.currentUser?.sidebarCategoryIds ?? []).map(LinuxDoEndpoint.forumID(categoryID:)))
+    }
+
     /// 站点给的热门标签（`/site.json` 的 `navigation_menu_site_top_tags`）。
     func siteTopTags(siteJSON data: Data) throws -> [Tag] {
         Self.tags(try decode(SiteResponse.self, from: data, what: "站点标签").navigationMenuSiteTopTags ?? [])
@@ -916,6 +925,7 @@ private struct SessionCurrentResponse: Decodable {
         var id: Int64
         var username: String?
         var sidebarTags: [TagItem]?
+        var sidebarCategoryIds: [Int]?
     }
     var currentUser: User?
 }
