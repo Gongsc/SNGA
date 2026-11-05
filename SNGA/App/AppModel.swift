@@ -841,6 +841,16 @@ final class AppModel {
         await showForum(forum)
     }
 
+    /// 点了话题行上的一个标签：打开那个标签的列表。
+    ///
+    /// 走 `openSubforum` 而不是 `openForum`：把当前版面压进返回路径，看完标签还能一键
+    /// 回到刚才那一页 —— 标签是从这个版面「钻进去」的，不是另起一处。
+    /// 没有 `forumID` 的标签（站点只给了名字）打不开，界面那边也就不把它画成可点的。
+    func openTopicTag(_ tag: TopicTag) async {
+        guard let forumID = tag.forumID else { return }
+        await openSubforum(Forum(id: forumID, name: tag.name, category: "标签"))
+    }
+
     func openParentForum() async {
         guard let parent = browsing.forumNavigationPath.popLast() else { return }
         await showForum(parent)

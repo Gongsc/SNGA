@@ -73,11 +73,18 @@ final class ThemeContrastTests: XCTestCase {
     func testTopicTagTextReadsOnFill() throws {
         for theme in [AppTheme.light, .dark, .ngaClassic, .midnight, .custom] {
             let style = theme.resolved()
-            let ratio = try contrastRatio(style.secondaryForegroundColor, style.fillColor)
-            XCTAssertGreaterThanOrEqual(
-                ratio, 4.5,
-                "\(theme.displayName)：标签文字只有 \(String(format: "%.2f", ratio)):1"
-            )
+            // 标签可点，悬停时底色换成 `hoverFillColor`、字换成主文字色，两种状态都要读得出。
+            let states = [
+                ("平时", style.secondaryForegroundColor, style.fillColor),
+                ("悬停", style.foregroundColor, style.hoverFillColor),
+            ]
+            for (name, text, fill) in states {
+                let ratio = try contrastRatio(text, fill)
+                XCTAssertGreaterThanOrEqual(
+                    ratio, 4.5,
+                    "\(theme.displayName)（\(name)）：标签文字只有 \(String(format: "%.2f", ratio)):1"
+                )
+            }
         }
     }
 
