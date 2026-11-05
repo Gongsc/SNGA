@@ -654,6 +654,11 @@ private struct ThreadTitleHeader: View {
     let canSummarize: Bool
     let summarize: () -> Void
 
+    private enum Metrics {
+        /// 标题和标签之间、标签和标签之间。
+        static let tagSpacing: CGFloat = 6
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let previousTitle {
@@ -664,16 +669,31 @@ private struct ThreadTitleHeader: View {
                 )
             }
 
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if topic.isAnonymous {
-                    AnonymousBadge(scale: .medium)
-                        .font(fonts.threadContent.title2)
-                        .accessibilityIdentifier("thread-topic-anonymous")
+            VStack(alignment: .leading, spacing: Metrics.tagSpacing) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if topic.isAnonymous {
+                        AnonymousBadge(scale: .medium)
+                            .font(fonts.threadContent.title2)
+                            .accessibilityIdentifier("thread-topic-anonymous")
+                    }
+                    ThreadTitleText(text: normalizedTitle, fonts: fonts.threadContent)
+                        .accessibilityLabel(normalizedTitle)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("thread-topic-title")
                 }
-                ThreadTitleText(text: normalizedTitle, fonts: fonts.threadContent)
-                    .accessibilityLabel(normalizedTitle)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityIdentifier("thread-topic-title")
+                // 列表行里放不下的标签折成了「+N」，点进来就要看得到全部。
+                // 排不下就折行，一个也不省略。
+                if !topic.tags.isEmpty {
+                    FlowLayout(spacing: Metrics.tagSpacing, lineSpacing: Metrics.tagSpacing) {
+                        ForEach(topic.tags) { tag in
+                            TopicTagCapsule(
+                                tag: tag,
+                                font: fonts.threadContent.caption,
+                                accessibilityIdentifier: "thread-topic-tag-\(tag.name)"
+                            )
+                        }
+                    }
+                }
             }
             .layoutPriority(1)
 

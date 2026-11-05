@@ -2231,17 +2231,13 @@ private struct TopicRow: View {
 /// 没画出来的折成「+N」；一个都放不下时只剩「+N」。整串仍然让位给作者名和右边的
 /// 回复数、日期（`layoutPriority` 低于它们），全部标签在悬停提示里。
 private struct TopicTagStrip: View {
-    @Environment(AppModel.self) private var model
     @Environment(\.sngaTheme) private var theme
     @Environment(\.sngaFonts) private var fonts
     let topicID: TopicID
     let tags: [TopicTag]
-    @State private var hoveredTag: String?
 
     private enum Metrics {
         static let spacing: CGFloat = 4
-        static let horizontalPadding: CGFloat = 5
-        static let verticalPadding: CGFloat = 1
     }
 
     var body: some View {
@@ -2270,40 +2266,12 @@ private struct TopicTagStrip: View {
         .fixedSize()
     }
 
-    @ViewBuilder
     private func tagView(_ tag: TopicTag) -> some View {
-        if tag.forumID != nil {
-            // 行本身是一颗「打开话题」的按钮；里面这颗按钮先接住点击，
-            // 点标签就只去标签列表，不会顺带把话题也打开。
-            Button {
-                Task { await model.openTopicTag(tag) }
-            } label: {
-                capsule(tag, isHovered: hoveredTag == tag.name)
-            }
-            .buttonStyle(.plain)
-            .onHover { hoveredTag = $0 ? tag.name : nil }
-            .help("查看标签「\(tag.name)」下的话题")
-            .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
-        } else {
-            capsule(tag, isHovered: false)
-                .accessibilityIdentifier("topic-tag-\(topicID.rawValue)-\(tag.name)")
-        }
-    }
-
-    /// 悬停时换成 `hoverFillColor`，告诉用户这一小块是能单独点的 —— 否则它看上去
-    /// 只是整行的一部分，点下去去了别处会让人意外。
-    ///
-    /// 字也跟着换成主文字色：次级文字压在悬停底上，NGA 暖金下只有 4.36:1，够不着 AA
-    /// （`ThemeContrastTests` 量出来的）。
-    private func capsule(_ tag: TopicTag, isHovered: Bool) -> some View {
-        Text(tag.name)
-            .font(fonts.topicList.caption2)
-            .lineLimit(1)
-            .padding(.horizontal, Metrics.horizontalPadding)
-            .padding(.vertical, Metrics.verticalPadding)
-            .foregroundStyle(isHovered ? theme.foregroundColor : theme.secondaryForegroundColor)
-            .background(isHovered ? theme.hoverFillColor : theme.fillColor, in: Capsule())
-            .contentShape(Capsule())
+        TopicTagCapsule(
+            tag: tag,
+            font: fonts.topicList.caption2,
+            accessibilityIdentifier: "topic-tag-\(topicID.rawValue)-\(tag.name)"
+        )
     }
 }
 

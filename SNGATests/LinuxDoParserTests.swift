@@ -141,6 +141,13 @@ final class LinuxDoParserTests: XCTestCase {
         XCTAssertEqual(titles(visible: nil), [])
     }
 
+    /// 话题页标题栏要画全部标签，它们来自话题详情，不是列表里那一份。
+    func testTopicDetailCarriesTags() throws {
+        let detail = try parser.topicDetail(json: fixture("linuxdo-topic"))
+        XCTAssertEqual(detail.topic.tags.map(\.name), ["纯水", "人工智能"])
+        XCTAssertEqual(detail.topic.tags.first?.forumID, LinuxDoEndpoint.forumID(tagID: 1461))
+    }
+
     func testSearchResultsCarryTags() throws {
         let request = try XCTUnwrap(ForumSearchRequest(query: "linux", kind: .topicContent))
         let page = try parser.search(json: fixture("linuxdo-search"), request: request, page: 1)

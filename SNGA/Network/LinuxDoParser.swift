@@ -321,7 +321,8 @@ struct LinuxDoParser: Sendable {
             lastReplyAt: Self.date(response.lastPostedAt),
             isPinned: response.pinned ?? false,
             isLocked: (response.closed ?? false) || (response.archived ?? false),
-            replyCost: response.replyCost
+            replyCost: response.replyCost,
+            tags: Self.topicTags(response.tags)
         )
         let posts = try response.postStream.posts.map { try post(from: $0, topicID: topicID) }
         var markedTopic = topic
@@ -1156,6 +1157,7 @@ private struct TopicDetailResponse: Decodable {
     var pinned: Bool?
     var closed: Bool?
     var archived: Bool?
+    var tags: [TopicTagRef]?
     var postStream: PostStream
     var details: Details?
     /// 回一帖要扣的积分（实测是数字，抽查 28 个话题全是 0）。
